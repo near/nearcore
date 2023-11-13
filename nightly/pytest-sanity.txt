@@ -1,4 +1,6 @@
 # python sanity tests
+pytest sanity/simple.py
+pytest sanity/simple.py --features nightly
 pytest sanity/block_production.py
 pytest sanity/block_production.py --features nightly
 pytest sanity/transactions.py
