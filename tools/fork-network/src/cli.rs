@@ -11,6 +11,7 @@ use near_o11y::env_filter::make_env_filter;
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
+use near_primitives::borsh::BorshDeserialize;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -20,17 +21,12 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::col;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_account_key;
-use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot,
-};
+use near_primitives::types::{ AccountId, AccountInfo, Balance, BlockHeight, EpochId, NumBlocks, ShardId, StateRoot};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
 use near_store::flat::{store_helper, BlockInfo};
 use near_store::flat::{FlatStorageManager, FlatStorageStatus};
-use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
-    FINAL_HEAD_KEY,
-};
+use near_store::{ checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage, FINAL_HEAD_KEY, RawTrieNodeWithSize};
 use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
@@ -268,6 +264,17 @@ impl ForkNetworkCommand {
                 let state_root = chunk_extra.state_root();
                 tracing::info!(?chunk_extra);
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
+
+                let mut key = Vec::with_capacity(40);
+key.extend_from_slice(&shard_uid.to_bytes());
+                key.extend_from_slice(state_root.as_ref());
+                    let value = store.get(DBCol::State, &key).unwrap().unwrap();
+                    if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
+                        format!("Node: {node:?}, {key:?}")
+                    } else {
+                        format!("Value: {value:?}, {key:?}")
+                    };
+
                 *state_root
             })
             .collect();
@@ -473,8 +480,8 @@ impl ForkNetworkCommand {
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
     ) -> anyhow::Result<StateRoot> {
         // Doesn't support secrets.
-        tracing::info!(?shard_uid);
         let shard_id = shard_uid.shard_id as ShardId;
+        tracing::info!(?shard_id, ?shard_uid, ?prev_state_root);
         let mut storage_mutator: SingleShardStorageMutator =
             make_storage_mutator(shard_id, prev_state_root)?;
 
