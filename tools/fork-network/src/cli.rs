@@ -309,6 +309,7 @@ impl ForkNetworkCommand {
 
         let (prev_state_roots, epoch_id, _block_height) =
             self.get_state_roots_and_hash(store.clone())?;
+        tracing::info!(?prev_state_roots, ?epoch_id);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -324,6 +325,7 @@ impl ForkNetworkCommand {
                 SingleShardStorageMutator::new(shard_id, &runtime.clone(), prev_state_root)
             });
 
+        tracing::info!(?num_shards, ?all_shard_uids);
         let new_state_roots = self.prepare_state(
             batch_size,
             &all_shard_uids,
@@ -661,6 +663,7 @@ impl ForkNetworkCommand {
         prev_state_roots: &[StateRoot],
         make_storage_mutator: MakeSingleShardStorageMutatorFn,
     ) -> anyhow::Result<Vec<StateRoot>> {
+        tracing::info!(?batch_size, ?all_shard_uids, ?prev_state_roots, "prepare_state");
         let state_roots = all_shard_uids
             .into_par_iter()
             .map(|shard_uid| {
