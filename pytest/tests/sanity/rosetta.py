@@ -667,6 +667,7 @@ class RosettaTestCase(unittest.TestCase):
         validator = self.node.validator_key
         implicit = key.Key.implicit_account()
         contract_key = self.node.validator_key
+        print(os.getcwd())
         contract = load_binary_file(
             '../../../runtime/near-test-contracts/res/fungible_token.wasm')
 
