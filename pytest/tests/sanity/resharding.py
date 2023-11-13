@@ -1,6 +1,8 @@
-#!/usr/bin/env python3 Small test for resharding. Spins up a few nodes from
-# genesis with the previous shard layout, waits for a few epochs and verifies
-# that the shard layout is upgraded.
+#!/usr/bin/env python3
+
+# Small test for resharding. Spins up a few nodes from genesis with the previous
+# shard layout, waits for a few epochs and verifies that the shard layout is
+# upgraded.
 # Usage:
 # python3 pytest/tests/sanity/resharding.py
 
@@ -12,7 +14,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 from cluster import get_binary_protocol_version, init_cluster, load_config, spin_up_node
-from utils import MetricsTracker, poll_blocks, wait_for_blocks
+from utils import MetricsTracker, poll_blocks
 from resharding_lib import append_shard_layout_config_changes, get_genesis_num_shards, get_genesis_shard_layout_version, get_target_num_shards, get_target_shard_layout_version
 
 
