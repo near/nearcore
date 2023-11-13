@@ -533,6 +533,7 @@ fn read_node_from_db(
     hash: &CryptoHash,
 ) -> Result<Arc<[u8]>, StorageError> {
     tracing::info!(?shard_uid, ?hash, "read_node_from_db");
+    assert_eq!(shard_uid.version,1);
     let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, hash);
     let val = store
         .get(DBCol::State, key.as_ref())
