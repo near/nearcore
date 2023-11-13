@@ -1,6 +1,9 @@
-name: Nearcore release
+name: Neard Linux binary release
 
 on:
+  # Run when a new release or rc is created
+  release:
+    types: [released, prereleased]
   push:
     branches: master
 
@@ -31,27 +34,19 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
-          repository: near/nearcore
           ref: ${{ github.event.inputs.branch }}
 
-      - name: Checkout nearcore master repository
+      - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
         uses: actions/checkout@v4
         with:
-          repository: near/nearcore
-          ref: master
-          
-      - name: Log rust and cargo versions 
-        run: |
-          rustup --version
-          cargo --version
+          ref: ${{ github.ref_name }}
 
       - name: Neard binary build and upload to S3
-        run: |
-          ./scripts/binary_release.sh
+        run: ./scripts/binary_release.sh
 
       - name: Update latest version metadata in S3
         run: |
           echo $(git rev-parse HEAD) > latest
-          branch=$(git rev-parse --abbrev-ref HEAD)
-          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${branch}/latest
+          BRANCH=$(git branch --show-current)
+          aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
