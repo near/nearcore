@@ -41,15 +41,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
-          
-      - name: Log rust and cargo versions 
-        run: |
-          rustup --version
-          cargo --version
 
       - name: Neard binary build and upload to S3
-        run: |
-          ./scripts/binary_release.sh
+        run: ./scripts/binary_release.sh
 
       - name: Update latest version metadata in S3
         run: |
