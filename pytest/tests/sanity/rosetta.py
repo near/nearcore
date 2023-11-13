@@ -669,7 +669,7 @@ class RosettaTestCase(unittest.TestCase):
         contract_key = self.node.validator_key
         print(os.getcwd())
         contract = load_binary_file(
-            '../../../runtime/near-test-contracts/res/fungible_token.wasm')
+            './runtime/near-test-contracts/res/fungible_token.wasm')
 
         ### 1. Deploy the ft smart contract
         latest_block_hash = self.node.get_latest_block().hash
