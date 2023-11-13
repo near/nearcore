@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-
+#
 # Small test for resharding. Spins up a few nodes from genesis with the previous
 # shard layout, waits for a few epochs and verifies that the shard layout is
 # upgraded.
+#
 # Usage:
 # python3 pytest/tests/sanity/resharding.py
 
@@ -62,7 +63,7 @@ class ReshardingTest(unittest.TestCase):
                 # retry often to start resharding as fast as possible
                 "retry_delay": {
                     "secs": 0,
-                    "nanos": 500_000_000
+                    "nanos": 100_000_000
                 }
             }
         }
