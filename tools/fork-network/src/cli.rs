@@ -25,7 +25,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
-use near_store::flat::FlatStorageStatus;
+use near_store::flat::{FlatStorageManager, FlatStorageStatus};
 use near_store::flat::{store_helper, BlockInfo};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
@@ -266,20 +266,7 @@ impl ForkNetworkCommand {
                 flat_storage.update_flat_head(&desired_block_hash, true).unwrap();
                 let chunk_extra = chain.get_chunk_extra(&desired_block_hash, &shard_uid).unwrap();
                 let state_root = chunk_extra.state_root();
-                tracing::info!(?chunk_extra);
                 tracing::info!(?shard_id, ?epoch_id, ?state_root);
-
-                let mut key = Vec::with_capacity(40);
-                key.extend_from_slice(&shard_uid.to_bytes());
-                key.extend_from_slice(state_root.as_ref());
-                tracing::info!(?shard_uid, ?state_root, ?key);
-                let value = store.get(DBCol::State, &key).unwrap().unwrap();
-                if let Ok(node) = RawTrieNodeWithSize::try_from_slice(&value) {
-                    tracing::info!(?node, ?key, "Node")
-                } else {
-                    tracing::info!(?key, "Value")
-                };
-
                 *state_root
             })
             .collect();
@@ -385,7 +372,7 @@ impl ForkNetworkCommand {
 
         let storage_mutator = StorageMutator::new(
             epoch_manager.clone(),
-            runtime.clone(),
+            &runtime,
             epoch_id.clone(),
             prev_hash,
             prev_state_roots,

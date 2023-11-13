@@ -28,7 +28,7 @@ impl SingleShardStorageMutator {
     ) -> anyhow::Result<Self> {
         let trie = runtime.get_trie_for_shard(
             shard_id,
-            &prev_block_hash, // unused because of use_flat_storage=false
+            &prev_block_hash,
             state_root,
             false,
         )?;

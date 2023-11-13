@@ -3,7 +3,7 @@ use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, EpochId, StateRoot};
+use near_primitives::types::{AccountId, EpochId, ShardId, StateRoot};
 use nearcore::NightshadeRuntime;
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ impl StorageMutator {
         for (shard_id, state_root) in state_roots.iter().enumerate() {
             mutators.push(SingleShardStorageMutator::new(
                 shard_id as ShardId,
-                runtime.clone(),
+                runtime,
                 prev_block_hash,
                 *state_root,
             )?);
