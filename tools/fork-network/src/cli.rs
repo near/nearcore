@@ -336,6 +336,7 @@ impl ForkNetworkCommand {
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |shard_id, prev_state_root| {
+                tracing::info!(?shard_id, ?prev_state_root, "make_storage_mutator");
                 SingleShardStorageMutator::new(shard_id, runtime.clone(), prev_state_root)
             });
 

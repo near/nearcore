@@ -272,6 +272,7 @@ impl Store {
     /// a slice, for cases when caller doesn’t need to own the value, and
     /// provides conversion into a vector or an Arc.
     pub fn get(&self, column: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
+        tracing::trace!(target: "store", db_op = "get", col = %column, key = %StorageKey(key), "get_pre");
         let value = if column.is_rc() {
             self.storage.get_with_rc_stripped(column, key)
         } else {
