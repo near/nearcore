@@ -422,7 +422,7 @@ impl TrieCachingStorage {
             shard_cache_misses: metrics::SHARD_CACHE_MISSES.with_label_values(&metrics_labels),
             shard_cache_could_be_contract: metrics::SHARD_CACHE_COULD_BE_CONTRACT
                 .with_label_values(&[]),
-            shard_cache_is_cached_contract: metrics::SHARD_CACHE_IS_CACHED_CONTRACT
+            shard_cache_is_cached_contract: metrics::SHARD_IS_CACHED_CONTRACT
                 .with_label_values(&[]),
             shard_cache_too_large: metrics::SHARD_CACHE_TOO_LARGE
                 .with_label_values(&metrics_labels),

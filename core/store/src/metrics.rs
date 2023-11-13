@@ -61,7 +61,7 @@ pub static SHARD_CACHE_COULD_BE_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
         .unwrap()
 });
 
-pub static SHARD_CACHE_IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
+pub static SHARD_IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec("near_is_cached_contract", "This is one of the cache contracts", &[])
         .unwrap()
 });
