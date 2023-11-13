@@ -40,6 +40,7 @@ impl SingleShardStorageMutator {
         state_root: StateRoot,
         runtime: &Arc<NightshadeRuntime>,
     ) -> anyhow::Result<TrieUpdate> {
+        tracing::info!(?shard_id, ?state_root, "new_trie_update");
         let block_hash = CryptoHash::new();
         let trie = runtime.get_trie_for_shard(
             shard_id,
