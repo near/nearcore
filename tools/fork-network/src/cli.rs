@@ -331,7 +331,6 @@ impl ForkNetworkCommand {
                 )
             });
 
-        tracing::info!(?num_shards, ?all_shard_uids);
         let new_state_roots = self.prepare_state(
             batch_size,
             &all_shard_uids,
