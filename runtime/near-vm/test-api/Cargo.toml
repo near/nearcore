@@ -29,7 +29,6 @@ wat = { workspace = true, optional = true }
 # Dependencies and Development Dependencies for `sys`.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # - Mandatory dependencies for `sys`.
-# TODO: properly finish crate renaming and hoist dep to workspace (#8834)
 near-vm-vm.workspace = true
 near-vm-compiler.workspace = true
 near-vm-engine.workspace = true
