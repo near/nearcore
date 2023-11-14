@@ -19,11 +19,12 @@ use near_primitives::state::FlatStateValue;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ShardId, StateRoot};
 use near_store::flat::{
-    store_helper, BlockInfo, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
+    store_helper, BlockInfo, FlatStorageError, FlatStorageManager, FlatStorageReadyStatus,
+    FlatStorageStatus,
 };
 use near_store::split_state::get_delayed_receipts;
 use near_store::trie::SnapshotError;
-use near_store::{ShardTries, ShardUId, Store, Trie, TrieDBStorage, TrieStorage};
+use near_store::{ShardTries, ShardUId, StorageError, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
@@ -114,11 +115,12 @@ struct TrieUpdateBatch {
 // The batch size is roughly batch_memory_limit.
 fn get_trie_update_batch(
     config: &StateSplitConfig,
-    iter: &mut impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
-) -> Option<TrieUpdateBatch> {
+    iter: &mut impl Iterator<Item = Result<(Vec<u8>, Option<Vec<u8>>), FlatStorageError>>,
+) -> Result<Option<TrieUpdateBatch>, FlatStorageError> {
     let mut size: u64 = 0;
     let mut entries = Vec::new();
-    while let Some((key, value)) = iter.next() {
+    while let Some(item) = iter.next() {
+        let (key, value) = item?;
         size += key.len() as u64 + value.as_ref().map_or(0, |v| v.len() as u64);
         entries.push((key, value));
         if size > config.batch_size.as_u64() {
@@ -126,9 +128,9 @@ fn get_trie_update_batch(
         }
     }
     if entries.is_empty() {
-        None
+        Ok(None)
     } else {
-        Some(TrieUpdateBatch { entries, size })
+        Ok(Some(TrieUpdateBatch { entries, size }))
     }
 }
 
@@ -177,6 +179,18 @@ fn set_flat_storage_state(
     store_update.commit()?;
     flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
     Ok(())
+}
+
+/// Helper function to read the value from flat storage.
+/// It either returns the inlined value or reads ref value from the storage.
+fn read_flat_state_value(
+    trie_storage: &TrieDBStorage,
+    flat_state_value: FlatStateValue,
+) -> Vec<u8> {
+    match flat_state_value {
+        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
+        FlatStateValue::Inlined(val) => val,
+    }
 }
 
 impl Chain {
@@ -282,37 +296,33 @@ impl Chain {
         let (snapshot_store, flat_storage_manager) = tries
             .get_state_snapshot(&prev_prev_hash)
             .map_err(|err| StorageInconsistentState(err.to_string()))?;
-        let flat_storage_chunk_view =
-            flat_storage_manager.chunk_view(shard_uid, prev_prev_hash).ok_or_else(|| {
-                StorageInconsistentState("Chunk view missing for snapshot flat storage".to_string())
-            })?;
-        let flat_storage_iter =
-            flat_storage_chunk_view.iter_flat_state_entries(None, None).map(|entry| {
-                let (key, value) = entry.unwrap();
-                (key, Some(value))
-            });
+        let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, prev_prev_hash);
+        let flat_storage_chunk_view = flat_storage_chunk_view.ok_or_else(|| {
+            StorageInconsistentState("Chunk view missing for snapshot flat storage".to_string())
+        })?;
+        // Get the flat storage iter and wrap the value in Optional::Some to
+        // match the delta iterator so that they can be chained.
+        let flat_storage_iter = flat_storage_chunk_view.iter_flat_state_entries(None, None);
+        let flat_storage_iter = flat_storage_iter.map_ok(|(key, value)| (key, Some(value)));
 
+        // Get the delta iter and wrap the items in Result to match the flat
+        // storage iter so that they can be chained.
         let delta = store_helper::get_delta_changes(&snapshot_store, shard_uid, prev_hash)
-            .map_err(|err| StorageInconsistentState(err.to_string()))?
-            .ok_or_else(|| {
-                StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
-            })?;
+            .map_err(|err| StorageInconsistentState(err.to_string()))?;
+        let delta = delta.ok_or_else(|| {
+            StorageInconsistentState("Delta missing for snapshot flat storage".to_string())
+        })?;
         let delta_iter = delta.0.into_iter();
+        let delta_iter = delta_iter.map(|item| Ok(item));
 
+        // chain the flat storage and flat storage delta iterators
+        let iter = flat_storage_iter.chain(delta_iter);
+
+        // map the iterator to read the values
         let trie_storage = TrieDBStorage::new(tries.get_store(), shard_uid);
-        let flat_state_value_to_trie_value_fn = |value: FlatStateValue| -> Vec<u8> {
-            match value {
-                FlatStateValue::Ref(ref_value) => {
-                    trie_storage.retrieve_raw_bytes(&ref_value.hash).unwrap().to_vec()
-                }
-                FlatStateValue::Inlined(inline_value) => inline_value,
-            }
-        };
-        let mut iter = flat_storage_iter.chain(delta_iter).map(
-            move |(key, value)| -> (Vec<u8>, Option<Vec<u8>>) {
-                (key, value.map(flat_state_value_to_trie_value_fn))
-            },
-        );
+        let iter = iter.map_ok(move |(key, value)| {
+            (key, value.map(|value| read_flat_state_value(&trie_storage, value)))
+        });
 
         // function to map account id to shard uid in range of child shards
         let checked_account_id_to_shard_uid =
@@ -322,12 +332,15 @@ impl Chain {
         let metrics_labels = [shard_uid_string.as_str()];
 
         // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
+        let mut iter = iter;
         loop {
             // Prepare the batch.
             let batch = {
                 let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);
                 let _timer = histogram.start_timer();
-                let Some(batch) = get_trie_update_batch(&config, &mut iter) else { break };
+                let batch = get_trie_update_batch(&config, &mut iter);
+                let batch = batch.map_err(Into::<StorageError>::into)?;
+                let Some(batch) = batch else { break };
                 batch
             };
 

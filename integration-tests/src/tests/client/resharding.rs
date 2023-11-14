@@ -13,7 +13,7 @@ use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base64;
-use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid};
+use near_primitives::shard_layout::{account_id_to_shard_id, account_id_to_shard_uid, ShardLayout};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
@@ -22,9 +22,12 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives_core::checked_feature;
 use near_primitives_core::num_rational::Rational32;
+use near_store::flat::FlatStorageStatus;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use near_store::trie::SnapshotError;
+use near_store::{DBCol, ShardUId};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -38,12 +41,8 @@ use tracing::debug;
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
-
-#[cfg(not(feature = "protocol_feature_simple_nightshade_v2"))]
-const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion = PROTOCOL_VERSION + 1;
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -52,7 +51,6 @@ enum ReshardingType {
     // In the V0->V1 resharding outgoing receipts are reassigned to receiver.
     V1,
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
-    #[allow(unused)]
     V2,
 }
 
@@ -67,6 +65,13 @@ fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVer
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
+    }
+}
+
+fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
+    match resharding_type {
+        ReshardingType::V1 => ShardLayout::v0_single_shard().get_shard_uids(),
+        ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout().get_shard_uids(),
     }
 }
 
@@ -243,17 +248,25 @@ impl TestReshardingEnv {
         self.txs_by_height.insert(height, txs);
     }
 
+    fn step(
+        &mut self,
+        drop_chunk_condition: &DropChunkCondition,
+        protocol_version: ProtocolVersion,
+    ) {
+        self.step_err(drop_chunk_condition, protocol_version).unwrap();
+    }
+
     /// produces and processes the next block also checks that all accounts in
     /// initial_accounts are intact
     ///
     /// allows for changing the protocol version in the middle of the test the
     /// testing_v2 argument means whether the test should expect the sharding
     /// layout V2 to be used once the appropriate protocol version is reached
-    fn step(
+    fn step_err(
         &mut self,
         drop_chunk_condition: &DropChunkCondition,
         protocol_version: ProtocolVersion,
-    ) {
+    ) -> Result<(), near_client::Error> {
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
         let next_height = head.height + 1;
@@ -301,10 +314,8 @@ impl TestReshardingEnv {
             chunk_producer_to_shard_id.entry(validator_id).or_default().push(shard_id);
         }
 
-        // Make sure that catchup is done before the end of each epoch, but when it is done is
-        // by chance. This simulates when catchup takes a long time to be done
-        let should_catchup =
-            self.rng.gen_bool(P_CATCHUP) || (next_height + 1) % self.epoch_length == 0;
+        let should_catchup = Self::should_catchup(&mut self.rng, self.epoch_length, next_height);
+
         // process block, this also triggers chunk producers for the next block to produce chunks
         for j in 0..self.num_clients {
             let client = &mut env.clients[j];
@@ -324,7 +335,7 @@ impl TestReshardingEnv {
             let block = MaybeValidated::from(block.clone());
             client.start_process_block(block, Provenance::NONE, Arc::new(|_| {})).unwrap();
             if should_catchup {
-                run_catchup(client, &[]).unwrap();
+                run_catchup(client, &[])?;
             }
             while wait_for_all_blocks_in_processing(&mut client.chain) {
                 let (_, errors) =
@@ -332,7 +343,7 @@ impl TestReshardingEnv {
                 assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
             }
             if should_catchup {
-                run_catchup(&mut env.clients[j], &[]).unwrap();
+                run_catchup(&mut env.clients[j], &[])?;
             }
         }
 
@@ -356,6 +367,25 @@ impl TestReshardingEnv {
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
+
+        Ok(())
+    }
+
+    fn should_catchup(rng: &mut StdRng, epoch_length: u64, next_height: u64) -> bool {
+        // Always do catchup before the end of the epoch to ensure it happens at
+        // least once. Doing it in the very last block triggers some error conditions.
+        if (next_height + 1) % epoch_length == 0 {
+            return true;
+        }
+
+        // Don't do catchup in the very first block of the epoch. This is
+        // primarily for the error handling test where we want to corrupt the
+        // databse before catchup happens.
+        if next_height % epoch_length == 1 {
+            return false;
+        }
+
+        rng.gen_bool(P_CATCHUP)
     }
 
     // Submit the tx to all clients for processing and checks:
@@ -671,6 +701,27 @@ impl TestReshardingEnv {
             }));
         }
     }
+
+    fn check_trie_and_flat_state(&self, expect_deleted: bool) {
+        let tries = self.env.clients[0].chain.runtime_adapter.get_tries();
+        let flat_storage_manager =
+            self.env.clients[0].chain.runtime_adapter.get_flat_storage_manager();
+        let store = tries.get_store();
+        for shard_uid in get_parent_shard_uids(&self.resharding_type.unwrap()) {
+            // verify we have no keys in State and FlatState column
+            let key_prefix = shard_uid.to_bytes();
+            if expect_deleted {
+                assert!(store.iter_prefix(DBCol::State, &key_prefix).next().is_none());
+                assert!(store.iter_prefix(DBCol::FlatState, &key_prefix).next().is_none());
+            }
+            // verify that flat storage status says Empty
+            let status = flat_storage_manager.get_flat_storage_status(shard_uid);
+            match status {
+                FlatStorageStatus::Empty => assert!(expect_deleted, "flat storage status Empty"),
+                _ => assert!(!expect_deleted, "unexpected flat storage status: {:?}", status),
+            }
+        }
+    }
 }
 
 // Returns the block producer for the next block after the current head.
@@ -945,22 +996,79 @@ fn test_shard_layout_upgrade_simple_v1_with_snapshot_enabled() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V1, 42, true);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_42() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 42, false);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_43() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 43, false);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
-    test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+    }
+}
+
+/// In this test we are checking whether we are properly deleting trie state and flat state
+/// from the old shard layout after resharding. This is handled as a part of Garbage Collection (GC)
+fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: u64) {
+    init_test_logger();
+    tracing::info!(target: "test", "test_shard_layout_upgrade_gc_impl starting");
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    let epoch_length = 5;
+    let mut test_env: TestReshardingEnv = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        false,
+        Some(resharding_type),
+    );
+
+    // GC period is about 5 epochs. We should expect to see state deleted at the end of the 7th epoch
+    // Epoch 0, blocks 1-5  : genesis shard layout
+    // Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+    // Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
+    // Epoch 3-7: target shard layout, waiting for GC to happen
+    // Epoch 8: block 37: GC happens, state is deleted
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 0..7 * epoch_length + 1 {
+        // we expect the trie state and flat state to NOT be deleted before GC
+        test_env.check_trie_and_flat_state(false);
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+    }
+    // Once GC is done, we expect the trie state and flat state to be deleted
+    test_env.check_trie_and_flat_state(true);
+}
+
+#[test]
+fn test_shard_layout_upgrade_gc() {
+    test_shard_layout_upgrade_gc_impl(ReshardingType::V1, 44);
+}
+
+#[test]
+fn test_shard_layout_upgrade_gc_v2() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
+    }
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -1238,26 +1346,32 @@ fn test_shard_layout_upgrade_cross_contract_calls_v1() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 42);
+    }
 }
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
+    }
 }
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
-    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 44);
+    }
 }
 
 fn test_shard_layout_upgrade_incoming_receipts_impl(
@@ -1311,26 +1425,32 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
 // is missing there aren't any other chunks so there aren't any incoming
 // receipts at all.
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v1() {
+fn test_shard_layout_upgrade_incoming_receipts_v1() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V1, 42);
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_42() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_42() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_43() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_43() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
-fn test_shard_layout_upgrade_incoming_receipts_impl_v2_seed_44() {
-    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
+fn test_shard_layout_upgrade_incoming_receipts_v2_seed_44() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
+    }
 }
 
 // Test cross contract calls
@@ -1431,62 +1551,80 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v1() {
 
 // V2, low missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.1, 44);
+    }
 }
 
 // V2, mid missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.5, 44);
+    }
 }
 
 // V2, high missing prob
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_42() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 42);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_43() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 43);
+    }
 }
 
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
-    test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_missing_chunks(ReshardingType::V2, 0.9, 44);
+    }
 }
 
 #[test]
@@ -1502,6 +1640,94 @@ fn test_latest_protocol_missing_chunks_mid_missing_prob() {
 #[test]
 fn test_latest_protocol_missing_chunks_high_missing_prob() {
     test_latest_protocol_missing_chunks(0.9, 27);
+}
+
+fn test_shard_layout_upgrade_error_handling_impl(
+    resharding_type: ReshardingType,
+    rng_seed: u64,
+    state_snapshot_enabled: bool,
+) {
+    init_test_logger();
+    tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl starting");
+
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    // setup
+    let epoch_length = 5;
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        2,
+        2,
+        100,
+        None,
+        genesis_protocol_version,
+        rng_seed,
+        state_snapshot_enabled,
+        Some(resharding_type),
+    );
+    test_env.set_init_tx(vec![]);
+
+    let mut nonce = 100;
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+    let mut all_accounts: HashSet<_> = test_env.initial_accounts.clone().into_iter().collect();
+    let mut accounts_to_check: Vec<_> = vec![];
+    let initial_accounts = test_env.initial_accounts.clone();
+
+    // add transactions until after sharding upgrade finishes
+    for height in 2..3 * epoch_length {
+        let txs = generate_create_accounts_txs(
+            &mut test_env.rng,
+            genesis_hash,
+            &initial_accounts,
+            &mut accounts_to_check,
+            &mut all_accounts,
+            &mut nonce,
+            10,
+            true,
+        );
+
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..4 * epoch_length {
+        let result = test_env.step_err(&drop_chunk_condition, target_protocol_version);
+        if let Err(err) = result {
+            tracing::info!(target: "test", ?err, "step failed, as expected");
+            return;
+        }
+
+        // corrupt the state snapshot if available to make resharding fail
+        currupt_state_snapshot(&test_env);
+    }
+
+    assert!(false, "no error was recorded, something is wrong in error handling");
+}
+
+fn currupt_state_snapshot(test_env: &TestReshardingEnv) {
+    let tries = test_env.env.clients[0].runtime_adapter.get_tries();
+    let Ok(snapshot_hash) = tries.get_state_snapshot_hash() else { return };
+    let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
+    let shard_uids = flat_storage_manager.get_shard_uids();
+    let mut store_update = store.store_update();
+    for shard_uid in shard_uids {
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update).unwrap();
+    }
+    store_update.commit().unwrap();
+}
+
+#[test]
+fn test_shard_layout_upgrade_error_handling_v1() {
+    test_shard_layout_upgrade_error_handling_impl(ReshardingType::V1, 42, false);
+}
+
+#[test]
+fn test_shard_layout_upgrade_error_handling_v2() {
+    // TODO(resharding) remove those checks once rolled out
+    if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {
+        test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
+    }
 }
 
 // TODO(resharding) add a test with missing blocks

@@ -224,6 +224,13 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
+    def send_tx_rpc(self, signed_tx, timeout, wait_until='FINAL'):
+        return self.json_rpc('send_tx', {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            'wait_until': wait_until
+        },
+                             timeout=timeout)
+
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,

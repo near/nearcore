@@ -134,7 +134,6 @@ fn test_in_memory_trie_node_consistency() {
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 2 },
                     ],
-                    max_mem_tries_size_per_shard: 100 * 1024 * 1024,
                     ..Default::default()
                 },
             ],
@@ -186,7 +185,6 @@ fn test_in_memory_trie_node_consistency() {
                         ShardUId { version: 1, shard_id: 0 },
                         ShardUId { version: 1, shard_id: 1 }, // shard 2 changed to shard 1.
                     ],
-                    max_mem_tries_size_per_shard: 100 * 1024 * 1024,
                     ..Default::default()
                 },
             ],
@@ -212,7 +210,6 @@ fn test_in_memory_trie_node_consistency() {
                         ShardUId { version: 1, shard_id: 1 },
                         ShardUId { version: 1, shard_id: 3 },
                     ],
-                    max_mem_tries_size_per_shard: 100 * 1024 * 1024,
                     ..Default::default()
                 },
                 // client 1 no longer loads in-memory tries

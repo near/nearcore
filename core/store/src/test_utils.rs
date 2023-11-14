@@ -114,7 +114,6 @@ impl TestTriesBuilder {
             store,
             TrieConfig {
                 load_mem_tries_for_all_shards: self.enable_in_memory_tries,
-                max_mem_tries_size_per_shard: 100 * 1024 * 1024,
                 ..Default::default()
             },
             &shard_uids,

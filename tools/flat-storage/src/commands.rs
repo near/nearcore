@@ -217,7 +217,7 @@ impl FlatStorageCommand {
         near_config: &NearConfig,
         opener: StoreOpener,
     ) -> anyhow::Result<()> {
-        let (_, epoch_manager, rw_hot_runtime, rw_chain_store, _) =
+        let (_, epoch_manager, rw_hot_runtime, rw_chain_store, store) =
             Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
         let tip = rw_chain_store.final_head()?;
 
@@ -225,7 +225,9 @@ impl FlatStorageCommand {
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
         let flat_storage_manager = rw_hot_runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
-        flat_storage_manager.remove_flat_storage_for_shard(shard_uid)?;
+        let mut store_update = store.store_update();
+        flat_storage_manager.remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        store_update.commit()?;
         Ok(())
     }
 

@@ -739,7 +739,7 @@ impl Chain {
             epoch_length: chain_genesis.epoch_length,
             block_economics_config: BlockEconomicsConfig::from(chain_genesis),
             doomslug_threshold_mode,
-            blocks_delay_tracker: BlocksDelayTracker::default(),
+            blocks_delay_tracker: Default::default(),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
             last_time_head_updated: StaticClock::instant(),
@@ -1070,6 +1070,11 @@ impl Chain {
                         self.epoch_manager.as_ref(),
                         *block_hash,
                         GCMode::Canonical(tries.clone()),
+                    )?;
+                    chain_store_update.clear_resharding_data(
+                        self.runtime_adapter.as_ref(),
+                        self.epoch_manager.as_ref(),
+                        *block_hash,
                     )?;
                     gc_blocks_remaining -= 1;
                 } else {

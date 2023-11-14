@@ -34,11 +34,6 @@ pub struct TrieConfig {
     /// List of shards we will load into memory.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
     pub load_mem_tries_for_all_shards: bool,
-    /// Maximum size, in number of bytes, of a single shard in memory.
-    /// This amount is reserved upfront with mmap. If the machine does not have
-    /// that much RAM, enable memory overcommit. The actual memory usage is only
-    /// the real size of the loaded tries.
-    pub max_mem_tries_size_per_shard: usize,
 }
 
 impl TrieConfig {
@@ -64,7 +59,6 @@ impl TrieConfig {
         }
         this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
         this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
-        this.max_mem_tries_size_per_shard = config.max_mem_tries_size_per_shard;
 
         this
     }

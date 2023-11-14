@@ -542,15 +542,17 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         let (tx_hash, account_id) = tx_info.to_tx_hash_and_account();
+        let mut tx_status_result =
+            Err(near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError);
         timeout(self.polling_config.polling_timeout, async {
             loop {
-                let tx_status_result = self.view_client_send( TxStatus {
-                        tx_hash,
-                        signer_account_id: account_id.clone(),
-                        fetch_receipt,
-                    })
-                    .await;
-                match tx_status_result {
+                tx_status_result = self.view_client_send( TxStatus {
+                    tx_hash,
+                    signer_account_id: account_id.clone(),
+                    fetch_receipt,
+                })
+                .await;
+                match tx_status_result.clone() {
                     Ok(result) => {
                         if result.status >= finality {
                             break Ok(result.into())
@@ -588,7 +590,11 @@ impl JsonRpcHandler {
                 tx_info,
                 fetch_receipt,
             );
-            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+            if let Err(error) = tx_status_result {
+                error
+            } else {
+                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
+            }
         })?
     }
 

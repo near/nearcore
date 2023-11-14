@@ -1673,7 +1673,7 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
-
+#[derive(Clone)]
 pub struct TxStatusView {
     pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
     pub status: TxExecutionStatus,
@@ -1710,7 +1710,7 @@ pub enum TxExecutionStatus {
     Final,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),

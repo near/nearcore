@@ -72,12 +72,6 @@ pub struct StoreConfig {
     pub load_mem_tries_for_shards: Vec<ShardUId>,
     /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
     pub load_mem_tries_for_all_shards: bool,
-    /// Maximum size, in number of bytes, of a single shard in memory.
-    /// This amount is reserved upfront with mmap. If the machine does not have
-    /// that much RAM, enable memory overcommit. The actual memory usage is only
-    /// the real size of the loaded tries.
-    /// TODO(#9511): Figure out a way to do this without requiring overcommit.
-    pub max_mem_tries_size_per_shard: usize,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -277,7 +271,6 @@ impl Default for StoreConfig {
 
             load_mem_tries_for_shards: vec![ShardUId { shard_id: 3, version: 1 }],
             load_mem_tries_for_all_shards: false,
-            max_mem_tries_size_per_shard: 16 * 1024 * 1024 * 1024,
 
             migration_snapshot: Default::default(),
 

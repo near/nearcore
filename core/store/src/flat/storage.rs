@@ -436,21 +436,13 @@ impl FlatStorage {
     }
 
     /// Clears all State key-value pairs from flat storage.
-    pub fn clear_state(&self) -> Result<(), StorageError> {
+    pub fn clear_state(&self, store_update: &mut StoreUpdate) -> Result<(), StorageError> {
         let guard = self.0.write().expect(super::POISONED_LOCK_ERR);
-
-        let mut store_update = guard.store.store_update();
-        store_helper::remove_all_flat_state_values(&mut store_update, guard.shard_uid);
-        store_helper::remove_all_deltas(&mut store_update, guard.shard_uid);
-
-        store_helper::set_flat_storage_status(
-            &mut store_update,
-            guard.shard_uid,
-            FlatStorageStatus::Empty,
-        );
-        store_update.commit().map_err(|_| StorageError::StorageInternalError)?;
+        let shard_uid = guard.shard_uid;
+        store_helper::remove_all_flat_state_values(store_update, shard_uid);
+        store_helper::remove_all_deltas(store_update, shard_uid);
+        store_helper::set_flat_storage_status(store_update, shard_uid, FlatStorageStatus::Empty);
         guard.update_delta_metrics();
-
         Ok(())
     }
 
