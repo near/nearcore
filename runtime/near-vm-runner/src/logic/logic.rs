@@ -1153,8 +1153,8 @@ impl<'a> VMLogic<'a> {
         let mut c_fp1 = [blst::blst_fp::default(); 2];
 
         unsafe {
-            blst::blst_fp_from_bendian(&mut c_fp1[0], data[..96].as_ptr());
-            blst::blst_fp_from_bendian(&mut c_fp1[1], data[96..].as_ptr());
+            blst::blst_fp_from_bendian(&mut c_fp1[1], data[..48].as_ptr());
+            blst::blst_fp_from_bendian(&mut c_fp1[0], data[48..].as_ptr());
         }
 
         let fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};
