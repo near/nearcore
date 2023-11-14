@@ -911,7 +911,7 @@ impl ClientActor {
                     epoch_id: next_epoch_id,
                     signature,
                 }),
-            ));
+            ).with_span_context());
         }
     }
 
