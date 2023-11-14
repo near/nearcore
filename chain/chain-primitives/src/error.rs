@@ -307,8 +307,8 @@ impl Error {
 
     /// Some blockchain errors are reported in the prometheus metrics. In such cases a report might
     /// contain a label that specifies the type of error that has occured. For example when the node
-    /// receives a block with missing chunks this would be reported as:
-    ///  `near_num_invalid_blocks{error="chunks_missing"}`.
+    /// receives a block with an invalid signature this would be reported as:
+    ///  `near_num_invalid_blocks{error="invalid_signature"}`.
     /// This function returns the value of the error label for a specific instance of Error.
     pub fn prometheus_label_value(&self) -> &'static str {
         match self {
