@@ -8,6 +8,9 @@ use crate::hash::CryptoHash;
 use crate::types::AccountId;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
+// The use of `ACCESS_KEY` as a separator is a historical artefact.
+// Changing it would require a very long DB migration for basically no benefits.
+pub(crate) const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
@@ -162,7 +165,7 @@ impl TrieKey {
             TrieKey::AccessKey { account_id, public_key } => {
                 buf.push(col::ACCESS_KEY);
                 buf.extend(account_id.as_bytes());
-                buf.push(col::ACCESS_KEY);
+                buf.push(ACCESS_KEY_SEPARATOR);
                 buf.extend(borsh::to_vec(&public_key).unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
@@ -331,7 +334,7 @@ pub mod trie_key_parsers {
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id_prefix = parse_account_id_prefix(col::ACCESS_KEY, raw_key)?;
-        if let Some(account_id) = next_token(account_id_prefix, col::ACCESS_KEY) {
+        if let Some(account_id) = next_token(account_id_prefix, ACCESS_KEY_SEPARATOR) {
             parse_account_id_from_slice(account_id, "AccessKey")
         } else {
             Err(std::io::Error::new(
