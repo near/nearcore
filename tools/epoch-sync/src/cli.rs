@@ -27,7 +27,7 @@ enum SubCommand {
 
 impl EpochSyncCommand {
     pub fn run(self, home_dir: &Path) -> anyhow::Result<()> {
-        let mut near_config = EpochSyncCommand::create_snapshot(home_dir)?;
+        let mut near_config = Self::create_snapshot(home_dir)?;
         let storage = nearcore::open_storage(&home_dir, &mut near_config)?;
 
         match self.subcmd {
