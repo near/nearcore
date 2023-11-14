@@ -9,6 +9,7 @@ pub use store_validator::{ErrorMessage, StoreValidator};
 pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance};
 
 mod block_processing_utils;
+mod apply_chunk;
 pub mod blocks_delay_tracker;
 pub mod chain;
 pub mod chunks_store;

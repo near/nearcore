@@ -1,3 +1,4 @@
+use crate::apply_chunk::{ApplyChunksMode, get_should_apply_transactions};
 use crate::block_processing_utils::{
     BlockPreprocessInfo, BlockProcessingArtifact, BlocksInProcessing, DoneApplyChunkCallback,
 };
@@ -127,18 +128,6 @@ pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
-
-/// apply_chunks may be called in two code paths, through process_block or through catchup_blocks
-/// When it is called through process_block, it is possible that the shard state for the next epoch
-/// has not been caught up yet, thus the two modes IsCaughtUp and NotCaughtUp.
-/// CatchingUp is for when apply_chunks is called through catchup_blocks, this is to catch up the
-/// shard states for the next epoch
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
-enum ApplyChunksMode {
-    IsCaughtUp,
-    CatchingUp,
-    NotCaughtUp,
-}
 
 /// Orphan is a block whose previous block is not accepted (in store) yet.
 /// Therefore, they are not ready to be processed yet.
@@ -3884,6 +3873,7 @@ impl Chain {
             .collect()
     }
 
+
     /// This method returns the closure that is responsible for applying of a single chunk.
     fn get_apply_chunk_job(
         &self,
@@ -4367,28 +4357,6 @@ fn sync_hash_not_first_hash(sync_hash: CryptoHash) -> Error {
     )
 }
 
-/// We want to guarantee that transactions are only applied once for each shard,
-/// even though apply_chunks may be called twice, once with
-/// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
-/// that it does not guard whether we split states or not, see the comments
-/// before `need_to_split_state`
-fn get_should_apply_transactions(
-    mode: ApplyChunksMode,
-    cares_about_shard_this_epoch: bool,
-    cares_about_shard_next_epoch: bool,
-) -> bool {
-    match mode {
-        // next epoch's shard states are not ready, only update this epoch's shards
-        ApplyChunksMode::NotCaughtUp => cares_about_shard_this_epoch,
-        // update both this epoch and next epoch
-        ApplyChunksMode::IsCaughtUp => cares_about_shard_this_epoch || cares_about_shard_next_epoch,
-        // catching up next epoch's shard states, do not update this epoch's shard state
-        // since it has already been updated through ApplyChunksMode::NotCaughtUp
-        ApplyChunksMode::CatchingUp => {
-            !cares_about_shard_this_epoch && cares_about_shard_next_epoch
-        }
-    }
-}
 
 /// Implement block merkle proof retrieval.
 impl Chain {
