@@ -168,17 +168,26 @@ pub struct StateSplitConfig {
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     pub batch_size: bytesize::ByteSize,
+
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     pub batch_delay: Duration,
+
+    /// The delay between attempts to start resharding while waiting for the
+    /// state snapshot to become available.
+    pub retry_delay: Duration,
 }
 
 impl Default for StateSplitConfig {
     fn default() -> Self {
         // Conservative default for a slower resharding that puts as little
         // extra load on the node as possible.
-        Self { batch_size: bytesize::ByteSize::kb(500), batch_delay: Duration::from_millis(100) }
+        Self {
+            batch_size: bytesize::ByteSize::kb(500),
+            batch_delay: Duration::from_millis(100),
+            retry_delay: Duration::from_secs(10),
+        }
     }
 }
 

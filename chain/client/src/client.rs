@@ -2386,10 +2386,6 @@ impl Client {
             let state_sync_timeout = self.config.state_sync_timeout;
             let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
 
-            // TODO(resharding) what happens to the shards_to_split here when
-            // catchup_state_syncs already contains an entry for the sync hash?
-            // Does it get overwritten? Are we guaranteed that the existing
-            // entry contains the same data?
             let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
                     notify_state_sync = true;
@@ -2516,8 +2512,6 @@ impl Client {
             .iter()
             .filter_map(|ShardInfo(shard_id, _)| self.should_split_shard(shard_id, me, prev_hash))
             .collect();
-        // For colour decorators to work, they need to printed directly. Otherwise the decorators get escaped, garble output and don't add colours.
-        debug!(target: "catchup", progress_per_shard = ?format_shard_sync_phase_per_shard(&shards_to_split, false), "Need to split states for shards");
         Ok(shards_to_split)
     }
 
