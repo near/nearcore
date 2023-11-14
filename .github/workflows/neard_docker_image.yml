@@ -1,0 +1,66 @@
+name: Neard Docker image
+
+on:
+  # Run when a new release or rc is created
+  release:
+    types: [released, prereleased]
+  push:
+    branches: master
+
+  workflow_dispatch:
+    inputs:
+      branch:
+        default: 'master'
+        description: "Nearcore branch to build and publish"
+        type: string
+        required: true
+
+jobs:
+  docker-release:
+    name: "Build and publish neard docker image"
+    runs-on: "ubuntu-latest"
+    environment: deploy
+    permissions:
+      id-token: write # required to use OIDC authentication
+
+    
+    steps:
+      - name: Checkout ${{ github.event.inputs.branch }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Checkout nearcore repository
+        if: ${{ github.event_name != 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # list of Docker images to use as base name for tags
+          images: nearprotocol/nearcore
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=schedule
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha 
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
+      - name: Build and push to nearprotocol/nearcore
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
