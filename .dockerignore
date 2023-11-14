@@ -8,7 +8,6 @@ ops/
 !ops/tendermint-config.toml
 
 **/target
-!target/release/neard
 storage/
 keystore/
 tmp/

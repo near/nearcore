@@ -60,7 +60,8 @@ jobs:
       - name: Build and push Docker image to nearprotocol/nearcore
         run: |
           COMMIT=$(git rev-parse HEAD)
-          BRANCH=$(git branch --show-current)
+          BRANCH=${{ github.ref_name }}
+          cp target/release/neard neard
           docker build -t nearcore -f Dockerfile  --progress=plain .
           docker tag nearcore nearprotocol/nearcore:${BRANCH}-${COMMIT}
           docker tag nearcore nearprotocol/nearcore:${BRANCH}
