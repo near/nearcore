@@ -23,15 +23,10 @@ impl SingleShardStorageMutator {
     pub(crate) fn new(
         shard_id: ShardId,
         runtime: &NightshadeRuntime,
+        prev_block_hash: CryptoHash,
         state_root: StateRoot,
     ) -> anyhow::Result<Self> {
-        let block_hash = CryptoHash::new();
-        let trie = runtime.get_trie_for_shard(
-            shard_id,
-            &block_hash, // unused because of use_flat_storage=false
-            state_root,
-            false,
-        )?;
+        let trie = runtime.get_trie_for_shard(shard_id, &prev_block_hash, state_root, false)?;
         let trie_update = TrieUpdate::new(trie);
         Ok(Self { trie_update, shard_tries: runtime.get_tries(), num_changes: 0 })
     }
