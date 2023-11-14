@@ -1,5 +1,5 @@
 [package]
-name = "epoch-sync-tool"
+name = "near-epoch-sync-tool"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -21,4 +21,4 @@ near-primitives.workspace = true
 near-store.workspace = true
 
 [features]
-new_epoch_sync = ["nearcore/new_epoch_sync"]
+default = ["nearcore/new_epoch_sync"]
