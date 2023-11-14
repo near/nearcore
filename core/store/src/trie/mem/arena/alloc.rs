@@ -7,12 +7,31 @@ use crate::trie::mem::arena::metrics::{
 };
 use crate::trie::mem::flexible_data::encoding::BorshFixedSize;
 
-/// Simple bump allocator with freelists. Allocations are rounded up to its
-/// allocation class, so that deallocated memory can be reused by a similarly
-/// sized allocation.
+/// Simple bump allocator with freelists.
+///
+/// Allocations are rounded up to its allocation class, so that deallocated
+/// memory can be reused by a similarly sized allocation. Each allocation
+/// class maintains a separate freelist.
+///
+/// Allocations are first done by popping from a freelist, if available. If not,
+/// we allocate a new region by bump `next_alloc_pos` forward. Deallocated
+/// regions are added to their corresponding freelist.
+///
+/// As a result, the memory usage of this allocator never decreases. In
+/// practice, for in-memory tries, there is very little memory usage creep even
+/// when tested over weeks of uptime.
 pub struct Allocator {
+    /// The head of a linked list of freed allocations; one for each allocation
+    /// class.
+    /// The "next" pointer of a freed allocation is stored in the first
+    /// 8 bytes of the allocated memory itself. An empty freelist is represented
+    /// using `ArenaPos::invalid()`.
     freelists: [ArenaPos; NUM_ALLOCATION_CLASSES],
-    next_ptr: ArenaPos,
+    /// The next position in the arena that a new allocation (which cannot be
+    /// satisfied by popping one from a freelist) will be allocated at.
+    /// This position would only ever move forward. De-allocating an allocation
+    /// does not affect this position; it only adds an entry to a freelist.
+    next_alloc_pos: ArenaPos,
 
     // Stats. Note that keep the bytes and count locally too because the
     // gauges are process-wide, so stats-keeping directly with those may not be
@@ -59,7 +78,7 @@ impl Allocator {
     pub fn new(name: String) -> Self {
         Self {
             freelists: [ArenaPos::invalid(); NUM_ALLOCATION_CLASSES],
-            next_ptr: ArenaPos::invalid(),
+            next_alloc_pos: ArenaPos::invalid(),
             active_allocs_bytes: 0,
             active_allocs_count: 0,
             active_allocs_bytes_gauge: MEM_TRIE_ARENA_ACTIVE_ALLOCS_BYTES
@@ -70,11 +89,12 @@ impl Allocator {
         }
     }
 
-    /// Adds a new page to the arena, and updates the next_ptr to the beginning of
-    /// the new page.
-    fn new_page(&mut self, arena: &mut ArenaMemory) {
+    /// Adds a new chunk to the arena, and updates the next_alloc_pos to the beginning of
+    /// the new chunk.
+    fn new_chunk(&mut self, arena: &mut ArenaMemory) {
         arena.chunks.push(vec![0; CHUNK_SIZE]);
-        self.next_ptr = ArenaPos { chunk: (arena.chunks.len() - 1) as u32, pos: 0 };
+        self.next_alloc_pos =
+            ArenaPos { chunk: u32::try_from(arena.chunks.len() - 1).unwrap(), pos: 0 };
         self.memory_usage_gauge.set(arena.chunks.len() as i64 * CHUNK_SIZE as i64);
     }
 
@@ -88,14 +108,14 @@ impl Allocator {
         let size_class = allocation_class(size);
         let allocation_size = allocation_size(size_class);
         if self.freelists[size_class].is_invalid() {
-            if self.next_ptr.is_invalid()
-                || arena.chunks[self.next_ptr.chunk as usize].len()
-                    <= self.next_ptr.pos as usize + allocation_size
+            if self.next_alloc_pos.is_invalid()
+                || arena.chunks[self.next_alloc_pos.chunk()].len()
+                    <= self.next_alloc_pos.pos() + allocation_size
             {
-                self.new_page(arena);
+                self.new_chunk(arena);
             }
-            let ptr = self.next_ptr;
-            self.next_ptr = self.next_ptr.offset(allocation_size);
+            let ptr = self.next_alloc_pos;
+            self.next_alloc_pos = self.next_alloc_pos.offset_by(allocation_size);
             arena.slice_mut(ptr, size)
         } else {
             let pos = self.freelists[size_class];
@@ -125,6 +145,7 @@ impl Allocator {
 #[cfg(test)]
 mod test {
     use super::MAX_ALLOC_SIZE;
+    use crate::trie::mem::arena::alloc::CHUNK_SIZE;
     use crate::trie::mem::arena::Arena;
     use std::mem::size_of;
 
@@ -148,7 +169,12 @@ mod test {
             slices.sort_by_key(|(pos, _)| *pos);
             // Check that the allocated intervals don't overlap.
             for i in 1..slices.len() {
-                assert!(slices[i - 1].0.offset(slices[i - 1].1) <= slices[i].0);
+                assert!(slices[i - 1].0.offset_by(slices[i - 1].1) <= slices[i].0);
+            }
+            // Check that each allocated interval is valid.
+            for (pos, len) in &slices {
+                assert!((pos.chunk()) < arena.memory.chunks.len());
+                assert!(pos.offset_by(*len).pos() <= CHUNK_SIZE);
             }
             for (pos, len) in slices {
                 arena.dealloc(pos, len);
