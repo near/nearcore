@@ -1,5 +1,5 @@
 # Docker image
-FROM ubuntu:18.04
+FROM ubuntu:22.04
 
 EXPOSE 3030 24567
 
