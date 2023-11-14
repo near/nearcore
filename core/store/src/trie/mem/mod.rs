@@ -135,7 +135,7 @@ impl MemTries {
             .set(self.roots.len() as i64);
     }
 
-    #[cfg(test)]
+    /// Used for unit testing and integration testing.
     pub fn num_roots(&self) -> usize {
         self.heights.iter().map(|(_, v)| v.len()).sum()
     }

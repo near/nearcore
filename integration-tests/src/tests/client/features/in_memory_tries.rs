@@ -16,7 +16,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_primitives_core::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use near_store::trie::mem::metrics::MEM_TRIE_NUM_ROOTS;
 use near_store::{ShardUId, TrieConfig};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::IteratorRandom;
@@ -164,10 +163,17 @@ fn test_in_memory_trie_node_consistency() {
 
     run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
     // Sanity check that in-memory tries are loaded, and garbage collected properly.
-    // We should have 1 unique root because the last few blocks should all have the
-    // same state roots.
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s0.v1"]).unwrap().get(), 1);
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s2.v1"]).unwrap().get(), 1);
+    // We should have 4 roots for each loaded shard, because we maintain in-memory
+    // roots until (and including) the prev block of the last final block. So if the
+    // head is N, then we have roots for N, N - 1, N - 2 (final), and N - 3.
+    assert_eq!(num_memtrie_roots(&env, 0, "s0.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s1.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s2.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s3.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s0.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 1, "s1.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s2.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 1, "s3.v1".parse().unwrap()), None);
 
     // Restart nodes, and change some configs.
     drop(env);
@@ -191,8 +197,14 @@ fn test_in_memory_trie_node_consistency() {
         )
         .build();
     run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s0.v1"]).unwrap().get(), 1);
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s1.v1"]).unwrap().get(), 1);
+    assert_eq!(num_memtrie_roots(&env, 0, "s0.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s1.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s2.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s3.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s0.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 1, "s1.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 1, "s2.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s3.v1".parse().unwrap()), None);
 
     // Restart again, but this time flip the nodes.
     drop(env);
@@ -218,8 +230,14 @@ fn test_in_memory_trie_node_consistency() {
         )
         .build();
     run_chain_for_some_blocks_while_sending_money_around(&mut env, &mut nonces, &mut balances, 100);
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s0.v1"]).unwrap().get(), 1);
-    assert_eq!(MEM_TRIE_NUM_ROOTS.get_metric_with_label_values(&["s3.v1"]).unwrap().get(), 1);
+    assert_eq!(num_memtrie_roots(&env, 0, "s0.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s1.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 0, "s2.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 0, "s3.v1".parse().unwrap()), Some(4));
+    assert_eq!(num_memtrie_roots(&env, 1, "s0.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s1.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s2.v1".parse().unwrap()), None);
+    assert_eq!(num_memtrie_roots(&env, 1, "s3.v1".parse().unwrap()), None);
 }
 
 // Returns the block producer for the height of head + height_offset.
@@ -355,4 +373,18 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             account,
         );
     }
+}
+
+/// Returns the number of memtrie roots for the given client and shard, or
+/// None if that shard does not load memtries.
+fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option<usize> {
+    Some(
+        env.clients[client_id]
+            .runtime_adapter
+            .get_tries()
+            .get_mem_tries(shard)?
+            .read()
+            .unwrap()
+            .num_roots(),
+    )
 }
