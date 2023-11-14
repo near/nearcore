@@ -346,7 +346,7 @@ impl Default for TrieMetrics {
             using_accounting_cache: metrics::USING_ACCOUNTING_CACHE.with_label_values(&[]),
             retrieving_trie_node: metrics::CALLING_RETRIEVE.with_label_values(&[]),
             has_account_id: metrics::HAS_ACCOUNT_ID.with_label_values(&[]),
-            is_cached_contract: metrics::IS_CACHED_CONTRACT.with_label_values(&[]),
+            is_cached_contract: metrics::SHARD_IS_CACHED_CONTRACT.with_label_values(&[]),
         }
     }
 }
