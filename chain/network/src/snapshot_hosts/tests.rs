@@ -93,7 +93,7 @@ async fn invalid_signature() {
     // due to parallelization, so we check for superset rather than strict equality.
     assert_is_superset(&[&info1].as_set(), &res.0.as_set());
     // Partial update should match the state.
-    assert_eq!([&info1].as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+    assert_eq!(res.0.as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 }
 
 #[tokio::test]
