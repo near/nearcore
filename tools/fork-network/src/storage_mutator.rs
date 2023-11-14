@@ -2,8 +2,7 @@ use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use near_crypto::PublicKey;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, EpochId, ShardId, StateRoot};
+use near_primitives::types::{AccountId, EpochId, StateRoot};
 use nearcore::NightshadeRuntime;
 use std::sync::Arc;
 
@@ -20,20 +19,14 @@ impl StorageMutator {
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         runtime: &NightshadeRuntime,
         epoch_id: EpochId,
-        prev_block_hash: CryptoHash,
         state_roots: Vec<StateRoot>,
     ) -> anyhow::Result<Self> {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
         assert_eq!(shard_layout.num_shards(), state_roots.len() as u64);
 
         let mut mutators = vec![];
-        for (shard_id, state_root) in state_roots.iter().enumerate() {
-            mutators.push(SingleShardStorageMutator::new(
-                shard_id as ShardId,
-                runtime,
-                prev_block_hash,
-                *state_root,
-            )?);
+        for state_root in state_roots {
+            mutators.push(SingleShardStorageMutator::new(runtime, state_root)?);
         }
         Ok(Self { epoch_manager, epoch_id, mutators })
     }
@@ -68,7 +61,7 @@ impl StorageMutator {
         let all_shard_uids = shard_layout.get_shard_uids();
         let mut state_roots = vec![];
         for (mutator, shard_uid) in self.mutators.into_iter().zip(all_shard_uids.into_iter()) {
-            let state_root = mutator.commit(&shard_uid)?;
+            let state_root = mutator.commit(&shard_uid, 0)?;
             state_roots.push(state_root);
         }
         Ok(state_roots)
