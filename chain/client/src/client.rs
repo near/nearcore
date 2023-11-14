@@ -2326,12 +2326,6 @@ impl Client {
                 self.runtime_adapter.clone(),
             )? {
                 StateSyncResult::InProgress => {}
-                StateSyncResult::RequestBlock => {
-                    // here RequestBlock should not be returned, because the StateSyncInfos in
-                    // self.chain.store().iterate_state_sync_infos() should have been stored by
-                    // Chain::postprocess_block() on the block with hash sync_hash.
-                    panic!("catchup state sync indicates sync block isn't on our chain")
-                }
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(
