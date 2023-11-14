@@ -1,18 +1,14 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, RwLock};
-
+use super::ValidatorSchedule;
+use crate::types::{
+    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+};
+use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
-
-use near_epoch_manager::types::BlockHeaderInfo;
-use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_primitives::state_part::PartId;
-use near_store::test_utils::TestTriesBuilder;
-use num_rational::Ratio;
-
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
+use near_epoch_manager::types::BlockHeaderInfo;
+use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
@@ -20,6 +16,7 @@ use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
+use near_primitives::epoch_manager::ShardConfig;
 use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -27,6 +24,7 @@ use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state_part::PartId;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
@@ -41,19 +39,15 @@ use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
+use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
-    TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
+    Trie, TrieChanges, WrappedTrieChanges,
 };
-
-use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
-};
-use crate::BlockHeader;
-
-use near_primitives::epoch_manager::ShardConfig;
-
-use super::ValidatorSchedule;
+use num_rational::Ratio;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 /// Simple key value runtime for tests.
 ///
@@ -1038,7 +1032,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
-        _height: BlockHeight,
+        height: BlockHeight,
         _block_timestamp: u64,
         _prev_block_hash: &CryptoHash,
         block_hash: &CryptoHash,
@@ -1191,6 +1185,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                 TrieChanges::empty(state_root),
                 Default::default(),
                 *block_hash,
+                height,
             ),
             new_root: state_root,
             outcomes: tx_results,
@@ -1382,10 +1377,15 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn apply_update_to_split_states(
         &self,
         _block_hash: &CryptoHash,
+        _block_height: BlockHeight,
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
         _state_changes: StateChangesForSplitStates,
     ) -> Result<Vec<ApplySplitStateResult>, Error> {
         Ok(vec![])
+    }
+
+    fn load_mem_tries_on_startup(&self, _shard_uids: &[ShardUId]) -> Result<(), StorageError> {
+        Ok(())
     }
 }

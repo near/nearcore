@@ -3174,6 +3174,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            wrapped_trie_changes.apply_mem_changes();
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);

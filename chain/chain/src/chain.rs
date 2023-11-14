@@ -699,6 +699,16 @@ impl Chain {
         };
         store_update.commit()?;
 
+        // We must load in-memory tries here, and not inside runtime, because
+        // if we were initializing from genesis, the runtime would be
+        // initialized when no blocks or flat storage were initialized. We
+        // require flat storage in order to load in-memory tries.
+        // TODO(#9511): The calculation of shard UIDs is not precise in the case
+        // of resharding. We need to revisit this.
+        let tip = store.head()?;
+        let shard_uids = epoch_manager.get_shard_layout(&tip.epoch_id)?.get_shard_uids();
+        runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
+
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
               block_head.height, block_head.last_block_hash);
@@ -2401,6 +2411,7 @@ impl Chain {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
+                self.garbage_collect_memtrie_roots(&block, shard_uid);
             }
         }
 
@@ -2445,6 +2456,17 @@ impl Chain {
         // decide to how to update the tx pool.
         let block_status = self.determine_status(new_head, prev_head);
         Ok(AcceptedBlock { hash: *block.hash(), status: block_status, provenance })
+    }
+
+    fn garbage_collect_memtrie_roots(&self, block: &Block, shard_uid: ShardUId) {
+        let tries = self.runtime_adapter.get_tries();
+        let last_final_block = block.header().last_final_block();
+        if last_final_block != &CryptoHash::default() {
+            let header = self.store.get_block_header(last_final_block).unwrap();
+            if let Some(prev_height) = header.prev_height() {
+                tries.delete_memtrie_roots_up_to_height(shard_uid, prev_height);
+            }
+        }
     }
 
     /// Preprocess a block before applying chunks, verify that we have the necessary information
@@ -3564,6 +3586,7 @@ impl Chain {
                 let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
+                self.garbage_collect_memtrie_roots(&block, shard_uid);
             }
         }
 
@@ -4084,6 +4107,7 @@ impl Chain {
         )?;
 
         let block_hash = *block.hash();
+        let block_height = block.header().height();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
         let next_gas_price = prev_block.header().next_gas_price();
@@ -4129,6 +4153,7 @@ impl Chain {
                             epoch_manager.as_ref(),
                             runtime.as_ref(),
                             &block_hash,
+                            block_height,
                             &prev_block_hash,
                             &apply_result,
                             split_state_roots,
@@ -4165,6 +4190,7 @@ impl Chain {
         let new_extra = self.get_chunk_extra(&prev_block_hash, &shard_uid)?;
 
         let block_hash = *block.hash();
+        let block_height = block.header().height();
         let challenges_result = block.header().challenges_result().clone();
         let block_timestamp = block.header().raw_timestamp();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash)?;
@@ -4216,6 +4242,7 @@ impl Chain {
                             epoch_manager.as_ref(),
                             runtime.as_ref(),
                             &block_hash,
+                            block_height,
                             &prev_block_hash,
                             &apply_result,
                             split_state_roots,
@@ -4249,6 +4276,7 @@ impl Chain {
         let state_changes =
             self.store().get_state_changes_for_split_states(block.hash(), shard_id)?;
         let block_hash = *block.hash();
+        let block_height = block.header().height();
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
             let _span = tracing::debug_span!(
                 target: "chain",
@@ -4259,6 +4287,7 @@ impl Chain {
             .entered();
             let results = runtime.apply_update_to_split_states(
                 &block_hash,
+                block_height,
                 split_state_roots,
                 &next_epoch_shard_layout,
                 state_changes,
@@ -5154,6 +5183,7 @@ impl<'a> ChainUpdate<'a> {
         epoch_manager: &dyn EpochManagerAdapter,
         runtime_adapter: &dyn RuntimeAdapter,
         block_hash: &CryptoHash,
+        block_height: BlockHeight,
         prev_block_hash: &CryptoHash,
         apply_result: &ApplyTransactionResult,
         split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
@@ -5170,6 +5200,7 @@ impl<'a> ChainUpdate<'a> {
         if let Some(state_roots) = split_state_roots {
             let split_state_results = runtime_adapter.apply_update_to_split_states(
                 block_hash,
+                block_height,
                 state_roots,
                 &next_epoch_shard_layout,
                 state_changes,
