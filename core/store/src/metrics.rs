@@ -62,8 +62,12 @@ pub static SHARD_CACHE_COULD_BE_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 pub static SHARD_IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_is_cached_contract", "This is one of the cache contracts", &[])
-        .unwrap()
+    try_create_int_counter_vec(
+        "near_is_cached_contract_shard",
+        "This is one of the cache contracts",
+        &[],
+    )
+    .unwrap()
 });
 
 pub static SHARD_CACHE_TOO_LARGE: Lazy<IntCounterVec> = Lazy::new(|| {
@@ -91,12 +95,16 @@ pub static CONTRACT_CACHE_MISSES: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 pub static USING_ACCOUNTING_CACHE: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_using_accounting_cache_for_retrieve", "Using accountig cache", &[])
-        .unwrap()
+    try_create_int_counter_vec(
+        "near_using_accounting_cache_for_retrieve",
+        "Using accountig cache",
+        &[],
+    )
+    .unwrap()
 });
 
-pub static IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_is_cached_contract", "Is cached contract", &[])
+pub static ACCOUNTING_IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec("near_is_cached_contract_accounting", "Is cached contract", &[])
         .unwrap()
 });
 
@@ -106,8 +114,7 @@ pub static CALLING_RETRIEVE: Lazy<IntCounterVec> = Lazy::new(|| {
 });
 
 pub static HAS_ACCOUNT_ID: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_has_account_id", "Calling with account id", &[])
-        .unwrap()
+    try_create_int_counter_vec("near_has_account_id", "Calling with account id", &[]).unwrap()
 });
 
 pub static CONTRACT_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
