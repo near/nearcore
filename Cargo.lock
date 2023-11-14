@@ -4311,7 +4311,6 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
- "memmap2",
  "near-chain",
  "near-chain-configs",
  "near-chunks",

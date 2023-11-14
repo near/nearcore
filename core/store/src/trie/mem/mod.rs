@@ -45,9 +45,9 @@ pub struct MemTries {
 }
 
 impl MemTries {
-    pub fn new(arena_size_in_bytes: usize, shard_uid: ShardUId) -> Self {
+    pub fn new(shard_uid: ShardUId) -> Self {
         Self {
-            arena: Arena::new(arena_size_in_bytes, shard_uid.to_string()),
+            arena: Arena::new(shard_uid.to_string()),
             roots: HashMap::new(),
             heights: Default::default(),
             shard_uid,
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_construct_empty_trie() {
-        let mut tries = MemTries::new(1024 * 1024, ShardUId::single_shard());
+        let mut tries = MemTries::new(ShardUId::single_shard());
         let state_root =
             tries.construct_root(123, |_| -> Result<Option<MemTrieNodeId>, ()> { Ok(None) });
         assert_eq!(state_root, Ok(CryptoHash::default()));
@@ -200,7 +200,7 @@ mod tests {
         //    height.
         //
         // And we make sure that the GC refcounting works correctly.
-        let mut tries = MemTries::new(1024 * 1024 * 1024, ShardUId::single_shard());
+        let mut tries = MemTries::new(ShardUId::single_shard());
         let mut available_hashes: Vec<(BlockHeight, CryptoHash)> = Vec::new();
         for height in 100..=200 {
             let num_roots_at_height = rand::thread_rng().gen_range(1..=4);

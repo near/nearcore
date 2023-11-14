@@ -1,5 +1,5 @@
 use super::{InputMemTrieNode, MemTrieNodeId, MemTrieNodePtr, MemTrieNodeView};
-use crate::trie::mem::arena::Arena;
+use crate::trie::mem::arena::{Arena, ArenaPos};
 use crate::trie::mem::flexible_data::children::EncodedChildrenHeader;
 use crate::trie::mem::flexible_data::encoding::{BorshFixedSize, RawDecoder, RawEncoder};
 use crate::trie::mem::flexible_data::extension::EncodedExtensionHeader;
@@ -62,14 +62,14 @@ impl BorshFixedSize for LeafHeader {
 pub(crate) struct ExtensionHeader {
     common: CommonHeader,
     nonleaf: NonLeafHeader,
-    child: usize,
+    child: ArenaPos,
     extension: EncodedExtensionHeader,
 }
 
 impl BorshFixedSize for ExtensionHeader {
     const SERIALIZED_SIZE: usize = CommonHeader::SERIALIZED_SIZE
         + NonLeafHeader::SERIALIZED_SIZE
-        + std::mem::size_of::<usize>()
+        + ArenaPos::SERIALIZED_SIZE
         + EncodedExtensionHeader::SERIALIZED_SIZE;
 }
 
@@ -232,7 +232,7 @@ impl MemTrieNodeId {
                 data.finish()
             }
         };
-        Self { pos: data.raw_offset() }
+        Self { pos: data.raw_pos() }
     }
 
     /// Increments the refcount, returning the new refcount.
