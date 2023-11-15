@@ -2344,7 +2344,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // Now we can proceed to removing the trie state and flat state
         let mut store_update = self.store().store_update();
         for shard_uid in prev_shard_layout.get_shard_uids() {
-            tracing::info!("GC resharding, block_hash {}, shard_uid {}", block_hash, shard_uid);
+            tracing::info!(target: "chain", ?block_hash, ?shard_uid, "GC resharding");
             runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
             runtime
                 .get_flat_storage_manager()
