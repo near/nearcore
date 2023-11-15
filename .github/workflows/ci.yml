@@ -11,7 +11,7 @@ on:
 jobs:
   build_binary:
     name: "Build neard"
-    runs-on: ubuntu-20.04-16core
+    runs-on: ubuntu-22.04-16core
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
@@ -36,11 +36,11 @@ jobs:
         include:
           - name: Linux
             cache_id: linux
-            os: ubuntu-20.04-16core
+            os: ubuntu-22.04-16core
             flags: ""
           - name: Linux Nightly
             cache_id: linux
-            os: ubuntu-20.04-16core
+            os: ubuntu-22.04-16core
             flags: "--features nightly,test_features"
           - name: MacOS
             cache_id: macos
@@ -126,7 +126,7 @@ jobs:
 
   py_sanity_checks:
     name: "Sanity Checks"
-    runs-on: ubuntu-20.04-16core
+    runs-on: ubuntu-22.04-16core
     strategy:
       fail-fast: false
     timeout-minutes: 90
@@ -210,7 +210,7 @@ jobs:
 
   rpc_error_schema:
     name: "RPC Schema"
-    runs-on: ubuntu-20.04-8core
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
