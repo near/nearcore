@@ -726,8 +726,7 @@ dependencies = [
 [[package]]
 name = "bolero"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f9fec67acd9afcd579067cc506c537da49751b8b81c98d5a5e15ba1e853aa3c"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "bolero-afl",
  "bolero-engine",
@@ -742,8 +741,7 @@ dependencies = [
 [[package]]
 name = "bolero-afl"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1b34f05de1527425bb05287da09ff1ff1612538648824db49e16d9693b24065"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "bolero-engine",
  "cc",
@@ -752,8 +750,7 @@ dependencies = [
 [[package]]
 name = "bolero-engine"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7ddcfa4c2aa7d57b1785c6e258f612e74c96afa078300d0f811dee73592d7ca"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "anyhow",
  "backtrace",
@@ -766,8 +763,7 @@ dependencies = [
 [[package]]
 name = "bolero-generator"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8efabd99549391e8b372e8afe566e8236ca4be6be379c1b6bf81b027c472fe7"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "arbitrary",
  "bolero-generator-derive",
@@ -778,8 +774,7 @@ dependencies = [
 [[package]]
 name = "bolero-generator-derive"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53397bfda19ccb48527faa14025048fc4bb76f090ccdeef1e5a355bfe4a94467"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -790,8 +785,7 @@ dependencies = [
 [[package]]
 name = "bolero-honggfuzz"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf78581db1a7263620a8767e645b93ad287c70122ae76f5bd67040c7f06ff8e3"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "bolero-engine",
 ]
@@ -799,8 +793,7 @@ dependencies = [
 [[package]]
 name = "bolero-kani"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e55cec272a617f5ae4ce670db035108eb97c10cd4f67de851a3c8d3f18f19cb"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "bolero-engine",
 ]
@@ -808,8 +801,7 @@ dependencies = [
 [[package]]
 name = "bolero-libfuzzer"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb42f66ee3ec89b9c411994de59d4710ced19df96fea2059feea1c2d73904c5b"
+source = "git+https://github.com/Ekleog-NEAR/bolero?rev=8f4e49d65c702a2f9858ed3c217b1cb52ce91243#8f4e49d65c702a2f9858ed3c217b1cb52ce91243"
 dependencies = [
  "bolero-engine",
  "cc",

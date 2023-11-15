@@ -44,9 +44,10 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-bolero
-          # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 lands
-          git: https://github.com/camshaft/bolero
-          rev: 8c5a50a57b0e4c4cc8111cfd95670dc75cd2dea7
+          # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 is released on crates.io
+          # and https://github.com/camshaft/bolero/pull/196 has a proper fix
+          git: https://github.com/Ekleog-NEAR/bolero
+          rev: 8f4e49d65c702a2f9858ed3c217b1cb52ce91243
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
