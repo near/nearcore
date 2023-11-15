@@ -87,11 +87,13 @@ jobs:
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
       - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
+      - run: cargo llvm-cov clean --workspace
 
       # Run unit tests
       - run: cargo nextest run --locked --workspace --exclude integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: short
+      - run: find . -name '*.profraw'
       - run: cargo llvm-cov report --codecov --output-path unittests.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
