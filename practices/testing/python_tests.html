@@ -186,7 +186,7 @@ functionality.</p>
 the local tests look for the binary by supplying a config file. For example, if you
 want to run tests against a release build, you can create a file with the
 following config:</p>
-<pre><code class="language-json">{&quot;local&quot;: True, &quot;near_root&quot;: &quot;../target/release/&quot;}
+<pre><code class="language-json">{&quot;local&quot;: true, &quot;near_root&quot;: &quot;../target/release/&quot;}
 </code></pre>
 <p>and run the test with the following command:</p>
 <pre><code class="language-shell">NEAR_PYTEST_CONFIG=&lt;path to config&gt; python tests/sanity/block_production.py
@@ -225,7 +225,7 @@ local config.</p>
 tests that test syncing) might want to configure the nodes but delay their
 start. In such a case you will initialize the cluster by calling
 <code>init_cluster</code> and will run the nodes manually, for example, see
-<a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/state_sync.py"><code>state_sync.py</code></a></p>
+<a href="https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync.py"><code>state_sync.py</code></a></p>
 <h2 id="connecting-to-a-mocknet"><a class="header" href="#connecting-to-a-mocknet">Connecting to a mocknet</a></h2>
 <p>Nodes that run against a mocknet would connect to an existing cluster instead of
 running their own.</p>
@@ -317,7 +317,7 @@ if want_async:
     finished = 'result' in resp and 'receipts_outcome' in resp['result'] and len(resp['result']['receipts_outcome']) &gt; 0
 </code></pre>
 <p>See
-<a href="https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/rpc_tx_forwarding.py">rpc_tx_forwarding.py</a>
+<a href="https://github.com/near/nearcore/blob/master/pytest/tests/sanity/rpc_tx_forwarding.py">rpc_tx_forwarding.py</a>
 for an example of signing and submitting a transaction.</p>
 <h2 id="adversarial-behavior"><a class="header" href="#adversarial-behavior">Adversarial behavior</a></h2>
 <p>Some tests need certain nodes in the cluster to exercise behavior that is
@@ -342,7 +342,7 @@ process, or between each other.</p>
 <h1 id="contributing-tests"><a class="header" href="#contributing-tests">Contributing tests</a></h1>
 <p>We always welcome new tests, especially python tests that use the above
 infrastructure. We have a list of test requests
-<a href="https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+test%22+">here</a>,
+<a href="https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22A-testing%22">here</a>,
 but also welcome any other tests that test aspects of the network we haven't
 thought about.</p>
 
