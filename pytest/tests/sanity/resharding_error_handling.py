@@ -4,6 +4,7 @@
 # genesis with the previous shard layout. Stops the nodes in the middle of the
 # epoch before resharding and corrupts the state snapshot. Resumes the nodes and
 # verifies that the error is reported correctly.
+
 # Usage:
 # python3 pytest/tests/sanity/resharding_error_handling.py
 

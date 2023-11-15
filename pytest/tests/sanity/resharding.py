@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 # Small test for resharding. Spins up a few nodes from genesis with the previous
 # shard layout, waits for a few epochs and verifies that the shard layout is
 # upgraded.

@@ -268,7 +268,7 @@ impl Chain {
         match &new_state_roots {
             Ok(_) => {}
             Err(err) => {
-                tracing::error!(target: "resharding", ?err, "Resharding failed, manual recovery is necessary!");
+                tracing::error!(target: "resharding", ?shard_uid, ?err, "Resharding failed, manual recovery is necessary!");
                 RESHARDING_STATUS
                     .with_label_values(&[&shard_uid.to_string()])
                     .set(ReshardingStatus::Failed.into());
