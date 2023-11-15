@@ -22,6 +22,8 @@ pub struct EpochSyncCommand {
 #[derive(clap::Parser)]
 #[clap(subcommand_required = true, arg_required_else_help = true)]
 enum SubCommand {
+    /// For every finished epoch construct `EpochSyncInfo`
+    /// and validate it the same way we would if we received it from a peer.
     ValidateEpochSyncInfo(ValidateEpochSyncInfoCmd),
 }
 
