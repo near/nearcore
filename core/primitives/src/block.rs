@@ -289,9 +289,6 @@ impl Block {
             BlockHeader::BlockHeaderV4(_) => {
                 debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
             }
-            BlockHeader::BlockHeaderV5(_) => {
-                debug_assert_eq!(prev.block_ordinal() + 1, block_ordinal)
-            }
         };
 
         let body = BlockBody { chunks, challenges, vrf_value, vrf_proof };
