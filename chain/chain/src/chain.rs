@@ -62,7 +62,6 @@ use near_primitives::state_sync::{
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
     NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
@@ -829,73 +828,6 @@ impl Chain {
 
         chain_store_update.commit()?;
         Ok(())
-    }
-
-    pub fn apply_chunk_for_post_state_root(
-        &self,
-        shard_id: ShardId,
-        prev_state_root: StateRoot,
-        block_height: BlockHeight,
-        prev_block: &Block,
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_limit: Gas,
-        last_chunk_height_included: BlockHeight,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let prev_block_hash = prev_block.hash();
-        let is_first_block_with_chunk_of_version = check_if_block_is_first_with_chunk_of_version(
-            self.store(),
-            self.epoch_manager.as_ref(),
-            prev_block_hash,
-            shard_id,
-        )?;
-        // TODO(post-state-root):
-        // This misses outgoing receipts from the last non-post-state-root block B.
-        // Before post-state-root incoming receipts store receipts that are supposed to be applied
-        // in this block, which corresponds to the outgoing receipts from the previous block.
-        // After post-state-root incoming receipts store receipts that are the result of executing
-        // that block, which corresponds to the outgoing receipts from the current block.
-        // So considering which outgoing receipts correspond to the incoming receipts for the blocks:
-        // * ...
-        // * pre-state-root  block B-1: outgoing B-2 -> incoming B-1
-        // * pre-state-root  block B:   outgoing B-1 -> incoming B
-        // * post-state-root block B+1: outgoing B+1 -> incoming B+1
-        // * post-state-root block B+2: outgoing B+2 -> incoming B+2
-        // * ...
-        // We can see that outgoing receipts of block B are not stored anywhere in the incoming receipts.
-        // These receipts can be obtained from the db using get_outgoing_receipts_for_shard since we
-        // currently track all shard. This will be implemented later along with an intergation test
-        // to reproduce the issue.
-        let receipts =
-            collect_receipts_from_response(&self.store.get_incoming_receipts_for_shard(
-                self.epoch_manager.as_ref(),
-                shard_id,
-                *prev_block_hash,
-                last_chunk_height_included,
-            )?);
-        // TODO(post-state-root): block-level fields, take values from the previous block for now
-        let block_timestamp = prev_block.header().raw_timestamp();
-        let block_hash = prev_block_hash;
-        let random_seed = *prev_block.header().random_value();
-        let next_gas_price = prev_block.header().next_gas_price();
-
-        self.runtime_adapter.apply_transactions(
-            shard_id,
-            RuntimeStorageConfig::new(prev_state_root, true),
-            block_height,
-            block_timestamp,
-            prev_block_hash,
-            &block_hash,
-            &receipts,
-            transactions,
-            last_validator_proposals,
-            next_gas_price,
-            gas_limit,
-            &vec![],
-            random_seed,
-            true,
-            is_first_block_with_chunk_of_version,
-        )
     }
 
     pub fn save_orphan(
@@ -3067,7 +2999,6 @@ impl Chain {
                 (chunk, prev_chunk_header)
             }
             chunk @ ShardChunk::V2(_) => (chunk, prev_chunk_header),
-            ShardChunk::V3(_) => todo!("#9535"),
         };
 
         let shard_state_header = ShardStateSyncResponseHeaderV2 {
