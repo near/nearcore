@@ -8,17 +8,27 @@ on:
   pull_request:
   merge_group:
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build_binary:
     name: "Build neard"
     runs-on: ubuntu-22.04-16core
     steps:
       - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-linux"
           save-if: "false" # use the cache from nextest, but don’t double-save
+      # TODO: remove the LLVM_PROFILE_FILE override once
+      # https://github.com/taiki-e/cargo-llvm-cov/issues/320 is fixed (and same below)
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile quick-release -p neard --bin neard
       - uses: actions/upload-artifact@v3
         with:
@@ -35,14 +45,17 @@ jobs:
       matrix:
         include:
           - name: Linux
+            id: linux
             cache_id: linux
             os: ubuntu-22.04-16core
             flags: ""
           - name: Linux Nightly
+            id: linux-nightly
             cache_id: linux
             os: ubuntu-22.04-16core
             flags: "--features nightly,test_features"
           - name: MacOS
+            id: macos
             cache_id: macos
             os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
@@ -55,19 +68,49 @@ jobs:
       # FIXME(#9634): remove this once the issue is resolved.
       - run: sudo sysctl vm.overcommit_memory=1 || true
       - uses: actions/checkout@v4
+
+      # Install all the required tools
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-nextest
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-deny
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
+
+      # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
-      - run: cargo nextest run --locked --workspace -p '*' --cargo-profile quick-release --profile ci ${{ matrix.flags }}
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
+
+      # Run unit tests
+      - run: cargo nextest run --locked --workspace --exclude integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: short
+      - run: cargo llvm-cov report --codecov --output-path unittests.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: unittests.json
+          fail_ci_if_error: true
+          flags: unittests,${{ matrix.id }}
+      # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
+      - run: rm -f target/llvm-cov-target/*.profraw
+
+      # Run integration tests
+      - run: cargo nextest run --locked --package integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
+        env:
+          RUST_BACKTRACE: short
+      - run: cargo llvm-cov report --codecov --output-path integration-tests.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: integration-tests.json
+          fail_ci_if_error: true
+          flags: integration-tests,${{ matrix.id }}
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
@@ -92,6 +135,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
           name: neard
@@ -99,7 +145,15 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/../target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/backward_compatible.py
+      - run: cargo llvm-cov report --codecov --output-path pytest-backcomp.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: pytest-backcomp.json
+          fail_ci_if_error: true
+          flags: pytests,backward-compatibility,linux
 
   py_db_migration:
     name: "Database Migration"
@@ -114,6 +168,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
           name: neard
@@ -122,7 +179,15 @@ jobs:
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/../target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/db_migration.py
+      - run: cargo llvm-cov report --codecov --output-path pytest-dbmigr.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: pytest-dbmigr.json
+          fail_ci_if_error: true
+          flags: pytests,db-migration,linux
 
   py_sanity_checks:
     name: "Sanity Checks"
@@ -136,6 +201,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -144,6 +212,8 @@ jobs:
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: cargo build --profile quick-release -p neard --bin neard --features nightly
       # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
@@ -151,6 +221,12 @@ jobs:
       - run: python3 pytest/tests/sanity/spin_up_cluster.py
         env:
           NEAR_ROOT: "target/quick-release"
+      - run: cargo llvm-cov report --codecov --output-path pytest-sanity.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: pytest-sanity.json
+          fail_ci_if_error: true
+          flags: pytests,sanity-checks,linux-nightly
 
   py_genesis_check:
     name: "Genesis Changes"
@@ -162,6 +238,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
           name: neard
@@ -169,7 +248,15 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r pytest/requirements.txt
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
+      - run: cargo llvm-cov report --codecov --output-path pytest-genesischk.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: pytest-genesischk.json
+          fail_ci_if_error: true
+          flags: pytests,genesis-check,linux
 
   py_style_check:
     name: "Style"
@@ -199,6 +286,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
           name: neard
@@ -206,7 +296,15 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
+      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/upgradable.py
+      - run: cargo llvm-cov report --codecov --output-path pytest-upgradability.json
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        with:
+          files: pytest-upgradability.json
+          fail_ci_if_error: true
+          flags: pytests,upgradability,linux
 
   rpc_error_schema:
     name: "RPC Schema"
