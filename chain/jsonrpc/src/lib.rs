@@ -1453,6 +1453,7 @@ async fn display_debug_html(
         "sync.css" => Some(debug_page_string!("sync.css", handler)),
         "validator" => Some(debug_page_string!("validator.html", handler)),
         "validator.css" => Some(debug_page_string!("validator.css", handler)),
+        "split_store" => Some(debug_page_string!("split_store.html", handler)),
         _ => None,
     };
 
