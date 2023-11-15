@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io;
+use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -72,6 +72,16 @@ pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
     StateSync { clear_block_info: bool },
+}
+
+impl fmt::Debug for GCMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            GCMode::Fork(_) => write!(f, "GCMode::Fork"),
+            GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
+            GCMode::StateSync { .. } => write!(f, "GCMode::StateSync"),
+        }
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -2344,6 +2354,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // Now we can proceed to removing the trie state and flat state
         let mut store_update = self.store().store_update();
         for shard_uid in prev_shard_layout.get_shard_uids() {
+            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
             runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
             runtime
                 .get_flat_storage_manager()
@@ -2363,6 +2374,8 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
+
+        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {

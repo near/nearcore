@@ -1006,7 +1006,7 @@ impl Chain {
         tries: ShardTries,
         gc_config: &near_chain_configs::GCConfig,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "chain", "clear_data").entered();
+        let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
 
         let head = self.store.head()?;
         let tail = self.store.tail()?;

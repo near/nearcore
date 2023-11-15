@@ -226,6 +226,7 @@ impl FlatStorageManager {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
             flat_store.clear_state(store_update)?;
+            tracing::info!(target: "store", ?shard_uid, "remove_flat_storage_for_shard successful");
             Ok(true)
         } else {
             Ok(false)
