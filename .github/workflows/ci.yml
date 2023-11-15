@@ -27,7 +27,7 @@ jobs:
           save-if: "false" # use the cache from nextest, but don’t double-save
       # TODO: remove the LLVM_PROFILE_FILE override once
       # https://github.com/taiki-e/cargo-llvm-cov/issues/320 is fixed (and same below)
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile quick-release -p neard --bin neard
       - uses: actions/upload-artifact@v3
@@ -85,7 +85,7 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: cargo llvm-cov clean --workspace
 
       # Run unit tests
@@ -146,7 +146,7 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/../target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/backward_compatible.py
       - run: cargo llvm-cov report --codecov --output-path pytest-backcomp.json
@@ -180,7 +180,7 @@ jobs:
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/../target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/db_migration.py
       - run: cargo llvm-cov report --codecov --output-path pytest-dbmigr.json
@@ -213,7 +213,7 @@ jobs:
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: cargo build --profile quick-release -p neard --bin neard --features nightly
       # Note: We're not running spin_up_cluster.py for non-nightly
@@ -249,7 +249,7 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r pytest/requirements.txt
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
       - run: cargo llvm-cov report --codecov --output-path pytest-genesischk.json
@@ -297,7 +297,7 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
-      - run: cargo llvm-cov show-env --export-prefix >> "$GITHUB_ENV"
+      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
       - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/llvm-cov-target/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/upgradable.py
       - run: cargo llvm-cov report --codecov --output-path pytest-upgradability.json
