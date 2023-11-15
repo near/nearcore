@@ -15,6 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::StateRecord;
@@ -25,8 +26,7 @@ use near_primitives::types::{
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::db::RocksDB;
-use near_store::flat::{store_helper, BlockInfo};
-use near_store::flat::{FlatStorageManager, FlatStorageStatus};
+use near_store::flat::{store_helper, BlockInfo, FlatStorageManager, FlatStorageStatus};
 use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
@@ -116,6 +116,7 @@ struct ResetCmd;
 struct Validator {
     account_id: AccountId,
     public_key: PublicKey,
+    #[serde(with = "dec_format")]
     amount: Option<Balance>,
 }
 
@@ -283,6 +284,7 @@ impl ForkNetworkCommand {
 
         let mut store_update = store.store_update();
         store_update.set_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID", epoch_id)?;
+        store_update.set_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH", &desired_block_hash)?;
         store_update.set(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT", &block_height.to_le_bytes());
         for (shard_id, state_root) in state_roots.iter().enumerate() {
             store_update.set_ser(
@@ -307,8 +309,9 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, epoch_id, _block_height) =
+        let (prev_state_roots, prev_hash, epoch_id, _block_height) =
             self.get_state_roots_and_hash(store.clone())?;
+        tracing::info!(?prev_state_roots, ?epoch_id, ?prev_hash);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
@@ -321,7 +324,12 @@ impl ForkNetworkCommand {
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |shard_id, prev_state_root| {
-                SingleShardStorageMutator::new(shard_id, &runtime.clone(), prev_state_root)
+                SingleShardStorageMutator::new(
+                    shard_id,
+                    &runtime.clone(),
+                    prev_hash,
+                    prev_state_root,
+                )
             });
 
         let new_state_roots = self.prepare_state(
@@ -350,7 +358,7 @@ impl ForkNetworkCommand {
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
-        let (prev_state_roots, epoch_id, block_height) =
+        let (prev_state_roots, prev_hash, epoch_id, block_height) =
             self.get_state_roots_and_hash(store.clone())?;
 
         let epoch_manager =
@@ -366,6 +374,7 @@ impl ForkNetworkCommand {
             epoch_manager.clone(),
             &runtime,
             epoch_id.clone(),
+            prev_hash,
             prev_state_roots,
         )?;
         let (new_state_roots, new_validator_accounts) =
@@ -410,8 +419,9 @@ impl ForkNetworkCommand {
     fn get_state_roots_and_hash(
         &self,
         store: Store,
-    ) -> anyhow::Result<(Vec<StateRoot>, EpochId, BlockHeight)> {
+    ) -> anyhow::Result<(Vec<StateRoot>, CryptoHash, EpochId, BlockHeight)> {
         let epoch_id = EpochId(store.get_ser(DBCol::Misc, b"FORK_TOOL_EPOCH_ID")?.unwrap());
+        let block_hash = store.get_ser(DBCol::Misc, b"FORK_TOOL_BLOCK_HASH")?.unwrap();
         let block_height = store.get(DBCol::Misc, b"FORK_TOOL_BLOCK_HEIGHT")?.unwrap();
         let block_height = u64::from_le_bytes(block_height.as_slice().try_into().unwrap());
         let mut state_roots = vec![];
@@ -424,8 +434,8 @@ impl ForkNetworkCommand {
             assert_eq!(key, format!("FORK_TOOL_SHARD_ID:{shard_id}"));
             state_roots.push(state_root);
         }
-        tracing::info!(?state_roots, ?epoch_id, block_height);
-        Ok((state_roots, epoch_id, block_height))
+        tracing::info!(?state_roots, ?block_hash, ?epoch_id, block_height);
+        Ok((state_roots, block_hash, epoch_id, block_height))
     }
 
     /// Checks that `~/.near/data/fork-snapshot/data` exists.
