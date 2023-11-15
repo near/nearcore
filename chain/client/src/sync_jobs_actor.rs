@@ -1,7 +1,6 @@
-use std::time::Duration;
-
 use crate::ClientActor;
 use actix::AsyncContext;
+use std::time::Duration;
 
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -162,7 +161,7 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         // Wait for the initial delay. It should only be used in tests.
         let initial_delay = state_split_request.config.initial_delay;
         if state_split_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
-            tracing::debug!(target: "resharding", ?state_split_request, ?initial_delay, "initial delay");
+            tracing::debug!(target: "resharding", ?state_split_request, ?initial_delay, "Waiting for the initial delay");
             state_split_request.curr_poll_time += initial_delay;
             context.notify_later(state_split_request.with_span_context(), initial_delay);
             return;

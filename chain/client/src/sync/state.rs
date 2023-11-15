@@ -1014,7 +1014,6 @@ impl StateSync {
     ) -> bool {
         // If the shard layout is changing in this epoch - we have to apply it right now.
         if split_states {
-            tracing::debug!(target: "sync", "scheduling resharding after download");
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
                 status: ShardSyncStatus::StateSplitScheduling,

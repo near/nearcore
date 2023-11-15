@@ -13,7 +13,7 @@ impl CorruptStateSnapshotCommand {
         let flat_storage_manager = FlatStorageManager::new(store.clone());
 
         let mut store_update = store.store_update();
-        // TODO there must be a better way to get the shard uids
+        // TODO(resharding) there must be a better way to get the shard uids
         // This only works for the V1 shard layout.
         let shard_uids = ShardLayout::get_simple_nightshade_layout().get_shard_uids();
         for shard_uid in shard_uids {

@@ -19,7 +19,8 @@ from utils import MetricsTracker, poll_blocks, wait_for_blocks
 from resharding_lib import append_shard_layout_config_changes, get_genesis_num_shards, get_genesis_shard_layout_version, get_target_num_shards, get_target_shard_layout_version
 
 
-class ReshardingTest(unittest.TestCase):
+# TODO(resharding): refactor the resharding tests to re-use the common logic
+class ReshardingErrorHandlingTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.epoch_length = 10
@@ -82,7 +83,9 @@ class ReshardingTest(unittest.TestCase):
     # epoch_length + 2 - snapshot is requested
     # epoch_length + 3 - snapshot is finished
     # epoch_length + 4 - stop the nodes, corrupt the snapshot, start nodes
-    # epoch_length + 6s - resharding starts and fails
+    # epoch_length + 4 - resharding starts and fails
+    # epoch_length * 2 + 1 - last block while node is still healthy before chain
+    # upgrades to the new shard layout
     def test_resharding(self):
         logger.info("The resharding test is starting.")
         num_nodes = 2

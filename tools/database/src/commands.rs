@@ -27,7 +27,7 @@ enum SubCommand {
     /// Run SST file compaction on database
     CompactDatabase(RunCompactionCommand),
 
-    /// Corrupt the database.
+    /// Corrupt the state snapshot.
     CorruptStateSnapshot(CorruptStateSnapshotCommand),
 
     /// Make snapshot of the database
