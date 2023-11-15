@@ -269,7 +269,7 @@ impl Default for StoreConfig {
                 "sweat_the_oracle.testnet".to_owned(),
             ],
 
-            load_mem_tries_for_shards: vec![ShardUId { shard_id: 3, version: 1 }],
+            load_mem_tries_for_shards: Default::default(),
             load_mem_tries_for_all_shards: false,
 
             migration_snapshot: Default::default(),
