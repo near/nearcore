@@ -92,6 +92,7 @@ jobs:
         env:
           RUST_BACKTRACE: short
       - run: find . -name '*.profraw'
+      - run: find target
       - run: cargo llvm-cov report --codecov --output-path unittests.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
