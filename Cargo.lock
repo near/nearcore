@@ -3763,6 +3763,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap 4.2.4",
+ "hex",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
