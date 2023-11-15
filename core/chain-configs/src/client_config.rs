@@ -177,6 +177,15 @@ pub struct StateSplitConfig {
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
     pub retry_delay: Duration,
+
+    /// The delay between the resharding request is received and when the actor
+    /// actually starts working on it. This delay should only be used in tests.
+    pub initial_delay: Duration,
+
+    /// The maximum time that the actor will wait for the snapshot to be ready,
+    /// before starting resharding. Do not wait indefinitely since we want to
+    /// report error early enough for the node maintainer to have time to recover.
+    pub max_poll_time: Duration,
 }
 
 impl Default for StateSplitConfig {
@@ -187,6 +196,11 @@ impl Default for StateSplitConfig {
             batch_size: bytesize::ByteSize::kb(500),
             batch_delay: Duration::from_millis(100),
             retry_delay: Duration::from_secs(10),
+            initial_delay: Duration::from_secs(0),
+            // The snapshot typically is available within a minute from the
+            // epoch start. Set the default higher in case we need to wait for
+            // state sync.
+            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
         }
     }
 }

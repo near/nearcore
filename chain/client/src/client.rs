@@ -2218,6 +2218,7 @@ impl Client {
 
             let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
+                    tracing::debug!(target: "client", ?sync_hash, "inserting new state sync");
                     notify_state_sync = true;
                     (
                         StateSync::new(

@@ -2078,8 +2078,6 @@ impl Chain {
             "start_process_block_impl",
             height = block_height)
         .entered();
-
-        tracing::debug!(target: "chain", "start process block");
         // 0) Before we proceed with any further processing, we first check that the block
         // hash and signature matches to make sure the block is indeed produced by the assigned
         // block producer. If not, we drop the block immediately

@@ -1,6 +1,7 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::compact::RunCompactionCommand;
+use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
 use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
@@ -26,6 +27,9 @@ enum SubCommand {
     /// Run SST file compaction on database
     CompactDatabase(RunCompactionCommand),
 
+    /// Corrupt the state snapshot.
+    CorruptStateSnapshot(CorruptStateSnapshotCommand),
+
     /// Make snapshot of the database
     MakeSnapshot(MakeSnapshotCommand),
 
@@ -46,6 +50,7 @@ impl DatabaseCommand {
             SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
+            SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = nearcore::config::load_config(
                     &home,

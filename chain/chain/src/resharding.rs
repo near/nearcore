@@ -31,8 +31,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
-const MAX_RESHARDING_POLL_TIME: Duration = Duration::from_secs(5 * 60 * 60); // 5 hrs
-
 /// StateSplitRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
 /// resharding job. The SyncJobsActor is helpful for handling such long running jobs.
@@ -68,7 +66,8 @@ impl Debug for StateSplitRequest {
             .field("prev_prev_hash", &self.prev_prev_hash)
             .field("shard_uid", &self.shard_uid)
             .field("state_root", &self.state_root)
-            .field("next_epoch_shard_layout", &self.next_epoch_shard_layout)
+            .field("next_epoch_shard_layout_version", &self.next_epoch_shard_layout.version())
+            .field("curr_poll_time", &self.curr_poll_time)
             .finish()
     }
 }
@@ -200,6 +199,7 @@ impl Chain {
         shard_id: ShardId,
         state_split_scheduler: &dyn Fn(StateSplitRequest),
     ) -> Result<(), Error> {
+        tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
         let block_header = self.get_block_header(sync_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
         let next_epoch_shard_layout =
@@ -233,26 +233,47 @@ impl Chain {
     /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not
     /// ready and we need to retry/reschedule the resharding job.
     pub fn retry_build_state_for_split_shards(state_split_request: &StateSplitRequest) -> bool {
-        let StateSplitRequest { tries, prev_prev_hash, curr_poll_time, .. } = state_split_request;
-        // Do not retry if we have spent more than MAX_RESHARDING_POLL_TIME
+        let StateSplitRequest { tries, prev_prev_hash, curr_poll_time, config, .. } =
+            state_split_request;
+
+        // Do not retry if we have spent more than max_poll_time
         // The error would be caught in build_state_for_split_shards and propagated to client actor
-        if curr_poll_time > &MAX_RESHARDING_POLL_TIME {
+        if curr_poll_time > &config.max_poll_time {
+            tracing::warn!(target: "resharding", ?curr_poll_time, ?config.max_poll_time, "exceeded max poll time while waiting for snapsthot");
             return false;
         }
-        tries.get_state_snapshot(prev_prev_hash).is_err_and(|err| match err {
-            SnapshotError::SnapshotNotFound(_) => true,
-            SnapshotError::LockWouldBlock => true,
-            SnapshotError::IncorrectSnapshotRequested(_, _) => false,
-            SnapshotError::Other(_) => false,
-        })
+
+        let state_snapshot = tries.get_state_snapshot(prev_prev_hash);
+        if let Err(err) = state_snapshot {
+            tracing::debug!(target: "resharding", ?err, "state snapshot is not ready");
+            return match err {
+                SnapshotError::SnapshotNotFound(_) => true,
+                SnapshotError::LockWouldBlock => true,
+                SnapshotError::IncorrectSnapshotRequested(_, _) => false,
+                SnapshotError::Other(_) => false,
+            };
+        }
+
+        // The snapshot is Ok, no need to retry.
+        return false;
     }
 
     pub fn build_state_for_split_shards(
         state_split_request: StateSplitRequest,
     ) -> StateSplitResponse {
-        let shard_id = state_split_request.shard_uid.shard_id();
+        let shard_uid = state_split_request.shard_uid;
+        let shard_id = shard_uid.shard_id();
         let sync_hash = state_split_request.sync_hash;
         let new_state_roots = Self::build_state_for_split_shards_impl(state_split_request);
+        match &new_state_roots {
+            Ok(_) => {}
+            Err(err) => {
+                tracing::error!(target: "resharding", ?shard_uid, ?err, "Resharding failed, manual recovery is necessary!");
+                RESHARDING_STATUS
+                    .with_label_values(&[&shard_uid.to_string()])
+                    .set(ReshardingStatus::Failed.into());
+            }
+        }
         StateSplitResponse { shard_id, sync_hash, new_state_roots }
     }
 
