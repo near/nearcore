@@ -985,7 +985,7 @@ def get_binary_protocol_version(config) -> typing.Optional[int]:
     return None
 
 
-def corrupt_state_snapshot(config, node_dir):
+def corrupt_state_snapshot(config, node_dir, shard_layout_version):
     near_root = config['near_root']
     binary_name = config.get('binary_name', 'neard')
     binary_path = os.path.join(near_root, binary_name)
@@ -996,6 +996,8 @@ def corrupt_state_snapshot(config, node_dir):
         node_dir,
         "database",
         "corrupt-state-snapshot",
+        "--shard-layout-version",
+        str(shard_layout_version),
     ]
 
     env = os.environ.copy()

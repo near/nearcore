@@ -166,7 +166,8 @@ class MetricsTracker:
                 )
             if not all_samples:
                 return None
-            return all_samples[0].value
+            (sample_labels, sample_value) = all_samples[0]
+            return sample_value
         for (sample_labels, sample_value) in all_samples:
             if sample_labels == labels:
                 return sample_value
@@ -179,7 +180,7 @@ class MetricsTracker:
     ) -> typing.Optional[int]:
         """Helper function to return the integer value of the metric (as function above returns strings)."""
         value = self.get_metric_value(metric_name, labels)
-        if not value:
+        if value is None:
             return None
         return round(float(value))
 

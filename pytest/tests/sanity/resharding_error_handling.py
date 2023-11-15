@@ -126,7 +126,11 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
         node1.kill(gentle=True)
 
         logger.info("corrupting the state snapshot of node0")
-        output = corrupt_state_snapshot(self.config, node0_dir)
+        output = corrupt_state_snapshot(
+            self.config,
+            node0_dir,
+            self.genesis_shard_layout_version,
+        )
         logger.info(f"corrupted state snapshot\n{output}")
 
         # Update the initial delay to start resharding as soon as possible.
@@ -153,7 +157,7 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
 
             # The node should be able to survive until the end of the epoch even
             # though resharding is broken. Only break after the last block of epoch.
-            if height >= self.epoch_length * 2 + 1:
+            if height >= self.epoch_length * 2:
                 break
 
         node0.kill(gentle=True)
