@@ -63,7 +63,7 @@ want to run tests against a release build, you can create a file with the
 following config:
 
 ```json
-{"local": True, "near_root": "../target/release/"}
+{"local": true, "near_root": "../target/release/"}
 ```
 
 and run the test with the following command:
@@ -116,7 +116,7 @@ Note that `start_cluster` spins up all the nodes right away. Some tests (e.g.
 tests that test syncing) might want to configure the nodes but delay their
 start. In such a case you will initialize the cluster by calling
 `init_cluster` and will run the nodes manually, for example, see
-[`state_sync.py`](https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/state_sync.py)
+[`state_sync.py`](https://github.com/near/nearcore/blob/master/pytest/tests/sanity/state_sync.py)
 
 ## Connecting to a mocknet
 
@@ -234,7 +234,7 @@ if want_async:
 ```
 
 See
-[rpc_tx_forwarding.py](https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/rpc_tx_forwarding.py)
+[rpc_tx_forwarding.py](https://github.com/near/nearcore/blob/master/pytest/tests/sanity/rpc_tx_forwarding.py)
 for an example of signing and submitting a transaction.
 
 ## Adversarial behavior
@@ -269,6 +269,6 @@ See the tests that match `tests/sanity/proxy_*.py` for examples.
 
 We always welcome new tests, especially python tests that use the above
 infrastructure. We have a list of test requests
-[here](https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+test%22+),
+[here](https://github.com/nearprotocol/nearcore/issues?q=is%3Aissue+is%3Aopen+label%3A%22A-testing%22),
 but also welcome any other tests that test aspects of the network we haven't
 thought about.
