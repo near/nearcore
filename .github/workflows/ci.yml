@@ -85,7 +85,7 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
-      - run: cargo llvm-cov show-env >> "$GITHUB_ENV"
+      - run: source <(cargo llvm-cov show-env) && env > "$GITHUB_ENV"
       - run: cargo llvm-cov clean --workspace
 
       # Run unit tests
