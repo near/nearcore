@@ -40,7 +40,7 @@ impl EpochSyncCommand {
             &home_dir,
             near_chain_configs::GenesisValidationMode::UnsafeFast,
         )
-        .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+        .unwrap_or_else(|e| panic!("Error loading config: {e:#}"));
 
         let store_path_addition = near_config
             .config
@@ -139,7 +139,7 @@ impl ValidateEpochSyncInfoCmd {
         let mut num_errors = 0;
 
         while cur_hash != genesis_hash {
-            tracing::debug!("Big loop hash {:?}", cur_hash);
+            tracing::debug!(?cur_hash, "Big loop hash");
 
             // epoch ids are the last hashes of some epochs
             if epoch_ids.contains(&cur_hash) {
@@ -205,18 +205,16 @@ impl ValidateEpochSyncInfoCmd {
                 let canonical_epoch_sync_data_hash_result =
                     epoch_sync_info.get_epoch_sync_data_hash();
 
-                if let Ok(calculated_epoch_sync_data_hash) = calculated_epoch_sync_data_hash_result
-                {
-                    if let Ok(Some(canonical_epoch_sync_data_hash)) =
-                        canonical_epoch_sync_data_hash_result
-                    {
-                        if calculated_epoch_sync_data_hash == canonical_epoch_sync_data_hash {
-                            tracing::info!(
-                                "EpochSyncInfo for height {:?} OK",
-                                epoch_sync_info.epoch_info.epoch_height()
-                            );
-                            continue;
-                        }
+                if let (Ok(calculated), Ok(Some(canonical))) = (
+                    &calculated_epoch_sync_data_hash_result,
+                    &canonical_epoch_sync_data_hash_result,
+                ) {
+                    if calculated == canonical {
+                        tracing::info!(
+                            "EpochSyncInfo for height {:?} OK",
+                            epoch_sync_info.epoch_info.epoch_height()
+                        );
+                        continue;
                     }
                 }
                 tracing::error!(
