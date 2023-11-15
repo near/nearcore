@@ -24,7 +24,9 @@ use near_jsonrpc_primitives::message::{Message, Request};
 use near_jsonrpc_primitives::types::config::RpcProtocolConfigResponse;
 use near_jsonrpc_primitives::types::entity_debug::{EntityDebugHandler, EntityQuery};
 use near_jsonrpc_primitives::types::query::RpcQueryRequest;
-use near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse;
+use near_jsonrpc_primitives::types::split_storage::{
+    RpcSplitStorageInfoRequest, RpcSplitStorageInfoResponse,
+};
 use near_jsonrpc_primitives::types::transactions::{
     RpcSendTransactionRequest, RpcTransactionResponse,
 };
@@ -771,6 +773,13 @@ impl JsonRpcHandler {
                         .peer_manager_send(near_network::debug::GetDebugStatus::SnapshotHosts)
                         .await?
                         .rpc_into(),
+                    "/debug/api/split_store_info" => {
+                        let split_storage_info: RpcSplitStorageInfoResponse = self
+                            .split_storage_info(RpcSplitStorageInfoRequest {})
+                            .await
+                            .map_err(|e| e.into_rpc_status_error())?;
+                        near_jsonrpc_primitives::types::status::DebugStatusResponse::SplitStoreStatus(split_storage_info.result)
+                    }
                     _ => return Ok(None),
                 };
             Ok(Some(near_jsonrpc_primitives::types::status::RpcDebugStatusResponse {

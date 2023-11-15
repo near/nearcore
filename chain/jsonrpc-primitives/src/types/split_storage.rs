@@ -2,6 +2,8 @@ use near_primitives::views::SplitStorageInfoView;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::types::status::RpcStatusError;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RpcSplitStorageInfoRequest {}
 
@@ -37,5 +39,18 @@ impl From<RpcSplitStorageInfoError> for crate::errors::RpcError {
         };
 
         Self::new_internal_or_handler_error(error_data, error_data_value)
+    }
+}
+
+impl RpcSplitStorageInfoError {
+    // Implementing From<RpcSplitStorageInfoError> for RpcStatusError causes cargo to spit out hundreds
+    // of lines of compilation errors. I don't want to spend time debugging this, so let's use this function instead.
+    // It's good enough.
+    pub fn into_rpc_status_error(self) -> RpcStatusError {
+        match self {
+            RpcSplitStorageInfoError::InternalError { error_message } => {
+                RpcStatusError::InternalError { error_message }
+            }
+        }
     }
 }
