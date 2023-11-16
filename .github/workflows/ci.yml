@@ -147,6 +147,7 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
+      - run: mkdir ../target
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/backward_compatible.py
       - run: find .. -name '*.profraw'
