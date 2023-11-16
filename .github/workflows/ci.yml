@@ -59,7 +59,8 @@ jobs:
             os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
             # them at earliest convenience :)
-            flags: "--exclude integration-tests --exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
+            # Note that integration-tests are disabled at the step running them in the job below.
+            flags: "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
     timeout-minutes: 90
     steps:
       # Some of the tests allocate really sparse maps, so heuristic-based overcommit limits are not
@@ -101,10 +102,13 @@ jobs:
 
       # Run integration tests
       - run: cargo nextest run --locked --package integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
+        if: matrix.id != 'macos'
         env:
           RUST_BACKTRACE: short
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path integration-tests.json
+        if: matrix.id != 'macos'
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+        if: matrix.id != 'macos'
         with:
           files: integration-tests.json
           fail_ci_if_error: true
