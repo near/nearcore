@@ -11,12 +11,13 @@ use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
-    AcceptedBlock, ApplySplitStateResult, ApplySplitStateResultOrStateChanges,
-    ApplyTransactionResult, Block, BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig,
-    ChainGenesis, Provenance, RuntimeAdapter, RuntimeStorageConfig,
+    AcceptedBlock, ApplySplitStateResultOrStateChanges, ApplyTransactionResult, Block,
+    BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig, ChainGenesis, Provenance,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{
-    process_shard_update, ApplyChunkResult, BlockContext, ShardInfo, ShardUpdateReason,
+    process_shard_update, ApplyChunkResult, BlockContext, DifferentHeightResult, SameHeightResult,
+    ShardInfo, ShardUpdateReason, SplitStateResult,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -66,8 +67,8 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
-    NumBlocks, NumShards, ShardId, StateChangesForSplitStates, StateRoot,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
+    NumShards, ShardId, StateChangesForSplitStates, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -3884,7 +3885,7 @@ impl Chain {
             .iter()
             .zip(prev_chunk_headers.iter())
             .enumerate()
-            .map(|(shard_id, (chunk_header, prev_chunk_header))| {
+            .map(|(shard_id, (chunk_header, prev_chunk_header))| -> Result<Option<ApplyChunkJob>, Error> {
                 // XXX: This is a bit questionable -- sandbox state patching works
                 // only for a single shard. This so far has been enough.
                 let state_patch = state_patch.take();
@@ -3948,7 +3949,7 @@ impl Chain {
                             prev_chunk_extra.as_ref(),
                             prev_chunk_height_included,
                             &chunk_header,
-                        )?
+                        )
                         .map_err(|err| {
                             warn!(
                                 target: "chain",
@@ -3998,10 +3999,10 @@ impl Chain {
                         self.store().get_state_changes_for_split_states(block.hash(), shard_id)?,
                     )
                 } else {
-                    return None;
+                    return Ok(None);
                 };
 
-                if should_apply_transactions || split_state_roots.is_some() {
+                Ok(if should_apply_transactions || split_state_roots.is_some() {
                     let runtime = self.runtime_adapter.clone();
                     let epoch_manager = self.epoch_manager.clone();
                     let block_context = self.get_block_context(
@@ -4024,7 +4025,7 @@ impl Chain {
                     }))
                 } else {
                     None
-                }
+                })
             })
             .zip(chunk_headers.iter())
             .collect();
