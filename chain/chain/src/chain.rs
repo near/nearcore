@@ -4892,45 +4892,6 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Process ApplyTransactionResult to apply changes to split states
-    /// When shards will change next epoch,
-    ///    if `split_state_roots` is not None, that means states for the split shards are ready
-    ///    this function updates these states and return apply results for these states
-    ///    otherwise, this function returns state changes needed to be applied to split
-    ///    states. These state changes will be stored in the database by `process_split_state`
-    fn apply_split_state_changes(
-        epoch_manager: &dyn EpochManagerAdapter,
-        runtime_adapter: &dyn RuntimeAdapter,
-        block_hash: &CryptoHash,
-        block_height: BlockHeight,
-        prev_block_hash: &CryptoHash,
-        apply_result: &ApplyTransactionResult,
-        split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
-    ) -> Result<ApplySplitStateResultOrStateChanges, Error> {
-        let state_changes = StateChangesForSplitStates::from_raw_state_changes(
-            apply_result.trie_changes.state_changes(),
-            apply_result.processed_delayed_receipts.clone(),
-        );
-        let next_epoch_shard_layout = {
-            let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(prev_block_hash)?;
-            epoch_manager.get_shard_layout(&next_epoch_id)?
-        };
-        // split states are ready, apply update to them now
-        if let Some(state_roots) = split_state_roots {
-            let split_state_results = runtime_adapter.apply_update_to_split_states(
-                block_hash,
-                block_height,
-                state_roots,
-                &next_epoch_shard_layout,
-                state_changes,
-            )?;
-            Ok(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(split_state_results))
-        } else {
-            // split states are not ready yet, store state changes in consolidated_state_changes
-            Ok(ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes))
-        }
-    }
-
     /// Postprocess split state results or state changes, do the necessary update on chain
     /// for split state results: store the chunk extras and trie changes for the split states
     /// for state changes, store the state changes for splitting states
