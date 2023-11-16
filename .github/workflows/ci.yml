@@ -97,7 +97,7 @@ jobs:
           fail_ci_if_error: true
           flags: unittests,${{ matrix.id }}
       # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
-      - run: rm -f target/llvm-cov-target/*.profraw
+      - run: find target -name '*.profraw' -delete
 
       # Run integration tests
       - run: cargo nextest run --locked --package integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
