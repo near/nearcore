@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 toml.workspace = true
 serde.workspace = true

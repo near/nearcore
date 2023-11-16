@@ -50,17 +50,7 @@ fn clippy() {
     let cargo = std::env::var_os("CARGO").unwrap_or(OsString::from("cargo"));
     let mut cmd = Command::new(cargo);
     cargo_env(&mut cmd);
-    cmd.args(&["clippy", "--all-targets", "--all-features", "--locked", "--"]);
-    cmd.args(&[
-        "-Aclippy::all",
-        "-Dwarnings",
-        "-Dclippy::clone_on_copy",
-        "-Dclippy::correctness",
-        "-Dclippy::derivable_impls",
-        "-Dclippy::redundant_clone",
-        "-Dclippy::suspicious",
-        "-Dclippy::len_zero",
-    ]);
+    cmd.args(&["clippy", "--all-targets", "--all-features", "--locked"]);
     ensure_success(cmd);
 }
 

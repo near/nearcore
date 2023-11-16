@@ -88,6 +88,18 @@ members = [
     "utils/stdx",
 ]
 
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "allow", priority = -1 }
+clone_on_copy = "deny"
+correctness = "deny"
+derivable_impls = "deny"
+redundant_clone = "deny"
+suspicious = "deny"
+len_zero = "deny"
+
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
