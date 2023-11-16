@@ -86,7 +86,6 @@ jobs:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "LLVM_PROFILE_FILE=$(pwd)/target/debug/nearcore-%p-%16m.profraw" >> "$GITHUB_ENV"
 
       # Run unit tests
       - run: cargo nextest run --locked --workspace --exclude integration-tests --cargo-profile quick-release --profile ci ${{ matrix.flags }}
