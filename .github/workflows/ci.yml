@@ -29,10 +29,11 @@ jobs:
       # https://github.com/taiki-e/cargo-llvm-cov/issues/320 is fixed (and same below)
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - run: tar czf target.tar.gz target
       - uses: actions/upload-artifact@v3
         with:
-          name: neard_target
-          path: target
+          name: target.tar.gz
+          path: target.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -139,9 +140,10 @@ jobs:
           crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
-          name: neard_target
+          name: target.tar.gz
           path: . # NB: this does not account for defaults.run.working-directory
-      - run: echo "CURRENT_NEARD=$PWD/../target/quick-release/neard" >> "$GITHUB_ENV"
+      - run: tar xzf target.tar.gz
+      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
@@ -176,8 +178,9 @@ jobs:
           crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
-          name: neard_target
+          name: target.tar.gz
           path: . # NB: this does not account for defaults.run.working-directory
+      - run: cd .. && tar xzf target.tar.gz
       - run: echo "CURRENT_NEARD=$PWD/../target/quick-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
@@ -244,8 +247,9 @@ jobs:
           crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
-          name: neard_target
+          name: target.tar.gz
           path: .
+      - run: tar xzf target.tar.gz
       - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r pytest/requirements.txt
@@ -291,8 +295,9 @@ jobs:
           crate: cargo-llvm-cov
       - uses: actions/download-artifact@v3
         with:
-          name: neard_target
+          name: target.tar.gz
           path: . # NB: this does not account for defaults.run.working-directory
+      - run: cd .. && tar xzf target.tar.gz
       - run: echo "CURRENT_NEARD=$PWD/../target/quick-release/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r requirements.txt
