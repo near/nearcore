@@ -145,6 +145,9 @@ jobs:
       - run: pip3 install --user -r requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
       - run: python3 tests/sanity/backward_compatible.py
+      - run: find .. -name '*.profraw'
+      - run: find ../target
+      - run: find ..
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-backcomp.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
