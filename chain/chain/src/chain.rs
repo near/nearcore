@@ -1095,7 +1095,7 @@ impl Chain {
     }
 
     fn maybe_mark_block_invalid(&mut self, block_hash: CryptoHash, error: &Error) {
-        metrics::NUM_INVALID_BLOCKS.inc();
+        metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
         // We only mark the block as invalid if the block has bad data (not for other errors that would
         // not be the fault of the block itself), except when the block has a bad signature which means
         // the block might not have been what the block producer originally produced. Either way, it's
