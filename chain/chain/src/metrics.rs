@@ -148,6 +148,8 @@ pub(crate) enum ReshardingStatus {
     BuildingState,
     /// The resharding is finished.
     Finished,
+    /// The resharding failed. Manual recovery is necessary!
+    Failed,
 }
 
 impl From<ReshardingStatus> for i64 {
@@ -158,6 +160,7 @@ impl From<ReshardingStatus> for i64 {
             ReshardingStatus::Scheduled => 0,
             ReshardingStatus::BuildingState => 1,
             ReshardingStatus::Finished => 2,
+            ReshardingStatus::Failed => -1,
         }
     }
 }

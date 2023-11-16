@@ -192,6 +192,33 @@ impl NightshadeRuntime {
         )
     }
 
+    pub fn test_with_trie_config(
+        home_dir: &Path,
+        store: Store,
+        genesis_config: &GenesisConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+        trie_config: TrieConfig,
+        state_snapshot_type: StateSnapshotType,
+    ) -> Arc<Self> {
+        Self::new(
+            store,
+            genesis_config,
+            epoch_manager,
+            None,
+            None,
+            None,
+            DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+            trie_config,
+            StateSnapshotConfig {
+                state_snapshot_type,
+                home_dir: home_dir.to_path_buf(),
+                hot_store_path: PathBuf::from("data"),
+                state_snapshot_subdir: PathBuf::from("state_snapshot"),
+                compaction_enabled: false,
+            },
+        )
+    }
+
     pub fn test(
         home_dir: &Path,
         store: Store,
@@ -432,6 +459,7 @@ impl NightshadeRuntime {
                 apply_result.trie_changes,
                 apply_result.state_changes,
                 *block_hash,
+                apply_state.block_height,
             ),
             new_root: apply_result.state_root,
             outcomes: apply_result.outcomes,
@@ -1054,6 +1082,7 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn apply_update_to_split_states(
         &self,
         block_hash: &CryptoHash,
+        block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_epoch_shard_layout: &ShardLayout,
         state_changes_for_split_states: StateChangesForSplitStates,
@@ -1081,6 +1110,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 trie_changes,
                 state_changes,
                 *block_hash,
+                block_height,
             );
             applied_split_state_results.push(ApplySplitStateResult {
                 shard_uid,
@@ -1191,6 +1221,10 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn will_shard_layout_change_next_epoch(&self, parent_hash: &CryptoHash) -> Result<bool, Error> {
         let epoch_manager = self.epoch_manager.read();
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
+    }
+
+    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError> {
+        self.tries.load_mem_tries_for_enabled_shards(shard_uids)
     }
 }
 

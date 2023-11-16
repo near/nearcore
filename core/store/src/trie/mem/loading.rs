@@ -25,9 +25,8 @@ pub fn load_trie_from_flat_state(
     shard_uid: ShardUId,
     state_root: CryptoHash,
     block_height: BlockHeight,
-    maximum_arena_size: usize,
 ) -> Result<MemTries, StorageError> {
-    let mut tries = MemTries::new(maximum_arena_size, shard_uid);
+    let mut tries = MemTries::new(shard_uid);
 
     tries.construct_root(block_height, |arena| -> Result<Option<MemTrieNodeId>, StorageError> {
         info!(target: "memtrie", shard_uid=%shard_uid, "Loading trie from flat state...");
@@ -117,7 +116,6 @@ fn get_state_root(
 pub fn load_trie_from_flat_state_and_delta(
     store: &Store,
     shard_uid: ShardUId,
-    maximum_arena_size: usize,
 ) -> Result<MemTries, StorageError> {
     debug!(target: "memtrie", %shard_uid, "Loading base trie from flat state...");
     let flat_head = match get_flat_storage_status(&store, shard_uid)? {
@@ -135,7 +133,6 @@ pub fn load_trie_from_flat_state_and_delta(
         shard_uid,
         get_state_root(store, flat_head.hash, shard_uid)?,
         flat_head.height,
-        maximum_arena_size,
     )
     .unwrap();
 
@@ -213,14 +210,9 @@ mod tests {
         let state_root = test_populate_trie(&shard_tries, &Trie::EMPTY_ROOT, shard_uid, changes);
 
         eprintln!("Trie and flat storage populated");
-        let in_memory_trie = load_trie_from_flat_state(
-            &shard_tries.get_store(),
-            shard_uid,
-            state_root,
-            123,
-            64 * 1024 * 1024 * 1024,
-        )
-        .unwrap();
+        let in_memory_trie =
+            load_trie_from_flat_state(&shard_tries.get_store(), shard_uid, state_root, 123)
+                .unwrap();
         eprintln!("In memory trie loaded");
 
         if keys.is_empty() {
@@ -470,8 +462,7 @@ mod tests {
         // Load into memory. It should load the base flat state (block 0), plus all
         // four deltas. We'll check against the state roots at each block; they should
         // all exist in the loaded memtrie.
-        let mem_tries =
-            load_trie_from_flat_state_and_delta(&store, shard_uid, 10 * 1024 * 1024).unwrap();
+        let mem_tries = load_trie_from_flat_state_and_delta(&store, shard_uid).unwrap();
 
         assert_eq!(
             memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None),

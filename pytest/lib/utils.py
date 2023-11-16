@@ -144,25 +144,33 @@ class MetricsTracker:
                 f"Could not fetch metrics from {self.addr}: {response}")
         return response.content.decode('utf-8')
 
+    def get_metric_all_values(
+            self, metric_name: str) -> typing.List[typing.Tuple[str, str]]:
+        for family in text_string_to_metric_families(self.get_all_metrics()):
+            if family.name == metric_name:
+                return [
+                    (sample.labels, sample.value) for sample in family.samples
+                ]
+        return []
+
     def get_metric_value(
         self,
         metric_name: str,
         labels: typing.Optional[typing.Dict[str, str]] = None
     ) -> typing.Optional[str]:
-        for family in text_string_to_metric_families(self.get_all_metrics()):
-            if family.name == metric_name:
-                all_samples = [sample for sample in family.samples]
-                if not labels:
-                    if len(all_samples) > 1:
-                        raise AssertionError(
-                            f"Too many metric values ({len(all_samples)}) for {metric_name} - please specify a label"
-                        )
-                    if not all_samples:
-                        return None
-                    return all_samples[0].value
-                for sample in all_samples:
-                    if sample.labels == labels:
-                        return sample.value
+        all_samples = self.get_metric_all_values(metric_name)
+        if not labels:
+            if len(all_samples) > 1:
+                raise AssertionError(
+                    f"Too many metric values ({len(all_samples)}) for {metric_name} - please specify a label"
+                )
+            if not all_samples:
+                return None
+            (sample_labels, sample_value) = all_samples[0]
+            return sample_value
+        for (sample_labels, sample_value) in all_samples:
+            if sample_labels == labels:
+                return sample_value
         return None
 
     def get_int_metric_value(
@@ -172,7 +180,7 @@ class MetricsTracker:
     ) -> typing.Optional[int]:
         """Helper function to return the integer value of the metric (as function above returns strings)."""
         value = self.get_metric_value(metric_name, labels)
-        if not value:
+        if value is None:
             return None
         return round(float(value))
 

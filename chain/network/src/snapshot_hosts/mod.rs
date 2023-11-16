@@ -5,9 +5,10 @@
 //! in the network and stored locally in this cache.
 
 use crate::concurrency;
-use crate::concurrency::arc_mutex::ArcMutex;
 use crate::network_protocol::SnapshotHostInfo;
+use lru::LruCache;
 use near_primitives::network::PeerId;
+use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -23,16 +24,23 @@ pub(crate) enum SnapshotHostInfoError {
     DuplicatePeerId,
 }
 
-/// TODO(saketh): Introduce a cache size limit
 #[derive(Clone)]
+pub struct Config {
+    /// The maximum number of SnapshotHostInfos to store locally.
+    /// At present this constraint is enforced using a simple
+    /// least-recently-used cache. In the future, we may wish to
+    /// implement something more sophisticated.
+    pub snapshot_hosts_cache_size: u32,
+}
+
 struct Inner {
     /// The latest known SnapshotHostInfo for each node in the network
-    hosts: im::HashMap<PeerId, Arc<SnapshotHostInfo>>,
+    hosts: LruCache<PeerId, Arc<SnapshotHostInfo>>,
 }
 
 impl Inner {
     fn is_new(&self, h: &SnapshotHostInfo) -> bool {
-        match self.hosts.get(&h.peer_id) {
+        match self.hosts.peek(&h.peer_id) {
             Some(old) if old.epoch_height >= h.epoch_height => false,
             _ => true,
         }
@@ -45,16 +53,17 @@ impl Inner {
         if !self.is_new(&d) {
             return None;
         }
-        self.hosts.insert(d.peer_id.clone(), d.clone());
+        self.hosts.push(d.peer_id.clone(), d.clone());
         Some(d)
     }
 }
 
-pub(crate) struct SnapshotHostsCache(ArcMutex<Inner>);
+pub(crate) struct SnapshotHostsCache(Mutex<Inner>);
 
 impl SnapshotHostsCache {
-    pub fn new() -> Self {
-        Self(ArcMutex::new(Inner { hosts: im::HashMap::new() }))
+    pub fn new(config: Config) -> Self {
+        let hosts = LruCache::new(config.snapshot_hosts_cache_size as usize);
+        Self(Mutex::new(Inner { hosts }))
     }
 
     /// Selects new data and verifies the signatures.
@@ -66,17 +75,19 @@ impl SnapshotHostsCache {
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
         // Filter out any data which is outdated or which we already have.
         let mut new_data = HashMap::new();
-        let inner = self.0.load();
-        for d in data {
-            // Sharing multiple entries for the same peer is considered malicious,
-            // since all but one are obviously outdated.
-            if new_data.contains_key(&d.peer_id) {
-                return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
-            }
-            // It is fine to broadcast data we already know about.
-            // It is fine to broadcast data which we know to be outdated.
-            if inner.is_new(&d) {
-                new_data.insert(d.peer_id.clone(), d);
+        {
+            let inner = self.0.lock();
+            for d in data {
+                // Sharing multiple entries for the same peer is considered malicious,
+                // since all but one are obviously outdated.
+                if new_data.contains_key(&d.peer_id) {
+                    return (vec![], Some(SnapshotHostInfoError::DuplicatePeerId));
+                }
+                // It is fine to broadcast data we already know about.
+                // It is fine to broadcast data which we know to be outdated.
+                if inner.is_new(&d) {
+                    new_data.insert(d.peer_id.clone(), d);
+                }
             }
         }
 
@@ -99,22 +110,24 @@ impl SnapshotHostsCache {
     /// Returns the data inserted and optionally a verification error.
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
-        self: &Arc<Self>,
+        self: &Self,
         data: Vec<Arc<SnapshotHostInfo>>,
     ) -> (Vec<Arc<SnapshotHostInfo>>, Option<SnapshotHostInfoError>) {
-        let this = self.clone();
         // Execute verification on the rayon threadpool.
-        let (data, err) = this.verify(data).await;
+        let (data, err) = self.verify(data).await;
         // Insert the successfully verified data, even if an error has been encountered.
-        let inserted = self.0.update(|mut inner| {
-            let inserted = data.into_iter().filter_map(|d| inner.try_insert(d)).collect();
-            (inserted, inner)
-        });
+        let mut newly_inserted_data: Vec<Arc<SnapshotHostInfo>> = vec![];
+        let mut inner = self.0.lock();
+        for d in data {
+            if let Some(inserted) = inner.try_insert(d) {
+                newly_inserted_data.push(inserted);
+            }
+        }
         // Return the inserted data.
-        (inserted, err)
+        (newly_inserted_data, err)
     }
 
     pub fn get_hosts(&self) -> Vec<Arc<SnapshotHostInfo>> {
-        self.0.load().hosts.values().cloned().collect()
+        self.0.lock().hosts.iter().map(|(_, v)| v.clone()).collect()
     }
 }

@@ -139,6 +139,7 @@ fn do_fork(
                 trie_changes,
                 Default::default(),
                 *block.hash(),
+                block.header().height(),
             );
             store_update.save_trie_changes(wrapped_trie_changes);
 

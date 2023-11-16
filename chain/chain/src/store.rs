@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io;
+use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -9,7 +9,6 @@ use near_cache::CellLruCache;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
@@ -52,7 +51,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
-use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::types::{Block, BlockHeader, LatestKnown, RuntimeAdapter};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use near_store::flat::store_helper;
 use std::sync::Arc;
@@ -73,6 +72,16 @@ pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
     StateSync { clear_block_info: bool },
+}
+
+impl fmt::Debug for GCMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            GCMode::Fork(_) => write!(f, "GCMode::Fork"),
+            GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
+            GCMode::StateSync { .. } => write!(f, "GCMode::StateSync"),
+        }
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -614,7 +623,6 @@ impl ChainStore {
     ) -> Result<(), Error> {
         tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
-        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
@@ -648,7 +656,6 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     fn reassign_outgoing_receipts_for_resharding_v2(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
@@ -2320,6 +2327,44 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_uids_to_gc
     }
 
+    /// GC trie state and flat state data after a resharding event
+    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
+    /// During GC, when we detect a change in shard layout, we can clear off all entries from
+    /// the parent shards
+    /// TODO(resharding): Need to clean remaining columns after resharding
+    pub fn clear_resharding_data(
+        &mut self,
+        runtime: &dyn RuntimeAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
+        block_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        // Need to check if this is the last block of the epoch where resharding is completed
+        // which means shard layout changed in the previous epoch
+        if !epoch_manager.is_next_block_epoch_start(&block_hash)? {
+            return Ok(());
+        }
+        let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
+        let prev_epoch_id = epoch_manager.get_prev_epoch_id(&block_hash)?;
+        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+        if shard_layout == prev_shard_layout {
+            return Ok(());
+        }
+
+        // Now we can proceed to removing the trie state and flat state
+        let mut store_update = self.store().store_update();
+        for shard_uid in prev_shard_layout.get_shard_uids() {
+            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
+            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
+            runtime
+                .get_flat_storage_manager()
+                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        }
+
+        self.merge(store_update);
+        Ok(())
+    }
+
     // Clearing block data of `block_hash`, if on a fork.
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
@@ -2329,6 +2374,8 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
+
+        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {
@@ -3140,6 +3187,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            wrapped_trie_changes.apply_mem_changes();
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);

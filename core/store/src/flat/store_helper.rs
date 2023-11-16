@@ -126,6 +126,10 @@ pub fn remove_all_flat_state_values(store_update: &mut StoreUpdate, shard_uid: S
     remove_range_by_shard_uid(store_update, shard_uid, DBCol::FlatState);
 }
 
+pub fn remove_all_state_values(store_update: &mut StoreUpdate, shard_uid: ShardUId) {
+    remove_range_by_shard_uid(store_update, shard_uid, DBCol::State);
+}
+
 pub fn encode_flat_state_db_key(shard_uid: ShardUId, key: &[u8]) -> Vec<u8> {
     let mut buffer = vec![];
     buffer.extend_from_slice(&shard_uid.to_bytes());

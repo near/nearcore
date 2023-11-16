@@ -6,6 +6,7 @@ use chrono::Utc;
 use near_chain_configs::StateSplitConfig;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
+use near_store::StorageError;
 use num_rational::Rational32;
 
 use near_chain_configs::{Genesis, ProtocolConfig};
@@ -392,6 +393,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_update_to_split_states(
         &self,
         block_hash: &CryptoHash,
+        block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
@@ -426,6 +428,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
+    /// but which exact shards to load depends on configuration. This may only be called when flat
+    /// storage is ready.
+    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError>;
 }
 
 /// The last known / checked height and time when we have processed it.

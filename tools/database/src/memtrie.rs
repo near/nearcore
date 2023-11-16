@@ -37,13 +37,7 @@ impl LoadMemTrieCommand {
         let state_root = flat_head_state_root(&store, &shard_uid);
         let flat_head_height = flat_head(&store, &shard_uid).height;
 
-        let _trie = load_trie_from_flat_state(
-            &store,
-            shard_uid,
-            state_root,
-            flat_head_height,
-            64 * 1024 * 1024 * 1024,
-        )?;
+        let _trie = load_trie_from_flat_state(&store, shard_uid, state_root, flat_head_height)?;
         println!(
             "Loaded trie for shard {} at height {}, press Ctrl-C to exit.",
             self.shard_id, flat_head_height

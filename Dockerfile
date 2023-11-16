@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile-upstream:experimental
 
-FROM ubuntu:18.04 as build
+FROM ubuntu:22.04 as build
 
 RUN apt-get update -qq && apt-get install -y \
     git \
@@ -29,10 +29,10 @@ COPY . .
 ENV PORTABLE=ON
 ARG make_target=
 RUN make CARGO_TARGET_DIR=/tmp/target \
-         "${make_target:?make_target not set}"
+    "${make_target:?make_target not set}"
 
-# Actual image
-FROM ubuntu:18.04
+# Docker image
+FROM ubuntu:22.04
 
 EXPOSE 3030 24567
 

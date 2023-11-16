@@ -36,19 +36,18 @@ It requires nextest harness which can be installed by running `cargo install car
    such tests is to enable all the features by passing `--all-features` to
    `cargo nextest run`, e.g:
 
-`cargo nextest run --package near-client --test cross_shard_tx
-tests::test_cross_shard_tx --all-features`
+`cargo nextest run --package near-client -E 'test(=tests::cross_shard_tx::test_cross_shard_tx)' --all-features`
 
 3. **Python tests:** We have an infrastructure to spin up nodes, both locally and
    remotely, in python, and interact with them using RPC. The infrastructure and
    the tests are located in the `pytest` folder. The infrastructure is relatively
    straightforward, see for example `block_production.py`
-   [here](https://github.com/nearprotocol/nearcore/blob/master/pytest/tests/sanity/block_production.py).
+   [here](https://github.com/near/nearcore/blob/master/pytest/tests/sanity/block_production.py).
    See the `Test infrastructure` section below for details.
 
 Expensive and python tests are not part of CI, and are run by a custom nightly
 runner. The results of the latest runs are available
-[here](http://nightly.neartest.com/). Today, test runs launch approximately
+[here](https://nayduck.near.org/#/). Today, test runs launch approximately
 every 5-6 hours. For the latest results look at the **second** run, since the
 first one has some tests still scheduled to run.
 
@@ -71,7 +70,7 @@ predefined timeout.
 
 For the most basic example of using this infrastructure see `produce_two_blocks`
 in
-[`tests/process_blocks.rs`](https://github.com/nearprotocol/nearcore/blob/master/chain/client/tests/process_blocks.rs).
+[`tests/process_blocks.rs`](https://github.com/near/nearcore/blob/master/chain/client/src/tests/process_blocks.rs).
 
 1. The callback (`Box::new(move |msg, _ctx, _| { ...`) is what is executed
    whenever the client sends a message. The return value of the callback is sent
@@ -84,13 +83,13 @@ in
 
 For an example of a test that launches multiple nodes, see
 `chunks_produced_and_distributed_common` in
-[tests/chunks_management.rs](https://github.com/nearprotocol/nearcore/blob/master/chain/client/tests/chunks_management.rs).
+[tests/chunks_management.rs](https://github.com/near/nearcore/blob/master/chain/client/src/tests/chunks_management.rs).
 The `setup_mock_all_validators` function is the key piece of infrastructure here.
 
 ## Runtime
 
 Tests for Runtime are listed in
-[tests/test_cases_runtime.rs](https://github.com/near/nearcore/blob/master/tests/test_cases_runtime.rs).
+[tests/test_cases_runtime.rs](https://github.com/near/nearcore/blob/master/integration-tests/src/tests/standard_cases/runtime.rs).
 
 To run a test, usually, a mock `RuntimeNode` is created via `create_runtime_node()`.
 In its constructor, the `Runtime` is created in the
@@ -114,16 +113,16 @@ make sure to build new components sufficiently abstract so that they can be test
 without relying on other components.
 
 For example, see tests for doomslug
-[here](https://github.com/nearprotocol/nearcore/blob/master/chain/chain/tests/doomslug.rs),
+[here](https://github.com/near/nearcore/blob/master/chain/chain/src/tests/doomslug.rs),
 for network cache
-[here](https://github.com/nearprotocol/nearcore/blob/master/chain/network/tests/cache_edges.rs),
+[here](https://github.com/near/nearcore/blob/master/chain/network/src/routing/edge_cache/tests.rs),
 or for promises in runtime
-[here](https://github.com/nearprotocol/nearcore/blob/master/runtime/near-vm-logic/tests/test_promises.rs).
+[here](https://github.com/near/nearcore/blob/master/runtime/near-vm-runner/src/logic/tests/promises.rs).
 
 ## Python tests
 
 See
-[this page](https://github.com/nearprotocol/nearcore/wiki/Writing-integration-tests-for-nearcore)
+[this page](python_tests.md)
 for detailed coverage of how to write a python test.
 
 We have a python library that allows one to create and run python tests.
