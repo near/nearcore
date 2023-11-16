@@ -128,9 +128,6 @@ jobs:
     name: "Backward Compatibility"
     needs: build_binary
     runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: ./pytest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -144,15 +141,14 @@ jobs:
         with:
           name: neard
           path: pytest # NB: this does not account for defaults.run.working-directory
-      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
+      - run: echo "CURRENT_NEARD=$PWD/pytest/neard" >> "$GITHUB_ENV"
       - run: chmod +x "$CURRENT_NEARD"
-      - run: pip3 install --user -r requirements.txt
-      - run: mkdir ../target
+      - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
-      - run: python3 tests/sanity/backward_compatible.py
-      - run: find .. -name '*.profraw'
-      - run: find ../target
-      - run: find ..
+      - run: cd pytest && python3 tests/sanity/backward_compatible.py
+      - run: find . -name '*.profraw'
+      - run: find target
+      - run: find .
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-backcomp.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
