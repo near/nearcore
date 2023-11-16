@@ -16,6 +16,10 @@ use near_primitives::types::{Balance, BlockHeight, Gas, StateChangesForSplitStat
 use std::collections::HashMap;
 use std::sync::Arc;
 
+/// Information about block in for which shard is updated.
+/// Use cases include:
+/// - queries to epoch manager
+/// - allowing contracts to get current chain data
 #[derive(Clone, Debug)]
 pub struct BlockContext {
     pub block_hash: CryptoHash,
@@ -57,18 +61,29 @@ pub enum ApplyChunkResult {
     SplitState(SplitStateResult),
 }
 
+/// Reason to update a shard when new block appears on chain.
 pub enum ShardUpdateReason {
+    /// Block has a new chunk for the shard.
+    /// Contains chunk itself and all new incoming receipts to the shard.
     NewChunk(ShardChunk, Vec<Receipt>),
+    /// Block doesn't have a new chunk for the shard.
+    /// Instead, previous chunk header is copied.
+    /// Contains result of shard update for previous block.
     OldChunk(ChunkExtra),
+    /// See comment to `split_state_roots` in `Chain::apply_chunks_preprocessing`.
+    /// Process only state changes caused by resharding.
     StateSplit(StateChangesForSplitStates),
 }
 
+/// Information about shard to update.
 pub struct ShardInfo {
     pub shard_uid: ShardUId,
+    /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
 }
 
-/// This method returns the closure that is responsible for applying of a single chunk.
+/// Processes shard update with given block and shard.
+/// Doesn't modify chain, only produces result to be applied later.
 pub fn process_shard_update(
     parent_span: &tracing::Span,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -113,7 +128,8 @@ pub fn process_shard_update(
     }
 }
 
-/// Returns the apply chunk job when applying a new chunk and applying transactions.
+/// Applies new chunk, which includes applying transactions from chunk and
+/// receipts filtered from outgoing receipts from previous chunks.
 fn apply_new_chunk(
     parent_span: &tracing::Span,
     block_context: BlockContext,
@@ -127,10 +143,10 @@ fn apply_new_chunk(
 ) -> Result<ApplyChunkResult, Error> {
     let shard_id = shard_info.shard_uid.shard_id();
     let _span = tracing::debug_span!(
-            target: "chain",
-            parent: parent_span,
-            "new_chunk",
-            shard_id)
+        target: "chain",
+        parent: parent_span,
+        "new_chunk",
+        shard_id)
     .entered();
     let chunk_inner = chunk.cloned_header().take_inner();
     let gas_limit = chunk_inner.gas_limit();
@@ -183,7 +199,9 @@ fn apply_new_chunk(
     }
 }
 
-/// Returns the apply chunk job when applying an old chunk and applying transactions.
+/// Applies shard update corresponding to missing chunk.
+/// (logunov) From what I know, the state update may include only validator
+/// accounts update on epoch start.
 fn apply_old_chunk(
     parent_span: &tracing::Span,
     block_context: BlockContext,
@@ -196,10 +214,10 @@ fn apply_old_chunk(
 ) -> Result<ApplyChunkResult, Error> {
     let shard_id = shard_info.shard_uid.shard_id();
     let _span = tracing::debug_span!(
-            target: "chain",
-            parent: parent_span,
-            "existing_chunk",
-            shard_id)
+        target: "chain",
+        parent: parent_span,
+        "existing_chunk",
+        shard_id)
     .entered();
 
     let storage_config = RuntimeStorageConfig {
@@ -248,7 +266,7 @@ fn apply_old_chunk(
     }
 }
 
-/// Returns the apply chunk job when just splitting state but not applying transactions.
+/// Applies only split state changes but not applies any transactions.
 fn apply_state_split(
     parent_span: &tracing::Span,
     block_context: BlockContext,

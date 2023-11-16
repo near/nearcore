@@ -3525,7 +3525,9 @@ impl Chain {
         return Ok(());
     }
 
-    fn get_block_context(
+    /// For given pair of block headers and shard id, return information about
+    /// block necessary for processing shard update.
+    fn get_block_context_for_shard_update(
         &self,
         block_header: &BlockHeader,
         prev_block_header: &BlockHeader,
@@ -3551,7 +3553,7 @@ impl Chain {
             && check_if_block_is_first_with_chunk_of_version(
                 self.store(),
                 self.epoch_manager.as_ref(),
-                prev_block_header.hash(),
+                block_header.prev_hash(),
                 shard_id,
             )?;
 
@@ -3935,6 +3937,8 @@ impl Chain {
                 let is_new_chunk = chunk_header.height_included() == block.header().height();
                 let shard_update_reason = if should_apply_transactions {
                     if is_new_chunk {
+                        // Validate new chunk and collect incoming receipts for it.
+
                         let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
                         let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
                         let prev_chunk_height_included = prev_chunk_header.height_included();
@@ -3987,6 +3991,7 @@ impl Chain {
                         )?;
                         let old_receipts = collect_receipts_from_response(old_receipts);
                         let receipts = [new_receipts, old_receipts].concat();
+
                         ShardUpdateReason::NewChunk(chunk, receipts)
                     } else {
                         ShardUpdateReason::OldChunk(ChunkExtra::clone(
@@ -4005,7 +4010,7 @@ impl Chain {
                 Ok(if should_apply_transactions || split_state_roots.is_some() {
                     let runtime = self.runtime_adapter.clone();
                     let epoch_manager = self.epoch_manager.clone();
-                    let block_context = self.get_block_context(
+                    let block_context = self.get_block_context_for_shard_update(
                         block.header(),
                         prev_block.header(),
                         shard_id as ShardId,
