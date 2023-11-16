@@ -99,9 +99,9 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let storage_usage_config = &runtime_config.fees.storage_usage_config;
     let initial_epoch_config = EpochConfig::from(&genesis.config);
     let shard_layout = initial_epoch_config.shard_layout;
-    let num_shards = shard_layout.num_shards();
+    let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
     let mut shard_account_ids: Vec<HashSet<AccountId>> =
-        (0..num_shards).map(|_| HashSet::new()).collect();
+        shard_ids.iter().map(|_| HashSet::new()).collect();
     let mut has_protocol_account = false;
     info!(target: "store","distributing records to shards");
 
@@ -124,7 +124,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     );
 
     let writers = std::sync::atomic::AtomicUsize::new(0);
-    (0..num_shards)
+    shard_ids
         .into_par_iter()
         .map(|shard_id| {
             let validators = genesis

@@ -1345,8 +1345,7 @@ mod test {
     use near_primitives::challenge::SlashedValidator;
     use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
     use near_primitives::types::{
-        BlockHeightDelta, Nonce, NumShards, ValidatorId, ValidatorInfoIdentifier,
-        ValidatorKickoutReason,
+        BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
     };
     use near_primitives::validator_signer::ValidatorSigner;
     use near_primitives::views::{
@@ -1583,30 +1582,32 @@ mod test {
             challenges_result: ChallengesResult,
         ) {
             let new_hash = hash(&[(self.head.height + 1) as u8]);
-            let num_shards = self.epoch_manager.num_shards(&self.head.epoch_id).unwrap();
-            assert_eq!(transactions.len() as NumShards, num_shards);
-            assert_eq!(chunk_mask.len() as NumShards, num_shards);
+            let shard_ids = self.epoch_manager.shard_ids(&self.head.epoch_id).unwrap();
+            assert_eq!(transactions.len(), shard_ids.len());
+            assert_eq!(chunk_mask.len(), shard_ids.len());
             let mut all_proposals = vec![];
             let mut all_receipts = vec![];
-            for i in 0..num_shards {
+            for shard_id in shard_ids {
                 let (state_root, proposals, receipts) = self.runtime.update(
-                    &self.state_roots[i as usize],
-                    i,
+                    &self.state_roots[shard_id as usize],
+                    shard_id,
                     self.head.height + 1,
                     0,
                     &self.head.last_block_hash,
                     &new_hash,
-                    self.last_receipts.get(&i).map_or(&[], |v| v.as_slice()),
-                    &transactions[i as usize],
-                    ValidatorStakeIter::new(self.last_shard_proposals.get(&i).unwrap_or(&vec![])),
+                    self.last_receipts.get(&shard_id).map_or(&[], |v| v.as_slice()),
+                    &transactions[shard_id as usize],
+                    ValidatorStakeIter::new(
+                        self.last_shard_proposals.get(&shard_id).unwrap_or(&vec![]),
+                    ),
                     self.runtime.genesis_config.min_gas_price,
                     u64::max_value(),
                     &challenges_result,
                 );
-                self.state_roots[i as usize] = state_root;
+                self.state_roots[shard_id as usize] = state_root;
                 all_receipts.extend(receipts);
                 all_proposals.append(&mut proposals.clone());
-                self.last_shard_proposals.insert(i as ShardId, proposals);
+                self.last_shard_proposals.insert(shard_id, proposals);
             }
             self.epoch_manager
                 .add_validator_proposals(BlockHeaderInfo {

@@ -112,7 +112,7 @@ fn main() -> anyhow::Result<()> {
     let signer = InMemorySigner::from_random("mock_node".parse().unwrap(), KeyType::ED25519);
     near_config.network_config.node_key = signer.secret_key;
     near_config.client_config.tracked_shards =
-        (0..near_config.genesis.config.shard_layout.num_shards()).collect();
+        near_config.genesis.config.shard_layout.shard_ids().collect();
     if near_config.rpc_config.is_none() {
         near_config.rpc_config = Some(near_jsonrpc::RpcConfig::default());
     }
