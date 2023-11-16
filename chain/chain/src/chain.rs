@@ -3930,7 +3930,6 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<Option<ApplyChunkJob>, Error> {
         let prev_hash = block.header().prev_hash();
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
         let cares_about_shard_this_epoch =
             self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let cares_about_shard_next_epoch =
@@ -3963,7 +3962,7 @@ impl Chain {
             None
         };
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
         let is_new_chunk = chunk_header.height_included() == block.header().height();
         let shard_update_reason = if should_apply_transactions {
             if is_new_chunk {
