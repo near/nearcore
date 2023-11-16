@@ -1,4 +1,4 @@
-name: Neard Linux binary and Docker image release
+name: Neard binary and Docker image release
 
 on:
   # Run when a new release or rc is created
@@ -39,8 +39,6 @@ jobs:
       - name: Checkout nearcore repository
         if: ${{ github.event_name != 'workflow_dispatch'}}
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
 
       - name: Neard binary build and upload to S3
         run: ./scripts/binary_release.sh
@@ -51,23 +49,38 @@ jobs:
           BRANCH=$(git branch --show-current)
           aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
 
+  docker-release:
+    name: "Build and publish nearcore Docker image"
+    runs-on: "ubuntu-20.04-16core"
+    environment: deploy
+    steps:
+      - name: Checkout ${{ github.event.inputs.branch }} branch
+        if: ${{ github.event_name == 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Checkout nearcore repository
+        if: ${{ github.event_name != 'workflow_dispatch'}}
+        uses: actions/checkout@v4
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKER_PAT_TOKEN }}
   
-      - name: Build and push Docker image to nearprotocol/nearcore
+      - name: Build and push Docker image to Dockerhub
         run: |
           COMMIT=$(git rev-parse HEAD)
           BRANCH=${{ github.ref_name }}
-          cp target/release/neard neard
-          docker build -t nearcore -f Dockerfile  --progress=plain .
+          make docker-nearcore
           docker tag nearcore nearprotocol/nearcore:${BRANCH}-${COMMIT}
           docker tag nearcore nearprotocol/nearcore:${BRANCH}
 
           docker push nearprotocol/nearcore:${BRANCH}-${COMMIT}
           docker push nearprotocol/nearcore:${BRANCH}
+          
           if [[ ${BRANCH} == "master" ]];
           then
             docker tag nearcore nearprotocol/nearcore:latest
