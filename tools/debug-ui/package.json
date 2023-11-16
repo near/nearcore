@@ -13,7 +13,7 @@
     "react-router": "^6.17.0",
     "react-router-dom": "^6.17.0",
     "react-scripts": "^5.0.1",
-    "react-tooltip": "^5.21.5",
+    "react-tooltip": "^5.21.6",
     "react-xarrows": "^2.0.2"
   },
   "scripts": {
