@@ -3880,174 +3880,179 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<ApplyChunkJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-        let prev_hash = block.header().prev_hash();
         let chunk_headers = block.chunks();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
-        let jobs: Vec<(Result<Option<ApplyChunkJob>, Error>, &ShardChunkHeader)> = chunk_headers
+        chunk_headers
             .iter()
             .zip(prev_chunk_headers.iter())
             .enumerate()
-            .map(|(shard_id, (chunk_header, prev_chunk_header))| -> Result<Option<ApplyChunkJob>, Error> {
+            .map(|(shard_id, (chunk_header, prev_chunk_header))| {
                 // XXX: This is a bit questionable -- sandbox state patching works
                 // only for a single shard. This so far has been enough.
                 let state_patch = state_patch.take();
-
-                let shard_id = shard_id as ShardId;
-                let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-                let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-                let cares_about_shard_this_epoch =
-                    self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-                let cares_about_shard_next_epoch = self.shard_tracker.will_care_about_shard(
-                    me.as_ref(),
-                    prev_hash,
-                    shard_id,
-                    true,
-                );
-                let will_shard_layout_change =
-                    self.epoch_manager.will_shard_layout_change(prev_hash)?;
-                let should_apply_transactions = get_should_apply_transactions(
+                let apply_chunk_job = self.get_apply_chunk_job(
+                    me,
+                    block,
+                    prev_block,
+                    chunk_header,
+                    prev_chunk_header,
+                    shard_id as ShardId,
                     mode,
-                    cares_about_shard_this_epoch,
-                    cares_about_shard_next_epoch,
+                    incoming_receipts,
+                    state_patch,
                 );
-                let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
-
-                // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-                // 1) if should_apply_transactions == true && split_state_roots.is_some(),
-                //     that means split states are ready.
-                //    `apply_split_state_changes` will apply updates to split_states
-                // 2) if should_apply_transactions == true && split_state_roots.is_none(),
-                //     that means split states are not ready yet.
-                //    `apply_split_state_changes` will return `state_changes_for_split_states`,
-                //     which will be stored to the database in `process_apply_chunks`
-                // 3) if should_apply_transactions == false && split_state_roots.is_some()
-                //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
-                //    otherwise should_apply_transactions will be true
-                //    That means transactions have already been applied last time when apply_chunks are
-                //    called with mode NotCaughtUp, therefore `state_changes_for_split_states` have been
-                //    stored in the database. Then we can safely read that and apply that to the split
-                //    states
-                let split_state_roots =
-                    if need_to_split_states && mode != ApplyChunksMode::NotCaughtUp {
-                        Some(self.get_split_state_roots(block, shard_id)?)
-                    } else {
-                        None
-                    };
-
-                let is_new_chunk = chunk_header.height_included() == block.header().height();
-                let shard_update_reason = if should_apply_transactions {
-                    if is_new_chunk {
-                        // Validate new chunk and collect incoming receipts for it.
-
-                        let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
-                        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
-                        let prev_chunk_height_included = prev_chunk_header.height_included();
-
-                        // Validate that all next chunk information matches previous chunk extra.
-                        validate_chunk_with_chunk_extra(
-                            // It's safe here to use ChainStore instead of ChainStoreUpdate
-                            // because we're asking prev_chunk_header for already committed block
-                            self.store(),
-                            self.epoch_manager.as_ref(),
-                            prev_hash,
-                            prev_chunk_extra.as_ref(),
-                            prev_chunk_height_included,
-                            &chunk_header,
-                        )
-                        .map_err(|err| {
-                            warn!(
-                                target: "chain",
-                                ?err,
-                                prev_block_hash=?prev_hash,
-                                block_hash=?block.header().hash(),
-                                shard_id,
-                                prev_chunk_height_included,
-                                ?prev_chunk_extra,
-                                ?chunk_header,
-                                "Failed to validate chunk extra"
-                            );
-                            byzantine_assert!(false);
-                            match self.create_chunk_state_challenge(
-                                prev_block,
-                                block,
-                                &chunk_header,
-                            ) {
-                                Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
-                                Err(err) => err,
-                            }
-                        })?;
-
-                        self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
-
-                        // we can't use hash from the current block here yet because the incoming receipts
-                        // for this block is not stored yet
-                        let new_receipts =
-                            collect_receipts(incoming_receipts.get(&shard_id).unwrap());
-                        let old_receipts = &self.store().get_incoming_receipts_for_shard(
-                            self.epoch_manager.as_ref(),
-                            shard_id,
-                            *prev_hash,
-                            prev_chunk_height_included,
-                        )?;
-                        let old_receipts = collect_receipts_from_response(old_receipts);
-                        let receipts = [new_receipts, old_receipts].concat();
-
-                        ShardUpdateReason::NewChunk(chunk, receipts)
-                    } else {
-                        ShardUpdateReason::OldChunk(ChunkExtra::clone(
-                            self.get_chunk_extra(prev_hash, &shard_uid)?.as_ref(),
-                        ))
+                match apply_chunk_job {
+                    Ok(Some(processor)) => Some(Ok(processor)),
+                    Ok(None) => None,
+                    Err(err) => {
+                        if err.is_bad_data() {
+                            invalid_chunks.push(chunk_header.clone());
+                        }
+                        Some(Err(err))
                     }
-                } else if split_state_roots.is_some() {
-                    assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
-                    ShardUpdateReason::StateSplit(
-                        self.store().get_state_changes_for_split_states(block.hash(), shard_id)?,
-                    )
-                } else {
-                    return Ok(None);
-                };
-
-                Ok(if should_apply_transactions || split_state_roots.is_some() {
-                    let runtime = self.runtime_adapter.clone();
-                    let epoch_manager = self.epoch_manager.clone();
-                    let block_context = self.get_block_context_for_shard_update(
-                        block.header(),
-                        prev_block.header(),
-                        shard_id as ShardId,
-                        is_new_chunk,
-                    )?;
-                    Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
-                        Ok(process_shard_update(
-                            parent_span,
-                            epoch_manager.clone(),
-                            runtime.clone(),
-                            shard_update_reason,
-                            block_context,
-                            ShardInfo { shard_uid, will_shard_layout_change },
-                            split_state_roots,
-                            state_patch,
-                        )?)
-                    }))
-                } else {
-                    None
-                })
-            })
-            .zip(chunk_headers.iter())
-            .collect();
-
-        jobs.into_iter()
-            .filter_map(|(apply_chunk_job, chunk_header)| match apply_chunk_job {
-                Ok(Some(processor)) => Some(Ok(processor)),
-                Ok(None) => None,
-                Err(err) => {
-                    if err.is_bad_data() {
-                        invalid_chunks.push(chunk_header.clone());
-                    }
-                    Some(Err(err))
                 }
             })
             .collect()
+    }
+
+    /// This method returns the closure that is responsible for applying of a single chunk.
+    fn get_apply_chunk_job(
+        &self,
+        me: &Option<AccountId>,
+        block: &Block,
+        prev_block: &Block,
+        chunk_header: &ShardChunkHeader,
+        prev_chunk_header: &ShardChunkHeader,
+        shard_id: ShardId,
+        mode: ApplyChunksMode,
+        incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
+        state_patch: SandboxStatePatch,
+    ) -> Result<Option<ApplyChunkJob>, Error> {
+        let prev_hash = block.header().prev_hash();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        let cares_about_shard_this_epoch =
+            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let cares_about_shard_next_epoch =
+            self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
+        let should_apply_transactions = get_should_apply_transactions(
+            mode,
+            cares_about_shard_this_epoch,
+            cares_about_shard_next_epoch,
+        );
+        let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
+
+        // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
+        // 1) if should_apply_transactions == true && split_state_roots.is_some(),
+        //     that means split states are ready.
+        //    `apply_split_state_changes` will apply updates to split_states
+        // 2) if should_apply_transactions == true && split_state_roots.is_none(),
+        //     that means split states are not ready yet.
+        //    `apply_split_state_changes` will return `state_changes_for_split_states`,
+        //     which will be stored to the database in `process_apply_chunks`
+        // 3) if should_apply_transactions == false && split_state_roots.is_some()
+        //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
+        //    otherwise should_apply_transactions will be true
+        //    That means transactions have already been applied last time when apply_chunks are
+        //    called with mode NotCaughtUp, therefore `state_changes_for_split_states` have been
+        //    stored in the database. Then we can safely read that and apply that to the split
+        //    states
+        let split_state_roots = if need_to_split_states && mode != ApplyChunksMode::NotCaughtUp {
+            Some(self.get_split_state_roots(block, shard_id)?)
+        } else {
+            None
+        };
+
+        let is_new_chunk = chunk_header.height_included() == block.header().height();
+        let shard_update_reason = if should_apply_transactions {
+            if is_new_chunk {
+                // Validate new chunk and collect incoming receipts for it.
+
+                let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
+                let prev_chunk_height_included = prev_chunk_header.height_included();
+
+                // Validate that all next chunk information matches previous chunk extra.
+                validate_chunk_with_chunk_extra(
+                    // It's safe here to use ChainStore instead of ChainStoreUpdate
+                    // because we're asking prev_chunk_header for already committed block
+                    self.store(),
+                    self.epoch_manager.as_ref(),
+                    prev_hash,
+                    prev_chunk_extra.as_ref(),
+                    prev_chunk_height_included,
+                    &chunk_header,
+                )
+                .map_err(|err| {
+                    warn!(
+                        target: "chain",
+                        ?err,
+                        prev_block_hash=?prev_hash,
+                        block_hash=?block.header().hash(),
+                        shard_id,
+                        prev_chunk_height_included,
+                        ?prev_chunk_extra,
+                        ?chunk_header,
+                        "Failed to validate chunk extra"
+                    );
+                    byzantine_assert!(false);
+                    match self.create_chunk_state_challenge(prev_block, block, &chunk_header) {
+                        Ok(chunk_state) => Error::InvalidChunkState(Box::new(chunk_state)),
+                        Err(err) => err,
+                    }
+                })?;
+
+                self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
+
+                // we can't use hash from the current block here yet because the incoming receipts
+                // for this block is not stored yet
+                let new_receipts = collect_receipts(incoming_receipts.get(&shard_id).unwrap());
+                let old_receipts = &self.store().get_incoming_receipts_for_shard(
+                    self.epoch_manager.as_ref(),
+                    shard_id,
+                    *prev_hash,
+                    prev_chunk_height_included,
+                )?;
+                let old_receipts = collect_receipts_from_response(old_receipts);
+                let receipts = [new_receipts, old_receipts].concat();
+
+                ShardUpdateReason::NewChunk(chunk, receipts)
+            } else {
+                ShardUpdateReason::OldChunk(ChunkExtra::clone(
+                    self.get_chunk_extra(prev_hash, &shard_uid)?.as_ref(),
+                ))
+            }
+        } else if split_state_roots.is_some() {
+            assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
+            ShardUpdateReason::StateSplit(
+                self.store().get_state_changes_for_split_states(block.hash(), shard_id)?,
+            )
+        } else {
+            return Ok(None);
+        };
+
+        let runtime = self.runtime_adapter.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        let block_context = self.get_block_context_for_shard_update(
+            block.header(),
+            prev_block.header(),
+            shard_id as ShardId,
+            is_new_chunk,
+        )?;
+        Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
+            Ok(process_shard_update(
+                parent_span,
+                epoch_manager.clone(),
+                runtime.clone(),
+                shard_update_reason,
+                block_context,
+                ShardInfo { shard_uid, will_shard_layout_change },
+                split_state_roots,
+                state_patch,
+            )?)
+        })))
     }
 
     /// Function to create a new snapshot if needed
