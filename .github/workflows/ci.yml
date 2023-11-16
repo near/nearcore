@@ -145,6 +145,8 @@ jobs:
       - run: chmod +x "$CURRENT_NEARD"
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
+      - run: find .
+      - run: mkdir target
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
       - run: find . -name '*.profraw'
       - run: find target
