@@ -3891,7 +3891,7 @@ impl Chain {
                 // XXX: This is a bit questionable -- sandbox state patching works
                 // only for a single shard. This so far has been enough.
                 let state_patch = state_patch.take();
-                let apply_chunk_job = self.get_apply_chunk_job(
+                let apply_chunk_job = self.get_update_shard_job(
                     me,
                     block,
                     prev_block,
@@ -3916,8 +3916,8 @@ impl Chain {
             .collect()
     }
 
-    /// This method returns the closure that is responsible for applying of a single chunk.
-    fn get_apply_chunk_job(
+    /// This method returns the closure that is responsible for updating a shard.
+    fn get_update_shard_job(
         &self,
         me: &Option<AccountId>,
         block: &Block,
@@ -4036,7 +4036,7 @@ impl Chain {
         let block_context = self.get_block_context_for_shard_update(
             block.header(),
             prev_block.header(),
-            shard_id as ShardId,
+            shard_id,
             is_new_chunk,
         )?;
         Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
