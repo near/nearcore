@@ -3534,9 +3534,10 @@ impl Chain {
         shard_id: ShardId,
         is_new_chunk: bool,
     ) -> Result<BlockContext, Error> {
-        // backwards compatibility
         let epoch_id = block_header.epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        // Before `FixApplyChunks` feature, gas price was taken from current
+        // block by mistake. Preserve it for backwards compatibility.
         let gas_price = if !is_new_chunk
             && protocol_version < ProtocolFeature::FixApplyChunks.protocol_version()
         {
