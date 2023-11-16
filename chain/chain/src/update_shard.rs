@@ -70,7 +70,7 @@ pub enum ShardUpdateReason {
     /// Instead, previous chunk header is copied.
     /// Contains result of shard update for previous block.
     OldChunk(ChunkExtra),
-    /// See comment to `split_state_roots` in `Chain::apply_chunks_preprocessing`.
+    /// See comment to `split_state_roots` in `Chain::get_apply_chunk_job`.
     /// Process only state changes caused by resharding.
     StateSplit(StateChangesForSplitStates),
 }
