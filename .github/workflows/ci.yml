@@ -12,30 +12,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build_binary:
-    name: "Build neard"
-    runs-on: ubuntu-22.04-16core
-    steps:
-      - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
-      # TODO: remove the LLVM_PROFILE_FILE override once
-      # https://github.com/taiki-e/cargo-llvm-cov/issues/320 is fixed (and same below)
-      - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
-      - run: cargo build --locked --profile quick-release -p neard --bin neard
-      - uses: actions/upload-artifact@v3
-        with:
-          name: neard
-          path: target/quick-release/neard
-          if-no-files-found: error
-          retention-days: 1
-
   cargo_nextest:
     name: "Cargo Nextest (${{matrix.name}})"
     runs-on: ${{ matrix.os }}
@@ -116,7 +92,7 @@ jobs:
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -126,7 +102,6 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    needs: build_binary
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -137,16 +112,16 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
-      - uses: actions/download-artifact@v3
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
-          name: neard
-          path: pytest # NB: this does not account for defaults.run.working-directory
-      - run: echo "CURRENT_NEARD=$PWD/pytest/neard" >> "$GITHUB_ENV"
-      - run: chmod +x "$CURRENT_NEARD"
+          prefix-key: "0" # change this to invalidate CI cache
+          shared-key: "cargo_nextest-linux"
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: find .
-      - run: mkdir target
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
       - run: find . -name '*.profraw'
       - run: find target
@@ -160,11 +135,7 @@ jobs:
 
   py_db_migration:
     name: "Database Migration"
-    needs: build_binary
-    runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: ./pytest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -174,16 +145,17 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
-      - uses: actions/download-artifact@v3
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
-          name: neard
-          path: pytest # NB: this does not account for defaults.run.working-directory
-      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
-      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
-      - run: chmod +x "$CURRENT_NEARD"
-      - run: pip3 install --user -r requirements.txt
+          prefix-key: "0" # change this to invalidate CI cache
+          shared-key: "cargo_nextest-linux"
+          save-if: "false" # use the cache from nextest, but don’t double-save
+      - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
-      - run: python3 tests/sanity/db_migration.py
+      - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
+      - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
+      - run: cd pytest && python3 tests/sanity/db_migration.py
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-dbmigr.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
@@ -231,8 +203,7 @@ jobs:
 
   py_genesis_check:
     name: "Genesis Changes"
-    needs: build_binary
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -242,14 +213,15 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
-      - uses: actions/download-artifact@v3
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
-          name: neard
-          path: target/quick-release
-      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
-      - run: chmod +x "$CURRENT_NEARD"
+          prefix-key: "0" # change this to invalidate CI cache
+          shared-key: "cargo_nextest-linux"
+          save-if: "false" # use the cache from nextest, but don’t double-save
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-genesischk.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
@@ -275,11 +247,7 @@ jobs:
 
   py_upgradability:
     name: "Upgradability"
-    needs: build_binary
-    runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: ./pytest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -289,15 +257,16 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
-      - uses: actions/download-artifact@v3
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
-          name: neard
-          path: pytest # NB: this does not account for defaults.run.working-directory
-      - run: echo "CURRENT_NEARD=$PWD/neard" >> "$GITHUB_ENV"
-      - run: chmod +x "$CURRENT_NEARD"
-      - run: pip3 install --user -r requirements.txt
+          prefix-key: "0" # change this to invalidate CI cache
+          shared-key: "cargo_nextest-linux"
+          save-if: "false" # use the cache from nextest, but don’t double-save
+      - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | tr -d "'" >> "$GITHUB_ENV"
-      - run: python3 tests/sanity/upgradable.py
+      - run: cargo build --locked --profile quick-release -p neard --bin neard
+      - run: echo "CURRENT_NEARD=$PWD/target/quick-release/neard" >> "$GITHUB_ENV"
+      - run: cd pytest && python3 tests/sanity/upgradable.py
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-upgradability.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
