@@ -2344,18 +2344,21 @@ impl<'a> ChainStoreUpdate<'a> {
             return Ok(());
         }
 
-        // We are using the block header to get the epoch_id and shard_layout here as BlockHeader
-        // isn't garbage collected.
+        // Since this code is related to GC, we need to be careful about accessing block_infos. Note
+        // that the BlockInfo exists for the current block_hash as it's not been GC'd yet.
+        // However, we need to use the block header to get the epoch_id and shard_layout for
+        // first_block_epoch_header and last_block_prev_epoch_hash as BlockInfo for these blocks is
+        // already GC'd while BlockHeader isn't GC'd.
         let block_info = epoch_manager.get_block_info(&block_hash)?;
         let first_block_epoch_hash = block_info.epoch_first_block();
         if first_block_epoch_hash == &CryptoHash::default() {
             return Ok(());
         }
         let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
-        let last_block_prev_epoch_hash = first_block_epoch_header.prev_hash();
-        let last_block_prev_epoch_header = self.get_block_header(last_block_prev_epoch_hash)?;
+        let last_block_prev_epoch_header =
+            self.get_block_header(first_block_epoch_header.prev_hash())?;
 
-        let epoch_id = block_info.epoch_id();
+        let epoch_id = first_block_epoch_header.epoch_id();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
         let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
