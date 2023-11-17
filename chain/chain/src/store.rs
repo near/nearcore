@@ -2343,10 +2343,18 @@ impl<'a> ChainStoreUpdate<'a> {
         if !epoch_manager.is_next_block_epoch_start(&block_hash)? {
             return Ok(());
         }
-        let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
-        let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        let prev_epoch_id = epoch_manager.get_prev_epoch_id(&block_hash)?;
-        let prev_shard_layout = epoch_manager.get_shard_layout(&prev_epoch_id)?;
+
+        // We are using the block header to get the epoch_id and shard_layout here as BlockHeader
+        // isn't garbage collected.
+        let block_info = epoch_manager.get_block_info(&block_hash)?;
+        let first_block_epoch_header = self.get_block_header(block_info.epoch_first_block())?;
+        let last_block_prev_epoch_hash = first_block_epoch_header.prev_hash();
+        let last_block_prev_epoch_header = self.get_block_header(last_block_prev_epoch_hash)?;
+
+        let epoch_id = block_info.epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
+        let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
         if shard_layout == prev_shard_layout {
             return Ok(());
         }
