@@ -1157,8 +1157,8 @@ impl<'a> VMLogic<'a> {
                     msg: "invalid signature length".to_string(),
                 }));
             }
-            match ed25519_dalek::Signature::from_bytes(&vec) {
-                Ok(signature) => signature,
+            match <&[u8; 64]>::try_from(&vec[..]) {
+                Ok(b) => ed25519_dalek::Signature::from_bytes(b),
                 Err(_) => return Ok(false as u64),
             }
         };
@@ -1166,14 +1166,18 @@ impl<'a> VMLogic<'a> {
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
         self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
-        let public_key: ed25519_dalek::PublicKey = {
+        let public_key: ed25519_dalek::VerifyingKey = {
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
             if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
                 return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid public key length".to_string(),
                 }));
             }
-            match ed25519_dalek::PublicKey::from_bytes(&vec) {
+            let b = match <&[u8; 32]>::try_from(&vec[..]) {
+                Ok(b) => b,
+                Err(_) => return Ok(false as u64),
+            };
+            match ed25519_dalek::VerifyingKey::from_bytes(b) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
             }

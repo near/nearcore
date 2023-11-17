@@ -24,11 +24,11 @@ pub fn convert_public_key(key: &signature::ED25519PublicKey) -> Option<vrf::Publ
 }
 
 pub fn convert_secret_key(key: &signature::ED25519SecretKey) -> vrf::SecretKey {
-    let b = ed25519_dalek::ExpandedSecretKey::from(
-        &ed25519_dalek::SecretKey::from_bytes(&key.0[..32]).unwrap(),
+    let b = ed25519_dalek::hazmat::ExpandedSecretKey::from(
+        <&[u8; 32]>::try_from(&key.0[..32]).unwrap(),
     )
-    .to_bytes();
-    vrf::SecretKey::from_scalar(Scalar::from_bytes_mod_order(b[0..32].try_into().unwrap()))
+    .scalar;
+    vrf::SecretKey::from_scalar(Scalar::from_bytes_mod_order(b.to_bytes()))
 }
 
 #[cfg(test)]

@@ -147,7 +147,7 @@ dirs = "4"
 dynasm = "2.0"
 dynasmrt = "2.0"
 easy-ext = "0.2"
-ed25519-dalek = "1"
+ed25519-dalek = { version = "2.1.0", features = ["hazmat", "rand_core"] }
 elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
