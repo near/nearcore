@@ -3431,6 +3431,32 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
+/// To optimise this test, set `epoch_length` to 5 and enable `no_cache` feature.
+#[test]
+fn test_long_chain() {
+    init_test_logger();
+
+    let epoch_length = 1000;
+
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+
+    genesis.config.epoch_length = epoch_length;
+    let mut chain_genesis = ChainGenesis::test();
+    chain_genesis.epoch_length = epoch_length;
+    let mut env = TestEnv::builder(chain_genesis)
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .archive(false)
+        .build();
+
+    let max_height = epoch_length * 2 * env.clients[0].config.gc.gc_num_epochs_to_keep;
+
+    for h in 1..max_height {
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+    }
+}
+
 /// These tests fail on aarch because the WasmtimeVM::precompile method doesn't populate the cache.
 mod contract_precompilation_tests {
     use super::*;
