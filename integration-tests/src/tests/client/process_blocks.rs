@@ -3431,29 +3431,46 @@ fn test_catchup_no_sharding_change() {
     }
 }
 
-/// To optimise this test, set `epoch_length` to 5 and enable `no_cache` feature.
+/// Run `gc_num_epochs_to_keep` epochs + several blocks.
+/// Start a second env from the "snapshot" of the first.
+/// Run one more epoch.
+/// "Restart from the snapshot" is to ensure that we can continue producing blocks without relying on caches.
 #[test]
-fn test_long_chain() {
+fn test_long_chain_with_restart_from_snapshot() {
     init_test_logger();
 
-    let epoch_length = 1000;
+    let epoch_length = 25;
 
-    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
 
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env1 = TestEnv::builder(chain_genesis.clone())
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .archive(false)
         .build();
 
-    let max_height = epoch_length * 2 * env.clients[0].config.gc.gc_num_epochs_to_keep;
+    env1.clients[0].config.gc.gc_blocks_limit = 2;
+
+    let max_height = epoch_length * env1.clients[0].config.gc.gc_num_epochs_to_keep + 3;
 
     for h in 1..max_height {
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
-        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        let block = env1.clients[0].produce_block(h).unwrap().unwrap();
+        env1.process_block(0, block.clone(), Provenance::PRODUCED);
+    }
+
+    let mut env2 = TestEnv::builder(chain_genesis)
+        .stores(vec![env1.clients[0].chain.store().store().clone()])
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .archive(false)
+        .build();
+
+    for h in max_height..(max_height + epoch_length) {
+        let block = env2.clients[0].produce_block(h).unwrap().unwrap();
+        env2.process_block(0, block.clone(), Provenance::PRODUCED);
     }
 }
 
