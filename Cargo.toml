@@ -338,7 +338,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "14.0.4", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"
