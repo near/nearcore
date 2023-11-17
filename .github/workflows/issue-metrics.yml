@@ -9,8 +9,8 @@ permissions:
   issues: write
 
 jobs:
-  build:
-    name: issue metrics
+  monthly-issue-metrics:
+    name: past month issue metrics
     runs-on: ubuntu-latest
     steps:
     - name: Get dates for last month
@@ -38,4 +38,28 @@ jobs:
       with:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
-        content-filepath: ./gh_metrics/issue_metrics.md
+        content-filepath: ./gh_metrics/monthly_issue_metrics.md
+
+  yearly-issue-metrics:
+    name: year to date issue metrics
+    runs-on: ubuntu-latest
+    steps:
+    - name: Get dates for this year
+      shell: bash
+      id: current-year
+      run: |
+        #Set an environment variable with the current year
+        echo "CURRENT_YEAR=$(date +%Y)" >> $GITHUB_OUTPUT
+
+    - name: Run issue-metrics tool
+      uses: github/issue-metrics@v2
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SEARCH_QUERY: 'repo:near/nearcore is:issue created:${{ steps.current-year.outputs.CURRENT_YEAR }}'
+
+    - name: Create issue
+      uses: peter-evans/create-issue-from-file@v4
+      with:
+        title: Monthly issue metrics report
+        token: ${{ secrets.GITHUB_TOKEN }}
+        content-filepath: ./gh_metrics/yearly_issue_metrics.md
