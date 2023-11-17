@@ -189,8 +189,8 @@ fn apply_new_chunk(
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_info.will_shard_layout_change {
                 Some(apply_split_state_changes(
-                    epoch_manager.as_ref(),
-                    runtime.as_ref(),
+                    epoch_manager,
+                    runtime,
                     block_context,
                     &apply_result,
                     split_state_roots,
@@ -257,8 +257,8 @@ fn apply_old_chunk(
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_info.will_shard_layout_change {
                 Some(apply_split_state_changes(
-                    epoch_manager.as_ref(),
-                    runtime.as_ref(),
+                    epoch_manager,
+                    runtime,
                     block_context,
                     &apply_result,
                     split_state_roots,
