@@ -62,7 +62,7 @@ pub(crate) struct StateSplitResult {
 }
 
 #[derive(Debug)]
-pub enum ApplyChunkResult {
+pub(crate) enum ApplyChunkResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
     StateSplit(StateSplitResult),
