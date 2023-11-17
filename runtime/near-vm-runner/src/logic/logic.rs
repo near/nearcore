@@ -914,11 +914,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_g1_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let sign = data[(i + 1) * 97 - 1].clone();
+            let sign = data[i * 97].clone();
 
             let mut pk_aff = blst::blst_p1_affine::default();
             unsafe {
-                blst::blst_p1_deserialize(&mut pk_aff, data[i*97..(i + 1)*97 - 1].as_ptr());
+                blst::blst_p1_deserialize(&mut pk_aff, data[i*97 + 1..(i + 1)*97].as_ptr());
             }
 
             if sign == 1 {
@@ -967,11 +967,11 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_g2_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let sign = data[(i + 1) * 193 - 1].clone();
+            let sign = data[i * 193].clone();
 
             let mut pk_aff = blst::blst_p2_affine::default();
             unsafe {
-                blst::blst_p2_deserialize(&mut pk_aff, data[i*193..(i + 1)*193 - 1].as_ptr());
+                blst::blst_p2_deserialize(&mut pk_aff, data[i*193 + 1..(i + 1)*193].as_ptr());
             }
 
             if sign == 1 {
