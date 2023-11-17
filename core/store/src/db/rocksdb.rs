@@ -114,7 +114,7 @@ impl RocksDB {
         columns: &[DBCol],
     ) -> io::Result<Self> {
         let counter = instance_tracker::InstanceTracker::try_new(store_config.max_open_files)
-            .map_err(other_error)?;
+            .map_err(io::Error::other)?;
         let (db, db_opt) = Self::open_db(path, store_config, mode, temp, columns)?;
         let cf_handles = Self::get_cf_handles(&db, columns);
         Ok(Self { db, db_opt, cf_handles, _instance_tracker: counter })
@@ -144,7 +144,7 @@ impl RocksDB {
         } else {
             DB::open_cf_descriptors(&options, path, cf_descriptors)
         }
-        .map_err(into_other)?;
+        .map_err(io::Error::other)?;
         if cfg!(feature = "single_thread_rocksdb") {
             // These have to be set after open db
             let mut env = Env::new().unwrap();
@@ -200,7 +200,7 @@ impl RocksDB {
         } else if cfg!(debug_assertions) {
             panic!("The database instance isn’t setup to access {col}");
         } else {
-            Err(other_error(format!("{col}: no such column")))
+            Err(io::Error::other(format!("{col}: no such column")))
         }
     }
 
@@ -269,7 +269,7 @@ impl<'a> Iterator for RocksDBIterator<'a> {
     type Item = io::Result<(Box<[u8]>, Box<[u8]>)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.0.next()?.map_err(into_other))
+        Some(self.0.next()?.map_err(io::Error::other))
     }
 }
 
@@ -314,7 +314,7 @@ impl Database for RocksDB {
         let result = self
             .db
             .get_pinned_cf_opt(self.cf_handle(col)?, key, &read_options)
-            .map_err(into_other)?
+            .map_err(io::Error::other)?
             .map(DBSlice::from_rocksdb_slice);
         timer.observe_duration();
         Ok(result)
@@ -366,7 +366,7 @@ impl Database for RocksDB {
                 }
                 DBOp::DeleteAll { col } => {
                     let cf_handle = self.cf_handle(col)?;
-                    let range = self.get_cf_key_range(cf_handle).map_err(into_other)?;
+                    let range = self.get_cf_key_range(cf_handle).map_err(io::Error::other)?;
                     if let Some(range) = range {
                         batch.delete_range_cf(cf_handle, range.start(), range.end());
                         // delete_range_cf deletes ["begin_key", "end_key"), so need one more delete
@@ -378,7 +378,7 @@ impl Database for RocksDB {
                 }
             }
         }
-        self.db.write(batch).map_err(into_other)
+        self.db.write(batch).map_err(io::Error::other)
     }
 
     fn compact(&self) -> io::Result<()> {
@@ -392,7 +392,7 @@ impl Database for RocksDB {
         // Need to iterator over all CFs because the normal `flush()` only
         // flushes the default column family.
         for col in DBCol::iter() {
-            self.db.flush_cf(self.cf_handle(col)?).map_err(into_other)?;
+            self.db.flush_cf(self.cf_handle(col)?).map_err(io::Error::other)?;
         }
         Ok(())
     }
@@ -638,14 +638,6 @@ fn parse_statistics(
         }
     }
     Ok(())
-}
-
-fn other_error(msg: String) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, msg)
-}
-
-fn into_other(error: rocksdb::Error) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, error.into_string())
 }
 
 /// Returns name of a RocksDB column family corresponding to given column.
