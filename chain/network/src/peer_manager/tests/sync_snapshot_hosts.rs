@@ -269,8 +269,8 @@ async fn propagate() {
         make_snapshot_host_info(&pms[1].peer_info().id, 123, vec![2, 3], &pms[1].cfg.node_key);
 
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
-        sync_hash: info1.sync_hash.clone(),
-        epoch_height: info1.epoch_height.clone(),
+        sync_hash: info1.sync_hash,
+        epoch_height: info1.epoch_height,
         shards: info1.shards.clone(),
     });
 
