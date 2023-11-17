@@ -12,6 +12,9 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 backtrace.workspace = true
 enumset.workspace = true

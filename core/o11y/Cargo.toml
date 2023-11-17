@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 publish = true
 
+[lints]
+workspace = true
+
 [dependencies]
 near-crypto.workspace = true
 near-fmt.workspace = true
