@@ -376,10 +376,11 @@ lto = "fat"
 codegen-units = 1
 
 # A much faster to compile version of `release`.
-[profile.quick-release]
+[profile.dev-release]
 inherits = "release"
 lto = false
 codegen-units = 16
+debug-assertions = true
 
 # Used for fuzzing, LTO is ill-supported as of 2023-09 and so should not be enabled.
 [profile.fuzz]
