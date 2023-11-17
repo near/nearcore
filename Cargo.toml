@@ -375,7 +375,7 @@ panic = 'abort'
 lto = "fat"
 codegen-units = 1
 
-# A much faster to compile version of `release`.
+# A much faster to compile version of `release`, for development use.
 [profile.dev-release]
 inherits = "release"
 lto = false
