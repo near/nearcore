@@ -497,6 +497,8 @@ pub fn derive_account_id_from_public_key(public_key: &PublicKey) -> AccountId {
     }
 }
 
+// TODO(eth-implicit) This functionality will be managed by `Wallet Contract`
+// and no access key will be added.
 /// Checks if access key is missing. If not, returns Ok(access_key).
 /// Otherwise, there is a chance that a full access key will be added now
 /// for an ETH-implicit address. If none of these occurs, returns appropriate error.
@@ -520,6 +522,7 @@ pub fn check_access_key(
 
             if derive_account_id_from_public_key(public_key) == *account_id {
                 // TODO(eth-implicit) Is storage increase for that account (because we added access key) correctly handled?
+                // Ultimately, no access key would be added because `Wallet Contract` will manage this account.
                 return Ok(AccessKey::full_access());
             } else {
                 // Provided public key is not the one from which the signer address was derived.

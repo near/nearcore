@@ -1778,12 +1778,14 @@ impl<'a> VMLogic<'a> {
             sir,
             self.config.implicit_account_creation,
             receiver_id.get_account_type(),
+            // TODO(eth-implicit) What protocol version to use?
             PROTOCOL_VERSION,
         );
         let exec_fee = transfer_exec_fee(
             self.fees_config,
             self.config.implicit_account_creation,
             receiver_id.get_account_type(),
+            // TODO(eth-implicit) What protocol version to use?
             PROTOCOL_VERSION,
         );
         let burn_gas = send_fee;

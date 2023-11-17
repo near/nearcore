@@ -102,6 +102,7 @@ pub fn total_send_fees(
                     sender_is_receiver,
                     config.wasm_config.implicit_account_creation,
                     receiver_id.get_account_type(),
+                    // TODO(eth-implicit) What protocol version to use?
                     PROTOCOL_VERSION,
                 )
             }
@@ -197,6 +198,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 fees,
                 config.wasm_config.implicit_account_creation,
                 receiver_id.get_account_type(),
+                // TODO(eth-implicit) What protocol version to use?
                 PROTOCOL_VERSION,
             )
         }

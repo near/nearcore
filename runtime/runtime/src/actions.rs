@@ -476,6 +476,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicit, current_protocol_version) {
+                // TODO(eth-implicit) `Wallet Contract` should be deployed to that address.
                 *account = Some(Account::new(
                     transfer.deposit,
                     0,

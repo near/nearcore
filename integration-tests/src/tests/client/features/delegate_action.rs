@@ -176,7 +176,7 @@ fn check_meta_tx_execution(
 
     match access_key_before {
         Ok(access_key_before) => {
-            // user key must be checked for existence (to test DeleteKey action)
+            // User key must be checked for existence (to test DeleteKey action).
             if let Ok(user_nonce) = node_user
                 .get_access_key(&sender, &PublicKey::from_seed(KeyType::ED25519, sender.as_ref()))
                 .map(|key| key.nonce)
@@ -960,7 +960,8 @@ fn meta_tx_create_implicit_account(
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.transfer_cost(),
-        // TODO(eth-implicit) Include fee for adding full access key.
+        // TODO(eth-implicit) Should include fee for adding full access key?
+        // There might be a different fee because of `Wallet Contract` anyway.
         AccountType::EthImplicitAccount => fee_helper.transfer_cost(),
         AccountType::NamedAccount => panic!("must be implicit"),
     };
