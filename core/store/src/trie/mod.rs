@@ -953,13 +953,6 @@ impl Trie {
         if hash == &Self::EMPTY_ROOT {
             return Ok(None);
         }
-        if let Some(acc_id) = account_id.clone() {
-            self.metrics.has_account_id.inc();
-            if CONTRACT_CACHES.iter().any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
-            {
-                self.metrics.is_cached_contract.inc();
-            }
-        }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, use_accounting_cache)?;
         let node = RawTrieNodeWithSize::try_from_slice(&bytes).map_err(|err| {
             StorageError::StorageInconsistentState(format!("Failed to decode node {hash}: {err}"))
@@ -1211,13 +1204,6 @@ impl Trie {
         hash: &CryptoHash,
         account_id: Option<AccountId>,
     ) -> Result<Vec<u8>, StorageError> {
-        if let Some(acc_id) = account_id.clone() {
-            self.metrics.has_account_id.inc();
-            if CONTRACT_CACHES.iter().any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
-            {
-                self.metrics.is_cached_contract.inc();
-            }
-        }
         let bytes = self.internal_retrieve_trie_node(hash, account_id, true)?;
         Ok(bytes.to_vec())
     }
