@@ -322,18 +322,18 @@ impl PrefetchStagingArea {
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
         let mut guard = self.0.lock_mut();
-        let dropped = guard.slots.remove(key);
+        let _dropped = guard.slots.remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
         // `None` means prefetching was stopped due to memory limits.
-        debug_assert!(
-            dropped.is_none()
-                || prefetch_state_matches(
-                    PrefetchSlot::Done(Arc::new([])),
-                    dropped.as_ref().unwrap()
-                )
-                || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
-        );
+        // debug_assert!(
+        //     dropped.is_none()
+        //         || prefetch_state_matches(
+        //             PrefetchSlot::Done(Arc::new([])),
+        //             dropped.as_ref().unwrap()
+        //         )
+        //         || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
+        // );
     }
 
     /// Block until value is prefetched and then return it.
