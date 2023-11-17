@@ -132,13 +132,9 @@ pub struct StateSync {
     /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
 
-    /// When the "sync block" was requested.
-    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_block_requested: Option<DateTime<Utc>>,
-
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
-    pub timeout: Duration,
+    timeout: Duration,
 
     /// Maps shard_id to result of applying downloaded state.
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
@@ -203,7 +199,6 @@ impl StateSync {
         StateSync {
             inner,
             network_adapter,
-            last_time_block_requested: None,
             timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
