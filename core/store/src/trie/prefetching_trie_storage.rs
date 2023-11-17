@@ -504,14 +504,14 @@ impl PrefetchApi {
     }
 }
 
-fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
-    match (expected, actual) {
-        (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
-        | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)
-        | (PrefetchSlot::Done(_), PrefetchSlot::Done(_)) => true,
-        _ => false,
-    }
-}
+// fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
+//     match (expected, actual) {
+//         (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
+//         | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)
+//         | (PrefetchSlot::Done(_), PrefetchSlot::Done(_)) => true,
+//         _ => false,
+//     }
+// }
 
 /// Guard that owns the spawned prefetching IO threads.
 #[must_use = "When dropping this handle, the IO threads will be aborted immediately."]
