@@ -12,6 +12,9 @@ edition = "2021"
 publish = false
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 # Shared dependencies.
 [dependencies]
 # - Mandatory shared dependencies.
