@@ -160,10 +160,7 @@ impl ShardLayout {
     /// This is work in progress and the exact way of splitting is yet to be determined.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
         ShardLayout::v1(
-            // TODO(resharding) - find the right boundary to split shards in
-            // place of just "sweat". Likely somewhere in between near.social
-            // and sweatcoin.
-            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "sweat"]
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
                 .into_iter()
                 .map(|s| s.parse().unwrap())
                 .collect(),
@@ -611,7 +608,7 @@ mod tests {
               "aurora",
               "aurora-0",
               "kkuuue2akv_1630967379.near",
-              "sweat"
+              "tge-lockup.sweat"
             ],
             "shards_split_map": [
               [
