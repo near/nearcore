@@ -38,8 +38,7 @@ jobs:
       with:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
-        # content-filepath: ./gh_metrics/monthly_issue_metrics.md
-        content-filepath: ./gh_metrics/.gitkeep
+        content-filepath: ./issue_metrics.md
 
   yearly-issue-metrics:
     name: year to date issue metrics
@@ -63,5 +62,4 @@ jobs:
       with:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
-        # content-filepath: ./gh_metrics/yearly_issue_metrics.md
-        content-filepath: ./gh_metrics/.gitkeep
+        content-filepath: ./issue_metrics.md
