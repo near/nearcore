@@ -119,3 +119,70 @@ async fn broadcast() {
     let peer5_sync_msg = peer5.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(peer5_sync_msg.hosts.as_set(), vec![info1, info2].as_set());
 }
+
+/// Test that a SyncSnapshotHosts message with an invalid signature isn't broadcast by PeerManager.
+#[tokio::test]
+async fn invalid_signature_not_broadcast() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "Connect peers, expect initial sync to be empty.");
+    let peer1_config = chain.make_config(rng);
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let peer2_config = chain.make_config(rng);
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), peer2_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let mut peer3 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has an invalid signature.");
+    let random_secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
+    let invalid_info =
+        make_snapshot_host_info(&peer1_config.node_id(), 1337, vec![10, 11], &random_secret_key);
+
+    let ok_info_a =
+        make_snapshot_host_info(&peer1_config.node_id(), 2, vec![10012120], &peer1_config.node_key);
+    let ok_info_b =
+        make_snapshot_host_info(&peer1_config.node_id(), 222, vec![232], &peer1_config.node_key);
+
+    let invalid_message = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+        hosts: vec![ok_info_a, invalid_info, ok_info_b],
+    });
+    peer1.send(invalid_message).await;
+
+    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+
+    let info2 =
+        make_snapshot_host_info(&peer2_config.node_id(), 2434, vec![0, 1], &peer2_config.node_key);
+
+    peer2
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
+        .await;
+
+    tracing::info!(target:"test", "Make sure that only the valid message is broadcast.");
+
+    let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(msg.hosts, vec![info2]);
+}
