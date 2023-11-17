@@ -904,7 +904,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g1_sum_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -948,7 +948,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_g2_sum(
@@ -956,7 +957,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g2_sum_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -1000,7 +1001,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p2_affine_serialize(res.as_mut_ptr(), &res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_g1_multiexp(
@@ -1008,7 +1010,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g1_multiexp_base)?;
 
         const POINT_BYTES_LEN: u64 = 96;
@@ -1053,7 +1055,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_g2_multiexp(
@@ -1061,7 +1064,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g2_multiexp_base)?;
 
         const POINT_BYTES_LEN: u64 = 192;
@@ -1106,7 +1109,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_map_fp_to_g1(
@@ -1114,7 +1118,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_map_fp_to_g1_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut fp_point = blst::blst_fp::default();
@@ -1139,7 +1143,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_map_fp2_to_g2(
@@ -1147,7 +1152,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut c_fp1 = [blst::blst_fp::default(); 2];
@@ -1175,7 +1180,8 @@ impl<'a> VMLogic<'a> {
             blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        Ok(0)
     }
 
     pub fn bls12381_pairing_check(&mut self,
@@ -1213,7 +1219,7 @@ impl<'a> VMLogic<'a> {
             blst::blst_fp12_is_one(&pairing_fp12)
         };
 
-        Ok(pairing_res as u64)
+        if pairing_res { Ok(0) } else { Ok(5) }
     }
 
     pub fn bls12381_g1_decompress(
@@ -1221,7 +1227,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g1_decompress_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -1237,7 +1243,8 @@ impl<'a> VMLogic<'a> {
             res.extend_from_slice(pk_ser.as_slice());
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;
+        Ok(0)
     }
 
     pub fn bls12381_g2_decompress(
@@ -1245,7 +1252,7 @@ impl<'a> VMLogic<'a> {
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g2_decompress_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
@@ -1261,7 +1268,8 @@ impl<'a> VMLogic<'a> {
             res.extend_from_slice(sig_ser.as_slice());
         }
 
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;
+        Ok(0)
     }
 
     /// Writes random seed into the register.

@@ -40,15 +40,15 @@ extern "C" {
     fn alt_bn128_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
     fn alt_bn128_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
     fn alt_bn128_pairing_check(value_len: u64, value_ptr: u64) -> u64;
-    fn bls12381_g1_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_g2_sum(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_g2_multiexp(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_map_fp_to_g1(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_map_fp2_to_g2(value_len: u64, value_ptr: u64, register_id: u64);
+    fn bls12381_g1_sum(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_g2_sum(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_g1_multiexp(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_g2_multiexp(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_map_fp_to_g1(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_map_fp2_to_g2(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
     fn bls12381_pairing_check(value_len: u64, value_ptr: u64) -> u64;
-    fn bls12381_g1_decompress(value_len: u64, value_ptr: u64, register_id: u64);
-    fn bls12381_g2_decompress(value_len: u64, value_ptr: u64, register_id: u64);
+    fn bls12381_g1_decompress(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
+    fn bls12381_g2_decompress(value_len: u64, value_ptr: u64, register_id: u64) -> u64;
 
     fn random_seed(register_id: u64);
     fn sha256(value_len: u64, value_ptr: u64, register_id: u64);
