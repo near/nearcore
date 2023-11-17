@@ -38,4 +38,3 @@ jobs:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
         content-filepath: ./gh_metrics/issue_metrics.md
-        
