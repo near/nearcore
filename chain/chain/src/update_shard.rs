@@ -87,7 +87,7 @@ pub(crate) enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
-pub struct ShardContext {
+pub(crate) struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
