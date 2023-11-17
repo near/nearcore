@@ -163,6 +163,7 @@ impl SyncConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[serde(default)]
 pub struct StateSplitConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
