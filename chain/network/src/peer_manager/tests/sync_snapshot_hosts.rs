@@ -6,10 +6,13 @@ use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::tcp;
 use crate::testonly::{make_rng, AsSet as _};
+use crate::types::NetworkRequests;
+use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
+use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochHeight;
@@ -38,6 +41,27 @@ fn take_sync_snapshot_msg(event: crate::peer::testonly::Event) -> Option<SyncSna
         _ => None,
     }
 }
+
+/// Used to consume peer manager events until there's an event of type SyncSnapshotHosts
+fn take_sync_snapshot_msg_manager(
+    event: crate::peer_manager::testonly::Event,
+) -> Option<SyncSnapshotHosts> {
+    match event {
+        peer_manager::testonly::Event::PeerManager(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncSnapshotHosts(msg),
+        )) => Some(msg),
+        _ => None,
+    }
+}
+
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+/// 1. eventfd2()
+/// 2. epoll_create1()
+/// 3. fcntl() duplicating one end of some globally shared socketpair()
+/// 4. fcntl() duplicating epoll socket created in (2)
+/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+const FDS_PER_PEER: usize = 5;
 
 /// Test that PeerManager broadcasts SnapshotHostInfo messages to all connected peers
 #[tokio::test]
@@ -185,4 +209,74 @@ async fn invalid_signature_not_broadcast() {
 
     let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(msg.hosts, vec![info2]);
+}
+
+/// Test that SyncSnapshotHosts message is propagated between many PeerManager instances.
+/// Four peer managers are connected into a ring:
+/// [0] - [1]
+///  |     |
+/// [2] - [3]
+/// And then the managers propagate messages among themeselves.
+#[tokio::test]
+async fn propagate() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+
+    // Adjust the file descriptors limit, so that we can create many connection in the test.
+    const MAX_CONNECTIONS: usize = 2;
+    let limit = rlimit::Resource::NOFILE.get().unwrap();
+    rlimit::Resource::NOFILE
+        .set(std::cmp::min(limit.1, (1000 + 4 * FDS_PER_PEER * MAX_CONNECTIONS) as u64), limit.1)
+        .unwrap();
+
+    tracing::info!(target:"test", "Create four peer manager instances.");
+    let mut pms = vec![];
+    for _ in 0..4 {
+        pms.push(
+            peer_manager::testonly::start(
+                clock.clock(),
+                near_store::db::TestDB::new(),
+                chain.make_config(rng),
+                chain.clone(),
+            )
+            .await,
+        );
+    }
+
+    tracing::info!(target:"test", "Connect the four peer managers into a ring.");
+    // [0] - [1]
+    //  |     |
+    // [2] - [3]
+    pms[0].connect_to(&pms[1].peer_info(), tcp::Tier::T2).await;
+    pms[0].connect_to(&pms[2].peer_info(), tcp::Tier::T2).await;
+    pms[1].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
+    pms[2].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
+
+    tracing::info!(target:"test", "Receive the inital empty snapshot info messages.");
+    // Each peer_manager connects to two others and receives two empty sync_snapshot messages
+    for _ in 0..2 {
+        for pm in &mut pms {
+            let empty_sync_msg = pm.events.recv_until(take_sync_snapshot_msg_manager).await;
+            assert_eq!(empty_sync_msg.hosts, vec![]);
+        }
+    }
+
+    tracing::info!(target:"test", "Send a SnapshotHostInfo message from peer manager #1.");
+    let info1 =
+        make_snapshot_host_info(&pms[1].peer_info().id, 123, vec![2, 3], &pms[1].cfg.node_key);
+
+    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
+        sync_hash: info1.sync_hash.clone(),
+        epoch_height: info1.epoch_height.clone(),
+        shards: info1.shards.clone(),
+    });
+
+    pms[1].actix.addr.send(message.with_span_context()).await.unwrap();
+
+    tracing::info!(target:"test", "Make sure that the message sent from #1 reaches #2 on the other side of the ring.");
+    let received_message = pms[2].events.recv_until(take_sync_snapshot_msg_manager).await;
+    assert_eq!(received_message.hosts, vec![info1]);
 }
