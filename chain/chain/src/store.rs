@@ -2347,7 +2347,11 @@ impl<'a> ChainStoreUpdate<'a> {
         // We are using the block header to get the epoch_id and shard_layout here as BlockHeader
         // isn't garbage collected.
         let block_info = epoch_manager.get_block_info(&block_hash)?;
-        let first_block_epoch_header = self.get_block_header(block_info.epoch_first_block())?;
+        let first_block_epoch_hash = block_info.epoch_first_block();
+        if first_block_epoch_hash == &CryptoHash::default() {
+            return Ok(());
+        }
+        let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
         let last_block_prev_epoch_hash = first_block_epoch_header.prev_hash();
         let last_block_prev_epoch_header = self.get_block_header(last_block_prev_epoch_hash)?;
 
