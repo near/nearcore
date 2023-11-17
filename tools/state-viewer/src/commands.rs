@@ -1229,20 +1229,22 @@ impl core::fmt::Debug for StateStats {
             .map(ByteSize::b)
             .unwrap_or_default();
 
-        let left_size = self.middle_account_leading_size.unwrap_or_default().as_u64();
-        let left_split = (100 * left_size).checked_div(self.total_size.as_u64()).unwrap_or(0);
-        let right_split = 100 - left_split;
+        let left_size = self.middle_account_leading_size.unwrap_or_default();
+        let middle_size = self.middle_account.as_ref().map(|a| a.size).unwrap_or_default();
+        let right_size = self.total_size.as_u64() - left_size.as_u64() - middle_size.as_u64();
+        let right_size = ByteSize::b(right_size);
+
+        let left_percent = 100 * left_size.as_u64() / self.total_size.as_u64();
+        let middle_percent = 100 * middle_size.as_u64() / self.total_size.as_u64();
+        let right_percent = 100 * right_size.as_u64() / self.total_size.as_u64();
 
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
             .field("middle_account", &self.middle_account.as_ref().unwrap())
-            .field(
-                "middle_account_leading_size",
-                &self.middle_account_leading_size.as_ref().unwrap(),
-            )
-            .field("middle_account_split", &format!("{left_split}:{right_split}"))
+            .field("split_size", &format!("{left_size:?} : {middle_size:?} : {right_size:?}"))
+            .field("split_percent", &format!("{left_percent}:{middle_percent}:{right_percent}"))
             .field("top_accounts", &self.top_accounts)
             .finish()
     }
