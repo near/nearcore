@@ -163,57 +163,30 @@ impl SyncConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[serde(default)]
 pub struct StateSplitConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    #[serde(default = "default_batch_size")]
     pub batch_size: bytesize::ByteSize,
 
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    #[serde(default = "default_batch_delay")]
     pub batch_delay: Duration,
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
-    #[serde(default = "default_retry_delay")]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
-    #[serde(default = "default_initial_delay")]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
     /// before starting resharding. Do not wait indefinitely since we want to
     /// report error early enough for the node maintainer to have time to recover.
-    #[serde(default = "default_max_poll_time")]
     pub max_poll_time: Duration,
-}
-
-fn default_batch_size() -> bytesize::ByteSize {
-    bytesize::ByteSize::kb(500)
-}
-
-fn default_batch_delay() -> Duration {
-    Duration::from_millis(100)
-}
-
-fn default_retry_delay() -> Duration {
-    Duration::from_secs(10)
-}
-
-fn default_initial_delay() -> Duration {
-    Duration::from_secs(0)
-}
-
-fn default_max_poll_time() -> Duration {
-    // The snapshot typically is available within a minute from the
-    // epoch start. Set the default higher in case we need to wait for
-    // state sync.
-    Duration::from_secs(2 * 60 * 60)
 }
 
 impl Default for StateSplitConfig {
@@ -221,11 +194,14 @@ impl Default for StateSplitConfig {
         // Conservative default for a slower resharding that puts as little
         // extra load on the node as possible.
         Self {
-            batch_size: default_batch_size(),
-            batch_delay: default_batch_delay(),
-            retry_delay: default_retry_delay(),
-            initial_delay: default_initial_delay(),
-            max_poll_time: default_max_poll_time(),
+            batch_size: bytesize::ByteSize::kb(500),
+            batch_delay: Duration::from_millis(100),
+            retry_delay: Duration::from_secs(10),
+            initial_delay: Duration::from_secs(0),
+            // The snapshot typically is available within a minute from the
+            // epoch start. Set the default higher in case we need to wait for
+            // state sync.
+            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
         }
     }
 }
