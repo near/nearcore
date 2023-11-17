@@ -34,35 +34,35 @@ pub(crate) struct BlockContext {
 /// Result of updating a shard for some block when it has a new chunk for this
 /// shard.
 #[derive(Debug)]
-pub(crate) struct NewChunkResult {
-    pub shard_uid: ShardUId,
-    pub gas_limit: Gas,
-    pub apply_result: ApplyTransactionResult,
-    pub apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+pub struct NewChunkResult {
+    pub(crate) shard_uid: ShardUId,
+    pub(crate) gas_limit: Gas,
+    pub(crate) apply_result: ApplyTransactionResult,
+    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
 #[derive(Debug)]
-pub(crate) struct OldChunkResult {
-    pub shard_uid: ShardUId,
+pub struct OldChunkResult {
+    pub(crate) shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
     /// TODO(logunov): exclude receipts/txs context from all related types.
-    pub apply_result: ApplyTransactionResult,
-    pub apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+    pub(crate) apply_result: ApplyTransactionResult,
+    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
 /// Result of updating a shard for some block when we apply only split state
 /// changes due to resharding.
 #[derive(Debug)]
-pub(crate) struct StateSplitResult {
+pub struct StateSplitResult {
     // parent shard of the split states
-    pub shard_uid: ShardUId,
-    pub results: Vec<ApplySplitStateResult>,
+    pub(crate) shard_uid: ShardUId,
+    pub(crate) results: Vec<ApplySplitStateResult>,
 }
 
 #[derive(Debug)]
-pub(crate) enum ApplyChunkResult {
+pub enum ApplyChunkResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
     StateSplit(StateSplitResult),
