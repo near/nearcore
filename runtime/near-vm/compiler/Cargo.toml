@@ -12,6 +12,9 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 finite-wasm.workspace = true
 near-vm-vm.workspace = true

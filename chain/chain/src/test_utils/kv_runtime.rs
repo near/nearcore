@@ -615,13 +615,6 @@ impl EpochManagerAdapter for MockEpochManager {
         }
     }
 
-    fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let header = self
-            .get_block_header(block_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*block_hash))?;
-        self.get_prev_epoch_id_from_prev_block(header.prev_hash())
-    }
-
     fn get_prev_epoch_id_from_prev_block(
         &self,
         prev_block_hash: &CryptoHash,

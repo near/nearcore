@@ -12,6 +12,9 @@ edition = "2021"
 publish = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 thiserror.workspace = true
 indexmap.workspace = true

@@ -5,6 +5,9 @@ authors.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix.workspace = true
 ansi_term.workspace = true

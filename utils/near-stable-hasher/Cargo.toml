@@ -8,3 +8,6 @@ description = "`near-stable-hasher` is a library that is essentially a wrapper a
 repository.workspace = true
 license.workspace = true
 publish = true
+
+[lints]
+workspace = true

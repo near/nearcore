@@ -49,6 +49,31 @@ pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Ensure all crates inherit workspace-wide lint definitions
+pub fn has_lint_inheritance(workspace: &Workspace) -> anyhow::Result<()> {
+    let outliers: Vec<_> = workspace
+        .members
+        .iter()
+        .filter(|pkg| match pkg.manifest.read(&["lints", "workspace"]) {
+            None | Some(&toml::Value::Boolean(false)) => {
+                pkg.manifest.read(&["workspace"]).is_some()
+            }
+            Some(_) => false,
+        })
+        .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
+        .collect();
+
+    if !outliers.is_empty() {
+        bail!(ComplianceError {
+            msg: "These packages should specify `lints.workspace = true`".to_string(),
+            expected: None,
+            outliers,
+        });
+    }
+
+    Ok(())
+}
+
 /// Ensure rust-version is the same in Cargo.toml and rust-toolchain.toml
 pub fn rust_version_matches_toolchain(workspace: &Workspace) -> anyhow::Result<()> {
     fn get<'a>(mut val: &'a toml::Value, indexes: &[&str]) -> anyhow::Result<&'a toml::Value> {
