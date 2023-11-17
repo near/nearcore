@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.73.0"
+rust-version = "1.74.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -87,6 +87,18 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
+
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "allow", priority = -1 }
+clone_on_copy = "deny"
+correctness = "deny"
+derivable_impls = "deny"
+redundant_clone = "deny"
+suspicious = "deny"
+len_zero = "deny"
 
 [workspace.dependencies]
 actix = "0.13.0"
