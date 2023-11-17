@@ -1107,11 +1107,13 @@ fn print_state_stats_for_shard_uid(
     let iter = get_state_stats_account_iter(&group_by);
     let mut current_size = ByteSize::default();
     for state_stats_account in iter {
-        current_size += state_stats_account.size;
-        if 2 * current_size.as_u64() > state_stats.total_size.as_u64() {
-            state_stats.middle_state_record = Some(state_stats_account);
+        let new_size = current_size + state_stats_account.size;
+        if 2 * new_size.as_u64() > state_stats.total_size.as_u64() {
+            state_stats.middle_account = Some(state_stats_account);
+            state_stats.middle_account_leading_size = Some(current_size);
             break;
         }
+        current_size = new_size;
     }
 
     tracing::info!(target: "state_viewer", "{shard_uid:?}");
@@ -1209,7 +1211,12 @@ pub struct StateStats {
     pub total_size: ByteSize,
     pub total_count: usize,
 
-    pub middle_state_record: Option<StateStatsAccount>,
+    // The account that is in the middle of the state in respect to storage.
+    pub middle_account: Option<StateStatsAccount>,
+    // The total size of all accounts leading to the middle account.
+    // Can be used to determin how does the middle account split the state.
+    pub middle_account_leading_size: Option<ByteSize>,
+
     pub top_accounts: BinaryHeap<StateStatsAccount>,
 }
 
@@ -1221,11 +1228,21 @@ impl core::fmt::Debug for StateStats {
             .checked_div(self.total_count as u64)
             .map(ByteSize::b)
             .unwrap_or_default();
+
+        let left_size = self.middle_account_leading_size.unwrap_or_default().as_u64();
+        let left_split = (100 * left_size).checked_div(self.total_size.as_u64()).unwrap_or(0);
+        let right_split = 100 - left_split;
+
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
-            .field("middle_state_record", &self.middle_state_record.as_ref().unwrap())
+            .field("middle_account", &self.middle_account.as_ref().unwrap())
+            .field(
+                "middle_account_leading_size",
+                &self.middle_account_leading_size.as_ref().unwrap(),
+            )
+            .field("middle_account_split", &format!("{left_split}:{right_split}"))
             .field("top_accounts", &self.top_accounts)
             .finish()
     }
@@ -1286,7 +1303,7 @@ impl PartialOrd for StateStatsAccount {
 
 impl std::fmt::Debug for StateStatsAccount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateStatsStateRecord")
+        f.debug_struct("StateStatsAccount")
             .field("account_id", &self.account_id.as_str())
             .field("size", &self.size)
             .finish()
