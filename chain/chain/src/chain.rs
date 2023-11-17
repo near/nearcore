@@ -1004,11 +1004,11 @@ impl Chain {
                         GCMode::Canonical(tries.clone()),
                     )?;
                     // TODO(resharding): Call clear_resharding_data once we figure out what's wrong
-                    // chain_store_update.clear_resharding_data(
-                    //     self.runtime_adapter.as_ref(),
-                    //     self.epoch_manager.as_ref(),
-                    //     *block_hash,
-                    // )?;
+                    chain_store_update.clear_resharding_data(
+                        self.runtime_adapter.as_ref(),
+                        self.epoch_manager.as_ref(),
+                        *block_hash,
+                    )?;
                     gc_blocks_remaining -= 1;
                 } else {
                     return Err(Error::GCError(

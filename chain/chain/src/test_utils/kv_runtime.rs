@@ -547,6 +547,10 @@ impl EpochManagerAdapter for MockEpochManager {
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        self.is_next_block_epoch_start(hash)
+    }
+
     fn get_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
