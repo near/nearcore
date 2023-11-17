@@ -608,7 +608,7 @@ mod tests {
               "aurora",
               "aurora-0",
               "kkuuue2akv_1630967379.near",
-              "sweat"
+              "tge-lockup.sweat"
             ],
             "shards_split_map": [
               [
