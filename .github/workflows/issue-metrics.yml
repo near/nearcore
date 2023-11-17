@@ -31,7 +31,7 @@ jobs:
       uses: github/issue-metrics@v2
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SEARCH_QUERY: 'repo:owner/repo is:issue created: ${{ steps.last-month.outputs.LAST_MONTH }} -reason:"not planned"'
+        SEARCH_QUERY: 'repo:owner/repo is:issue created:${{ steps.last-month.outputs.LAST_MONTH }} -reason:"not planned"'
 
     - name: Create issue
       uses: peter-evans/create-issue-from-file@v4
