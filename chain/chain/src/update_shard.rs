@@ -14,14 +14,13 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{Balance, BlockHeight, Gas, StateChangesForSplitStates, StateRoot};
 use std::collections::HashMap;
-use std::sync::Arc;
 
-/// Information about block in for which shard is updated.
+/// Information about block for which shard is updated.
 /// Use cases include:
 /// - queries to epoch manager
 /// - allowing contracts to get current chain data
 #[derive(Clone, Debug)]
-pub struct BlockContext {
+pub(crate) struct BlockContext {
     pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
     pub challenges_result: ChallengesResult,
@@ -32,51 +31,63 @@ pub struct BlockContext {
     pub is_first_block_with_chunk_of_version: bool,
 }
 
+/// Result of updating a shard for some block when it has a new chunk for this
+/// shard.
 #[derive(Debug)]
-pub struct SameHeightResult {
-    pub(crate) shard_uid: ShardUId,
-    pub(crate) gas_limit: Gas,
-    pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+pub(crate) struct NewChunkResult {
+    pub shard_uid: ShardUId,
+    pub gas_limit: Gas,
+    pub apply_result: ApplyTransactionResult,
+    pub apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+/// Result of updating a shard for some block when it doesn't have a new chunk
+/// for this shard, so previous chunk header is copied.
 #[derive(Debug)]
-pub struct DifferentHeightResult {
-    pub(crate) shard_uid: ShardUId,
-    pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+pub(crate) struct OldChunkResult {
+    pub shard_uid: ShardUId,
+    /// Note that despite the naming, no transactions are applied in this case.
+    /// TODO(logunov): exclude receipts/txs context from all related types.
+    pub apply_result: ApplyTransactionResult,
+    pub apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
 }
 
+/// Result of updating a shard for some block when we apply only split state
+/// changes due to resharding.
 #[derive(Debug)]
-pub struct SplitStateResult {
+pub(crate) struct StateSplitResult {
     // parent shard of the split states
-    pub(crate) shard_uid: ShardUId,
-    pub(crate) results: Vec<ApplySplitStateResult>,
+    pub shard_uid: ShardUId,
+    pub results: Vec<ApplySplitStateResult>,
 }
 
 #[derive(Debug)]
 pub enum ApplyChunkResult {
-    SameHeight(SameHeightResult),
-    DifferentHeight(DifferentHeightResult),
-    SplitState(SplitStateResult),
+    NewChunk(NewChunkResult),
+    OldChunk(OldChunkResult),
+    StateSplit(StateSplitResult),
 }
 
+/// State roots of split shards which are ready.
+pub type SplitStateRoots = HashMap<ShardUId, StateRoot>;
+
 /// Reason to update a shard when new block appears on chain.
+/// All types include state roots for split shards in case of resharding.
 pub enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
-    NewChunk(ShardChunk, Vec<Receipt>),
+    NewChunk(ShardChunk, Vec<Receipt>, Option<SplitStateRoots>),
     /// Block doesn't have a new chunk for the shard.
     /// Instead, previous chunk header is copied.
     /// Contains result of shard update for previous block.
-    OldChunk(ChunkExtra),
-    /// See comment to `split_state_roots` in `Chain::get_apply_chunk_job`.
+    OldChunk(ChunkExtra, Option<SplitStateRoots>),
+    /// See comment to `split_state_roots` in `Chain::get_update_shard_job`.
     /// Process only state changes caused by resharding.
-    StateSplit(StateChangesForSplitStates),
+    StateSplit(SplitStateRoots, StateChangesForSplitStates),
 }
 
 /// Information about shard to update.
-pub struct ShardInfo {
+pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
@@ -86,43 +97,42 @@ pub struct ShardInfo {
 /// Doesn't modify chain, only produces result to be applied later.
 pub fn process_shard_update(
     parent_span: &tracing::Span,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    runtime: Arc<dyn RuntimeAdapter>,
+    runtime: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
     shard_update_reason: ShardUpdateReason,
     block_context: BlockContext,
-    shard_info: ShardInfo,
-    split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
+    shard_context: ShardContext,
     state_patch: SandboxStatePatch,
 ) -> Result<ApplyChunkResult, Error> {
     match shard_update_reason {
-        ShardUpdateReason::NewChunk(chunk, receipts) => apply_new_chunk(
+        ShardUpdateReason::NewChunk(chunk, receipts, split_state_roots) => apply_new_chunk(
             parent_span,
             block_context,
             chunk,
-            shard_info,
+            shard_context,
             receipts,
             state_patch,
-            runtime.clone(),
-            epoch_manager.clone(),
+            runtime,
+            epoch_manager,
             split_state_roots,
         ),
-        ShardUpdateReason::OldChunk(prev_chunk_extra) => apply_old_chunk(
+        ShardUpdateReason::OldChunk(prev_chunk_extra, split_state_roots) => apply_old_chunk(
             parent_span,
             block_context,
             &prev_chunk_extra,
-            shard_info,
+            shard_context,
             state_patch,
-            runtime.clone(),
-            epoch_manager.clone(),
-            split_state_roots,
-        ),
-        ShardUpdateReason::StateSplit(state_changes) => apply_state_split(
-            parent_span,
-            block_context,
-            shard_info.shard_uid,
             runtime,
             epoch_manager,
-            split_state_roots.unwrap(),
+            split_state_roots,
+        ),
+        ShardUpdateReason::StateSplit(split_state_roots, state_changes) => apply_state_split(
+            parent_span,
+            block_context,
+            shard_context.shard_uid,
+            runtime,
+            epoch_manager,
+            split_state_roots,
             state_changes,
         ),
     }
@@ -134,12 +144,12 @@ fn apply_new_chunk(
     parent_span: &tracing::Span,
     block_context: BlockContext,
     chunk: ShardChunk,
-    shard_info: ShardInfo,
+    shard_info: ShardContext,
     receipts: Vec<Receipt>,
     state_patch: SandboxStatePatch,
-    runtime: Arc<dyn RuntimeAdapter>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
+    runtime: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    split_state_roots: Option<SplitStateRoots>,
 ) -> Result<ApplyChunkResult, Error> {
     let shard_id = shard_info.shard_uid.shard_id();
     let _span = tracing::debug_span!(
@@ -188,7 +198,7 @@ fn apply_new_chunk(
             } else {
                 None
             };
-            Ok(ApplyChunkResult::SameHeight(SameHeightResult {
+            Ok(ApplyChunkResult::NewChunk(NewChunkResult {
                 gas_limit,
                 shard_uid: shard_info.shard_uid,
                 apply_result,
@@ -206,11 +216,11 @@ fn apply_old_chunk(
     parent_span: &tracing::Span,
     block_context: BlockContext,
     prev_chunk_extra: &ChunkExtra,
-    shard_info: ShardInfo,
+    shard_info: ShardContext,
     state_patch: SandboxStatePatch,
-    runtime: Arc<dyn RuntimeAdapter>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    split_state_roots: Option<HashMap<ShardUId, CryptoHash>>,
+    runtime: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    split_state_roots: Option<SplitStateRoots>,
 ) -> Result<ApplyChunkResult, Error> {
     let shard_id = shard_info.shard_uid.shard_id();
     let _span = tracing::debug_span!(
@@ -256,7 +266,7 @@ fn apply_old_chunk(
             } else {
                 None
             };
-            Ok(ApplyChunkResult::DifferentHeight(DifferentHeightResult {
+            Ok(ApplyChunkResult::OldChunk(OldChunkResult {
                 shard_uid: shard_info.shard_uid,
                 apply_result,
                 apply_split_result_or_state_changes,
@@ -271,9 +281,9 @@ fn apply_state_split(
     parent_span: &tracing::Span,
     block_context: BlockContext,
     shard_uid: ShardUId,
-    runtime: Arc<dyn RuntimeAdapter>,
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
-    split_state_roots: HashMap<ShardUId, CryptoHash>,
+    runtime: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    split_state_roots: SplitStateRoots,
     state_changes: StateChangesForSplitStates,
 ) -> Result<ApplyChunkResult, Error> {
     let shard_id = shard_uid.shard_id();
@@ -293,7 +303,7 @@ fn apply_state_split(
         &next_epoch_shard_layout,
         state_changes,
     )?;
-    Ok(ApplyChunkResult::SplitState(SplitStateResult { shard_uid, results }))
+    Ok(ApplyChunkResult::StateSplit(StateSplitResult { shard_uid, results }))
 }
 
 /// Process ApplyTransactionResult to apply changes to split states
@@ -307,7 +317,7 @@ fn apply_split_state_changes(
     runtime_adapter: &dyn RuntimeAdapter,
     block_context: BlockContext,
     apply_result: &ApplyTransactionResult,
-    split_state_roots: Option<HashMap<ShardUId, StateRoot>>,
+    split_state_roots: Option<SplitStateRoots>,
 ) -> Result<ApplySplitStateResultOrStateChanges, Error> {
     let state_changes = StateChangesForSplitStates::from_raw_state_changes(
         apply_result.trie_changes.state_changes(),
