@@ -140,7 +140,7 @@ crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 crossbeam-queue = "0.3.8"
 csv = "1.2.1"
-curve25519-dalek = "3"
+curve25519-dalek = { version = "4.1.1", features = ["rand_core"] }
 derive-enum-from-into = "0.1.1"
 derive_more = "0.99.9"
 dirs = "4"
