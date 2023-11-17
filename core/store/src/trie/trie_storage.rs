@@ -388,11 +388,13 @@ pub struct TrieCachingStorage {
 struct TrieCacheInnerMetrics {
     shard_cache_hits: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_misses: GenericCounter<prometheus::core::AtomicU64>,
-    shard_cache_could_be_contract: GenericCounter<prometheus::core::AtomicU64>,
-    shard_cache_is_cached_contract: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_too_large: GenericCounter<prometheus::core::AtomicU64>,
     shard_cache_size: GenericGauge<prometheus::core::AtomicI64>,
     shard_cache_current_total_size: GenericGauge<prometheus::core::AtomicI64>,
+    shard_cache_could_be_contract: GenericCounter<prometheus::core::AtomicU64>,
+    shard_cache_is_cached_contract: GenericCounter<prometheus::core::AtomicU64>,
+    shard_cache_contract_hits: GenericCounter<prometheus::core::AtomicU64>,
+    shard_cache_contract_misses: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_hits: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_pending: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_not_requested: GenericCounter<prometheus::core::AtomicU64>,
@@ -427,6 +429,8 @@ impl TrieCachingStorage {
             shard_cache_size: metrics::SHARD_CACHE_SIZE.with_label_values(&metrics_labels),
             shard_cache_current_total_size: metrics::SHARD_CACHE_CURRENT_TOTAL_SIZE
                 .with_label_values(&metrics_labels),
+            shard_cache_contract_hits: metrics::CONTRACT_CACHE_HITS.with_label_values(&metrics_labels[1..]),
+            shard_cache_contract_misses: metrics::CONTRACT_CACHE_MISSES.with_label_values(&metrics_labels[1..]),
             prefetch_hits: metrics::PREFETCH_HITS.with_label_values(&metrics_labels[..1]),
             prefetch_pending: metrics::PREFETCH_PENDING.with_label_values(&metrics_labels[..1]),
             prefetch_not_requested: metrics::PREFETCH_NOT_REQUESTED
@@ -469,7 +473,10 @@ impl TrieStorage for TrieCachingStorage {
                 should_be_in_contract_cache = true;
                 self.metrics.shard_cache_is_cached_contract.inc();
                 if let Some(node) = contract_specific_cache.get(hash) {
+                    self.metrics.shard_cache_contract_hits.inc();
                     return Ok(node);
+                } else {
+                    self.metrics.shard_cache_contract_misses.inc();
                 }
             }
         }
