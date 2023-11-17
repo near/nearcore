@@ -30,19 +30,17 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
-    #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
 
     /// Maximum number of height to go through at each garbage collection step
     /// when cleaning forks during garbage collection.
-    #[serde(default = "default_gc_fork_clean_step")]
     pub gc_fork_clean_step: u64,
 
     /// Number of epochs for which we keep store data.
-    #[serde(default = "default_gc_num_epochs_to_keep")]
     pub gc_num_epochs_to_keep: u64,
 }
 
@@ -54,18 +52,6 @@ impl Default for GCConfig {
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         }
     }
-}
-
-fn default_gc_blocks_limit() -> NumBlocks {
-    GCConfig::default().gc_blocks_limit
-}
-
-fn default_gc_fork_clean_step() -> u64 {
-    GCConfig::default().gc_fork_clean_step
-}
-
-fn default_gc_num_epochs_to_keep() -> u64 {
-    GCConfig::default().gc_num_epochs_to_keep()
 }
 
 impl GCConfig {
