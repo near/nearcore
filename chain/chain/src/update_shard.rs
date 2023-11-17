@@ -69,11 +69,11 @@ pub(crate) enum ApplyChunkResult {
 }
 
 /// State roots of split shards which are ready.
-pub type SplitStateRoots = HashMap<ShardUId, StateRoot>;
+type SplitStateRoots = HashMap<ShardUId, StateRoot>;
 
 /// Reason to update a shard when new block appears on chain.
 /// All types include state roots for split shards in case of resharding.
-pub enum ShardUpdateReason {
+pub(crate) enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
     NewChunk(ShardChunk, Vec<Receipt>, Option<SplitStateRoots>),
@@ -95,7 +95,7 @@ pub struct ShardContext {
 
 /// Processes shard update with given block and shard.
 /// Doesn't modify chain, only produces result to be applied later.
-pub fn process_shard_update(
+pub(crate) fn process_shard_update(
     parent_span: &tracing::Span,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
