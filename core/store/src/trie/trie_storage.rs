@@ -10,13 +10,11 @@ use near_o11y::metrics::prometheus::core::{GenericCounter, GenericGauge};
 use near_primitives::challenge::PartialState;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::trie_key_parsers::{parse_account_id_from_raw_key, parse_account_id_from_contract_data_key, parse_account_id_from_account_key, parse_account_id_from_contract_code_key, parse_trie_key_access_key_from_raw_key, parse_account_id_from_received_data_key};
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
+use near_primitives::types::ShardId;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
-
-use super::shard_tries::CONTRACT_CACHES;
 
 pub(crate) struct BoundedQueue<T> {
     queue: VecDeque<T>,
@@ -459,44 +457,28 @@ impl TrieCachingStorage {
 
 impl TrieStorage for TrieCachingStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        let mut should_be_in_contract_cache = false;
+
+        // Try to get value from the contract specific cache
+        let maybe_account_id = parse_account_id_from_raw_key(hash.as_bytes()).ok().unwrap_or(None);
+        if let Some(acc_id) = &maybe_account_id {
+            self.metrics.shard_cache_could_be_contract.inc();
+            if let Some(contract_specific_cache) =
+                self.contract_shard_cache.get(acc_id.as_str())
+            {
+                should_be_in_contract_cache = true;
+                self.metrics.shard_cache_is_cached_contract.inc();
+                if let Some(node) = contract_specific_cache.get(hash) {
+                    return Ok(node);
+                }
+            }
+        }
+
         // Try to get value from shard cache containing most recently touched nodes.
         let mut guard = self.shard_cache.lock();
         self.metrics.shard_cache_size.set(guard.len() as i64);
         self.metrics.shard_cache_current_total_size.set(guard.current_total_size() as i64);
 
-        let acc_id_contract_key = parse_account_id_from_contract_data_key(hash.as_bytes());
-        if acc_id_contract_key.is_ok() {
-            tracing::info!("parse_account_id_from_contract_data_key");
-        }
-
-        let acc_id_contract_code = parse_account_id_from_contract_code_key(hash.as_bytes());
-        if acc_id_contract_code.is_ok() {
-            tracing::info!("parse_account_id_from_contract_code_key");
-        }
-
-        let acc_id_raw_key = parse_account_id_from_raw_key(hash.as_bytes());
-        if acc_id_raw_key.is_ok() {
-            if acc_id_raw_key.unwrap().is_some() {
-                tracing::info!("parse_account_id_from_raw_key");
-            }
-        }
-
-        let acc_id_received_data_key = parse_account_id_from_received_data_key(hash.as_bytes());
-        if acc_id_received_data_key.is_ok() {
-            tracing::info!("parse_account_id_from_received_data_key");
-        }
-
-        if let Some(maybe_account_id) = parse_account_id_from_raw_key(hash.as_bytes()).ok() {
-            if let Some(acc_id) = maybe_account_id {
-                self.metrics.shard_cache_could_be_contract.inc();
-                if CONTRACT_CACHES
-                    .iter()
-                    .any(|&(contract_name, _, _)| contract_name == acc_id.as_str())
-                {
-                    self.metrics.shard_cache_is_cached_contract.inc();
-                }
-            }
-        }
         let val = match guard.get(hash) {
             Some(val) => {
                 self.metrics.shard_cache_hits.inc();
@@ -569,14 +551,18 @@ impl TrieStorage for TrieCachingStorage {
                 // It is fine to have a size limit for shard cache and **not** have a limit for accounting cache, because key
                 // is always a value hash, so for each key there could be only one value, and it is impossible to have
                 // **different** values for the given key in shard and accounting caches.
-                if val.len() < TrieConfig::max_cached_value_size() {
-                    let mut guard = self.shard_cache.lock();
+                if should_be_in_contract_cache {
+                    let mut guard = self.contract_shard_cache.get(maybe_account_id.unwrap().as_str()).unwrap().lock();
                     guard.put(*hash, val.clone());
                 } else {
-                    self.metrics.shard_cache_too_large.inc();
-                    near_o11y::io_trace!(count: "shard_cache_too_large");
+                    if val.len() < TrieConfig::max_cached_value_size() {
+                        let mut guard = self.shard_cache.lock();
+                        guard.put(*hash, val.clone());
+                    } else {
+                        self.metrics.shard_cache_too_large.inc();
+                        near_o11y::io_trace!(count: "shard_cache_too_large");
+                    }
                 }
-
                 if let Some(prefetcher) = &self.prefetch_api {
                     // Only release after insertion in shard cache. See comment on fn release.
                     prefetcher.prefetching.release(hash);

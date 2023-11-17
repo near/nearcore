@@ -103,11 +103,6 @@ pub static USING_ACCOUNTING_CACHE: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-pub static ACCOUNTING_IS_CACHED_CONTRACT: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec("near_is_cached_contract_accounting", "Is cached contract", &[])
-        .unwrap()
-});
-
 pub static CALLING_RETRIEVE: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec("near_calling_retrieve_trie_node", "Retrieve trie node", &[])
         .unwrap()
