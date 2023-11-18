@@ -21,7 +21,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use yansi::Color::Purple;
+use yansi::Color::Magenta;
 use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
@@ -216,7 +216,7 @@ pub fn format_shard_sync_phase(
     match &shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",
-            paint("HEADER", Purple.bold(), use_colour),
+            paint("HEADER", Magenta.style().bold(), use_colour),
             shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
             shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
         ),

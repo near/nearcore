@@ -365,7 +365,7 @@ impl InfoHelper {
     ) {
         let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let paint = |color: yansi::Color, text: Option<String>| match text {
-            None => yansi::Paint::default(""),
+            None => yansi::Paint::default(String::new()),
             Some(text) if use_color => yansi::Paint::default(text).fg(color).bold(),
             Some(text) => yansi::Paint::default(text),
         };
@@ -538,9 +538,9 @@ impl InfoHelper {
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
-        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
+        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_color };
         tracing::debug!(
             target: "stats",
             "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
