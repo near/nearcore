@@ -671,9 +671,14 @@ pub(crate) fn print_chain(
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
                 .unwrap_or("error".to_owned());
-            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
+            println!(
+                "{: >3} {} | {: >10}",
+                height,
+                Red.style().bold().paint("MISSING"),
+                block_producer
+            );
         } else {
-            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
+            println!("{: >3} {}", height, Red.style().bold().paint("MISSING"));
         }
     }
 }
