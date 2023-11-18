@@ -205,17 +205,13 @@ impl NoFile for RealNoFile {
 
 #[test]
 fn test_ensure_max_open_files_limit() {
-    fn other_error(msg: &str) -> std::io::Error {
-        super::other_error(msg.to_string())
-    }
-
     /// Mock implementation of NoFile interface.
     struct MockNoFile<'a>(&'a mut (u64, u64));
 
     impl<'a> NoFile for MockNoFile<'a> {
         fn get(&self) -> std::io::Result<(u64, u64)> {
             if self.0 .0 == 666 {
-                Err(other_error("error"))
+                Err(std::io::ErrorKind::Other.into())
             } else {
                 Ok(*self.0)
             }
@@ -224,7 +220,7 @@ fn test_ensure_max_open_files_limit() {
         fn set(&mut self, soft: u64, hard: u64) -> std::io::Result<()> {
             let (old_soft, old_hard) = self.get().unwrap();
             if old_hard == 666000 {
-                Err(other_error("error"))
+                Err(std::io::ErrorKind::Other.into())
             } else {
                 assert!(soft != old_soft, "Pointless call to set");
                 *self.0 = (soft, hard);
