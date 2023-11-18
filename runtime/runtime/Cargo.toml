@@ -71,6 +71,6 @@ serde_json.workspace = true
 tempfile.workspace = true
 
 near-chain-configs.workspace = true
-near-store = { workspace = true, features = ["test_features"] }
+near-store = { workspace = true }
 near-test-contracts.workspace = true
 testlib.workspace = true

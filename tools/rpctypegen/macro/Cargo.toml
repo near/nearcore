@@ -17,7 +17,7 @@ proc-macro = true
 
 [dependencies]
 serde.workspace = true
-serde_json = { workspace = true, optional = true, features = ["preserve_order"] }
+serde_json = { workspace = true, optional = true }
 syn.workspace = true
 fs2.workspace = true
 

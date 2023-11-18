@@ -17,7 +17,7 @@ once_cell.workspace = true
 wat.workspace = true
 wasm-encoder.workspace = true
 wasm-smith.workspace = true
-rand = { workspace = true, features = ["small_rng"] }
+rand = { workspace = true }
 arbitrary.workspace = true
 
 [features]

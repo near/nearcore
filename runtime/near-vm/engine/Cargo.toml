@@ -33,7 +33,7 @@ thiserror.workspace = true
 cfg-if.workspace = true
 tracing.workspace = true
 crossbeam-queue.workspace = true
-rustix = { workspace = true, features = ["param", "mm"] }
+rustix = { workspace = true }
 
 [badges]
 maintenance = { status = "actively-developed" }

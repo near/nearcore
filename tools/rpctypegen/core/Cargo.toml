@@ -18,7 +18,7 @@ serde.workspace = true
 syn.workspace = true
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true }
 
 [features]
 test = []

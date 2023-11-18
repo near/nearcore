@@ -19,7 +19,7 @@ workspace = true
 finite-wasm.workspace = true
 near-vm-vm.workspace = true
 near-vm-types.workspace = true
-wasmparser = { version = "0.99.0", default-features = false }
+wasmparser = { version = "0.99.0" }
 target-lexicon.workspace = true
 enumset.workspace = true
 hashbrown = { workspace = true, optional = true }
