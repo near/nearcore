@@ -156,7 +156,7 @@ fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
-hashbrown = "0.11"
+hashbrown = "0.14.2"
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
