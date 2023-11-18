@@ -21,7 +21,7 @@ borsh.workspace = true
 clap = { workspace = true, optional = true }
 ed25519-dalek.workspace = true
 enum-map.workspace = true
-finite-wasm = { workspace = true }
+finite-wasm = { workspace = true, features = ["instrument"] }
 loupe.workspace = true
 memoffset.workspace = true
 num-rational.workspace = true
@@ -80,7 +80,7 @@ near-test-contracts.workspace = true
 # circumstances it is necessary to refer to the `[lib]` output rather than using `crate::*` stuff.
 near-vm-runner.workspace = true
 rand.workspace = true
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
 wasm-smith.workspace = true
 wasmprinter.workspace = true
 wat.workspace = true

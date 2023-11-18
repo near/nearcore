@@ -77,7 +77,6 @@ fn check_ed25519_verify(
         logic.internal_mem_write(public_key).ptr
     };
 
-    eprintln!("before ed25519_verify with {signature_len}, {signature_ptr}, {message_len}, {message_ptr}, {public_key_len}, {public_key_ptr}");
     let result = logic.ed25519_verify(
         signature_len,
         signature_ptr,
@@ -86,14 +85,10 @@ fn check_ed25519_verify(
         public_key_len,
         public_key_ptr,
     );
-    eprintln!("ed25519_verify result: {result:?}");
 
     let want = want.map_err(VMLogicError::HostError);
-    eprintln!("want: {want:?}");
     assert_eq!(want, result);
-    eprintln!("result was equal to want");
     assert_costs(want_costs);
-    eprintln!("cost assertions passed");
 }
 
 #[test]

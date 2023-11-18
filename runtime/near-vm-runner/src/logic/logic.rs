@@ -1146,19 +1146,13 @@ impl<'a> VMLogic<'a> {
         public_key_len: u64,
         public_key_ptr: u64,
     ) -> Result<u64> {
-        eprintln!("entering ed25519_verify with {signature_len}, {signature_ptr}, {message_len}, {message_ptr}, {public_key_len}, {public_key_ptr}");
         use ed25519_dalek::Verifier;
 
-        eprintln!("paying base");
         self.gas_counter.pay_base(ed25519_verify_base)?;
-        crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
 
         let signature: ed25519_dalek::Signature = {
-            eprintln!("getting mem");
             let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
-            crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
             if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
-                eprintln!("length mismatch");
                 return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid signature length".to_string(),
                 }));
@@ -1169,46 +1163,32 @@ impl<'a> VMLogic<'a> {
             if vec[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
                 return Ok(false as u64);
             }
-            eprintln!("recovering length");
             match <&[u8; 64]>::try_from(&vec[..]) {
                 Ok(b) => ed25519_dalek::Signature::from_bytes(b),
                 Err(_) => return Ok(false as u64),
             }
         };
-        eprintln!("got signature {signature:?}");
 
-        eprintln!("getting message");
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
-        crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
-        eprintln!("got message {message:?}, paying gas per");
         self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
-        crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
 
         let public_key: ed25519_dalek::VerifyingKey = {
-            eprintln!("getting public key");
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
-            crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
-            eprintln!("checking len");
             if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                eprintln!("wrong len");
                 return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid public key length".to_string(),
                 }));
             }
-            eprintln!("casting");
             let b = match <&[u8; 32]>::try_from(&vec[..]) {
                 Ok(b) => b,
                 Err(_) => return Ok(false as u64),
             };
-            eprintln!("getting verif key");
             match ed25519_dalek::VerifyingKey::from_bytes(b) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
             }
         };
-        crate::with_ext_cost_counter(|c| eprintln!("current costs: {c:?}"));
 
-        eprintln!("verifying");
         match public_key.verify(&message, &signature) {
             Err(_) => Ok(false as u64),
             Ok(()) => Ok(true as u64),
