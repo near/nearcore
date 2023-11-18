@@ -1,6 +1,4 @@
 use actix::Message;
-use ansi_term::Color::Purple;
-use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
@@ -23,6 +21,8 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use yansi::Color::Purple;
+use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]

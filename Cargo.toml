@@ -106,7 +106,6 @@ actix-cors = "0.6.1"
 actix-http = "3.3"
 actix-rt = "2"
 actix-web = "4.1"
-ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
@@ -357,6 +356,7 @@ webrtc-util = "0.7"
 winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi", "winnt", "impl-default"] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
+yansi = "0.5.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 

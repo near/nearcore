@@ -17,7 +17,6 @@ name = "neard"
 
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
@@ -33,6 +32,7 @@ thiserror.workspace = true
 tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true

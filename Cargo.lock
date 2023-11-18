@@ -340,15 +340,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ansi_term"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
-dependencies = [
- "winapi",
-]
-
-[[package]]
 name = "anstream"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3477,7 +3468,6 @@ name = "near-chain"
 version = "0.0.0"
 dependencies = [
  "actix",
- "ansi_term",
  "assert_matches",
  "borsh 1.0.0",
  "bytesize",
@@ -3510,6 +3500,7 @@ dependencies = [
  "strum",
  "thiserror",
  "tracing",
+ "yansi",
 ]
 
 [[package]]
@@ -3592,7 +3583,6 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "actix-rt",
- "ansi_term",
  "anyhow",
  "assert_matches",
  "async-trait",
@@ -3637,6 +3627,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "yansi",
 ]
 
 [[package]]
@@ -3644,7 +3635,6 @@ name = "near-client-primitives"
 version = "0.0.0"
 dependencies = [
  "actix",
- "ansi_term",
  "chrono",
  "near-chain-configs",
  "near-chain-primitives",
@@ -3655,6 +3645,7 @@ dependencies = [
  "serde_json",
  "strum",
  "thiserror",
+ "yansi",
 ]
 
 [[package]]
@@ -4699,7 +4690,6 @@ name = "neard"
 version = "0.0.0"
 dependencies = [
  "actix",
- "ansi_term",
  "anyhow",
  "clap 4.2.4",
  "cold-store-tool",
@@ -4739,6 +4729,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tracing",
+ "yansi",
 ]
 
 [[package]]
@@ -6736,7 +6727,6 @@ name = "state-viewer"
 version = "0.0.0"
 dependencies = [
  "actix",
- "ansi_term",
  "anyhow",
  "borsh 1.0.0",
  "bytesize",
@@ -6772,6 +6762,7 @@ dependencies = [
  "testlib",
  "thiserror",
  "tracing",
+ "yansi",
 ]
 
 [[package]]
@@ -6799,7 +6790,6 @@ dependencies = [
 name = "store-validator"
 version = "0.0.0"
 dependencies = [
- "ansi_term",
  "clap 4.2.4",
  "near-chain",
  "near-chain-configs",
@@ -6811,6 +6801,7 @@ dependencies = [
  "nearcore",
  "serde_json",
  "testlib",
+ "yansi",
 ]
 
 [[package]]
