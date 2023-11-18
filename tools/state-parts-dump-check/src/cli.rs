@@ -19,8 +19,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tokio::time::timeout;
 
-const MAX_RETRIES: u32 = 3;
+const MAX_RETRIES: u32 = 5;
 
 #[derive(clap::Parser)]
 pub struct StatePartsDumpCheckCommand {
@@ -566,28 +567,36 @@ async fn process_part_with_3_retries(
         let chain_id = chain_id.clone();
         let epoch_id = epoch_id.clone();
         let external = external.clone();
-        res = process_part(
-            part_id,
-            chain_id,
-            epoch_id,
-            epoch_height,
-            shard_id,
-            state_root,
-            num_parts,
-            external,
+        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_part().await somehow waits forever
+        // this is set to a long duration because the timer for each task, i.e. process_part, starts when the task is started, i.e. tokio::spawn is called,
+        // and counts actual time instead of CPU time.
+        // The bottom line is this timeout * MAX_RETRIES > time it takes for all parts to be processed, which is typically < 30 mins on monitoring nodes
+        let timeout_duration = tokio::time::Duration::from_secs(600);
+        res = timeout(
+            timeout_duration,
+            process_part(
+                part_id,
+                chain_id,
+                epoch_id,
+                epoch_height,
+                shard_id,
+                state_root,
+                num_parts,
+                external,
+            ),
         )
         .await;
         match res {
-            Ok(_) => {
+            Ok(Ok(_)) => {
                 tracing::info!(shard_id, epoch_height, part_id, "process_part success.",);
                 break;
             }
-            Err(_) if retries < MAX_RETRIES => {
+            _ if retries < MAX_RETRIES => {
                 tracing::info!(shard_id, epoch_height, part_id, "process_part failed. Will retry.",);
                 retries += 1;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
-            Err(_) => {
+            _ => {
                 tracing::info!(
                     shard_id,
                     epoch_height,
@@ -598,7 +607,7 @@ async fn process_part_with_3_retries(
             }
         }
     }
-    res
+    res?
 }
 
 async fn process_part(
