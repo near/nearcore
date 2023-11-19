@@ -216,3 +216,12 @@ jobs:
           save-if: "false" # use the cache from nextest, but don’t double-save
       - run: ./chain/jsonrpc/build_errors_schema.sh
       - run: git diff --quiet ./chain/jsonrpc/res/rpc_errors_schema.json || exit 1
+
+  lychee_checks:
+    name: "Lychee Lints"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lycheeverse/lychee-action@2ac9f030ccdea0033e2510a23a67da2a2da98492
+        with:
+          fail: true
