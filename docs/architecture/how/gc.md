@@ -69,6 +69,3 @@ Same as before, we’d remove up to 2 blocks in each run:
 ![](https://user-images.githubusercontent.com/1711539/195650127-b30865e1-d9c1-4950-8607-67d82a185b76.png)
 
 Until we catch up to the `gc_stop`.
-
-(the original drawings for this document are 
-[here](https://docs.google.com/document/d/1BiEuJqm4phwQbi-fjzHMZPzDL-94z9Dqkc3XPNnxKJM/edit?usp=sharing))
