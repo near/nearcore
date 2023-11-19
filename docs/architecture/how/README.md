@@ -116,7 +116,7 @@ peer. Once `ClientActor` realizes that it is more than `sync_height_threshold`
 to sync. The synchronization process is done in three steps:
 
 1. Header sync. The node first identifies the headers it needs to sync through a
-   [`get_locator`](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/*client/src/sync.rs#L332)
+   [`get_locator`](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L332)
    calculation. This is essentially an exponential backoff computation that
    tries to identify commonly known headers between the node and its peers. Then
    it would request headers from different peers, at most
