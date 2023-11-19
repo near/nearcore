@@ -1,0 +1,11 @@
+exclude = [
+    # these are private repositories, presumably any link to it are in internal documentation only.
+    "^https://github.com/near/near-ops.*",
+    "^https://github.com/near/nearcore-private.*",
+
+    # localhost is linked to refer to services supposed to be running on the host.
+    "^http://localhost.*",
+
+    # jsonrpc internal links
+    "debug/.*",
+]
