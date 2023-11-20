@@ -38,10 +38,6 @@ jobs:
             run_integ_tests: false
     timeout-minutes: 90
     steps:
-      # Some of the tests allocate really sparse maps, so heuristic-based overcommit limits are not
-      # appropriate here.
-      # FIXME(#9634): remove this once the issue is resolved.
-      - run: sudo sysctl vm.overcommit_memory=1 || true
       - uses: actions/checkout@v4
 
       # Install all the required tools

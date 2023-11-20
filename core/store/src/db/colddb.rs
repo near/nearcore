@@ -29,7 +29,7 @@ impl ColdDB {
     // Checks if the column is is the cold db and returns an error if not.
     fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
         if !col.is_in_colddb() {
-            return Err(std::io::Error::new(std::io::ErrorKind::Other, Self::err_msg(col)));
+            return Err(std::io::Error::other(Self::err_msg(col)));
         }
         Ok(())
     }

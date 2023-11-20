@@ -6,6 +6,9 @@ authors = ["Wasmer Engineering Team <engineering@wasmer.io>", "Near Inc <hello@n
 publish = false
 license = "Apache-2.0 WITH LLVM-exception"
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 target-lexicon.workspace = true

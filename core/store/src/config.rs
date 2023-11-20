@@ -269,7 +269,12 @@ impl Default for StoreConfig {
                 "sweat_the_oracle.testnet".to_owned(),
             ],
 
-            load_mem_tries_for_shards: vec![ShardUId { shard_id: 3, version: 1 }],
+            // TODO(#9511): Consider adding here shard id 3 or all shards after
+            // this feature will be tested. Until that, use at your own risk.
+            // Doesn't work for resharding.
+            // It will speed up processing of shards where it is enabled, but
+            // requires more RAM and takes several minutes on startup.
+            load_mem_tries_for_shards: Default::default(),
             load_mem_tries_for_all_shards: false,
 
             migration_snapshot: Default::default(),

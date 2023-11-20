@@ -237,7 +237,7 @@ mod test {
     use crate::logic::{Config, ContractPrepareVersion};
 
     #[test]
-    fn v1_preparation_generates_valid_contract() {
+    fn v1_preparation_generates_valid_contract_fuzzer() {
         let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V1;
         config.limit_config.contract_prepare_version = prepare_version;

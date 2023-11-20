@@ -15,7 +15,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from cluster import get_binary_protocol_version, init_cluster, load_config, spin_up_node
 from utils import MetricsTracker, poll_blocks
-from resharding_lib import append_shard_layout_config_changes, get_genesis_num_shards, get_genesis_shard_layout_version, get_target_num_shards, get_target_shard_layout_version
+from resharding_lib import append_shard_layout_config_changes, get_epoch_offset, get_genesis_num_shards, get_genesis_shard_layout_version, get_target_num_shards, get_target_shard_layout_version
 
 
 class ReshardingTest(unittest.TestCase):
@@ -35,6 +35,8 @@ class ReshardingTest(unittest.TestCase):
             self.binary_protocol_version)
         self.target_num_shards = get_target_num_shards(
             self.binary_protocol_version)
+
+        self.epoch_offset = get_epoch_offset(self.binary_protocol_version)
 
     def __get_genesis_config_changes(self):
         genesis_config_changes = [
@@ -62,7 +64,7 @@ class ReshardingTest(unittest.TestCase):
                 # retry often to start resharding as fast as possible
                 "retry_delay": {
                     "secs": 0,
-                    "nanos": 500_000_000
+                    "nanos": 100_000_000
                 }
             }
         }
@@ -114,7 +116,8 @@ class ReshardingTest(unittest.TestCase):
             # after the block is processed. If there is some delay the shard
             # layout may change and the assertions below will fail.
 
-            if height <= 2 * self.epoch_length + 1:
+            # TODO(resharding) Why is epoch offset needed here?
+            if height <= 2 * self.epoch_length + self.epoch_offset:
                 self.assertEqual(version, self.genesis_shard_layout_version)
                 self.assertEqual(num_shards, self.genesis_num_shards)
             else:

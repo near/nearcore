@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.73.0"
+rust-version = "1.74.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -88,6 +88,18 @@ members = [
     "utils/stdx",
 ]
 
+[workspace.lints.rust]
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = { level = "allow", priority = -1 }
+clone_on_copy = "deny"
+correctness = "deny"
+derivable_impls = "deny"
+redundant_clone = "deny"
+suspicious = "deny"
+len_zero = "deny"
+
 [workspace.dependencies]
 actix = "0.13.0"
 actix-cors = "0.6.1"
@@ -109,7 +121,7 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11" }
-bolero = { version = "0.10.0", features = ["arbitrary"] }
+bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "8f4e49d65c702a2f9858ed3c217b1cb52ce91243", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
@@ -338,7 +350,7 @@ wasmer-vm = { package = "wasmer-vm-near", version = "=2.4.1" }
 wasmparser = "0.78" # TODO: unify at least the versions of wasmparser we have in our codebase
 wasmprinter = "0.2"
 wasm-smith = "0.10"
-wasmtime = { version = "9.0.3", default-features = false, features = ["cranelift"] }
+wasmtime = { version = "14.0.4", default-features = false, features = ["cranelift"] }
 wast = "40.0"
 wat = "1.0.40"
 webrtc-util = "0.7"

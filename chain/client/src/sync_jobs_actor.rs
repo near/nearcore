@@ -1,5 +1,6 @@
 use crate::ClientActor;
 use actix::AsyncContext;
+use std::time::Duration;
 
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -155,18 +156,29 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
         msg: WithSpanContext<StateSplitRequest>,
         context: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, mut state_split_request) = handler_debug_span!(target: "client", msg);
+        let (_span, mut state_split_request) = handler_debug_span!(target: "resharding", msg);
+
+        // Wait for the initial delay. It should only be used in tests.
+        let initial_delay = state_split_request.config.initial_delay;
+        if state_split_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
+            tracing::debug!(target: "resharding", ?state_split_request, ?initial_delay, "Waiting for the initial delay");
+            state_split_request.curr_poll_time += initial_delay;
+            context.notify_later(state_split_request.with_span_context(), initial_delay);
+            return;
+        }
+
         if Chain::retry_build_state_for_split_shards(&state_split_request) {
             // Actix implementation let's us send message to ourselves with a delay.
             // In case snapshots are not ready yet, we will retry resharding later.
-            tracing::debug!(target: "client", ?state_split_request, "Snapshot missing, retrying resharding later");
             let retry_delay = state_split_request.config.retry_delay;
+            tracing::debug!(target: "resharding", ?state_split_request, ?retry_delay, "Snapshot missing, retrying resharding later");
             state_split_request.curr_poll_time += retry_delay;
             context.notify_later(state_split_request.with_span_context(), retry_delay);
-        } else {
-            tracing::debug!(target: "client", ?state_split_request, "Starting resharding");
-            let response = Chain::build_state_for_split_shards(state_split_request);
-            self.client_addr.do_send(response.with_span_context());
+            return;
         }
+
+        tracing::debug!(target: "resharding", ?state_split_request, "Starting resharding");
+        let response = Chain::build_state_for_split_shards(state_split_request);
+        self.client_addr.do_send(response.with_span_context());
     }
 }

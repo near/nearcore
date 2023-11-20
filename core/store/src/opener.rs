@@ -524,7 +524,7 @@ impl<'a> DBOpener<'a> {
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
-            Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            Err(std::io::Error::other(msg))
         } else {
             Ok((db, metadata))
         }

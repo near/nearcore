@@ -113,3 +113,12 @@ def get_target_num_shards(binary_protocol_version):
         return 4
 
     assert False
+
+
+def get_epoch_offset(binary_protocol_version):
+    if binary_protocol_version >= V2_PROTOCOL_VERSION:
+        return 1
+    if binary_protocol_version >= V1_PROTOCOL_VERSION:
+        return 0
+
+    assert False
