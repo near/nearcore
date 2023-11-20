@@ -9,7 +9,6 @@ use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
-use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::state_snapshot_actor::{

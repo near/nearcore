@@ -16,7 +16,7 @@ use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_o11y::testonly::TracingCapture;
-use near_o11y::{WithSpanContext, WithSpanContextExt};
+use near_o11y::WithSpanContextExt;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;

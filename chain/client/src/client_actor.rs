@@ -904,14 +904,17 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::AnnounceAccount(AnnounceAccount {
-                    account_id: validator_signer.validator_id().clone(),
-                    peer_id: self.node_id.clone(),
-                    epoch_id: next_epoch_id,
-                    signature,
-                }),
-            ).with_span_context());
+            self.network_adapter.send(
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
+                    AnnounceAccount {
+                        account_id: validator_signer.validator_id().clone(),
+                        peer_id: self.node_id.clone(),
+                        epoch_id: next_epoch_id,
+                        signature,
+                    },
+                ))
+                .with_span_context(),
+            );
         }
     }
 
