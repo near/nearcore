@@ -69,6 +69,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path unittests.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: unittests.json
           fail_ci_if_error: true
           flags: unittests,${{ matrix.id }}
@@ -85,6 +86,7 @@ jobs:
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         if: matrix.run_integ_tests
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-tests.json
           fail_ci_if_error: true
           flags: integration-tests,${{ matrix.id }}
@@ -124,6 +126,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-backcomp.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: pytest-backcomp.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
@@ -154,6 +157,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-dbmigr.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: pytest-dbmigr.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
@@ -192,6 +196,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-sanity.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: pytest-sanity.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux-nightly
@@ -221,6 +226,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-genesischk.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: pytest-genesischk.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
@@ -265,6 +271,7 @@ jobs:
       - run: cargo llvm-cov report --profile quick-release --codecov --output-path pytest-upgradability.json
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: pytest-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
