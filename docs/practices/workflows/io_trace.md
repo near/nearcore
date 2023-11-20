@@ -271,7 +271,7 @@ Run the following command to see an overview of available commands.
 
 ```bash
 # will print the help page for the IO trace replay command
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay --help
 ```
 
@@ -281,7 +281,7 @@ columns that were accessed and how many times, aggregated by chunk.
 
 
 ```bash
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay  ./path/to/my.io_trace  chunk-db-stats
 ```
 

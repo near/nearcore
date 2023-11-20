@@ -126,7 +126,7 @@ impl Mode {
     fn cargo_profile(self) -> &'static str {
         match self {
             Mode::Default => "release",
-            Mode::Fast => "quick-release",
+            Mode::Fast => "dev-release",
         }
     }
 

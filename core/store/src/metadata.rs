@@ -103,7 +103,7 @@ fn read<T: std::str::FromStr>(
 
     match result {
         Some(value) => Ok(value),
-        None => Err(other_error(format!("missing {what}; {msg}"))),
+        None => Err(std::io::Error::other(format!("missing {what}; {msg}"))),
     }
 }
 
@@ -118,19 +118,12 @@ fn maybe_read<T: std::str::FromStr>(
     key: &[u8],
 ) -> std::io::Result<Option<T>> {
     let msg = "it’s not a neard database or database is corrupted";
-    if let Some(bytes) = db.get_raw_bytes(crate::DBCol::DbVersion, key)? {
-        let value = std::str::from_utf8(&bytes)
-            .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))
-            .map_err(other_error)?;
-        let value = T::from_str(value)
-            .map_err(|_err| format!("invalid {what}: ‘{value}’; {msg}"))
-            .map_err(other_error)?;
-        Ok(Some(value))
-    } else {
-        Ok(None)
-    }
-}
-
-fn other_error(msg: String) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, msg)
+    db.get_raw_bytes(crate::DBCol::DbVersion, key)?
+        .map(|bytes| {
+            let value = std::str::from_utf8(&bytes)
+                .map_err(|_err| format!("invalid {what}: {bytes:?}; {msg}"))?;
+            T::from_str(value).map_err(|_err| format!("invalid {what}: ‘{value}’; {msg}"))
+        })
+        .transpose()
+        .map_err(std::io::Error::other)
 }

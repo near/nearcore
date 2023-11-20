@@ -6,7 +6,6 @@ use crate::runner::VMResult;
 use crate::ContractCode;
 use crate::VMKind;
 use arbitrary::Arbitrary;
-use bolero::check;
 use core::fmt;
 use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 
@@ -145,8 +144,8 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 }
 
 #[test]
-fn current_vm_does_not_crash() {
-    check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
+fn current_vm_does_not_crash_fuzzer() {
+    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let config = Config::test();
         let _result = run_fuzz(&code, config.vm_kind);
@@ -155,8 +154,8 @@ fn current_vm_does_not_crash() {
 
 #[test]
 #[cfg_attr(not(all(feature = "near_vm", target_arch = "x86_64")), ignore)]
-fn near_vm_and_wasmtime_agree() {
-    check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
+fn near_vm_and_wasmtime_agree_fuzzer() {
+    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
         let near_vm = run_fuzz(&code, VMKind::NearVm).expect("fatal failure");
         let wasmtime = run_fuzz(&code, VMKind::Wasmtime).expect("fatal failure");
@@ -166,7 +165,7 @@ fn near_vm_and_wasmtime_agree() {
 
 #[test]
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-fn near_vm_is_reproducible() {
+fn near_vm_is_reproducible_fuzzer() {
     use crate::near_vm_runner::NearVM;
     use near_primitives::hash::CryptoHash;
 

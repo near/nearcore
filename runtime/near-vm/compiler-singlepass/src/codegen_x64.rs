@@ -1104,19 +1104,13 @@ impl<'a> FuncGen<'a> {
                     call_movs.push((*param, x));
                 }
                 Location::Memory(_, _) => {
-                    match *param {
-                        Location::GPR(_) => {}
-                        Location::XMM(_) => {}
-                        Location::Memory(reg, _) => {
-                            if reg != GPR::RBP {
-                                return Err(CodegenError {
-                                    message: "emit_call_native loc param: unreachable code"
-                                        .to_string(),
-                                });
-                            }
-                            // TODO: Read value at this offset
+                    if let Location::Memory(reg, _) = *param {
+                        if reg != GPR::RBP {
+                            return Err(CodegenError {
+                                message: "emit_call_native loc param: unreachable code".to_string(),
+                            });
                         }
-                        _ => {}
+                        // TODO: Ensure that the two `Location::Memories` point at the same place?
                     }
                     match *param {
                         Location::Imm64(_) => {

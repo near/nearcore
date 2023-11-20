@@ -19,7 +19,7 @@ use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::epoch_manager::{AllEpochConfigTestOverrides, RngSeed};
 use near_primitives::types::{AccountId, NumShards};
 use near_store::test_utils::create_test_store;
-use near_store::{NodeStorage, ShardUId, Store, StoreConfig};
+use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
@@ -299,11 +299,13 @@ impl TestEnvBuilder {
     pub fn internal_initialize_nightshade_runtimes(
         self,
         runtime_configs: Vec<RuntimeConfigStore>,
+        trie_configs: Vec<TrieConfig>,
         nightshade_runtime_creator: impl Fn(
             PathBuf,
             Store,
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
+            TrieConfig,
         ) -> Arc<dyn RuntimeAdapter>,
     ) -> Self {
         let builder = self.ensure_home_dirs().ensure_epoch_managers().ensure_stores();
@@ -312,15 +314,16 @@ impl TestEnvBuilder {
             builder.stores.clone().unwrap(),
             builder.epoch_managers.clone().unwrap(),
             runtime_configs,
+            trie_configs,
         ))
-        .map(|(home_dir, store, epoch_manager, runtime_config)| {
+        .map(|(home_dir, store, epoch_manager, runtime_config, trie_config)| {
             let epoch_manager = match epoch_manager {
                 EpochManagerKind::Mock(_) => {
                     panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
                 }
                 EpochManagerKind::Handle(handle) => handle,
             };
-            nightshade_runtime_creator(home_dir, store, epoch_manager, runtime_config)
+            nightshade_runtime_creator(home_dir, store, epoch_manager, runtime_config, trie_config)
         })
         .collect();
         builder.runtimes(runtimes)

@@ -995,7 +995,6 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
-            BlockHeader::BlockHeaderV5(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
@@ -1152,12 +1151,6 @@ impl ChunkView {
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
                 receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
-            },
-            ShardChunk::V3(chunk) => Self {
-                author,
-                header: chunk.header.into(),
-                transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
     }
@@ -1673,7 +1666,7 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
-
+#[derive(Clone)]
 pub struct TxStatusView {
     pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
     pub status: TxExecutionStatus,
@@ -1710,7 +1703,7 @@ pub enum TxExecutionStatus {
     Final,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),

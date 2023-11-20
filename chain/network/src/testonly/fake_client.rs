@@ -7,15 +7,16 @@ use near_async::messaging;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
+use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV2};
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
+    AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
     Block(Block),
     BlockHeaders(Vec<BlockHeader>),
     BlockApproval(Approval, PeerId),
@@ -108,6 +109,14 @@ impl client::Client for Fake {
     }
 
     async fn network_info(&self, _info: NetworkInfo) {}
+
+    async fn announce_account(
+        &self,
+        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
+    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
+        self.event_sink.push(Event::AnnounceAccount(accounts.clone()));
+        Ok(accounts.into_iter().map(|a| a.0).collect())
+    }
 }
 
 impl messaging::CanSend<ShardsManagerRequestFromNetwork> for Fake {

@@ -30,19 +30,17 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
-    #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
 
     /// Maximum number of height to go through at each garbage collection step
     /// when cleaning forks during garbage collection.
-    #[serde(default = "default_gc_fork_clean_step")]
     pub gc_fork_clean_step: u64,
 
     /// Number of epochs for which we keep store data.
-    #[serde(default = "default_gc_num_epochs_to_keep")]
     pub gc_num_epochs_to_keep: u64,
 }
 
@@ -54,18 +52,6 @@ impl Default for GCConfig {
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         }
     }
-}
-
-fn default_gc_blocks_limit() -> NumBlocks {
-    GCConfig::default().gc_blocks_limit
-}
-
-fn default_gc_fork_clean_step() -> u64 {
-    GCConfig::default().gc_fork_clean_step
-}
-
-fn default_gc_num_epochs_to_keep() -> u64 {
-    GCConfig::default().gc_num_epochs_to_keep()
 }
 
 impl GCConfig {
@@ -163,20 +149,46 @@ impl SyncConfig {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[serde(default)]
 pub struct StateSplitConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     pub batch_size: bytesize::ByteSize,
+
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
     pub batch_delay: Duration,
+
+    /// The delay between attempts to start resharding while waiting for the
+    /// state snapshot to become available.
+    pub retry_delay: Duration,
+
+    /// The delay between the resharding request is received and when the actor
+    /// actually starts working on it. This delay should only be used in tests.
+    pub initial_delay: Duration,
+
+    /// The maximum time that the actor will wait for the snapshot to be ready,
+    /// before starting resharding. Do not wait indefinitely since we want to
+    /// report error early enough for the node maintainer to have time to recover.
+    pub max_poll_time: Duration,
 }
 
 impl Default for StateSplitConfig {
     fn default() -> Self {
-        Self { batch_size: bytesize::ByteSize::mb(30), batch_delay: Duration::from_millis(100) }
+        // Conservative default for a slower resharding that puts as little
+        // extra load on the node as possible.
+        Self {
+            batch_size: bytesize::ByteSize::kb(500),
+            batch_delay: Duration::from_millis(100),
+            retry_delay: Duration::from_secs(10),
+            initial_delay: Duration::from_secs(0),
+            // The snapshot typically is available within a minute from the
+            // epoch start. Set the default higher in case we need to wait for
+            // state sync.
+            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
+        }
     }
 }
 

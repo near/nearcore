@@ -76,7 +76,7 @@ cloud-hosted VMs) and manual labor to set it up.
 
 The other supported metric `icount` is much more stable. It uses
 [qemu](https://www.qemu.org/) to emulate an x86 CPU. We then insert a custom
-[TCG plugin](https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html)
+[TCG plugin](https://www.qemu.org/docs/master/devel/tcg-plugins.html)
 ([counter.c](https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c))
 that counts the number of executed x86 instructions. It also intercepts system
 calls and counts the number of bytes seen in `sys_read`, `sys_write` and their

@@ -120,12 +120,8 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     SimpleNightshadeV2,
     RestrictTla,
-    /// Enables block production with post-state-root.
-    /// NEP: https://github.com/near/NEPs/pull/507
-    PostStateRoot,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
     /// Enables chunk validation which is introduced with stateless validation.
@@ -184,9 +180,7 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
             ProtocolFeature::SimpleNightshadeV2 => 135,
-            ProtocolFeature::PostStateRoot => 136,
             #[cfg(feature = "protocol_feature_chunk_validation")]
             ProtocolFeature::ChunkValidation => 137,
         }

@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [build-dependencies]
 anyhow.workspace = true
 protobuf-codegen.workspace = true

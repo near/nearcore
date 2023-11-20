@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix-rt.workspace = true
 actix.workspace = true
@@ -23,7 +26,6 @@ hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true
 lru.workspace = true
-memmap2.workspace = true
 num_cpus.workspace = true
 once_cell.workspace = true
 rand.workspace = true

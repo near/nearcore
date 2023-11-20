@@ -102,8 +102,9 @@ pub static STATE_PART_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static NUM_INVALID_BLOCKS: Lazy<IntGauge> = Lazy::new(|| {
-    try_create_int_gauge("near_num_invalid_blocks", "Number of invalid blocks").unwrap()
+pub static NUM_INVALID_BLOCKS: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec("near_num_invalid_blocks", "Number of invalid blocks", &["error"])
+        .unwrap()
 });
 pub(crate) static SCHEDULED_CATCHUP_BLOCK: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
@@ -148,6 +149,8 @@ pub(crate) enum ReshardingStatus {
     BuildingState,
     /// The resharding is finished.
     Finished,
+    /// The resharding failed. Manual recovery is necessary!
+    Failed,
 }
 
 impl From<ReshardingStatus> for i64 {
@@ -158,6 +161,7 @@ impl From<ReshardingStatus> for i64 {
             ReshardingStatus::Scheduled => 0,
             ReshardingStatus::BuildingState => 1,
             ReshardingStatus::Finished => 2,
+            ReshardingStatus::Failed => -1,
         }
     }
 }

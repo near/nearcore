@@ -69,11 +69,18 @@ pub struct TestTriesBuilder {
     shard_version: ShardVersion,
     num_shards: NumShards,
     enable_flat_storage: bool,
+    enable_in_memory_tries: bool,
 }
 
 impl TestTriesBuilder {
     pub fn new() -> Self {
-        Self { store: None, shard_version: 0, num_shards: 1, enable_flat_storage: false }
+        Self {
+            store: None,
+            shard_version: 0,
+            num_shards: 1,
+            enable_flat_storage: false,
+            enable_in_memory_tries: false,
+        }
     }
 
     pub fn with_store(mut self, store: Store) -> Self {
@@ -92,6 +99,11 @@ impl TestTriesBuilder {
         self
     }
 
+    pub fn with_in_memory_tries(mut self) -> Self {
+        self.enable_in_memory_tries = true;
+        self
+    }
+
     pub fn build(self) -> ShardTries {
         let store = self.store.unwrap_or_else(create_test_store);
         let shard_uids = (0..self.num_shards)
@@ -100,7 +112,10 @@ impl TestTriesBuilder {
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let tries = ShardTries::new(
             store,
-            TrieConfig::default(),
+            TrieConfig {
+                load_mem_tries_for_all_shards: self.enable_in_memory_tries,
+                ..Default::default()
+            },
             &shard_uids,
             flat_storage_manager,
             StateSnapshotConfig::default(),
@@ -130,6 +145,9 @@ impl TestTriesBuilder {
                 };
                 flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             }
+        }
+        if self.enable_in_memory_tries {
+            tries.load_mem_tries_for_enabled_shards(&shard_uids).unwrap();
         }
         tries
     }

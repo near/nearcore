@@ -224,6 +224,13 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
+    def send_tx_rpc(self, signed_tx, timeout, wait_until='FINAL'):
+        return self.json_rpc('send_tx', {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            'wait_until': wait_until
+        },
+                             timeout=timeout)
+
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,
@@ -818,6 +825,7 @@ def apply_config_changes(node_dir, client_config_change):
         'consensus.block_fetch_horizon',
         'consensus.min_block_production_delay',
         'consensus.state_sync_timeout',
+        'expected_shutdown',
         'log_summary_period',
         'max_gas_burnt_view',
         'rosetta_rpc',
@@ -975,3 +983,27 @@ def get_binary_protocol_version(config) -> typing.Optional[int]:
         if tokens[i] == "protocol" and i + 1 < n:
             return int(tokens[i + 1])
     return None
+
+
+def corrupt_state_snapshot(config, node_dir, shard_layout_version):
+    near_root = config['near_root']
+    binary_name = config.get('binary_name', 'neard')
+    binary_path = os.path.join(near_root, binary_name)
+
+    cmd = [
+        binary_path,
+        "--home",
+        node_dir,
+        "database",
+        "corrupt-state-snapshot",
+        "--shard-layout-version",
+        str(shard_layout_version),
+    ]
+
+    env = os.environ.copy()
+    env["RUST_BACKTRACE"] = "1"
+    env["RUST_LOG"] = "db=warn,db_opener=warn," + env.get("RUST_LOG", "debug")
+
+    out = subprocess.check_output(cmd, text=True, env=env)
+
+    return out

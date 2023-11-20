@@ -30,6 +30,7 @@ pub mod validate;
 
 #[cfg(test)]
 mod tests;
+mod update_shard;
 
 #[cfg(feature = "byzantine_asserts")]
 #[macro_export]

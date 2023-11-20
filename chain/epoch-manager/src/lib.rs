@@ -1086,6 +1086,20 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
+    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
+    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
+    }
+
     pub fn get_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,

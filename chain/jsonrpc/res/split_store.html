@@ -1,0 +1,33 @@
+<html>
+
+<head>
+    <title> Split Store </title>
+</head>
+
+<body>
+    <h1>
+        Split Store
+    </h1>
+
+    <ul>
+        <li> Head height: <span id="head-height"></span></li>
+        <li> Cold head height: <span id="cold-head-height"></span></li>
+        <li> Final head height: <span id="final-head-height"></span></li>
+        <li> Hot db kind: <span id="hot-db-kind"></span></li>
+    </ul>
+
+    <script>
+        document.body.onload = async () => {
+            response = await fetch("../api/split_store_info")
+            response_json = await response.json()
+            info = response_json['status_response']['SplitStoreStatus']
+
+            document.getElementById("head-height").textContent = String(info["head_height"])
+            document.getElementById("cold-head-height").textContent = String(info["cold_head_height"])
+            document.getElementById("final-head-height").textContent = String(info["final_head_height"])
+            document.getElementById("hot-db-kind").textContent = String(info["hot_db_kind"])
+        }
+    </script>
+</body>
+
+</html>

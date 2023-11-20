@@ -54,9 +54,10 @@ def test_changes_with_new_account_with_access_key():
     4. Observe the changes in the block where the receipt lands.
     """
 
+    base_account_id = nodes[0].signer_key.account_id
     # re-use the key as a new account access key
     new_key = Key(
-        account_id='rpc_key_value_changes_full_access',
+        account_id=f'rpc_key_value_changes.{base_account_id}',
         pk=nodes[1].signer_key.pk,
         sk=nodes[1].signer_key.sk,
     )

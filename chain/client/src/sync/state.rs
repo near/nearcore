@@ -1041,7 +1041,7 @@ impl StateSync {
             shard_id,
             state_split_scheduler,
         )?;
-        tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "State sync split scheduled");
+        tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "resharding scheduled");
         *shard_sync_download =
             ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSplitApplying };
         Ok(())

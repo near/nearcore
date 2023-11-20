@@ -371,7 +371,7 @@ async fn tier2_routing_using_accounts_data() {
     pm0.connect_to(&pm1.peer_info(), tcp::Tier::T2).await;
 
     tracing::info!(target:"test", "Try to send a routed message pm0 -> pm1 over TIER2");
-    // It should fail due to missing routing information: AccountData is not
+    // It should fail due to missing routing information: neither AccountData or AnnounceAccount is
     // broadcasted by default in tests.
     // TODO(gprusak): send_tier1_message sends an Approval message, which is not a valid message to
     // be sent from a non-TIER1 node. Make it more realistic by sending a Transaction message.

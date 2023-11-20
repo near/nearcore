@@ -2,8 +2,8 @@
 //! Useful for querying from RPC.
 
 use crate::adapter::{
-    BlockHeadersRequest, BlockRequest, StateRequestHeader, StateRequestPart, StateResponse,
-    TxStatusRequest, TxStatusResponse,
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
 };
 use crate::{
     metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
@@ -30,8 +30,8 @@ use near_client_primitives::types::{
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{
-    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, StateResponseInfo,
-    StateResponseInfoV2,
+    NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
+    StateResponseInfo, StateResponseInfoV2,
 };
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -39,6 +39,7 @@ use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
+use near_primitives::network::AnnounceAccount;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
@@ -58,6 +59,7 @@ use near_primitives::views::{
 };
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
+use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
@@ -538,6 +540,24 @@ impl ViewClientActor {
         hashes: Vec<CryptoHash>,
     ) -> Result<Vec<BlockHeader>, near_chain::Error> {
         self.chain.retrieve_headers(hashes, sync::header::MAX_BLOCK_HEADERS, None)
+    }
+
+    fn check_signature_account_announce(
+        &self,
+        announce_account: &AnnounceAccount,
+    ) -> Result<bool, Error> {
+        let announce_hash = announce_account.hash();
+        let head = self.chain.head()?;
+
+        self.epoch_manager
+            .verify_validator_signature(
+                &announce_account.epoch_id,
+                &head.last_block_hash,
+                &announce_account.account_id,
+                announce_hash.as_ref(),
+                &announce_account.signature,
+            )
+            .map_err(|e| e.into())
     }
 
     /// Returns true if this request needs to be **dropped** due to exceeding a
@@ -1437,6 +1457,65 @@ impl Handler<WithSpanContext<StateRequestPart>> for ViewClientActor {
         let info =
             StateResponseInfo::V2(StateResponseInfoV2 { shard_id, sync_hash, state_response });
         Some(StateResponse(Box::new(info)))
+    }
+}
+
+impl Handler<WithSpanContext<AnnounceAccountRequest>> for ViewClientActor {
+    type Result = Result<Vec<AnnounceAccount>, ReasonForBan>;
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<AnnounceAccountRequest>,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        tracing::debug!(target: "client", ?msg);
+        let _timer = metrics::VIEW_CLIENT_MESSAGE_TIME
+            .with_label_values(&["AnnounceAccountRequest"])
+            .start_timer();
+        let AnnounceAccountRequest(announce_accounts) = msg;
+
+        let mut filtered_announce_accounts = Vec::new();
+
+        for (announce_account, last_epoch) in announce_accounts {
+            // Keep the announcement if it is newer than the last announcement from
+            // the same account.
+            if let Some(last_epoch) = last_epoch {
+                match self.epoch_manager.compare_epoch_id(&announce_account.epoch_id, &last_epoch) {
+                    Ok(Ordering::Greater) => {}
+                    _ => continue,
+                }
+            }
+
+            match self.check_signature_account_announce(&announce_account) {
+                Ok(true) => {
+                    filtered_announce_accounts.push(announce_account);
+                }
+                // TODO(gprusak): Here we ban for broadcasting accounts which have been slashed
+                // according to BlockInfo for the current chain tip. It is unfair,
+                // given that peers do not have perfectly synchronized heads:
+                // - AFAIU each block can introduce a slashed account, so the announcement
+                //   could be OK at the moment that peer has sent it out.
+                // - the current epoch_id is not related to announce_account.epoch_id,
+                //   so it carry a perfectly valid (outdated) information.
+                Ok(false) => {
+                    return Err(ReasonForBan::InvalidSignature);
+                }
+                // Filter out this account. This covers both good reasons to ban the peer:
+                // - signature didn't match the data and public_key.
+                // - account is not a validator for the given epoch
+                // and cases when we were just unable to validate the data (so we shouldn't
+                // ban), for example when the node is not aware of the public key for the given
+                // (account_id,epoch_id) pair.
+                // We currently do NOT ban the peer for either.
+                // TODO(gprusak): consider whether we should change that.
+                Err(err) => {
+                    tracing::debug!(target: "view_client", ?err, "Failed to validate account announce signature");
+                }
+            }
+        }
+        Ok(filtered_announce_accounts)
     }
 }
 

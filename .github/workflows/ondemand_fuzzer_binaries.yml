@@ -22,7 +22,8 @@ on:
 
 jobs:
   build_fuzzers:
-    runs-on: "ubuntu-20.04"
+    name: Build Fuzzers
+    runs-on: "ubuntu-22.04-8core"
 
     permissions:
       contents: "read"
@@ -40,23 +41,13 @@ jobs:
           rustup install nightly
           rustup default nightly
 
-      - name: Set swap to 10G
-        shell: bash
-        run: |
-          export SWAP_FILE=$(swapon --show=NAME | tail -n 1)
-          sudo swapoff $SWAP_FILE
-          sudo rm $SWAP_FILE
-          sudo fallocate -l 10G $SWAP_FILE
-          sudo chmod 600 $SWAP_FILE
-          sudo mkswap $SWAP_FILE
-          sudo swapon $SWAP_FILE
-
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-bolero
-          # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 lands
-          git: https://github.com/camshaft/bolero
-          rev: 8c5a50a57b0e4c4cc8111cfd95670dc75cd2dea7
+          # TODO: remove the below once https://github.com/camshaft/bolero/pull/195 is released on crates.io
+          # and https://github.com/camshaft/bolero/pull/196 has a proper fix
+          git: https://github.com/Ekleog-NEAR/bolero
+          rev: 8f4e49d65c702a2f9858ed3c217b1cb52ce91243
 
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
 
@@ -86,7 +77,7 @@ jobs:
         run: echo "branch_type=${{ github.event.inputs.branch_type }}" >> "$GITHUB_ENV"
 
       - name: "Compile fuzzers and upload to GCS"
-      - run: |
+        run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
           cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"
