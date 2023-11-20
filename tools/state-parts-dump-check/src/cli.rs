@@ -21,6 +21,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
+// This isn't set to a huge number because if we keep retrying for too long, we will miss the next epoch's check
 const MAX_RETRIES: u32 = 5;
 
 #[derive(clap::Parser)]
