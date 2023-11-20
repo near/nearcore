@@ -203,7 +203,7 @@ requires full control over a system (often not the case when running on
 cloud-hosted VMs) and manual labor to set it up.</p>
 <p>The other supported metric <code>icount</code> is much more stable. It uses
 <a href="https://www.qemu.org/">qemu</a> to emulate an x86 CPU. We then insert a custom
-<a href="https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html">TCG plugin</a>
+<a href="https://www.qemu.org/docs/master/devel/tcg-plugins.html">TCG plugin</a>
 (<a href="https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c">counter.c</a>)
 that counts the number of executed x86 instructions. It also intercepts system
 calls and counts the number of bytes seen in <code>sys_read</code>, <code>sys_write</code> and their

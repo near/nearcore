@@ -381,7 +381,7 @@ starting point when reading the code base.</p>
 <h3 id="observability"><a class="header" href="#observability">Observability</a></h3>
 <p>The <a href="https://tracing.rs">tracing</a> crate is used for structured, hierarchical
 event output and logging. We also integrate <a href="https://prometheus.io">Prometheus</a>
-for light-weight metric output. See the <a href="architecture/./style.html">style</a> documentation for
+for light-weight metric output. See the <a href="architecture/../practices/style.html">style</a> documentation for
 more information on the usage.</p>
 <h3 id="testing"><a class="header" href="#testing">Testing</a></h3>
 <p>Rust has built-in support for writing unit tests by marking functions
@@ -523,7 +523,7 @@ to sync. The synchronization process is done in three steps:</p>
 <ol>
 <li>
 <p>Header sync. The node first identifies the headers it needs to sync through a
-<a href="https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/*client/src/sync.rs#L332"><code>get_locator</code></a>
+<a href="https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L332"><code>get_locator</code></a>
 calculation. This is essentially an exponential backoff computation that
 tries to identify commonly known headers between the node and its peers. Then
 it would request headers from different peers, at most
@@ -862,8 +862,6 @@ the canonical chain:</p>
 <p>Same as before, we’d remove up to 2 blocks in each run:</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195650127-b30865e1-d9c1-4950-8607-67d82a185b76.png" alt="" /></p>
 <p>Until we catch up to the <code>gc_stop</code>.</p>
-<p>(the original drawings for this document are 
-<a href="https://docs.google.com/document/d/1BiEuJqm4phwQbi-fjzHMZPzDL-94z9Dqkc3XPNnxKJM/edit?usp=sharing">here</a>)</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="how-epoch-works"><a class="header" href="#how-epoch-works">How Epoch Works</a></h1>
 <p>This short document will tell you all you need to know about Epochs in NEAR
 protocol.</p>
@@ -890,8 +888,7 @@ happens at epoch boundaries.</p>
 <p>Epoch length is set in the genesis config. Currently in mainnet it is set to 43200 blocks:</p>
 <pre><code class="language-json">  &quot;epoch_length&quot;: 43200
 </code></pre>
-<!-- TODO: Where is this supposed to point to? -->
-<p>See http://go/mainnet-genesis for more details.</p>
+<p>See <a href="https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/genesis.json">the mainnet genesis</a> for more details.</p>
 <p>This means that each epoch lasts around 15 hours.</p>
 <p><strong>Important:</strong> sometimes there might be ‘troubles’ on the network, that might result
 in epoch lasting a little bit longer (if we cannot get enough signatures on the
@@ -3046,7 +3043,7 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
 <p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code>
-<a href="https://actix.rs/book/actix/sec-2-actor.html">framework</a>. Usually each actor
+<a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
 each instance. Only messages implementing <code>actix::Message</code>, can be sent
 using between threads. Each actor has its own queue; Processing of messages
@@ -3069,7 +3066,7 @@ and received must implement <code>serde::Serialize</code> and <code>serde::Deser
 or hash (which seems to be used only for route back...). If target is the
 account - it will be converted using <code>routing_table.account_owner</code> to the peer.</p>
 <p>Upon receiving the message, the <code>PeerManagerActor</code>
-<a href="https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285">will sign it</a>
+<a href="https://github.com/near/nearcore/blob/cadf11d5851be7611011b4e89542e11f41f3d827/chain/network/src/peer_manager/peer_manager_actor.rs">will sign it</a>
 and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
 <code>route_back</code> if needed) and then send the message over the network as
@@ -3580,7 +3577,7 @@ requires full control over a system (often not the case when running on
 cloud-hosted VMs) and manual labor to set it up.</p>
 <p>The other supported metric <code>icount</code> is much more stable. It uses
 <a href="https://www.qemu.org/">qemu</a> to emulate an x86 CPU. We then insert a custom
-<a href="https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html">TCG plugin</a>
+<a href="https://www.qemu.org/docs/master/devel/tcg-plugins.html">TCG plugin</a>
 (<a href="https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c">counter.c</a>)
 that counts the number of executed x86 instructions. It also intercepts system
 calls and counts the number of bytes seen in <code>sys_read</code>, <code>sys_write</code> and their
@@ -6174,7 +6171,7 @@ begin producing blocks after that's done.</p>
 something, but don't know where to put it, put it here!</p>
 <h2 id="crate-versioning-and-publishing"><a class="header" href="#crate-versioning-and-publishing">Crate Versioning and Publishing</a></h2>
 <p>While all the crates in the workspace are directly unversioned (<code>v0.0.0</code>), they
-all share a unified variable version in the <a href="misc/Cargo.toml">workspace manifest</a>.
+all share a unified variable version in the <a href="misc/../../Cargo.toml">workspace manifest</a>.
 This keeps versions consistent across the workspace and informs their versions
 at the moment of publishing.</p>
 <p>We also have CI infrastructure set up to automate the publishing process to

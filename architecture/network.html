@@ -512,7 +512,7 @@ validation in <code>EdgeVerifierActor</code>.</li>
 <code>Near</code>.</p>
 <h2 id="101-messages-between-actors"><a class="header" href="#101-messages-between-actors">10.1 Messages between Actors.</a></h2>
 <p><code>Near</code> is build on <code>Actix</code>'s <code>actor</code>
-<a href="https://actix.rs/book/actix/sec-2-actor.html">framework</a>. Usually each actor
+<a href="https://actix.rs/docs/actix/actor">framework</a>. Usually each actor
 runs on its own dedicated thread. Some, like <code>PeerActor</code> have one thread per
 each instance. Only messages implementing <code>actix::Message</code>, can be sent
 using between threads. Each actor has its own queue; Processing of messages
@@ -535,7 +535,7 @@ and received must implement <code>serde::Serialize</code> and <code>serde::Deser
 or hash (which seems to be used only for route back...). If target is the
 account - it will be converted using <code>routing_table.account_owner</code> to the peer.</p>
 <p>Upon receiving the message, the <code>PeerManagerActor</code>
-<a href="https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285">will sign it</a>
+<a href="https://github.com/near/nearcore/blob/cadf11d5851be7611011b4e89542e11f41f3d827/chain/network/src/peer_manager/peer_manager_actor.rs">will sign it</a>
 and convert into RoutedMessage (which also have things like TTL etc.).</p>
 <p>Then it will use the <code>routing_table</code>, to find the route to the target peer (add
 <code>route_back</code> if needed) and then send the message over the network as
