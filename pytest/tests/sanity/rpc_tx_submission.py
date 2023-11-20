@@ -45,8 +45,8 @@ new_balances = [
     int(nodes[0].get_account("test%s" % x)['result']['amount']) for x in [0, 1]
 ]
 logger.info(f"BALANCES AFTER {new_balances}")
-assert new_balances[0] == old_balances[0] - 303
-assert new_balances[1] == old_balances[1] + 303
+assert new_balances[0] == old_balances[0] - 201
+assert new_balances[1] == old_balances[1] + 201
 
 status = nodes[0].get_status()
 hash_ = status['sync_info']['latest_block_hash']
