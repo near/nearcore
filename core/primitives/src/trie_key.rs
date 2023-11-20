@@ -648,59 +648,67 @@ mod tests {
 
     #[test]
     fn test_account_id_from_trie_key() {
-        let account_id = OK_ACCOUNT_IDS[0].parse::<AccountId>().unwrap();
+        for account_id_str in OK_ACCOUNT_IDS {
+            let account_id = account_id_str.parse::<AccountId>().unwrap();
 
-        assert_eq!(
-            TrieKey::Account { account_id: account_id.clone() }.get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::AccessKey {
-                account_id: account_id.clone(),
-                public_key: PublicKey::empty(KeyType::ED25519)
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id: Default::default() }
+            assert_eq!(
+                TrieKey::Account { account_id: account_id.clone() }.get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: PublicKey::empty(KeyType::ED25519)
+                }
                 .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PostponedReceiptId {
-                receiver_id: account_id.clone(),
-                data_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PendingDataCount {
-                receiver_id: account_id.clone(),
-                receipt_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PostponedReceipt {
-                receiver_id: account_id.clone(),
-                receipt_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(), None);
-        assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
-        assert_eq!(
-            TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::ReceivedData {
+                    receiver_id: account_id.clone(),
+                    data_id: Default::default()
+                }
                 .get_account_id(),
-            Some(account_id)
-        );
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PendingDataCount {
+                    receiver_id: account_id.clone(),
+                    receipt_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PostponedReceipt {
+                    receiver_id: account_id.clone(),
+                    receipt_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(),
+                None
+            );
+            assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
+            assert_eq!(
+                TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
+                    .get_account_id(),
+                Some(account_id)
+            );
+        }
     }
 }
