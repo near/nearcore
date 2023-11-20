@@ -316,6 +316,7 @@ impl Runtime {
             &apply_state.config,
             is_the_only_action,
             is_refund,
+            apply_state.current_protocol_version,
         ) {
             result.result = Err(e);
             return Ok(result);
@@ -382,6 +383,7 @@ impl Runtime {
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
+                        apply_state,
                         &apply_state.config.fees,
                         account,
                         actor_id,

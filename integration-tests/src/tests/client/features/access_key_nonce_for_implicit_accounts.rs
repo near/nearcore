@@ -18,7 +18,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -203,8 +203,7 @@ fn get_status_of_tx_hash_collision_for_implicit_account(
 fn test_transaction_hash_collision_for_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id =
-        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(
@@ -221,8 +220,7 @@ fn test_transaction_hash_collision_for_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let implicit_account_id =
-        derive_near_implicit_account_id(secret_key.public_key().unwrap_as_ed25519());
+    let implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
     let implicit_account_signer = InMemorySigner::from_secret_key(implicit_account_id, secret_key);
     assert_matches!(
         get_status_of_tx_hash_collision_for_implicit_account(

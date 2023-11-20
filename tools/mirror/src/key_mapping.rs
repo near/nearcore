@@ -1,7 +1,7 @@
 use hkdf::Hkdf;
 use near_crypto::{ED25519PublicKey, ED25519SecretKey, PublicKey, Secp256K1PublicKey, SecretKey};
 use near_primitives::types::AccountId;
-use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::utils::derive_account_id_from_public_key;
 use near_primitives_core::account::id::AccountType;
 use sha2::Sha256;
 
@@ -107,10 +107,11 @@ pub fn map_account(
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let public_key =
-                PublicKey::from_near_implicit_account(account_id).expect("must be near-implicit");
+                PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
             let mapped_key = map_key(&public_key, secret);
-            derive_near_implicit_account_id(mapped_key.public_key().unwrap_as_ed25519())
+            derive_account_id_from_public_key(&mapped_key.public_key())
         }
+        // TODO(eth-implicit) map to a new ETH address
         AccountType::EthImplicitAccount => account_id.clone(),
         AccountType::NamedAccount => account_id.clone(),
     }

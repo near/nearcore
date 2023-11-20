@@ -486,9 +486,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
-    /// Error occurs when a `CreateAccount` action is called on hex-characters
-    /// account of length 64.  See implicit account creation NEP:
-    /// <https://github.com/nearprotocol/NEPs/pull/71>.
+    /// Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account.
+    /// See NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>.
+    /// Also, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.
     ///
     /// TODO(#8598): This error is named very poorly. A better name would be
     /// `OnlyNamedAccountCreationAllowed`.

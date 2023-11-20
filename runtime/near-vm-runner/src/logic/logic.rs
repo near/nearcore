@@ -17,6 +17,7 @@ use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::mem::size_of;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -1781,11 +1782,15 @@ impl<'a> VMLogic<'a> {
             sir,
             self.config.implicit_account_creation,
             receiver_id.get_account_type(),
+            // TODO(eth-implicit) What protocol version to use?
+            PROTOCOL_VERSION,
         );
         let exec_fee = transfer_exec_fee(
             self.fees_config,
             self.config.implicit_account_creation,
             receiver_id.get_account_type(),
+            // TODO(eth-implicit) What protocol version to use?
+            PROTOCOL_VERSION,
         );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
