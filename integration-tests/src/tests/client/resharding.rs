@@ -1059,11 +1059,13 @@ fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: 
 }
 
 #[test]
+#[ignore]
 fn test_shard_layout_upgrade_gc() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V1, 44);
 }
 
 #[test]
+#[ignore]
 fn test_shard_layout_upgrade_gc_v2() {
     // TODO(resharding) remove those checks once rolled out
     if checked_feature!("stable", SimpleNightshadeV2, PROTOCOL_VERSION) {

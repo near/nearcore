@@ -60,11 +60,6 @@ fn default_peer_expiration_duration() -> Duration {
     Duration::from_secs(7 * 24 * 60 * 60)
 }
 
-/// If non-zero - we'll skip sending tombstones during initial sync and for that many seconds after start.
-fn default_skip_tombstones() -> i64 {
-    0
-}
-
 /// This is a list of public STUN servers provided by Google,
 /// which are known to have good availability. To avoid trusting
 /// a centralized entity (and DNS used for domain resolution),
@@ -201,28 +196,11 @@ pub struct Config {
     pub experimental: ExperimentalConfig,
 }
 
-fn default_tier1_enable_inbound() -> bool {
-    true
-}
-fn default_tier1_enable_outbound() -> bool {
-    true
-}
-
-fn default_tier1_connect_interval() -> Duration {
-    Duration::from_secs(60)
-}
-
-fn default_tier1_new_connections_per_attempt() -> u64 {
-    50
-}
-
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
-    #[serde(default)]
     pub inbound_disabled: bool,
     // If true - connect only to the boot nodes.
-    #[serde(default)]
     pub connect_only_to_boot_nodes: bool,
 
     // If greater than 0, then system will no longer send or receive tombstones
@@ -230,28 +208,22 @@ pub struct ExperimentalConfig {
     //
     // The better name is `skip_tombstones_seconds`, but we keep send for
     // compatibility.
-    #[serde(default = "default_skip_tombstones")]
     pub skip_sending_tombstones_seconds: i64,
 
     /// See `near_network::config::Tier1::enable_inbound`.
-    #[serde(default = "default_tier1_enable_inbound")]
     pub tier1_enable_inbound: bool,
 
     /// See `near_network::config::Tier1::enable_outbound`.
-    #[serde(default = "default_tier1_enable_outbound")]
     pub tier1_enable_outbound: bool,
 
     /// See `near_network::config::Tier1::connect_interval`.
-    #[serde(default = "default_tier1_connect_interval")]
     pub tier1_connect_interval: Duration,
 
     /// See `near_network::config::Tier1::new_connections_per_attempt`.
-    #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub tier1_new_connections_per_attempt: u64,
 
     /// See `NetworkConfig`.
     /// Fields set here will override the NetworkConfig fields.
-    #[serde(default)]
     pub network_config_overrides: NetworkConfigOverrides,
 }
 
@@ -277,11 +249,11 @@ impl Default for ExperimentalConfig {
         ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
-            skip_sending_tombstones_seconds: default_skip_tombstones(),
-            tier1_enable_inbound: default_tier1_enable_inbound(),
-            tier1_enable_outbound: default_tier1_enable_outbound(),
-            tier1_connect_interval: default_tier1_connect_interval(),
-            tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
+            skip_sending_tombstones_seconds: 0,
+            tier1_enable_inbound: true,
+            tier1_enable_outbound: true,
+            tier1_connect_interval: Duration::from_secs(60),
+            tier1_new_connections_per_attempt: 50,
             network_config_overrides: Default::default(),
         }
     }
