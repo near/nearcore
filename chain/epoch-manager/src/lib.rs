@@ -1859,12 +1859,12 @@ impl EpochManager {
     }
 
     #[cfg(feature = "new_epoch_sync")]
-    pub fn get_all_epoch_hashes(
+    pub fn get_all_epoch_hashes_from_db(
         &self,
         last_block_info: &BlockInfo,
     ) -> Result<Vec<CryptoHash>, EpochError> {
         let _span =
-            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes", ?last_block_info)
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_db", ?last_block_info)
                 .entered();
 
         let mut result = vec![];
@@ -1888,6 +1888,30 @@ impl EpochManager {
         }
         // First block of an epoch is not covered by the while loop.
         result.push(*current_block_info.hash());
+
+        Ok(result)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes_from_cache(
+        &self,
+        last_block_info: &BlockInfo,
+        hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_cache", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let mut current_hash = *last_block_info.hash();
+        while current_hash != *last_block_info.epoch_first_block() {
+            result.push(current_hash);
+            current_hash = *hash_to_prev_hash
+                .get(&current_hash)
+                .ok_or(EpochError::MissingBlock(current_hash))?;
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(current_hash);
 
         Ok(result)
     }
