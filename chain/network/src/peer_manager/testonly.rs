@@ -28,6 +28,14 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
+/// 1. eventfd2()
+/// 2. epoll_create1()
+/// 3. fcntl() duplicating one end of some globally shared socketpair()
+/// 4. fcntl() duplicating epoll socket created in (2)
+/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
+pub(crate) const FDS_PER_PEER: usize = 5;
+
 #[derive(actix::Message)]
 #[rtype("()")]
 struct WithNetworkState(

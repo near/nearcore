@@ -17,6 +17,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
+use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
 use std::sync::Arc;
 
@@ -54,14 +55,6 @@ fn take_sync_snapshot_msg_manager(
         _ => None,
     }
 }
-
-/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-/// 1. eventfd2()
-/// 2. epoll_create1()
-/// 3. fcntl() duplicating one end of some globally shared socketpair()
-/// 4. fcntl() duplicating epoll socket created in (2)
-/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-const FDS_PER_PEER: usize = 5;
 
 /// Test that PeerManager broadcasts SnapshotHostInfo messages to all connected peers
 #[tokio::test]
