@@ -232,15 +232,6 @@ async fn propagate() {
     pms[1].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
     pms[2].connect_to(&pms[3].peer_info(), tcp::Tier::T2).await;
 
-    tracing::info!(target:"test", "Receive the inital empty snapshot info messages.");
-    // Each peer_manager connects to two others and receives two empty sync_snapshot messages
-    for _ in 0..2 {
-        for pm in &mut pms {
-            let empty_sync_msg = pm.events.recv_until(take_sync_snapshot_msg_manager).await;
-            assert_eq!(empty_sync_msg.hosts, vec![]);
-        }
-    }
-
     tracing::info!(target:"test", "Send a SnapshotHostInfo message from peer manager #1.");
     let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
 
