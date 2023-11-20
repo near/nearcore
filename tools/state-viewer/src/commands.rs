@@ -6,7 +6,6 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
-use ansi_term::Color::Red;
 use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
@@ -48,6 +47,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use yansi::Color::Red;
 
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
@@ -671,9 +671,14 @@ pub(crate) fn print_chain(
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
                 .unwrap_or("error".to_owned());
-            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
+            println!(
+                "{: >3} {} | {: >10}",
+                height,
+                Red.style().bold().paint("MISSING"),
+                block_producer
+            );
         } else {
-            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
+            println!("{: >3} {}", height, Red.style().bold().paint("MISSING"));
         }
     }
 }

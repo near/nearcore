@@ -106,21 +106,19 @@ actix-cors = "0.6.1"
 actix-http = "3.3"
 actix-rt = "2"
 actix-web = "4.1"
-ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
 async-recursion = "1.0.4"
 async-trait = "0.1.58"
-atty = "0.2"
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
 bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
-bn = { package = "zeropool-bn", version = "0.5.11" }
+bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
 bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "8f4e49d65c702a2f9858ed3c217b1cb52ce91243", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
@@ -135,7 +133,7 @@ clap = { version = "4.2.0", features = ["derive", "env", "string"] }
 cloud-storage = "0.11.1"
 conqueue = "0.4.0"
 cpu-time = "1.0"
-criterion = { version = "0.3.5", default_features = false, features = ["html_reports", "cargo_bench_support"] }
+criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
 crossbeam-queue = "0.3.8"
@@ -158,7 +156,7 @@ fs2 = "0.4"
 futures = "0.3.5"
 futures-util = "0.3"
 genesis-populate = { path = "genesis-tools/genesis-populate" }
-hashbrown = "0.11"
+hashbrown = "0.14.2"
 hex = { version = "0.4.2", features = ["serde"] }
 hex-literal = "0.2"
 hkdf = "0.12.3"
@@ -357,6 +355,7 @@ webrtc-util = "0.7"
 winapi = { version = "0.3", features = ["winbase", "memoryapi", "errhandlingapi", "winnt", "impl-default"] }
 xshell = "0.2.1"
 xz2 = "0.1.6"
+yansi = "0.5.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 

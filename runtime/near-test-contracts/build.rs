@@ -1,14 +1,11 @@
-use std::path::Path;
-use std::path::PathBuf;
 use std::process::Command;
-use std::{env, fs, io, process};
 
 type Error = Box<dyn std::error::Error>;
 
 fn main() {
     if let Err(err) = try_main() {
         eprintln!("{}", err);
-        process::exit(1);
+        std::process::exit(1);
     }
 }
 
@@ -39,14 +36,14 @@ fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
 
     let src =
         target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_")));
-    fs::copy(&src, format!("./res/{}.wasm", output))
+    std::fs::copy(&src, format!("./res/{}.wasm", output))
         .map_err(|err| format!("failed to copy `{}`: {}", src.display(), err))?;
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     Ok(())
 }
 
-fn cargo_build_cmd(target_dir: &Path) -> Command {
+fn cargo_build_cmd(target_dir: &std::path::Path) -> Command {
     let mut res = Command::new("cargo");
 
     res.env_remove("CARGO_BUILD_RUSTFLAGS");
@@ -61,15 +58,18 @@ fn cargo_build_cmd(target_dir: &Path) -> Command {
 }
 
 fn check_status(mut cmd: Command) -> Result<(), Error> {
-    let status = cmd.status().map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("command `{:?}` failed to run: {}", cmd, err))
-    })?;
-    if !status.success() {
-        return Err(format!("command `{:?}` exited with non-zero status: {:?}", cmd, status).into());
-    }
-    Ok(())
+    cmd.status()
+        .map_err(|err| format!("command `{cmd:?}` failed to run: {err}"))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("command `{cmd:?}` exited with non-zero status: {status:?}"))
+            }
+        })
+        .map_err(Error::from)
 }
 
-fn out_dir() -> PathBuf {
-    env::var("OUT_DIR").unwrap().into()
+fn out_dir() -> std::path::PathBuf {
+    std::env::var("OUT_DIR").unwrap().into()
 }

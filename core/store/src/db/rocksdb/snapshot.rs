@@ -51,7 +51,7 @@ impl std::convert::From<io::Error> for SnapshotError {
 
 impl std::convert::From<::rocksdb::Error> for SnapshotError {
     fn from(err: ::rocksdb::Error) -> Self {
-        super::into_other(err).into()
+        io::Error::other(err).into()
     }
 }
 
@@ -94,7 +94,7 @@ impl Snapshot {
         }
 
         let db = super::RocksDB::open(db_path, config, crate::Mode::ReadWriteExisting, temp)?;
-        let cp = Checkpoint::new(&db.db).map_err(super::into_other)?;
+        let cp = Checkpoint::new(&db.db).map_err(io::Error::other)?;
         cp.create_checkpoint(&snapshot_path)?;
 
         Ok(Self(Some(snapshot_path)))
