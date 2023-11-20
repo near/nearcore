@@ -3452,6 +3452,11 @@ fn test_long_chain_with_restart_from_snapshot() {
         .archive(false)
         .build();
 
+    // In TestEnv `gc_blocks_limit` defaults to 100.
+    // That means that whole epoch will be garbage collected in one block.
+    // We want this test to have "more realistic" snapshot setup, where last kept epoch is only partially garbage collected.
+    //
+    // `gc_blocks_limit = 2` is the default setup in production.
     env1.clients[0].config.gc.gc_blocks_limit = 2;
 
     let max_height = epoch_length * env1.clients[0].config.gc.gc_num_epochs_to_keep + 3;
