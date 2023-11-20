@@ -317,7 +317,7 @@ fn main_docker(
     json_output: bool,
     debug: bool,
 ) -> anyhow::Result<()> {
-    let profile = if full { "release" } else { "quick-release" };
+    let profile = if full { "release" } else { "dev-release" };
     exec("docker --version").context("please install `docker`")?;
 
     let project_root = project_root();
