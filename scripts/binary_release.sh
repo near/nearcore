@@ -1,10 +1,10 @@
 #!/bin/bash
 set -xeo pipefail
 
-release="${1:-release}"
+release="${1:-neard-release}"
 
 case "$release" in
-  release|nightly-release|perf-release|assertions-release)
+  neard-release|nightly-release|perf-release|assertions-release)
     ;;
   *)  
     echo "Unsupported release type '$release'. Please provide no argument for normal release or provide nightly-release for nightly."
@@ -28,7 +28,7 @@ function tar_binary {
 make $release
 
 function upload_binary {
-  if [ "$release" = "release" ]
+  if [ "$release" = "neard-release" ]
   then
     tar_binary $1
     tar_file=$1.tar.gz
@@ -59,7 +59,7 @@ upload_binary neard
 #   upload_binary store-validator
 # fi
 
-if [ "$release" = "release" ]
-then
-  upload_binary near-sandbox
-fi
+# if [ "$release" = "release" ]
+# then
+#   upload_binary near-sandbox
+# fi
