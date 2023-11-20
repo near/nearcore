@@ -134,6 +134,8 @@ impl ValidateEpochSyncInfoCmd {
         let mut cur_hash = header_head_hash;
 
         // Edge case if we exactly at the epoch boundary.
+        // In this case we cannot create `EpochSyncInfo` for this epoch yet,
+        // as there is no block header with `epoch_sync_data_hash` for that epoch.
         if epoch_ids.contains(&cur_hash) {
             cur_hash = hash_to_prev_hash[&cur_hash];
         }
@@ -235,6 +237,9 @@ impl ValidateEpochSyncInfoCmd {
     }
 }
 
+/// Creates mapping from `cur_hash` to `prev_hash` by iterating through `BlockInfo` column.
+/// Mapping from `cur_hash` to `prev_hash` is unique, as there are no two blocks with the same hash.
+/// This means there will not be key collision. Value collision may happen, but it is irrelevant for `HashMap`.
 fn get_hash_to_prev_hash_from_block_info(
     storage: &NodeStorage,
 ) -> anyhow::Result<HashMap<CryptoHash, CryptoHash>> {
@@ -251,6 +256,9 @@ fn get_hash_to_prev_hash_from_block_info(
     Ok(hash_to_prev_hash)
 }
 
+/// Creates mapping from `cur_hash` to `prev_hash` by iterating through `BlockHeader` column.
+/// Mapping from `cur_hash` to `prev_hash` is unique, as there are no two blocks with the same hash.
+/// This means there will not be key collision. Value collision may happen, but it is irrelevant for `HashMap`.
 fn get_hash_to_prev_hash_from_block_header(
     storage: &NodeStorage,
 ) -> anyhow::Result<HashMap<CryptoHash, CryptoHash>> {
@@ -266,6 +274,9 @@ fn get_hash_to_prev_hash_from_block_header(
     Ok(hash_to_prev_hash)
 }
 
+/// Creates mapping from `cur_hash` to `next_hash` for the chain ending in `chain_head`
+/// by descending through mapping from `cur_hash` to `prev_hash`.
+/// Only builds mapping for one chain to avoid key collision due to forks.
 fn get_hash_to_next_hash(
     hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
     chain_head: &CryptoHash,
@@ -279,6 +290,8 @@ fn get_hash_to_next_hash(
     Ok(hash_to_next_hash)
 }
 
+/// Get all `EpochId`s by iterating `EpochInfo` column and return them as `HashSet<CryptoHash>`.
+/// This function is used to get hashes of all last epoch blocks as `EpochId` represents last hash of prev prev column.
 fn get_all_epoch_ids(storage: &NodeStorage) -> anyhow::Result<HashSet<CryptoHash>> {
     let mut epoch_ids = HashSet::new();
     for result in storage.get_hot_store().iter(DBCol::EpochInfo) {
