@@ -249,3 +249,48 @@ async fn propagate() {
     let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(info1).collect();
     pms[2].wait_for_snapshot_hosts(&want).await;
 }
+
+/// Send a SyncSnapshotHosts message with very large shard ids.
+/// Makes sure that PeerManager processes large shard ids without any problems.
+#[tokio::test]
+async fn large_shard_id_in_cache() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    tracing::info!(target:"test", "Create a peer manager.");
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "Connect a peer");
+    let peer1_config = chain.make_config(rng);
+    let peer1 = pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
+
+    tracing::info!(target:"test", "Send a SnapshotHostInfo message with very large shard ids.");
+    let big_shard_info = Arc::new(SnapshotHostInfo::new(
+        peer1_config.node_id(),
+        CryptoHash::hash_borsh(1234_u64),
+        1234,
+        vec![0, 1232232, ShardId::MAX - 1, ShardId::MAX],
+        &peer1_config.node_key,
+    ));
+
+    peer1
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+            hosts: vec![big_shard_info.clone()],
+        }))
+        .await;
+
+    tracing::info!(target:"test", "Make sure that the message is received and processed without any problems.");
+    let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(big_shard_info).collect();
+    pm.wait_for_snapshot_hosts(&want).await;
+}
