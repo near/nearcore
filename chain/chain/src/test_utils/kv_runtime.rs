@@ -952,6 +952,7 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_all_epoch_hashes(
         &self,
         _last_block_info: &BlockInfo,
+        _hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
     ) -> Result<Vec<CryptoHash>, EpochError> {
         Ok(vec![])
     }
