@@ -1,7 +1,7 @@
 #!/bin/bash
 set -xeo pipefail
 
-release="${1:-release}"
+release="${1:-neard-release}"
 
 case "$release" in
   release|nightly-release|perf-release|assertions-release)
@@ -59,7 +59,7 @@ upload_binary neard
 #   upload_binary store-validator
 # fi
 
-if [ "$release" = "release" ]
-then
-  upload_binary near-sandbox
-fi
+# if [ "$release" = "release" ]
+# then
+#   upload_binary near-sandbox
+# fi
