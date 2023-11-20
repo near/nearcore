@@ -302,19 +302,15 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
-    #[serde(default = "default_log_summary_period")]
     pub log_summary_period: Duration,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
-    #[serde(default, flatten)]
+    #[serde(flatten)]
     pub gc: GCConfig,
-    #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
-    #[serde(default = "default_view_client_throttle_period")]
     pub view_client_throttle_period: Duration,
-    #[serde(default = "default_trie_viewer_state_size_limit")]
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,14 +319,14 @@ pub struct Config {
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
     /// This feature is under development, do not use in production.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
     /// Configuration for the split storage.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,7 +340,6 @@ pub struct Config {
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
-    #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
     pub state_split_config: StateSplitConfig,
 }
