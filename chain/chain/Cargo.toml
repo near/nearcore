@@ -10,7 +10,6 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -28,6 +27,7 @@ rayon.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true

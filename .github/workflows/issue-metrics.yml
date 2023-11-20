@@ -9,8 +9,8 @@ permissions:
   issues: write
 
 jobs:
-  build:
-    name: issue metrics
+  monthly-issue-metrics:
+    name: past month issue metrics
     runs-on: ubuntu-latest
     steps:
     - name: Get dates for last month
@@ -30,11 +30,12 @@ jobs:
     - name: Run issue-metrics tool
       uses: github/issue-metrics@v2
       env:
-        SEARCH_QUERY: 'repo:owner/repo is:issue created: ${{ steps.last-month.outputs.LAST_MONTH }} -reason:"not planned"'
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SEARCH_QUERY: 'repo:near/nearcore is:issue created:${{ steps.last-month.outputs.LAST_MONTH }}'
 
     - name: Create issue
       uses: peter-evans/create-issue-from-file@v4
       with:
         title: Monthly issue metrics report
         token: ${{ secrets.GITHUB_TOKEN }}
-        content-filepath: ./gh_metrics/issue_metrics.md
+        content-filepath: ./issue_metrics.md

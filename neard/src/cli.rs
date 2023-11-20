@@ -761,11 +761,13 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
             println!(
                 "{}",
-                ansi_term::Colour::Red.bold().paint(format!(
+                yansi::Paint::default(format!(
                     "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
                     block_outcome_root,
                     light_client_proof.block_header_lite.inner_lite.outcome_root
                 ))
+                .fg(yansi::Color::Red)
+                .bold()
             );
             return Err(VerifyProofError::InvalidOutcomeRootProof);
         }
@@ -774,19 +776,19 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.hash()
             != light_client_proof.outcome_proof.block_hash
         {
-            println!("{}",
-            ansi_term::Colour::Red.bold().paint(format!(
-                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
-                light_client_proof.block_header_lite.hash(),
-                light_client_proof.outcome_proof.block_hash
-            )));
+            println!(
+                "{}",
+                yansi::Paint::default(format!(
+                    "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                    light_client_proof.block_header_lite.hash(),
+                    light_client_proof.outcome_proof.block_hash
+                )).fg(yansi::Color::Red).bold()
+            );
             return Err(VerifyProofError::InvalidBlockHashProof);
         } else {
             println!(
                 "{}",
-                ansi_term::Colour::Green
-                    .bold()
-                    .paint(format!("Block hash matches {:?}", block_hash))
+                yansi::Paint::green(format!("Block hash matches {:?}", block_hash)).bold()
             );
         }
 

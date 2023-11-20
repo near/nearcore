@@ -93,8 +93,8 @@ pub enum ColorOutput {
 }
 
 fn is_terminal() -> bool {
-    // Crate `atty` provides a platform-independent way of checking whether the output is a tty.
-    atty::is(atty::Stream::Stderr)
+    use std::io::IsTerminal;
+    std::io::stderr().is_terminal()
 }
 
 fn add_simple_log_layer<S, W>(

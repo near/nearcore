@@ -1,0 +1,30 @@
+[advisories]
+ignore = [
+    # DO NOT ADD ANYTHING TO THIS LIST WITHOUT CAREFUL CONSIDERATION!
+
+    # dotenv being unmaintained is ignored because it is an indirect dependency of cloud-storage, which would be hard to replace.
+    # In addition, it is most likely not ever going to be on a security-critical path, considering it only parses trusted .env files.
+    # However, we should probably replace cloud-storage with tame-gcs as soon as possible to remove this ignore.
+    "RUSTSEC-2021-0141",
+
+    # mach is unmaintained, but seems to be required by wasmtime at its latest version, which we currently cannot do without.
+    # We should replace it with mach2 in our personal code, but will need to keep it there until wasmtime switches to it.
+    # Anyway, it cannot be a security liability in production, considering it is bindings to the OS X kernel.
+    "RUSTSEC-2020-0168",
+
+    # memmap is unmaintained, but is used by wasmer0, which we need to keep alive for replayability reasons.
+    # We should remove wasmer0 and this ignore as soon as we get limited replayability.
+    "RUSTSEC-2020-0077",
+
+    # parity-wasm is deprecated, but is used by our runtimes before near-vm, which we need to keep alive for replayability reasons.
+    # We should remove them all, as well as this ignore, as soon as we get limited replayability.
+    "RUSTSEC-2022-0061",
+
+    # borsh is vulnerable, but is used by wasmer0, which we need to keep alive for replayability reasons.
+    # We should remove it, as well as this ignore, as soon as we get limited replayability.
+    "RUSTSEC-2023-0033",
+
+    # older versions of parking-lot are vulnerable, but used by wasmer0, which we need to keep alive for replayability reasons.
+    # We should remove it, as well as this ignore, as soon as we get limited replayability.
+    "RUSTSEC-2020-0070",
+]

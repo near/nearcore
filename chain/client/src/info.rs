@@ -363,11 +363,11 @@ impl InfoHelper {
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
     ) {
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
+        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let paint = |color: yansi::Color, text: Option<String>| match text {
+            None => yansi::Paint::default(String::new()),
+            Some(text) if use_color => yansi::Paint::default(text).fg(color).bold(),
+            Some(text) => yansi::Paint::default(text),
         };
 
         let s = |num| if num == 1 { "" } else { "s" };
@@ -411,11 +411,11 @@ impl InfoHelper {
 
         info!(
             target: "stats", "{}{}{}{}{}",
-            paint(ansi_term::Colour::Yellow, sync_status_log),
-            paint(ansi_term::Colour::White, validator_info_log),
-            paint(ansi_term::Colour::Cyan, network_info_log),
-            paint(ansi_term::Colour::Green, blocks_info_log),
-            paint(ansi_term::Colour::Blue, machine_info_log),
+            paint(yansi::Color::Yellow, sync_status_log),
+            paint(yansi::Color::White, validator_info_log),
+            paint(yansi::Color::Cyan, network_info_log),
+            paint(yansi::Color::Green, blocks_info_log),
+            paint(yansi::Color::Blue, machine_info_log),
         );
         if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
@@ -538,9 +538,9 @@ impl InfoHelper {
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
-        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
+        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_color };
         tracing::debug!(
             target: "stats",
             "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
@@ -678,16 +678,16 @@ impl std::fmt::Display for FormatMillis {
 /// meant to be used in logging where final new line is not desired.
 struct BlocksInfo {
     blocks_info: Vec<near_primitives::views::BlockProcessingInfo>,
-    use_colour: bool,
+    use_color: bool,
 }
 
 impl std::fmt::Display for BlocksInfo {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let paint = |colour: ansi_term::Colour, text: String| {
-            if self.use_colour {
-                colour.bold().paint(text)
+        let paint = |color: yansi::Color, text: String| {
+            if self.use_color {
+                yansi::Paint::default(text).fg(color).bold()
             } else {
-                ansi_term::Style::default().paint(text)
+                yansi::Paint::default(text)
             }
         };
 
@@ -711,11 +711,8 @@ impl std::fmt::Display for BlocksInfo {
                 })
                 .collect::<String>();
 
-            let chunk_status_color = if all_chunks_received {
-                ansi_term::Colour::Green
-            } else {
-                ansi_term::Colour::White
-            };
+            let chunk_status_color =
+                if all_chunks_received { yansi::Color::Green } else { yansi::Color::White };
 
             let chunk_status = paint(chunk_status_color, chunk_status);
             let in_progress = FormatMillis("in progress", Some(block_info.in_progress_ms));
