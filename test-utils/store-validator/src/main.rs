@@ -1,4 +1,3 @@
-use ansi_term::Color::{Green, Red, White, Yellow};
 use clap::{Arg, Command};
 use near_chain::store_validator::StoreValidator;
 use near_chain_configs::GenesisValidationMode;
@@ -10,6 +9,7 @@ use near_o11y::testonly::init_integration_logger;
 use nearcore::{get_default_home, load_config};
 use std::path::PathBuf;
 use std::process;
+use yansi::Color::{Green, Red, White, Yellow};
 
 fn main() {
     init_integration_logger();
@@ -63,26 +63,29 @@ fn main() {
     store_validator.validate();
 
     if store_validator.tests_done() == 0 {
-        println!("{}", Red.bold().paint("No conditions has been validated"));
+        println!("{}", Red.style().bold().paint("No conditions has been validated"));
         process::exit(1);
     }
     println!(
         "{} {}",
-        White.bold().paint("Conditions validated:"),
-        Green.bold().paint(store_validator.tests_done().to_string())
+        White.style().bold().paint("Conditions validated:"),
+        Green.style().bold().paint(store_validator.tests_done().to_string())
     );
     for error in store_validator.errors.iter() {
         println!(
             "{}  {}  {}",
-            Red.bold().paint(&error.col),
-            Yellow.bold().paint(&error.key),
+            Red.style().bold().paint(&error.col),
+            Yellow.style().bold().paint(&error.key),
             error.err
         );
     }
     if store_validator.is_failed() {
-        println!("Errors found: {}", Red.bold().paint(store_validator.num_failed().to_string()));
+        println!(
+            "Errors found: {}",
+            Red.style().bold().paint(store_validator.num_failed().to_string())
+        );
         process::exit(1);
     } else {
-        println!("{}", Green.bold().paint("No errors found"));
+        println!("{}", Green.style().bold().paint("No errors found"));
     }
 }
