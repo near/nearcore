@@ -1234,6 +1234,7 @@ pub mod epoch_sync {
     use crate::epoch_manager::block_info::BlockInfo;
     use crate::epoch_manager::epoch_info::EpochInfo;
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
+    use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
@@ -1262,17 +1263,54 @@ pub mod epoch_sync {
     }
 
     impl EpochSyncInfo {
-        /// Reconstruct BlockInfo for `hash` from information in EpochSyncInfo.
-        pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochSyncInfoError> {
+        pub fn get_epoch_id(&self) -> Result<&EpochId, EpochSyncInfoError> {
+            Ok(self.get_epoch_first_header()?.epoch_id())
+        }
+
+        pub fn get_next_epoch_id(&self) -> Result<&EpochId, EpochSyncInfoError> {
+            Ok(self
+                .get_header(self.next_epoch_first_hash, EpochSyncHashType::NextEpochFirstBlock)?
+                .epoch_id())
+        }
+
+        pub fn get_next_next_epoch_id(&self) -> Result<EpochId, EpochSyncInfoError> {
+            Ok(EpochId(*self.get_epoch_last_hash()?))
+        }
+
+        pub fn get_epoch_last_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
             let epoch_height = self.epoch_info.epoch_height();
 
-            let epoch_first_hash = self
-                .all_block_hashes
-                .first()
-                .ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })?;
-            let epoch_first_header =
-                self.get_header(*epoch_first_hash, EpochSyncHashType::FirstEpochBlock)?;
+            self.all_block_hashes.last().ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })
+        }
 
+        pub fn get_epoch_last_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
+            self.get_header(*self.get_epoch_last_hash()?, EpochSyncHashType::LastEpochBlock)
+        }
+
+        pub fn get_epoch_last_finalised_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
+            Ok(self.get_epoch_last_header()?.last_final_block())
+        }
+
+        pub fn get_epoch_last_finalised_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
+            self.get_header(
+                *self.get_epoch_last_finalised_hash()?,
+                EpochSyncHashType::LastFinalBlock,
+            )
+        }
+
+        pub fn get_epoch_first_hash(&self) -> Result<&CryptoHash, EpochSyncInfoError> {
+            let epoch_height = self.epoch_info.epoch_height();
+
+            self.all_block_hashes.first().ok_or(EpochSyncInfoError::ShortEpoch { epoch_height })
+        }
+
+        pub fn get_epoch_first_header(&self) -> Result<&BlockHeader, EpochSyncInfoError> {
+            self.get_header(*self.get_epoch_first_hash()?, EpochSyncHashType::FirstEpochBlock)
+        }
+
+        /// Reconstruct BlockInfo for `hash` from information in EpochSyncInfo.
+        pub fn get_block_info(&self, hash: &CryptoHash) -> Result<BlockInfo, EpochSyncInfoError> {
+            let epoch_first_header = self.get_epoch_first_header()?;
             let header = self.get_header(*hash, EpochSyncHashType::Other)?;
 
             log_assert!(
@@ -1338,7 +1376,7 @@ pub mod epoch_sync {
             Ok(next_epoch_first_header.epoch_sync_data_hash())
         }
 
-        fn get_header(
+        pub fn get_header(
             &self,
             hash: CryptoHash,
             hash_type: EpochSyncHashType,

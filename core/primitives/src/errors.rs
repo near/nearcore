@@ -1214,10 +1214,12 @@ pub mod epoch_sync {
 
     #[derive(Eq, PartialEq, Clone, strum::Display, Debug)]
     pub enum EpochSyncHashType {
+        LastEpochBlock,
         LastFinalBlock,
         FirstEpochBlock,
         NextEpochFirstBlock,
         Other,
+        BlockToSave,
     }
 
     #[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
