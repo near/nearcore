@@ -158,6 +158,6 @@ On [betanet](https://docs.near.org/docs/concepts/networks#betanet) we run
 nightly build from master with all the nightly protocol features enabled. Every
 five weeks, we stabilize some protocol features and make a release candidate for
 testnet.  The process for feature stabilization can be found in [this
-document](docs/protocol_upgrade.md).  After the release candidate has been
+document](docs/practices/protocol_upgrade.md).  After the release candidate has been
 running on testnet for four weeks and no issues are observed, we stabilize and
 publish the release for mainnet.

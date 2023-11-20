@@ -255,7 +255,7 @@ starting point when reading the code base.
 
 The [tracing](https://tracing.rs) crate is used for structured, hierarchical
 event output and logging. We also integrate [Prometheus](https://prometheus.io)
-for light-weight metric output. See the [style](./style.md) documentation for
+for light-weight metric output. See the [style](../practices/style.md) documentation for
 more information on the usage.
 
 ### Testing

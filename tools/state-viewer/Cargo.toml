@@ -13,7 +13,6 @@ workspace = true
 
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -34,6 +33,7 @@ strum.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 near-chain-configs.workspace = true
 near-chain.workspace = true

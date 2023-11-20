@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 actix-rt.workspace = true
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
@@ -40,6 +39,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 near-async.workspace = true
 near-chain-configs.workspace = true
