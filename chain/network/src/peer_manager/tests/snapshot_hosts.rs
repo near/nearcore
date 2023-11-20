@@ -19,15 +19,18 @@ use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
+use rand::Rng;
 use std::sync::Arc;
 
 /// Create an instance of SnapshotHostInfo for testing purposes
 fn make_snapshot_host_info(
     peer_id: &PeerId,
-    epoch_height: EpochHeight,
-    shards: Vec<ShardId>,
     secret_key: &SecretKey,
+    rng: &mut impl Rng,
 ) -> Arc<SnapshotHostInfo> {
+    let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
+    let shards_num: usize = rng.gen_range(1..16);
+    let shards: Vec<ShardId> = (0..shards_num).map(|_| rng.gen()).collect();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -96,8 +99,7 @@ async fn broadcast() {
 
     tracing::info!(target:"test", "Send a SyncSnapshotHosts message from peer1, make sure that all peers receive it.");
 
-    let info1 =
-        make_snapshot_host_info(&peer1_config.node_id(), 123, vec![0, 1], &peer1_config.node_key);
+    let info1 = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
 
     peer1
         .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info1.clone()] }))
@@ -119,8 +121,7 @@ async fn broadcast() {
     assert_eq!(peer4_sync_msg.hosts, vec![info1.clone()]);
 
     tracing::info!(target:"test", "Publish another piece of snapshot information, check that it's also broadcasted.");
-    let info2 =
-        make_snapshot_host_info(&peer2_config.node_id(), 11212, vec![3], &peer2_config.node_key);
+    let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
     peer2
         .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
@@ -176,13 +177,10 @@ async fn invalid_signature_not_broadcast() {
 
     tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has an invalid signature.");
     let random_secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
-    let invalid_info =
-        make_snapshot_host_info(&peer1_config.node_id(), 1337, vec![10, 11], &random_secret_key);
+    let invalid_info = make_snapshot_host_info(&peer1_config.node_id(), &random_secret_key, rng);
 
-    let ok_info_a =
-        make_snapshot_host_info(&peer1_config.node_id(), 2, vec![10012120], &peer1_config.node_key);
-    let ok_info_b =
-        make_snapshot_host_info(&peer1_config.node_id(), 222, vec![232], &peer1_config.node_key);
+    let ok_info_a = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
+    let ok_info_b = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
 
     let invalid_message = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
         hosts: vec![ok_info_a, invalid_info, ok_info_b],
@@ -191,8 +189,7 @@ async fn invalid_signature_not_broadcast() {
 
     tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
 
-    let info2 =
-        make_snapshot_host_info(&peer2_config.node_id(), 2434, vec![0, 1], &peer2_config.node_key);
+    let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
 
     peer2
         .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
@@ -258,8 +255,7 @@ async fn propagate() {
     }
 
     tracing::info!(target:"test", "Send a SnapshotHostInfo message from peer manager #1.");
-    let info1 =
-        make_snapshot_host_info(&pms[1].peer_info().id, 123, vec![2, 3], &pms[1].cfg.node_key);
+    let info1 = make_snapshot_host_info(&pms[1].peer_info().id, &pms[1].cfg.node_key, rng);
 
     let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
         sync_hash: info1.sync_hash,
