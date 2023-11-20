@@ -20,6 +20,7 @@ use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
 use rand::Rng;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Create an instance of SnapshotHostInfo for testing purposes
@@ -39,19 +40,6 @@ fn make_snapshot_host_info(
 fn take_sync_snapshot_msg(event: crate::peer::testonly::Event) -> Option<SyncSnapshotHosts> {
     match event {
         peer::testonly::Event::Network(PME::MessageProcessed(
-            tcp::Tier::T2,
-            PeerMessage::SyncSnapshotHosts(msg),
-        )) => Some(msg),
-        _ => None,
-    }
-}
-
-/// Used to consume peer manager events until there's an event of type SyncSnapshotHosts
-fn take_sync_snapshot_msg_manager(
-    event: crate::peer_manager::testonly::Event,
-) -> Option<SyncSnapshotHosts> {
-    match event {
-        peer_manager::testonly::Event::PeerManager(PME::MessageProcessed(
             tcp::Tier::T2,
             PeerMessage::SyncSnapshotHosts(msg),
         )) => Some(msg),
@@ -265,6 +253,6 @@ async fn propagate() {
     pms[1].actix.addr.send(message.with_span_context()).await.unwrap();
 
     tracing::info!(target:"test", "Make sure that the message sent from #1 reaches #2 on the other side of the ring.");
-    let received_message = pms[2].events.recv_until(take_sync_snapshot_msg_manager).await;
-    assert_eq!(received_message.hosts, vec![info1]);
+    let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(info1).collect();
+    pms[2].wait_for_snapshot_hosts(&want).await;
 }

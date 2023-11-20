@@ -2,6 +2,8 @@ use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
 use crate::config;
 use crate::network_protocol::testonly as data;
+use crate::network_protocol::SnapshotHostInfo;
+use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
 };
@@ -9,6 +11,7 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -70,6 +73,16 @@ pub(crate) fn unwrap_sync_accounts_data_processed(ev: Event) -> Option<SyncAccou
         Event::PeerManager(PME::MessageProcessed(
             tcp::Tier::T2,
             PeerMessage::SyncAccountsData(msg),
+        )) => Some(msg),
+        _ => None,
+    }
+}
+
+pub(crate) fn unwrap_sync_snapshot_hosts_data_processed(ev: Event) -> Option<SyncSnapshotHosts> {
+    match ev {
+        Event::PeerManager(PME::MessageProcessed(
+            tcp::Tier::T2,
+            PeerMessage::SyncSnapshotHosts(msg),
         )) => Some(msg),
         _ => None,
     }
@@ -413,6 +426,31 @@ impl ActorHandler {
     pub async fn wait_for_accounts_data(&self, want: &HashSet<Arc<SignedAccountData>>) {
         self.wait_for_accounts_data_pred(|cache| {
             &cache.data.values().cloned().collect::<HashSet<_>>() == want
+        })
+        .await
+    }
+
+    // Awaits until the snapshot_hosts state satisfies predicate `pred`.
+    pub async fn wait_for_snapshot_hosts_pred(
+        &self,
+        pred: impl Fn(Arc<SnapshotHostsCache>) -> bool,
+    ) {
+        let mut events = self.events.from_now();
+        loop {
+            let got = self.with_state(move |s| async move { s.snapshot_hosts.clone() }).await;
+            if pred(got) {
+                break;
+            }
+
+            // If the state doesn't match, wait until the next snapshot_hosts event is processed and check again.
+            events.recv_until(unwrap_sync_snapshot_hosts_data_processed).await;
+        }
+    }
+
+    // Awaits until the snapshot_hosts state matches `want`.
+    pub async fn wait_for_snapshot_hosts(&self, want: &HashSet<Arc<SnapshotHostInfo>>) {
+        self.wait_for_snapshot_hosts_pred(|cache| {
+            &cache.get_hosts().into_iter().collect::<HashSet<_>>() == want
         })
         .await
     }
