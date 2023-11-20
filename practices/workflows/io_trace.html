@@ -352,13 +352,13 @@ whole trace without additional tooling.</p>
 readme</a>)
 Run the following command to see an overview of available commands.</p>
 <pre><code class="language-bash"># will print the help page for the IO trace replay command
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay --help
 </code></pre>
 <p>All commands aggregate the information of a trace. Either globally, per chunk,
 or per receipt. For example, below is the output that gives a list of RocksDB
 columns that were accessed and how many times, aggregated by chunk.</p>
-<pre><code class="language-bash">cargo run --profile quick-release -p runtime-params-estimator -- \
+<pre><code class="language-bash">cargo run --profile dev-release -p runtime-params-estimator -- \
   replay  ./path/to/my.io_trace  chunk-db-stats
 </code></pre>
 <pre><code>apply_transactions shard_id=3 block=DajBgxTgV8NewTJBsR5sTgPhVZqaEv9xGAKVnCiMiDxV

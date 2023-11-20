@@ -155,10 +155,10 @@ contains a section on compilation times as well!</p>
 lto (link-time optimization), so our <code>-r</code> builds are very slow, use a lot of
 RAM, and don't utilize the available parallelism fully.</p>
 <p>As debug builds are much too slow at runtime for many purposes, we have a custom
-profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that the
-time-consuming options such as LTO are disabled.</p>
-<p>Use <code>--profile quick-release</code> when doing comparative benchmarking, or when
-connecting a locally built node to a network. Use <code>-r</code> if you want to get
+profile <code>--profile dev-release</code> which is equivalent to <code>-r</code>, except that the
+time-consuming options such as LTO are disabled, and debug assertions are enabled.</p>
+<p>Use <code>--profile dev-release</code> for most local development, or when connecting a
+locally built node to a network. Use <code>-r</code> for production, or if you want to get
 absolute performance numbers.</p>
 <h2 id="linker"><a class="header" href="#linker">Linker</a></h2>
 <p>By default, <code>rustc</code> uses the default system linker, which tends to be quite

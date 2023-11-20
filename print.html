@@ -3702,7 +3702,7 @@ source. It tries to explain how the thing works under the hood and pays
 relatively little attention to the various shortcuts we have.</p>
 <h2 id="building-the-node"><a class="header" href="#building-the-node">Building the Node</a></h2>
 <p>Start with the following command:</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- --help
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- --help
 </code></pre>
 <p>This command builds <code>neard</code> and asks it to show <code>--help</code>. Building <code>neard</code> takes
 a while, take a look at <a href="practices/workflows/../fast_builds.html">Fast Builds</a> chapter to learn how to
@@ -3711,13 +3711,13 @@ speed it up.</p>
 <ul>
 <li><code>cargo run</code> asks <code>Cargo</code>, the package manager/build tool, to run our
 application. If you don't have <code>cargo</code>, install it via <a href="https://rustup.rs">https://rustup.rs</a></li>
-<li><code>--profile quick-release</code> is our
+<li><code>--profile dev-release</code> is our
 <a href="https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles">custom profile</a>
 to build a somewhat optimized version of the code. The default debug
 profile is faster to compile, but produces a node that is too slow to
 participate in a real network. The <code>--release</code> profile produces a fully
-optimized node, but that's very slow to compile. So <code>--quick-release</code>
-is a sweet spot for us!</li>
+optimized node, but that's very slow to compile. So <code>--dev-release</code>
+is a sweet spot for us! However, never use it for actual production nodes.</li>
 <li><code>-p neard</code> asks to build the <code>neard</code> package. We use
 <a href="https://doc.rust-lang.org/cargo/reference/workspaces.html">cargo workspaces</a>
 to organize our code. The <code>neard</code> package in the top-level <code>/neard</code> directory
@@ -3735,7 +3735,7 @@ currently don't have docs on how to install those, but (basically) you want to
 chapter, we will run a network consisting of just a single node -- our own.</p>
 <p>The first step there is creating the required configuration. Run the <code>init</code>
 command to create config files:</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Using key ed25519:B41GMfqE2jWHVwrPLbD7YmjZxxeQE9WA9Ua2jffP5dVQ for test.near
 INFO near: Using key ed25519:34d4aFJEmc2A96UXMa9kQCF8g2EfzZG9gCkBAPcsVZaz for node
@@ -3850,7 +3850,7 @@ You'd also have to ensure that you use the same genesis as the mainnet though
 is rejected.</p>
 <h2 id="running-the-network"><a class="header" href="#running-the-network">Running the Network</a></h2>
 <p>Finally,</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO near: Creating a new RocksDB database path=/home/matklad/.near/data
 INFO db: Created a new RocksDB instance. num_instances=1
@@ -3891,7 +3891,7 @@ state of the network in various rocksdb tables:</p>
 <p>It doesn't matter what those are, &quot;rocksdb stuff&quot; is a fine level of understanding
 here. The important bit here is that the node remembers the state of the network,
 so, when we restart it, it continues from around the last block:</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- run
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- run
 INFO neard: version=&quot;trunk&quot; build=&quot;1.1.0-3091-ga8964d200-modified&quot; latest_protocol=57
 INFO db: Created a new RocksDB instance. num_instances=1
 INFO db: Dropped a RocksDB instance. num_instances=0
@@ -4072,8 +4072,8 @@ some amount of tokens was deducted to account for transaction fees.</p>
 <p>Great! So we've learned how to run our very own single-node NEAR network using a
 binary we've built from source. The steps are:</p>
 <ul>
-<li>Create configs with <code>cargo run --profile quick-release -p neard -- init</code></li>
-<li>Run the node with <code>cargo run --profile quick-release -p neard -- run</code></li>
+<li>Create configs with <code>cargo run --profile dev-release -p neard -- init</code></li>
+<li>Run the node with <code>cargo run --profile dev-release -p neard -- run</code></li>
 <li>Poke the node with <code>httpie</code> or</li>
 <li>Install <code>near-cli</code> via <code>npm install -g near-cli</code></li>
 <li>Submit transactions via <code>NEAR_ENV=local near create-account ...</code></li>
@@ -4087,8 +4087,8 @@ contract on our local node.</p>
 <p>Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read <a href="practices/workflows/./run_a_node.html">how to run a node</a>
 to understand what's going one here:</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
-$ cargo run --profile quick-release -p neard -- run
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
+$ cargo run --profile dev-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 </code></pre>
 <p>As a sanity check, querying the state of <code>alice.test.near</code> account should work:</p>
@@ -4611,13 +4611,13 @@ whole trace without additional tooling.</p>
 readme</a>)
 Run the following command to see an overview of available commands.</p>
 <pre><code class="language-bash"># will print the help page for the IO trace replay command
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay --help
 </code></pre>
 <p>All commands aggregate the information of a trace. Either globally, per chunk,
 or per receipt. For example, below is the output that gives a list of RocksDB
 columns that were accessed and how many times, aggregated by chunk.</p>
-<pre><code class="language-bash">cargo run --profile quick-release -p runtime-params-estimator -- \
+<pre><code class="language-bash">cargo run --profile dev-release -p runtime-params-estimator -- \
   replay  ./path/to/my.io_trace  chunk-db-stats
 </code></pre>
 <pre><code>apply_transactions shard_id=3 block=DajBgxTgV8NewTJBsR5sTgPhVZqaEv9xGAKVnCiMiDxV
@@ -5258,10 +5258,10 @@ contains a section on compilation times as well!</p>
 lto (link-time optimization), so our <code>-r</code> builds are very slow, use a lot of
 RAM, and don't utilize the available parallelism fully.</p>
 <p>As debug builds are much too slow at runtime for many purposes, we have a custom
-profile <code>--profile quick-release</code> which is equivalent to <code>-r</code>, except that the
-time-consuming options such as LTO are disabled.</p>
-<p>Use <code>--profile quick-release</code> when doing comparative benchmarking, or when
-connecting a locally built node to a network. Use <code>-r</code> if you want to get
+profile <code>--profile dev-release</code> which is equivalent to <code>-r</code>, except that the
+time-consuming options such as LTO are disabled, and debug assertions are enabled.</p>
+<p>Use <code>--profile dev-release</code> for most local development, or when connecting a
+locally built node to a network. Use <code>-r</code> for production, or if you want to get
 absolute performance numbers.</p>
 <h2 id="linker"><a class="header" href="#linker">Linker</a></h2>
 <p>By default, <code>rustc</code> uses the default system linker, which tends to be quite

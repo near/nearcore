@@ -147,8 +147,8 @@ contract on our local node.</p>
 <p>Let's start with creating a fresh local network with an account to which we'll
 deploy a contract. You might want to re-read <a href="./run_a_node.html">how to run a node</a>
 to understand what's going one here:</p>
-<pre><code class="language-console">$ cargo run --profile quick-release -p neard -- init
-$ cargo run --profile quick-release -p neard -- run
+<pre><code class="language-console">$ cargo run --profile dev-release -p neard -- init
+$ cargo run --profile dev-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 </code></pre>
 <p>As a sanity check, querying the state of <code>alice.test.near</code> account should work:</p>
