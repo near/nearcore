@@ -1,6 +1,5 @@
 name: Nightly Nayduck tests check
 on:
-  pull_request:
   merge_group:
 
 jobs:
