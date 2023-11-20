@@ -28,7 +28,7 @@ function tar_binary {
 make $release
 
 function upload_binary {
-  if [ "$release" = "release" ]
+  if [ "$release" = "neard-release" ]
   then
     tar_binary $1
     tar_file=$1.tar.gz
