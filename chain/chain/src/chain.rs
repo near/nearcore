@@ -1003,7 +1003,6 @@ impl Chain {
                         *block_hash,
                         GCMode::Canonical(tries.clone()),
                     )?;
-                    // TODO(resharding): Call clear_resharding_data once we figure out what's wrong
                     chain_store_update.clear_resharding_data(
                         self.runtime_adapter.as_ref(),
                         self.epoch_manager.as_ref(),

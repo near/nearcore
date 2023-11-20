@@ -1093,8 +1093,8 @@ impl EpochManager {
             Ok(_) => Ok(true),
             Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
             Err(EpochError::MissingBlock(_)) => Ok(false),
-            Err(e) => {
-                warn!(target: "epoch_manager", ?e, "Unexpected error in is_last_block_in_finished_epoch");
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
                 Ok(false)
             }
         }

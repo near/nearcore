@@ -76,7 +76,7 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Returns true, if given hash is last block in it's epoch.
     fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
 
-    /// Returns true, if given hash in epoch that already finished.
+    /// Returns true, if given hash is in an epoch that already finished.
     /// `is_next_block_epoch_start` works even if we didn't fully process the provided block.
     /// This function works even if we garbage collected `BlockInfo` of the first block of the epoch.
     /// Thus, this function is better suited for use in garbage collection.
