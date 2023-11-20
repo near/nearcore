@@ -38,8 +38,7 @@ Epoch length is set in the genesis config. Currently in mainnet it is set to 432
   "epoch_length": 43200
 ```
 
-<!-- TODO: Where is this supposed to point to? -->
-See http://go/mainnet-genesis for more details.
+See [the mainnet genesis](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/mainnet/genesis.json) for more details.
 
 This means that each epoch lasts around 15 hours.
 

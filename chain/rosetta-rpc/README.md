@@ -110,11 +110,11 @@ in production and will be located at `./target/release/neard`.
 
 Alternatively, during development and testing it may be better to
 follow the method recommended when [contributing to
-nearcore](https://docs.near.org/docs/community/contribute/contribute-nearcore)
+nearcore](https://github.com/near/nearcore/blob/master/CONTRIBUTING.md)
 which creates a slightly less optimised executable but does it faster:
 
 ```bash
-cargo build --release --package neard --bin neard
+cargo build --profile dev-release --package neard --bin neard
 ```
 
 ## How to Configure

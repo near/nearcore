@@ -21,7 +21,7 @@ EpochManager has also a lot of methords that allows you to fetch information fro
 
 ## RewardCalculator
 RewardCalculator is responsible for computing rewards for the validators at the end of the epoch, based on their block/chunk productions.
-You can see more details on the https://nomicon.io/Economics/README.html#validator-rewards-calculation
+You can see more details on [the Nomicon documentation](https://nomicon.io/Economics/Economic#validator-rewards-calculation).
 
 ## Validator Selection / proposals / proposals_to_epoch_info
 These files/functions are responsible for selecting the validators for the next epoch (and internally - also deciding which validator will produce which block and which chunk).
