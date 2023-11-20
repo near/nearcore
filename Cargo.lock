@@ -3764,7 +3764,7 @@ name = "near-epoch-sync-tool"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "clap 4.2.4",
+ "clap",
  "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
