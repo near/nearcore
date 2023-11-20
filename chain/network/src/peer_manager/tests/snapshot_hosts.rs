@@ -131,7 +131,6 @@ async fn broadcast() {
     assert_eq!(got1.hosts, vec![info2.clone()]);
 
     tracing::info!(target:"test", "Connect another peer, check that it receieves all of the published information.");
-
     let mut peer5 =
         pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
     let peer5_sync_msg = peer5.events.recv_until(take_sync_snapshot_msg).await;
