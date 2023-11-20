@@ -19,6 +19,7 @@ use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
+use rand::seq::IteratorRandom;
 use rand::Rng;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -30,8 +31,9 @@ fn make_snapshot_host_info(
     rng: &mut impl Rng,
 ) -> Arc<SnapshotHostInfo> {
     let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
+    let max_shard_id: ShardId = 32;
     let shards_num: usize = rng.gen_range(1..16);
-    let shards: Vec<ShardId> = (0..shards_num).map(|_| rng.gen()).collect();
+    let shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
