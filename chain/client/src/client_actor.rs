@@ -1592,17 +1592,15 @@ impl ClientActor {
             | SyncRequirement::NoPeers
             | SyncRequirement::AdvHeaderSyncDisabled => {
                 if currently_syncing {
-                    {
-                        let _span =
-                            tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
-                                .entered();
-                        tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
-                        self.client.sync_status = SyncStatus::NoSync;
-                        // Initial transition out of "syncing" state.
-                        // Announce this client's account id if their epoch is coming up.
-                        let head = unwrap_and_report!(self.client.chain.head());
-                        self.check_send_announce_account(head.prev_block_hash);
-                    }
+                    // An artificial span to easily detect a node getting out of the sync state in Grafana.
+                    let _span =
+                        tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync").entered();
+                    tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
+                    self.client.sync_status = SyncStatus::NoSync;
+                    // Initial transition out of "syncing" state.
+                    // Announce this client's account id if their epoch is coming up.
+                    let head = unwrap_and_report!(self.client.chain.head());
+                    self.check_send_announce_account(head.prev_block_hash);
                 }
             }
 
@@ -1649,8 +1647,7 @@ impl ClientActor {
                                     .reset_data_pre_state_sync(sync_hash));
                             }
                             let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                            let _span =
-                                tracing::debug_span!(target: "sync", "set_state_sync").entered();
+                            // An artificial span to easily detect a node getting into the sync state in Grafana.
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "StateSync").entered();
                                 tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
@@ -1770,6 +1767,7 @@ impl ClientActor {
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
 
+                            // An artificial span to easily detect a node getting into the sync state in Grafana.
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
                                 tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
