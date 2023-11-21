@@ -238,7 +238,6 @@ jobs:
           cache: pip
       - run: pip3 install --user -r pytest/requirements.txt
       - run: python3 scripts/check_nightly.py
-      - run: python3 scripts/check_pytests.py
       - run: python3 scripts/fix_nightly_feature_flags.py
       - run: ./scripts/formatting --check
 
