@@ -4800,89 +4800,82 @@ impl Chain {
 
         let epoch_id = epoch_sync_info.get_epoch_id()?;
         // save EpochSyncInfo
-        {
-            store_update.set_ser(DBCol::EpochSyncInfo, epoch_id.as_ref(), epoch_sync_info)?;
-        }
-        // save new EpochInfo's
-        {
-            store_update.set_ser(
-                DBCol::EpochInfo,
-                epoch_id.as_ref(),
-                &epoch_sync_info.epoch_info,
-            )?;
-            store_update.set_ser(
-                DBCol::EpochInfo,
-                epoch_sync_info.get_next_epoch_id()?.as_ref(),
-                &epoch_sync_info.next_epoch_info,
-            )?;
-            store_update.set_ser(
-                DBCol::EpochInfo,
-                epoch_sync_info.get_next_next_epoch_id()?.as_ref(),
-                &epoch_sync_info.next_next_epoch_info,
-            )?;
-        }
+
+        store_update.set_ser(DBCol::EpochSyncInfo, epoch_id.as_ref(), epoch_sync_info)?;
+
+        // save EpochInfo's
+
+        store_update.set_ser(DBCol::EpochInfo, epoch_id.as_ref(), &epoch_sync_info.epoch_info)?;
+        store_update.set_ser(
+            DBCol::EpochInfo,
+            epoch_sync_info.get_next_epoch_id()?.as_ref(),
+            &epoch_sync_info.next_epoch_info,
+        )?;
+        store_update.set_ser(
+            DBCol::EpochInfo,
+            epoch_sync_info.get_next_next_epoch_id()?.as_ref(),
+            &epoch_sync_info.next_next_epoch_info,
+        )?;
+
         // construct and save all new BlockMerkleTree's
-        {
-            let mut cur_block_merkle_tree = (*chain_update
+
+        let mut cur_block_merkle_tree = (*chain_update
+            .chain_store_update
+            .get_block_merkle_tree(epoch_sync_info.get_epoch_first_header()?.prev_hash())?)
+        .clone();
+        let mut prev_hash = epoch_sync_info.get_epoch_first_header()?.prev_hash();
+        for hash in &epoch_sync_info.all_block_hashes {
+            cur_block_merkle_tree.insert(*prev_hash);
+            chain_update
                 .chain_store_update
-                .get_block_merkle_tree(epoch_sync_info.get_epoch_first_header()?.prev_hash())?)
-            .clone();
-            let mut prev_hash = epoch_sync_info.get_epoch_first_header()?.prev_hash();
-            for hash in &epoch_sync_info.all_block_hashes {
-                cur_block_merkle_tree.insert(*prev_hash);
-                chain_update
-                    .chain_store_update
-                    .save_block_merkle_tree(*hash, cur_block_merkle_tree.clone());
-                prev_hash = hash;
-            }
+                .save_block_merkle_tree(*hash, cur_block_merkle_tree.clone());
+            prev_hash = hash;
         }
-        // save all BlockHeaders and BlockInfos in headers_to_save
-        {
-            for hash in &epoch_sync_info.headers_to_save {
-                let header = epoch_sync_info.get_header(*hash, EpochSyncHashType::BlockToSave)?;
-                // check that block is not known already
-                if store.exists(DBCol::BlockHeader, hash.as_ref())? {
-                    continue;
-                }
 
-                store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header)?;
-                store_update.set_ser(
-                    DBCol::NextBlockHashes,
-                    header.prev_hash().as_ref(),
-                    header.hash(),
-                )?;
-                store_update.set_ser(
-                    DBCol::BlockHeight,
-                    &index_to_bytes(header.height()),
-                    header.hash(),
-                )?;
-                store_update.set_ser(
-                    DBCol::BlockOrdinal,
-                    &index_to_bytes(header.block_ordinal()),
-                    &header.hash(),
-                )?;
+        // save all block data in headers_to_save
 
-                store_update.insert_ser(
-                    DBCol::BlockInfo,
-                    hash.as_ref(),
-                    &epoch_sync_info.get_block_info(hash)?,
-                )?;
+        for hash in &epoch_sync_info.headers_to_save {
+            let header = epoch_sync_info.get_header(*hash, EpochSyncHashType::BlockToSave)?;
+            // check that block is not known already
+            if store.exists(DBCol::BlockHeader, hash.as_ref())? {
+                continue;
             }
+
+            store_update.insert_ser(DBCol::BlockHeader, header.hash().as_ref(), header)?;
+            store_update.set_ser(
+                DBCol::NextBlockHashes,
+                header.prev_hash().as_ref(),
+                header.hash(),
+            )?;
+            store_update.set_ser(
+                DBCol::BlockHeight,
+                &index_to_bytes(header.height()),
+                header.hash(),
+            )?;
+            store_update.set_ser(
+                DBCol::BlockOrdinal,
+                &index_to_bytes(header.block_ordinal()),
+                &header.hash(),
+            )?;
+
+            store_update.insert_ser(
+                DBCol::BlockInfo,
+                hash.as_ref(),
+                &epoch_sync_info.get_block_info(hash)?,
+            )?;
         }
 
         // save header head, final head, update epoch_manager aggregator
-        {
-            chain_update.chain_store_update.force_save_header_head(&Tip::from_header(
-                epoch_sync_info.get_epoch_last_header()?,
-            ))?;
-            chain_update.chain_store_update.save_final_head(&Tip::from_header(
-                epoch_sync_info.get_epoch_last_finalised_header()?,
-            ))?;
-            chain_update.epoch_manager.force_update_aggregator(
-                epoch_id,
-                epoch_sync_info.get_epoch_last_finalised_hash()?,
-            );
-        }
+
+        chain_update
+            .chain_store_update
+            .force_save_header_head(&Tip::from_header(epoch_sync_info.get_epoch_last_header()?))?;
+        chain_update.chain_store_update.save_final_head(&Tip::from_header(
+            epoch_sync_info.get_epoch_last_finalised_header()?,
+        ))?;
+        chain_update
+            .epoch_manager
+            .force_update_aggregator(epoch_id, epoch_sync_info.get_epoch_last_finalised_hash()?);
 
         // TODO(posvyatokum): add EpochSyncInfo validation.
 
