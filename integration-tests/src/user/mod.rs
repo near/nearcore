@@ -38,6 +38,9 @@ pub trait User {
 
     fn view_state(&self, account_id: &AccountId, prefix: &[u8]) -> Result<ViewStateResult, String>;
 
+    /// Returns whether the account is locked (has no access keys).
+    fn is_locked(&self, account_id: &AccountId) -> Result<bool, String>;
+
     fn view_call(
         &self,
         account_id: &AccountId,

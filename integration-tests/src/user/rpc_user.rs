@@ -91,6 +91,16 @@ impl User for RpcUser {
         }
     }
 
+    fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
+        let query = QueryRequest::ViewAccessKeyList { account_id: account_id.clone() };
+        match self.query(query)?.kind {
+            near_jsonrpc_primitives::types::query::QueryResponseKind::AccessKeyList(
+                access_keys,
+            ) => Ok(access_keys.keys.is_empty()),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         let query = QueryRequest::ViewCode { account_id: account_id.clone() };
         match self.query(query)?.kind {

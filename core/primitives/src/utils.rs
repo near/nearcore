@@ -490,6 +490,7 @@ pub fn account_is_implicit(account_id: &AccountId, protocol_version: ProtocolVer
 }
 
 /// Derives `AccountId` from `PublicKey`.
+/// If the key type is ED25519, returns hex-encoded copy of the key.
 /// If the key type is SECP256K1, returns '0x' + keccak256(public_key)[12:32].hex().
 pub fn derive_account_id_from_public_key(public_key: &PublicKey) -> AccountId {
     match public_key.key_type() {

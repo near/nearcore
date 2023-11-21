@@ -371,7 +371,7 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
         }
         AccountType::EthImplicitAccount => {
             // A transfer to ETH-implicit address does not create access key.
-            assert!(node_user.get_access_key(&receiver_id, &public_key).is_err());
+            assert!(view_access_key.is_err());
         }
         AccountType::NamedAccount => std::panic!("must be implicit"),
     }
