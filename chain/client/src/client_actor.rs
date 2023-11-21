@@ -904,17 +904,14 @@ impl ClientActor {
                 &self.node_id,
                 &next_epoch_id,
             );
-            self.network_adapter.send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::AnnounceAccount(
-                    AnnounceAccount {
-                        account_id: validator_signer.validator_id().clone(),
-                        peer_id: self.node_id.clone(),
-                        epoch_id: next_epoch_id,
-                        signature,
-                    },
-                ))
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::AnnounceAccount(AnnounceAccount {
+                    account_id: validator_signer.validator_id().clone(),
+                    peer_id: self.node_id.clone(),
+                    epoch_id: next_epoch_id,
+                    signature,
+                }),
+            ));
         }
     }
 
@@ -1268,14 +1265,10 @@ impl ClientActor {
     fn produce_block(&mut self, next_height: BlockHeight) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "client", "produce_block", next_height).entered();
         if let Some(block) = self.client.produce_block(next_height)? {
-            tracing::debug!(target: "client", "did");
             // If we produced the block, send it out before we apply the block.
-            self.network_adapter.send(
-                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block {
-                    block: block.clone(),
-                })
-                .with_span_context(),
-            );
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::Block { block: block.clone() },
+            ));
             // We’ve produced the block so that counts as validated block.
             let block = MaybeValidated::from_validated(block);
             let res = self.client.start_process_block(
@@ -1284,7 +1277,6 @@ impl ClientActor {
                 self.get_apply_chunks_done_callback(),
             );
             if let Err(e) = &res {
-                tracing::debug!(target: "client", "can't start_process_block");
                 match e {
                     near_chain::Error::ChunksMissing(_) => {
                         tracing::debug!(target: "client", "chunks missing");
@@ -1293,7 +1285,7 @@ impl ClientActor {
                         return Ok(());
                     }
                     _ => {
-                        error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                        error!(target: "client", ?res, "Failed to process freshly produced block");
                         byzantine_assert!(false);
                         return res.map_err(|err| err.into());
                     }
@@ -1405,7 +1397,6 @@ impl ClientActor {
     /// Check whether need to (continue) sync.
     /// Also return higher height with known peers at that height.
     fn syncing_info(&self) -> Result<SyncRequirement, near_chain::Error> {
-        let _span = tracing::debug_span!(target: "client", "syncing_info").entered();
         if self.adv.disable_header_sync() {
             return Ok(SyncRequirement::AdvHeaderSyncDisabled);
         }
@@ -1471,7 +1462,6 @@ impl ClientActor {
 
     /// Starts syncing and then switches to either syncing or regular mode.
     fn start_sync(&mut self, ctx: &mut Context<ClientActor>) {
-        let _span = tracing::debug_span!(target: "client", "start_sync").entered();
         // Wait for connections reach at least minimum peers unless skipping sync.
         if self.network_info.num_connected_peers < self.client.config.min_num_peers
             && !self.client.config.skip_sync_wait
@@ -1596,20 +1586,17 @@ impl ClientActor {
 
         let currently_syncing = self.client.sync_status.is_syncing();
         let sync = unwrap_and_report!(self.syncing_info());
-        tracing::debug!(target: "client", ?currently_syncing, ?sync);
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
             | SyncRequirement::NoPeers
             | SyncRequirement::AdvHeaderSyncDisabled => {
                 if currently_syncing {
-                    let _span = tracing::debug_span!(target: "sync", "set_no_sync").entered();
-                    info!(target: "client", ?sync, "disabling sync");
                     {
                         let _span =
                             tracing::debug_span!(target: "sync", "set_sync", sync = "NoSync")
                                 .entered();
-                        tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
+                        tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
                         self.client.sync_status = SyncStatus::NoSync;
                         // Initial transition out of "syncing" state.
                         // Announce this client's account id if their epoch is coming up.
@@ -1650,7 +1637,6 @@ impl ClientActor {
                     }
                     _ => false,
                 };
-                tracing::debug!(target: "client", sync_status = ?self.client.sync_status, "sync_state");
                 if sync_state {
                     match self.client.sync_status {
                         SyncStatus::StateSync(_) => (),
@@ -1784,8 +1770,6 @@ impl ClientActor {
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
 
-                            let _span =
-                                tracing::debug_span!(target: "sync", "set_block_sync").entered();
                             {
                                 let _span = tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
                                 tracing::debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
@@ -1960,7 +1944,7 @@ pub fn start_client(
     node_id: PeerId,
     state_sync_adapter: Arc<RwLock<SyncAdapter>>,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: Sender<WithSpanContext<ShardsManagerRequestFromClient>>,
+    shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
     snapshot_callbacks: Option<SnapshotCallbacks>,

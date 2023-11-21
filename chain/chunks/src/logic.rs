@@ -142,8 +142,14 @@ pub fn decode_encoded_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_tracker: &ShardTracker,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
-    let _span = tracing::debug_span!(target: "chunks", "decode_encoded_chunk", height_included = encoded_chunk.cloned_header().height_included(), shard_id = encoded_chunk.cloned_header().shard_id(), chunk_hash = ?encoded_chunk.chunk_hash()).entered();
     let chunk_hash = encoded_chunk.chunk_hash();
+    let _span = tracing::debug_span!(
+        target: "chunks",
+        "decode_encoded_chunk",
+        height_included = encoded_chunk.cloned_header().height_included(),
+        shard_id = encoded_chunk.cloned_header().shard_id(),
+        ?chunk_hash)
+    .entered();
 
     if let Ok(shard_chunk) = encoded_chunk
         .decode_chunk(epoch_manager.num_data_parts())
@@ -155,7 +161,13 @@ pub fn decode_encoded_chunk(
             Ok(shard_chunk)
         })
     {
-        debug!(target: "chunks", "Reconstructed and decoded chunk {}, encoded length was {}, num txs: {}, I'm {:?}", chunk_hash.0, encoded_chunk.encoded_length(), shard_chunk.transactions().len(), me);
+        tracing::debug!(
+            target: "chunks",
+            ?chunk_hash,
+            encoded_length = encoded_chunk.encoded_length(),
+            num_tx = shard_chunk.transactions().len(),
+            ?me,
+            "Reconstructed and decoded");
         let partial_chunk = create_partial_chunk(
             encoded_chunk,
             merkle_paths,
@@ -169,7 +181,7 @@ pub fn decode_encoded_chunk(
         return Ok((shard_chunk, partial_chunk));
     } else {
         // Can't decode chunk or has invalid proofs, ignore it
-        error!(target: "chunks", "Reconstructed, but failed to decoded chunk {}, I'm {:?}", chunk_hash.0, me);
+        error!(target: "chunks", ?chunk_hash, ?me, "Reconstructed, but failed to decoded chunk");
         return Err(Error::InvalidChunk);
     }
 }

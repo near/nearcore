@@ -16,7 +16,6 @@ use near_async::messaging::{
 };
 use near_async::time;
 use near_crypto::PublicKey;
-use near_o11y::WithSpanContext;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
@@ -367,20 +366,16 @@ pub enum NetworkResponses {
 
 #[derive(Clone, derive_more::AsRef)]
 pub struct PeerManagerAdapter {
-    pub async_request_sender: AsyncSender<
-        WithSpanContext<PeerManagerMessageRequest>,
-        Result<PeerManagerMessageResponse, ()>,
-    >,
-    pub request_sender: Sender<WithSpanContext<PeerManagerMessageRequest>>,
-    pub set_chain_info_sender: Sender<WithSpanContext<SetChainInfo>>,
+    pub async_request_sender:
+        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>,
+    pub request_sender: Sender<PeerManagerMessageRequest>,
+    pub set_chain_info_sender: Sender<SetChainInfo>,
 }
 
 impl<
-        A: CanSendAsync<
-                WithSpanContext<PeerManagerMessageRequest>,
-                Result<PeerManagerMessageResponse, ()>,
-            > + CanSend<WithSpanContext<PeerManagerMessageRequest>>
-            + CanSend<WithSpanContext<SetChainInfo>>,
+        A: CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+            + CanSend<PeerManagerMessageRequest>
+            + CanSend<SetChainInfo>,
     > From<Arc<A>> for PeerManagerAdapter
 {
     fn from(arc: Arc<A>) -> Self {

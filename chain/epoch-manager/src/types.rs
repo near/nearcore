@@ -112,11 +112,8 @@ impl EpochInfoAggregator {
         let block_info_height = block_info.height();
         for height in prev_block_height + 1..=block_info_height {
             let block_producer_id = EpochManager::block_producer_from_info(epoch_info, height);
-            let block_producer = epoch_info.validator_account_id(block_producer_id);
             let entry = self.block_tracker.entry(block_producer_id);
             if height == block_info_height {
-                let _span = tracing::debug_span!(target: "epoch_tracker", "produced_block", height, ?block_producer).entered();
-                tracing::debug!(target: "epoch_tracker", ?block_producer, height, "produced block");
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.produced += 1;
@@ -124,8 +121,10 @@ impl EpochInfoAggregator {
                     })
                     .or_insert(ValidatorStats { produced: 1, expected: 1 });
             } else {
-                let _span = tracing::debug_span!(target: "epoch_tracker", "missed_block", height, ?block_producer).entered();
-                tracing::debug!(target: "epoch_tracker", ?block_producer, height, "missed block");
+                tracing::debug!(
+                    target: "epoch_tracker",
+                    block_producer = ?epoch_info.validator_account_id(block_producer_id),
+                    block_height = height, "Missed block");
                 entry
                     .and_modify(|validator_stats| {
                         validator_stats.expected += 1;
@@ -141,17 +140,19 @@ impl EpochInfoAggregator {
                 prev_block_height + 1,
                 i as ShardId,
             );
-            let chunk_validator = epoch_info.validator_account_id(chunk_validator_id);
             let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_validator_id)
                 .and_modify(|stats| {
                     if *mask {
-                        let _span = tracing::debug_span!(target: "epoch_tracker", "produced_chunk", height = block_info.height(), shard_id = i, ?chunk_validator_id).entered();
                         stats.produced += 1;
                     } else {
-                        let _span = tracing::debug_span!(target: "epoch_tracker", "missed_chunk", height = block_info.height(), shard_id = i, ?chunk_validator_id).entered();
-                        tracing::debug!(target: "epoch_tracker", ?chunk_validator, shard_id = i, height = prev_block_height + 1, "missed chunk");
+                        tracing::debug!(
+                            target: "epoch_tracker",
+                            chunk_validator = ?epoch_info.validator_account_id(chunk_validator_id),
+                            shard_id = i,
+                            block_height = prev_block_height + 1,
+                            "Missed chunk");
                     }
                     stats.expected += 1;
                 })

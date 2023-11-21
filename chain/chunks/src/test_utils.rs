@@ -6,7 +6,6 @@ use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_pro
 use near_epoch_manager::EpochManagerHandle;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
-use near_o11y::WithSpanContext;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{self, MerklePath};
 use near_primitives::receipt::Receipt;
@@ -214,7 +213,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_completion_messages(&self) -> usize {
         let mut chunks_completed = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkCompleted { .. } = message.msg {
+            if let ShardsManagerResponse::ChunkCompleted { .. } = message {
                 chunks_completed += 1;
             }
         }
@@ -224,7 +223,7 @@ impl ChunkTestFixture {
     pub fn count_chunk_ready_for_inclusion_messages(&self) -> usize {
         let mut chunks_ready = 0;
         while let Some(message) = self.mock_client_adapter.pop() {
-            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message.msg {
+            if let ShardsManagerResponse::ChunkHeaderReadyForInclusion { .. } = message {
                 chunks_ready += 1;
             }
         }
@@ -260,20 +259,20 @@ pub fn default_tip() -> Tip {
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
-    pub requests: Arc<RwLock<VecDeque<WithSpanContext<ShardsManagerResponse>>>>,
+    pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
 }
 
-impl CanSend<WithSpanContext<ShardsManagerResponse>> for MockClientAdapterForShardsManager {
-    fn send(&self, msg: WithSpanContext<ShardsManagerResponse>) {
+impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
+    fn send(&self, msg: ShardsManagerResponse) {
         self.requests.write().unwrap().push_back(msg);
     }
 }
 
 impl MockClientAdapterForShardsManager {
-    pub fn pop(&self) -> Option<WithSpanContext<ShardsManagerResponse>> {
+    pub fn pop(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_front()
     }
-    pub fn pop_most_recent(&self) -> Option<WithSpanContext<ShardsManagerResponse>> {
+    pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_back()
     }
 }
@@ -289,17 +288,17 @@ pub struct SynchronousShardsManagerAdapter {
     pub shards_manager: Arc<Mutex<ShardsManager>>,
 }
 
-impl CanSend<WithSpanContext<ShardsManagerRequestFromClient>> for SynchronousShardsManagerAdapter {
-    fn send(&self, msg: WithSpanContext<ShardsManagerRequestFromClient>) {
+impl CanSend<ShardsManagerRequestFromClient> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromClient) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
-        shards_manager.handle_client_request(msg.msg);
+        shards_manager.handle_client_request(msg);
     }
 }
 
-impl CanSend<WithSpanContext<ShardsManagerRequestFromNetwork>> for SynchronousShardsManagerAdapter {
-    fn send(&self, msg: WithSpanContext<ShardsManagerRequestFromNetwork>) {
+impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapter {
+    fn send(&self, msg: ShardsManagerRequestFromNetwork) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
-        shards_manager.handle_network_request(msg.msg);
+        shards_manager.handle_network_request(msg);
     }
 }
 

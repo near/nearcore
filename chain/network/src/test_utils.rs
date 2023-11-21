@@ -230,17 +230,16 @@ impl Handler<WithSpanContext<StopSignal>> for PeerManagerActor {
 // Mocked `PeerManager` adapter, has a queue of `PeerManagerMessageRequest` messages.
 #[derive(Default)]
 pub struct MockPeerManagerAdapter {
-    pub requests: Arc<RwLock<VecDeque<WithSpanContext<PeerManagerMessageRequest>>>>,
+    pub requests: Arc<RwLock<VecDeque<PeerManagerMessageRequest>>>,
     pub notify: Notify,
 }
 
-impl
-    CanSendAsync<WithSpanContext<PeerManagerMessageRequest>, Result<PeerManagerMessageResponse, ()>>
+impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
     for MockPeerManagerAdapter
 {
     fn send_async(
         &self,
-        message: WithSpanContext<PeerManagerMessageRequest>,
+        message: PeerManagerMessageRequest,
     ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, ()>> {
         self.requests.write().unwrap().push_back(message);
         self.notify.notify_one();
@@ -249,25 +248,25 @@ impl
     }
 }
 
-impl CanSend<WithSpanContext<PeerManagerMessageRequest>> for MockPeerManagerAdapter {
-    fn send(&self, msg: WithSpanContext<PeerManagerMessageRequest>) {
+impl CanSend<PeerManagerMessageRequest> for MockPeerManagerAdapter {
+    fn send(&self, msg: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(msg);
         self.notify.notify_one();
     }
 }
 
-impl CanSend<WithSpanContext<SetChainInfo>> for MockPeerManagerAdapter {
-    fn send(&self, _msg: WithSpanContext<SetChainInfo>) {}
+impl CanSend<SetChainInfo> for MockPeerManagerAdapter {
+    fn send(&self, _msg: SetChainInfo) {}
 }
 
 impl MockPeerManagerAdapter {
-    pub fn pop(&self) -> Option<WithSpanContext<PeerManagerMessageRequest>> {
+    pub fn pop(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_front()
     }
-    pub fn pop_most_recent(&self) -> Option<WithSpanContext<PeerManagerMessageRequest>> {
+    pub fn pop_most_recent(&self) -> Option<PeerManagerMessageRequest> {
         self.requests.write().unwrap().pop_back()
     }
-    pub fn put_back_most_recent(&self, request: WithSpanContext<PeerManagerMessageRequest>) {
+    pub fn put_back_most_recent(&self, request: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(request);
     }
 }

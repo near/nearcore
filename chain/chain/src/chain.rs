@@ -382,9 +382,9 @@ pub struct OrphanMissingChunks {
 impl Debug for OrphanMissingChunks {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OrphanMissingChunks")
-            .field("num_missing_chunks", &self.missing_chunks.len())
             .field("epoch_id", &self.epoch_id)
             .field("ancestor_hash", &self.ancestor_hash)
+            .field("num_missing_chunks", &self.missing_chunks.len())
             .finish()
     }
 }
@@ -1843,9 +1843,7 @@ impl Chain {
             tracing::debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
-        let mut items = 0;
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
-            items += 1;
             match self.postprocess_block(
                 me,
                 block_hash,
@@ -1861,7 +1859,6 @@ impl Chain {
                 }
             }
         }
-        tracing::info!(target: "chain", items, "receiver loop finished");
         (accepted_blocks, errors)
     }
 
@@ -2255,24 +2252,18 @@ impl Chain {
         apply_chunks_done_marker: Arc<OnceCell<()>>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
-        let parent_span = tracing::debug_span!(target: "chain", "schedule_apply_chunks", block_height, %block_hash).entered();
-        let ps = parent_span.clone();
         let sc = self.apply_chunks_sender.clone();
         spawn(move || {
-            let ps = ps.clone();
-            let _span = tracing::debug_span!(target: "chain", parent: &ps, "schedule_apply_chunks_inner", block_height, %block_hash).entered();
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
             sc.send((block_hash, res)).unwrap();
-            tracing::info!(target: "chain", ?block_hash, "schedule_apply_chunks_inner sent a message to apply_chunks_sender");
             if let Err(_) = apply_chunks_done_marker.set(()) {
                 // This should never happen, if it does, it means there is a bug in our code.
                 log_assert!(false, "apply chunks are called twice for block {block_hash:?}");
             }
             apply_chunks_done_callback(block_hash);
-            tracing::info!(target: "chain", ?block_hash, "schedule_apply_chunks_inner sent ApplyChunkDoneMessage");
         });
 
         /// `rayon::spawn` decorated to propagate `tracing` context across
@@ -2831,7 +2822,12 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
-        let _span = tracing::debug_span!(target: "chain", "check_orphans", ?prev_hash, num_orphans = self.orphans.len()).entered();
+        let _span = tracing::debug_span!(
+            target: "chain",
+            "check_orphans",
+            ?prev_hash,
+            num_orphans = self.orphans.len())
+        .entered();
         // Check if there are orphans we can process.
         // check within the descendents of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
@@ -5292,7 +5288,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target: "chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+                warn!(target: "chain", hash = %block.hash(), %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;

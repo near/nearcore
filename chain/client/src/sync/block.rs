@@ -76,7 +76,7 @@ impl BlockSync {
             None => head.height,
         };
 
-        let _span = tracing::debug_span!(target: "sync", "set_block_sync").entered();
+        // An artificial span to easily detect a node getting into the sync state in Grafana.
         {
             let _span =
                 tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
@@ -221,13 +221,9 @@ impl BlockSync {
             if let Some(peer) = peer {
                 debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
                        chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
-                self.network_adapter.send(
-                    PeerManagerMessageRequest::NetworkRequests(NetworkRequests::BlockRequest {
-                        hash,
-                        peer_id: peer.peer_info.id.clone(),
-                    })
-                    .with_span_context(),
-                );
+                self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
+                ));
             } else {
                 warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
                       chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, hash);
