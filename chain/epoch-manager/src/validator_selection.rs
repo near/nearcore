@@ -165,8 +165,8 @@ pub fn proposals_to_epoch_info(
         // per shard is the same as maximal number of block producers, so normally all
         // validators would be assigned to all chunks
         shard_ids
-            .into_iter()
-            .map(|shard_id| shard_id as usize)
+            .iter()
+            .map(|&shard_id| shard_id as usize)
             .map(|shard_id| {
                 (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
                     .min(block_producers_settlement.len() as u64))
