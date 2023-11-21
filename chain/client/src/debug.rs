@@ -334,28 +334,23 @@ impl ClientActor {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-
-        let tracked_shards: Vec<(bool, bool)> = (0..self
-            .client
-            .epoch_manager
-            .num_shards(&epoch_id)
-            .unwrap())
-            .map(|x| {
-                (
-                    self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, x, true),
-                    self.client.shard_tracker.will_care_about_shard(
-                        me.as_ref(),
-                        &fetch_hash,
-                        x,
-                        true,
-                    ),
+        let num_shards = self.client.epoch_manager.num_shards(&epoch_id).unwrap();
+        let shards_tracked_this_epoch = (0..num_shards)
+            .map(|shard_id| {
+                self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, shard_id, true)
+            })
+            .collect();
+        let shards_tracked_next_epoch = (0..num_shards)
+            .map(|shard_id| {
+                self.client.shard_tracker.will_care_about_shard(
+                    me.as_ref(),
+                    &fetch_hash,
+                    shard_id,
+                    true,
                 )
             })
             .collect();
-        Ok(TrackedShardsView {
-            shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
-            shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
-        })
+        Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
 
     fn get_recent_epoch_info(

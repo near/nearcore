@@ -199,6 +199,7 @@ nearcore = { path = "nearcore" }
 near-crypto = { path = "core/crypto" }
 near-dyn-configs = { path = "core/dyn-configs" }
 near-epoch-manager = { path = "chain/epoch-manager" }
+near-epoch-sync-tool = { path = "tools/epoch-sync"}
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
@@ -374,11 +375,12 @@ panic = 'abort'
 lto = "fat"
 codegen-units = 1
 
-# A much faster to compile version of `release`.
-[profile.quick-release]
+# A much faster to compile version of `release`, for development use.
+[profile.dev-release]
 inherits = "release"
 lto = false
 codegen-units = 16
+debug-assertions = true
 
 # Used for fuzzing, LTO is ill-supported as of 2023-09 and so should not be enabled.
 [profile.fuzz]

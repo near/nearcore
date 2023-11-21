@@ -2340,7 +2340,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         // Need to check if this is the last block of the epoch where resharding is completed
         // which means shard layout changed in the previous epoch
-        if !epoch_manager.is_next_block_epoch_start(&block_hash)? {
+        if !epoch_manager.is_last_block_in_finished_epoch(&block_hash)? {
             return Ok(());
         }
 

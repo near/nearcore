@@ -1007,12 +1007,11 @@ impl Chain {
                         *block_hash,
                         GCMode::Canonical(tries.clone()),
                     )?;
-                    // TODO(resharding): Call clear_resharding_data once we figure out what's wrong
-                    // chain_store_update.clear_resharding_data(
-                    //     self.runtime_adapter.as_ref(),
-                    //     self.epoch_manager.as_ref(),
-                    //     *block_hash,
-                    // )?;
+                    chain_store_update.clear_resharding_data(
+                        self.runtime_adapter.as_ref(),
+                        self.epoch_manager.as_ref(),
+                        *block_hash,
+                    )?;
                     gc_blocks_remaining -= 1;
                 } else {
                     return Err(Error::GCError(
@@ -5648,7 +5647,7 @@ impl<'a> ChainUpdate<'a> {
             .set_ser(
                 DBCol::EpochSyncInfo,
                 last_block_info.epoch_id().as_ref(),
-                &self.create_epoch_sync_info(last_block_info, next_epoch_first_hash)?,
+                &self.create_epoch_sync_info(last_block_info, next_epoch_first_hash, None)?,
             )
             .map_err(EpochError::from)?;
         self.chain_store_update.merge(store_update);
@@ -5746,12 +5745,14 @@ impl<'a> ChainUpdate<'a> {
 
     /// Data that is necessary to prove Epoch in new Epoch Sync.
     #[cfg(feature = "new_epoch_sync")]
-    fn create_epoch_sync_info(
+    pub fn create_epoch_sync_info(
         &self,
         last_block_info: &BlockInfo,
         next_epoch_first_hash: &CryptoHash,
+        hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
     ) -> Result<EpochSyncInfo, Error> {
-        let mut all_block_hashes = self.epoch_manager.get_all_epoch_hashes(last_block_info)?;
+        let mut all_block_hashes =
+            self.epoch_manager.get_all_epoch_hashes(last_block_info, hash_to_prev_hash)?;
         all_block_hashes.reverse();
 
         let (headers, headers_to_save) =
