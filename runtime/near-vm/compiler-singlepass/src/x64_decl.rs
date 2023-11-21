@@ -235,6 +235,19 @@ impl ArgumentRegisterAllocator {
                             None
                         }
                     }
+                    // TODO: remove it
+                    Type::FuncRef => {
+                        // Decide how to pass FuncRefs:
+                        // Either in GPRs if they are represented as integers (indexes or pointers),
+                        // or another appropriate method.
+                        if self.n_gprs < GPR_SEQ.len() {
+                            let gpr = GPR_SEQ[self.n_gprs];
+                            self.n_gprs += 1;
+                            Some(X64Register::GPR(gpr))
+                        } else {
+                            None
+                        }
+                    }
                     _ => todo!("ArgumentRegisterAllocator::next: Unsupported type: {:?}", ty),
                 }
             }

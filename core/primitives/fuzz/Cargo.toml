@@ -1,0 +1,53 @@
+[package]
+name = "near-core-primitives-fuzz"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary.workspace = true
+libfuzzer-sys.workspace = true
+wasm-smith.workspace = true
+wasmprinter.workspace = true
+
+near-primitives.workspace = true
+near-test-contracts.workspace = true
+near-vm-errors.workspace = true
+near-vm-logic.workspace = true
+near-vm-runner.workspace = true
+near-network.workspace = true
+near-crypto.workspace = true
+near-chain.workspace = true
+near-chunks.workspace = true
+near-epoch-manager.workspace = true
+
+[[bin]]
+name = "block"
+path = "fuzz_targets/block.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "chunk"
+path = "fuzz_targets/chunk.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "transaction"
+path = "fuzz_targets/transaction.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "receipt"
+path = "fuzz_targets/receipt.rs"
+test = false
+doc = false

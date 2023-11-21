@@ -15,7 +15,8 @@ use near_primitives_core::config::ActionCosts;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::ShardTries;
-use node_runtime::{ApplyState, Runtime};
+use near_vm_logic::ActionCosts;
+use super::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
@@ -57,7 +58,7 @@ impl StandaloneRuntime {
         // Bumping costs to avoid inflation overflows.
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas = 10u64.pow(15);
         runtime_config.fees.action_fees[ActionCosts::new_action_receipt].execution =
-            runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas.clone() / 64;
         runtime_config.fees.action_fees[ActionCosts::new_data_receipt_base].execution =
             runtime_config.wasm_config.limit_config.max_total_prepaid_gas / 64;
 
@@ -99,7 +100,7 @@ impl StandaloneRuntime {
             gas_limit: None,
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(runtime_config),
+            config: Arc::new(runtime_config.clone()),
             cache: None,
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
@@ -359,91 +360,4 @@ impl RuntimeGroup {
     }
 }
 
-/// Binds a tuple to a vector.
-/// # Examples:
-///
-/// ```
-/// let v = vec![1,2,3];
-/// tuplet!((a,b,c) = v);
-/// assert_eq!(a, &1);
-/// assert_eq!(b, &2);
-/// assert_eq!(c, &3);
-/// ```
-#[macro_export]
-macro_rules! tuplet {
-    {() = $v:expr, $message:expr } => {
-        assert!($v.is_empty(), "{}", $message);
-    };
-    {($y:ident) = $v:expr, $message:expr } => {
-        assert_eq!($v.len(), 1, "{}", $message);
-        let $y = &$v[0];
-    };
-    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
-        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
-    };
-    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
-        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
-    };
-    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
-            assert_eq!($v.len(), $j, "{}", $message);
-            $accu
-    } }
-}
 
-#[macro_export]
-macro_rules! assert_receipts {
-    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
-        let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
-        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
-    };
-    ($group:ident, $from:expr => $receipt:ident @ $to:expr,
-    $receipt_pat:pat,
-    $receipt_assert:block,
-    $actions_name:ident,
-    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
-     => [ $($produced_receipt:ident),*] ) => {
-        let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id, $from);
-        assert_eq!(r.receiver_id, $to);
-        match &r.receipt {
-            $receipt_pat => {
-                $receipt_assert
-                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
-                $(
-                    match $action_name {
-                        $action_pat => {
-                            $action_assert
-                        }
-                        _ => panic!("Action {:#?} does not satisfy the pattern {}", $action_name, stringify!($action_pat)),
-                    }
-                )*
-            }
-            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
-        }
-       let receipt_log = $group.get_transaction_log(&r.get_hash());
-       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
-    };
-}
-
-/// A short form for refunds.
-/// ```
-/// assert_refund!(group, ref1 @ "near_0");
-/// ```
-/// expands into:
-/// ```
-/// assert_receipts!(group, "system" => ref1 @ "near_0",
-///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-///                  actions,
-///                  a0, Action::Transfer(TransferAction{..}), {}
-///                  => []);
-/// ```
-#[macro_export]
-macro_rules! assert_refund {
- ($group:ident, $receipt:ident @ $to:expr) => {
-        assert_receipts!($group, "system" => $receipt @ $to,
-                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
-                         actions,
-                         a0, Action::Transfer(TransferAction{..}), {}
-                         => []);
- }
-}

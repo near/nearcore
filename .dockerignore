@@ -23,3 +23,5 @@ Dockerfile.nightly
 
 # Ignore git internal structure
 .git/
+
+.hackenfuzz

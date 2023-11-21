@@ -1,13 +1,11 @@
-use crate::runtime_group_tools::RuntimeGroup;
-
+use node_runtime::runtime_group_tools::RuntimeGroup;
+use borsh::ser::BorshSerialize;
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
-
-pub mod runtime_group_tools;
 
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: u128 = 1_000_000_000 * NEAR_BASE;
@@ -1077,4 +1075,93 @@ fn test_create_transfer_64len_hex_fail() {
     assert_refund!(group, ref0 @ "near_0");
     assert_refund!(group, ref1 @ "near_1");
     assert_refund!(group, ref2 @ "near_0");
+}
+
+/// Binds a tuple to a vector.
+/// # Examples:
+///
+/// ```
+/// let v = vec![1,2,3];
+/// tuplet!((a,b,c) = v);
+/// assert_eq!(a, &1);
+/// assert_eq!(b, &2);
+/// assert_eq!(c, &3);
+/// ```
+#[macro_export]
+macro_rules! tuplet {
+    {() = $v:expr, $message:expr } => {
+        assert!($v.is_empty(), "{}", $message);
+    };
+    {($y:ident) = $v:expr, $message:expr } => {
+        assert_eq!($v.len(), 1, "{}", $message);
+        let $y = &$v[0];
+    };
+    { ($y:ident $(, $x:ident)*) = $v:expr, $message:expr } => {
+        let ($y, $($x),*) = tuplet!($v ; 1 ; ($($x),*) ; (&$v[0]), $message );
+    };
+    { $v:expr ; $j:expr ; ($y:ident $(, $x:ident)*) ; ($($a:expr),*), $message:expr } => {
+        tuplet!( $v ; $j+1 ; ($($x),*) ; ($($a),*,&$v[$j]), $message )
+    };
+    { $v:expr ; $j:expr ; () ; $accu:expr, $message:expr } => { {
+            assert_eq!($v.len(), $j, "{}", $message);
+            $accu
+    } }
+}
+
+#[macro_export]
+macro_rules! assert_receipts {
+    ($group:ident, $transaction:ident => [ $($receipt:ident),* ] ) => {
+        let transaction_log = $group.get_transaction_log(&$transaction.get_hash());
+        tuplet!(( $($receipt),* ) = transaction_log.outcome.receipt_ids, "Incorrect number of produced receipts for transaction");
+    };
+    ($group:ident, $from:expr => $receipt:ident @ $to:expr,
+    $receipt_pat:pat,
+    $receipt_assert:block,
+    $actions_name:ident,
+    $($action_name:ident, $action_pat:pat, $action_assert:block ),+
+     => [ $($produced_receipt:ident),*] ) => {
+        let r = $group.get_receipt($to, $receipt);
+        assert_eq!(r.predecessor_id.as_ref(), $from);
+        assert_eq!(r.receiver_id.as_ref(), $to);
+        match &r.receipt {
+            $receipt_pat => {
+                $receipt_assert
+                tuplet!(( $($action_name),* ) = $actions_name, "Incorrect number of actions");
+                $(
+                    match $action_name {
+                        $action_pat => {
+                            $action_assert
+                        }
+                        _ => panic!("Action {:#?} does not satisfy the pattern {}", $action_name, stringify!($action_pat)),
+                    }
+                )*
+            }
+            _ => panic!("Receipt {:#?} does not satisfy the pattern {}", r, stringify!($receipt_pat)),
+        }
+       let receipt_log = $group.get_transaction_log(&r.get_hash());
+       tuplet!(( $($produced_receipt),* ) = receipt_log.outcome.receipt_ids, "Incorrect number of produced receipts for a receipt");
+    };
+}
+
+/// A short form for refunds.
+/// ```
+/// assert_refund!(group, ref1 @ "near_0");
+/// ```
+/// expands into:
+/// ```
+/// assert_receipts!(group, "system" => ref1 @ "near_0",
+///                  ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+///                  actions,
+///                  a0, Action::Transfer(TransferAction{..}), {}
+///                  => []);
+/// ```
+#[macro_export]
+macro_rules! assert_refund {
+ ($group:ident, $receipt:ident @ $to:expr) => {
+        assert_receipts!($group, "system" => $receipt @ $to,
+                         ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
+                         actions,
+                         a0, Action::Transfer(TransferAction{..}), {}
+                         => []);
+ }
 }

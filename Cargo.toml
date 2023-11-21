@@ -37,16 +37,19 @@ members = [
     "core/dyn-configs",
     "core/o11y",
     "core/primitives",
+    "core/primitives/fuzz",
     "core/primitives-core",
     "core/store",
     "genesis-tools/genesis-csv-to-json",
     "genesis-tools/genesis-populate",
     "genesis-tools/keypair-generator",
     "integration-tests",
+    "integration-tests/fuzz",
     "nearcore",
     "neard",
     "runtime/near-vm/test-api",
     "runtime/near-vm/compiler",
+    "runtime/near-vm/compiler/fuzz",
     "runtime/near-vm/compiler-singlepass",
     "runtime/near-vm/engine",
     "runtime/near-vm/vm",
@@ -56,6 +59,7 @@ members = [
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
     "runtime/runtime",
+    "runtime/runtime/fuzz",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
     "test-utils/actix-test-utils",
@@ -368,12 +372,14 @@ stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [profile.dev]
 panic = 'abort'
+lto = 'off'
 
 [profile.release]
 overflow-checks = true
 panic = 'abort'
-lto = "fat"
-codegen-units = 1
+lto = "thin"
+# lto = "fat"
+# codegen-units = 1
 
 # A much faster to compile version of `release`, for development use.
 [profile.dev-release]
