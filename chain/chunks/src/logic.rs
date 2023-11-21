@@ -178,11 +178,11 @@ pub fn decode_encoded_chunk(
         )
         .map_err(|err| Error::ChainError(err.into()))?;
 
-        return Ok((shard_chunk, partial_chunk));
+        Ok((shard_chunk, partial_chunk))
     } else {
         // Can't decode chunk or has invalid proofs, ignore it
         error!(target: "chunks", ?chunk_hash, ?me, "Reconstructed, but failed to decoded chunk");
-        return Err(Error::InvalidChunk);
+        Err(Error::InvalidChunk)
     }
 }
 
