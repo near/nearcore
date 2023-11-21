@@ -507,11 +507,11 @@ impl Signature {
     ) -> Result<Self, crate::errors::ParseSignatureError> {
         match signature_type {
             KeyType::ED25519 => Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(
-                <&[u8; 64]>::try_from(signature_data).map_err(|err| {
-                    crate::errors::ParseSignatureError::InvalidData {
+                <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(signature_data).map_err(
+                    |err| crate::errors::ParseSignatureError::InvalidData {
                         error_message: err.to_string(),
-                    }
-                })?,
+                    },
+                )?,
             ))),
             KeyType::SECP256K1 => {
                 Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
@@ -596,6 +596,13 @@ impl BorshDeserialize for Signature {
             KeyType::ED25519 => {
                 let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
                     BorshDeserialize::deserialize_reader(rd)?;
+                // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
+                // but was removed with version 2. It is not actually any good a check, but we have
+                // it here in case we need to keep backward compatibility. Maybe this check is not
+                // actually required, but please think carefully before removing it.
+                if array[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
+                    return Err(Error::new(ErrorKind::InvalidData, "signature error"));
+                }
                 Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(&array)))
             }
             KeyType::SECP256K1 => {

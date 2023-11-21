@@ -1152,21 +1152,18 @@ impl<'a> VMLogic<'a> {
 
         let signature: ed25519_dalek::Signature = {
             let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
-            if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid signature length".to_string(),
-                }));
-            }
+                })
+            })?;
             // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
             // but was removed with version 2. It is not actually any good a check, but we need
             // it to avoid costs changing.
-            if vec[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
+            if b[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
                 return Ok(false as u64);
             }
-            match <&[u8; 64]>::try_from(&vec[..]) {
-                Ok(b) => ed25519_dalek::Signature::from_bytes(b),
-                Err(_) => return Ok(false as u64),
-            }
+            ed25519_dalek::Signature::from_bytes(b)
         };
 
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
@@ -1174,15 +1171,12 @@ impl<'a> VMLogic<'a> {
 
         let public_key: ed25519_dalek::VerifyingKey = {
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
-            if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                    msg: "invalid public key length".to_string(),
-                }));
-            }
-            let b = match <&[u8; 32]>::try_from(&vec[..]) {
-                Ok(b) => b,
-                Err(_) => return Ok(false as u64),
-            };
+            let b =
+                <&[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                    VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                        msg: "invalid public key length".to_string(),
+                    })
+                })?;
             match ed25519_dalek::VerifyingKey::from_bytes(b) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
