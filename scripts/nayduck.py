@@ -38,7 +38,10 @@ def _parse_args():
                          DEFAULT_TEST_FILE)
 
     parser = argparse.ArgumentParser(description='Run tests.')
-    parser.add_argument('--cancel', '-c', help='Cancel scheduled run. In progress tests cannot be stopped.')
+    parser.add_argument(
+        '--cancel',
+        '-c',
+        help='Cancel scheduled run. In progress tests cannot be stopped.')
     parser.add_argument('--branch',
                         '-b',
                         help='Branch to test. By default gets current one.')
@@ -319,12 +322,13 @@ def run_command(args, tests):
     while True:
         print('Sending request ...')
         if args.cancel:
-            res = requests.post(NAYDUCK_BASE_HREF + f'/api/run/{args.cancel}/cancel',
-                            cookies={'nay-code': code})
+            res = requests.post(NAYDUCK_BASE_HREF +
+                                f'/api/run/{args.cancel}/cancel',
+                                cookies={'nay-code': code})
         else:
             res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
-                            json=post,
-                            cookies={'nay-code': code})
+                                json=post,
+                                cookies={'nay-code': code})
         if res.status_code != 401:
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
@@ -333,9 +337,11 @@ def run_command(args, tests):
     if res.status_code == 200:
         json_res = json.loads(res.text)
         if args.cancel:
-            print(styles[1] + 'Cancelled ' + str(json_res) + ' test(s)' + styles[2])
+            print(styles[1] + 'Cancelled ' + str(json_res) + ' test(s)' +
+                  styles[2])
         else:
-            print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
+            print(styles[json_res['code'] == 0] + json_res['response'] +
+                  styles[2])
     else:
         print(f'{styles[0]}Got status code {res.status_code}:{styles[2]}\n')
         print(res.text)
