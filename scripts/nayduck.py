@@ -38,7 +38,7 @@ def _parse_args():
                          DEFAULT_TEST_FILE)
 
     parser = argparse.ArgumentParser(description='Run tests.')
-    parser.add_argument('--cancel','-c', help='Cancel scheduled run. In progress tests cannot be stopped.')
+    parser.add_argument('--cancel', '-c', help='Cancel scheduled run. In progress tests cannot be stopped.')
     parser.add_argument('--branch',
                         '-b',
                         help='Branch to test. By default gets current one.')
