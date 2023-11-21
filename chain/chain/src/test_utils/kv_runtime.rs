@@ -956,6 +956,9 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<CryptoHash>, EpochError> {
         Ok(vec![])
     }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
 }
 
 impl RuntimeAdapter for KeyValueRuntime {
