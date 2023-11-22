@@ -13,6 +13,7 @@ use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use reed_solomon_erasure::ReconstructShard;
 use std::cmp::Ordering;
 use std::sync::Arc;
+use tracing::debug_span;
 
 #[derive(
     BorshSerialize,
@@ -1164,7 +1165,7 @@ impl EncodedShardChunk {
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "sharding",
             "decode_chunk",
             data_parts,

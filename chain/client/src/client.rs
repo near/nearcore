@@ -82,7 +82,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
-use tracing::{debug, error, info, warn};
+use tracing::{debug_span, trace, debug, error, info, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -1060,9 +1060,7 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let _span =
-            tracing::debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id)
-                .entered();
+        let _span = debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
         self.chain.blocks_delay_tracker.mark_block_received(
             &block,
             StaticClock::instant(),
@@ -1095,14 +1093,14 @@ impl Client {
         let res = self.start_process_block(block, provenance, apply_chunks_done_callback);
         match &res {
             Err(near_chain::Error::Orphan) => {
-                tracing::debug!(target: "chain", ?prev_hash, "Orphan error");
+                debug!(target: "chain", ?prev_hash, "Orphan error");
                 if !self.chain.is_orphan(&prev_hash) {
-                    tracing::debug!(target: "chain", "not orphan");
+                    debug!(target: "chain", "not orphan");
                     self.request_block(prev_hash, peer_id)
                 }
             }
             err => {
-                tracing::debug!(target: "chain", ?err, "some other error");
+                debug!(target: "chain", ?err, "some other error");
             }
         }
         res
@@ -1198,7 +1196,7 @@ impl Client {
         provenance: Provenance,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
                 target: "chain",
                 "start_process_block",
                 ?provenance,
@@ -1257,7 +1255,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
-        let _span = tracing::debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk).entered();
+        let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk).entered();
         let me = self
             .validator_signer
             .as_ref()
@@ -1613,7 +1611,7 @@ impl Client {
             {
                 self.produce_chunks(&block, validator_id);
             } else {
-                tracing::info!(target: "client", "not producing a chunk");
+                info!(target: "client", "not producing a chunk");
             }
         }
 
@@ -1691,7 +1689,7 @@ impl Client {
 
     // Produce new chunks
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "client",
             "produce_chunks",
             ?validator_id,
@@ -1708,7 +1706,7 @@ impl Client {
                 continue;
             }
 
-            let _span = tracing::debug_span!(
+            let _span = debug_span!(
                 target: "client",
                 "on_block_accepted",
                 prev_block_hash = ?*block.hash(),
@@ -1766,7 +1764,7 @@ impl Client {
         blocks_missing_chunks: Vec<BlockMissingChunks>,
         orphans_missing_chunks: Vec<OrphanMissingChunks>,
     ) {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "client",
             "request_missing_chunks",
             ?blocks_missing_chunks,
@@ -1805,7 +1803,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let _span =
-            tracing::debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
+            debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
@@ -2031,7 +2029,7 @@ impl Client {
             validators.remove(account_id);
         }
         for validator in validators {
-            tracing::trace!(target: "client", me = ?self.validator_signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, shard_id, "Routing a transaction");
+            trace!(target: "client", me = ?self.validator_signer.as_ref().map(|bp| bp.validator_id()), ?tx, ?validator, shard_id, "Routing a transaction");
 
             // Send message to network to actually forward transaction.
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
@@ -2165,17 +2163,17 @@ impl Client {
                 if me.is_some() {
                     match self.sharded_tx_pool.insert_transaction(shard_uid, tx.clone()) {
                         InsertTransactionResult::Success => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Recorded a transaction.");
                         }
                         InsertTransactionResult::Duplicate => {
-                            tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
+                            trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Duplicate transaction, not forwarding it.");
                             return Ok(ProcessTxResponse::ValidTx);
                         }
                         InsertTransactionResult::NoSpaceLeft => {
                             if is_forwarded {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
+                                trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, dropping the transaction.");
                             } else {
-                                tracing::trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
+                                trace!(target: "client", ?shard_uid, tx_hash = ?tx.get_hash(), "Transaction pool is full, trying to forward the transaction.");
                             }
                         }
                     }
@@ -2187,7 +2185,7 @@ impl Client {
                 //   forward to current epoch validators,
                 //   possibly forward to next epoch validators
                 if self.active_validator(shard_id)? {
-                    tracing::trace!(target: "client", account = ?me, shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
+                    trace!(target: "client", account = ?me, shard_id, tx_hash = ?tx.get_hash(), is_forwarded, "Recording a transaction.");
                     metrics::TRANSACTION_RECEIVED_VALIDATOR.inc();
 
                     if !is_forwarded {
@@ -2195,12 +2193,12 @@ impl Client {
                     }
                     Ok(ProcessTxResponse::ValidTx)
                 } else if !is_forwarded {
-                    tracing::trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
+                    trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Forwarding a transaction.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR.inc();
                     self.forward_tx(&epoch_id, tx)?;
                     Ok(ProcessTxResponse::RequestRouted)
                 } else {
-                    tracing::trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
+                    trace!(target: "client", shard_id, tx_hash = ?tx.get_hash(), "Non-validator received a forwarded transaction, dropping it.");
                     metrics::TRANSACTION_RECEIVED_NON_VALIDATOR_FORWARDED.inc();
                     Ok(ProcessTxResponse::NoResponse)
                 }
@@ -2209,7 +2207,7 @@ impl Client {
             Ok(ProcessTxResponse::DoesNotTrackShard)
         } else if is_forwarded {
             // Received forwarded transaction but we are not tracking the shard
-            tracing::debug!(target: "client", ?me, shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
+            debug!(target: "client", ?me, shard_id, tx_hash = ?tx.get_hash(), "Received forwarded transaction but no tracking shard");
             Ok(ProcessTxResponse::NoResponse)
         } else {
             // We are not tracking this shard, so there is no way to validate this tx. Just rerouting.
@@ -2249,7 +2247,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
-        let _span = tracing::debug_span!(target: "sync", "run_catchup").entered();
+        let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
         for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
@@ -2476,7 +2474,7 @@ impl Client {
 impl Client {
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
         let _span =
-            tracing::debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
+            debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
         match self.chain.block_exists(&hash) {
             Ok(false) => {
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

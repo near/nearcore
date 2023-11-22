@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
-
 use borsh::{BorshDeserialize, BorshSerialize};
-
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::block_info::BlockInfo;
@@ -12,6 +10,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochId, ShardId, ValidatorId, ValidatorStats,
 };
 use near_primitives::version::ProtocolVersion;
+use tracing::{debug,debug_span};
 
 use crate::EpochManager;
 
@@ -106,7 +105,7 @@ impl EpochInfoAggregator {
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
     ) {
-        let _span = tracing::debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
+        let _span = debug_span!(target: "epoch_tracker", "update_tail", prev_block_height)
             .entered();
         // Step 1: update block tracer
         let block_info_height = block_info.height();
@@ -121,7 +120,7 @@ impl EpochInfoAggregator {
                     })
                     .or_insert(ValidatorStats { produced: 1, expected: 1 });
             } else {
-                tracing::debug!(
+                debug!(
                     target: "epoch_tracker",
                     block_producer = ?epoch_info.validator_account_id(block_producer_id),
                     block_height = height, "Missed block");
@@ -147,7 +146,7 @@ impl EpochInfoAggregator {
                     if *mask {
                         stats.produced += 1;
                     } else {
-                        tracing::debug!(
+                        debug!(
                             target: "epoch_tracker",
                             chunk_validator = ?epoch_info.validator_account_id(chunk_validator_id),
                             shard_id = i,

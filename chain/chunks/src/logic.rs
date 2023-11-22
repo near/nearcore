@@ -12,7 +12,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
-use tracing::log::{debug, error};
+use tracing::{debug_span, debug, error};
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,
@@ -143,7 +143,7 @@ pub fn decode_encoded_chunk(
     shard_tracker: &ShardTracker,
 ) -> Result<(ShardChunk, PartialEncodedChunk), Error> {
     let chunk_hash = encoded_chunk.chunk_hash();
-    let _span = tracing::debug_span!(
+    let _span = debug_span!(
         target: "chunks",
         "decode_encoded_chunk",
         height_included = encoded_chunk.cloned_header().height_included(),
@@ -161,7 +161,7 @@ pub fn decode_encoded_chunk(
             Ok(shard_chunk)
         })
     {
-        tracing::debug!(
+        debug!(
             target: "chunks",
             ?chunk_hash,
             encoded_length = encoded_chunk.encoded_length(),

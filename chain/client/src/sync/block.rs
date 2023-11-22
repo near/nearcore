@@ -5,12 +5,11 @@ use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
-use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
-use tracing::{debug, warn};
+use tracing::{debug_span, debug, warn};
 
 /// Maximum number of block requested at once in BlockSync
 const MAX_BLOCK_REQUESTS: usize = 5;
@@ -79,11 +78,11 @@ impl BlockSync {
         // An artificial span to easily detect a node getting into the sync state in Grafana.
         {
             let _span =
-                tracing::debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
-            tracing::debug!(target: "sync", prev_sync_status = ?sync_status);
+                debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
+            debug!(target: "sync", prev_sync_status = ?sync_status);
             *sync_status =
                 SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
-            tracing::debug!(target: "sync", ?sync_status);
+            debug!(target: "sync", ?sync_status);
         }
         Ok(false)
     }

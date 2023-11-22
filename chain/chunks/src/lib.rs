@@ -127,7 +127,7 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug, error, warn};
+use tracing::{debug_span, debug, error, warn};
 
 pub mod adapter;
 mod chunk_cache;
@@ -573,7 +573,7 @@ impl ShardsManager {
         let height = chunk_header.height_created();
         let shard_id = chunk_header.shard_id();
         let chunk_hash = chunk_header.chunk_hash();
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
             "request_chunk_single",
             ?chunk_hash,
@@ -669,12 +669,11 @@ impl ShardsManager {
         chunks_to_request: Vec<ShardChunkHeader>,
         prev_hash: CryptoHash,
     ) {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
+            "request_chunks",
             ?prev_hash,
-            num_chunks_to_request = chunks_to_request.len(),
-            "request_chunks")
-        .entered();
+            num_chunks_to_request = chunks_to_request.len()).entered();
         for chunk_header in chunks_to_request {
             self.request_chunk_single(&chunk_header, prev_hash, false);
         }
@@ -694,7 +693,7 @@ impl ShardsManager {
         epoch_id: &EpochId,
         ancestor_hash: CryptoHash,
     ) {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
             "request_chunks_for_orphan",
             ?ancestor_hash,
@@ -1034,7 +1033,7 @@ impl ShardsManager {
         chunk: &mut EncodedShardChunk,
         rs: &mut ReedSolomonWrapper,
     ) -> ChunkStatus {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
             "check_chunk_complete",
             height_included = chunk.cloned_header().height_included(),
@@ -1046,10 +1045,10 @@ impl ShardsManager {
             if let Ok(_) = chunk.content_mut().reconstruct(rs) {
                 let (merkle_root, merkle_paths) = chunk.content().get_merkle_hash_and_paths();
                 if merkle_root == chunk.encoded_merkle_root() {
-                    tracing::debug!(target: "chunks", "Complete");
+                    debug!(target: "chunks", "Complete");
                     ChunkStatus::Complete(merkle_paths)
                 } else {
-                    tracing::debug!(
+                    debug!(
                         target: "chunks",
                         ?merkle_root,
                         chunk_encoded_merkle_root = ?chunk.encoded_merkle_root(),
@@ -1057,11 +1056,11 @@ impl ShardsManager {
                     ChunkStatus::Invalid
                 }
             } else {
-                tracing::debug!(target: "chunks", "Invalid: Failed to reconstruct");
+                debug!(target: "chunks", "Invalid: Failed to reconstruct");
                 ChunkStatus::Invalid
             }
         } else {
-            tracing::debug!(target: "chunks", num_fetched_parts, data_parts, "Incomplete");
+            debug!(target: "chunks", num_fetched_parts = chunk.content().num_fetched_parts(), data_parts, "Incomplete");
             ChunkStatus::Incomplete
         }
     }
@@ -1262,7 +1261,7 @@ impl ShardsManager {
     fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
         let _span =
-            tracing::debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
+            debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
         // 1.  check signature
         // Ideally, validating the chunk header needs the previous block to be accepted already.
         // However, we want to be able to validate chunk header in advance so we can save
@@ -1393,7 +1392,7 @@ impl ShardsManager {
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let header = &partial_encoded_chunk.header;
         let chunk_hash = header.chunk_hash();
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk",
             ?chunk_hash,
@@ -1401,7 +1400,7 @@ impl ShardsManager {
             height_created = header.height_created(),
             height_included = header.height_included())
         .entered();
-        tracing::debug!(
+        debug!(
             target: "chunks",
             parts = ?partial_encoded_chunk.get_inner().parts.iter().map(|p| p.part_ord).collect::<Vec<_>>(),
             "Process partial encoded chunk");
@@ -1413,7 +1412,7 @@ impl ShardsManager {
             }
             debug!(target: "chunks", num_parts_in_cache = entry.parts.len(), total_needed = self.rs.data_shard_count());
         } else {
-            debug!(target: "chunks", total_needed = self.rs.data_shard_count(), "0 parts in cache");
+            debug!(target: "chunks", num_parts_in_cache = 0, total_needed = self.rs.data_shard_count());
         }
 
         // 1.b Checking chunk height
@@ -1564,7 +1563,7 @@ impl ShardsManager {
         header: &ShardChunkHeader,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
         let chunk_hash = header.chunk_hash();
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "chunks",
             "try_process_chunk_parts_and_receipts",
             height_included = header.height_included(),
@@ -1577,7 +1576,7 @@ impl ShardsManager {
         let epoch_id = match self.epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash) {
             Ok(epoch_id) => epoch_id,
             Err(_) => {
-                tracing::debug!(target: "chunks", ?prev_block_hash, "NeedBlock");
+                debug!(target: "chunks", ?prev_block_hash, "NeedBlock");
                 return Ok(ProcessPartialEncodedChunkResult::NeedBlock);
             }
         };
@@ -1593,13 +1592,13 @@ impl ShardsManager {
                     Err(err) => {
                         return match err {
                             Error::ChainError(chain_error) => {
-                                tracing::debug!(target: "chunks", ?chain_error);
+                                debug!(target: "chunks", ?chain_error);
                                 Err(chain_error.into())
                             }
                             err => {
                                 // the chunk header is invalid
                                 // remove this entry from the cache and remove the request from the request pool
-                                tracing::debug!(target: "chunks", ?err, "Chunk header is invalid");
+                                debug!(target: "chunks", ?err, "Chunk header is invalid");
                                 self.encoded_chunks.remove(&chunk_hash);
                                 self.requested_partial_encoded_chunks.remove(&chunk_hash);
                                 Err(err)
@@ -1609,7 +1608,7 @@ impl ShardsManager {
                 }
             }
         } else {
-            tracing::debug!(target: "chunks", "UnknownChunk");
+            debug!(target: "chunks", "UnknownChunk");
             return Err(Error::UnknownChunk);
         }
 
@@ -1648,7 +1647,7 @@ impl ShardsManager {
             &self.shard_tracker,
         );
 
-        tracing::debug!(target: "chunks", cares_about_shard, can_reconstruct, have_all_parts, have_all_receipts);
+        debug!(target: "chunks", cares_about_shard, can_reconstruct, have_all_parts, have_all_receipts);
         if !cares_about_shard && have_all_parts && have_all_receipts {
             // If we don't care about the shard, we only need the parts and the receipts that we
             // own, before marking the chunk as completed.
@@ -1703,7 +1702,7 @@ impl ShardsManager {
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
     ) {
-        let _span = tracing::debug_span!(target: "chunks", "complete_chunk").entered();
+        let _span = debug_span!(target: "chunks", "complete_chunk").entered();
         let chunk_hash = partial_chunk.chunk_hash();
         self.encoded_chunks.mark_entry_complete(&chunk_hash);
         self.encoded_chunks.remove_from_cache_if_outside_horizon(&chunk_hash);
@@ -1719,21 +1718,18 @@ impl ShardsManager {
     /// the previous block is accepted. So we need to check if there are any chunks can be marked as
     /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
-        let _span =
-            tracing::debug_span!(target: "chunks", "check_incomplete_chunks", ?prev_block_hash)
-                .entered();
+        let _span = debug_span!(target: "chunks", "check_incomplete_chunks", ?prev_block_hash).entered();
         let mut chunks_to_process = vec![];
         if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
             for chunk_hash in chunk_hashes {
-                tracing::debug!(target: "chunks", ?chunk_hash, "incomplete chunk");
+                debug!(target: "chunks", ?chunk_hash, "incomplete chunk");
                 if let Some(entry) = self.encoded_chunks.get(chunk_hash) {
                     chunks_to_process.push(entry.header.clone());
                 }
             }
         }
         for header in chunks_to_process {
-            tracing::debug!(
-                target: "chunks",
+            debug!(target: "chunks",
                 chunk_hash = ?header.chunk_hash(),
                 ?prev_block_hash,
                 "try to process incomplete chunk");

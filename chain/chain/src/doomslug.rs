@@ -11,6 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
+use tracing::{debug, info, debug_span};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -698,7 +699,7 @@ impl Doomslug {
         has_enough_chunks: bool,
         log_block_production_info: bool,
     ) -> bool {
-        let _span = tracing::debug_span!(
+        let _span = debug_span!(
             target: "doomslug",
             "ready_to_produce_block",
             has_enough_chunks,
@@ -717,7 +718,7 @@ impl Doomslug {
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
                         if has_enough_chunks {
                             if log_block_production_info {
-                                tracing::info!(
+                                info!(
                                     target: "doomslug",
                                     target_height,
                                     enough_approvals_for = ?now.saturating_duration_since(when),
@@ -732,13 +733,13 @@ impl Doomslug {
                             let ready = now > when + delay;
                             if log_block_production_info {
                                 if ready {
-                                    tracing::info!(
+                                    info!(
                                         target: "doomslug",
                                         target_height,
                                         enough_approvals_for = ?now.saturating_duration_since(when),
                                         "ready to produce block, but does not have enough chunks");
                                 } else {
-                                    tracing::info!(
+info!(
                                         target: "doomslug",
                                         target_height,
                                         need_to_wait_for = ?(when + delay).saturating_duration_since(now),
@@ -751,11 +752,11 @@ impl Doomslug {
                     }
                 }
             } else {
-                tracing::debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
+                debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
                 false
             }
         } else {
-            tracing::debug!(target: "doomslug", target_height, "No approval trackers at height");
+            debug!(target: "doomslug", target_height, "No approval trackers at height");
             false
         }
     }

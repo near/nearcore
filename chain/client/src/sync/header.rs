@@ -1,6 +1,5 @@
 use std::cmp::min;
 use std::time::Duration as TimeDuration;
-
 use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
 use near_chain::{Chain, ChainStoreAccess};
@@ -14,7 +13,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::utils::to_timestamp;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use tracing::{debug, warn};
+use tracing::{debug_span, debug, warn};
 
 /// Maximum number of block headers send over the network.
 pub const MAX_BLOCK_HEADERS: u64 = 512;
@@ -92,15 +91,14 @@ impl HeaderSync {
 
             // An artificial span to easily detect a node getting into the sync state in Grafana.
             {
-                let _span =
-                    tracing::debug_span!(target: "sync", "set_sync", sync = "HeaderSync").entered();
-                tracing::debug!(target: "sync", prev_sync_status = ?sync_status);
+                let _span = debug_span!(target: "sync", "set_sync", sync = "HeaderSync").entered();
+                debug!(target: "sync", prev_sync_status = ?sync_status);
                 *sync_status = SyncStatus::HeaderSync {
                     start_height,
                     current_height: header_head.height,
                     highest_height,
                 };
-                tracing::debug!(target: "sync", ?sync_status);
+                debug!(target: "sync", ?sync_status);
             }
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
