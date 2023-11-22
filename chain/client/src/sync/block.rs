@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
-use tracing::{debug_span, debug, warn};
+use tracing::{debug, warn};
 
 /// Maximum number of block requested at once in BlockSync
 const MAX_BLOCK_REQUESTS: usize = 5;
@@ -75,15 +75,11 @@ impl BlockSync {
             None => head.height,
         };
 
-        // An artificial span to easily detect a node getting into the sync state in Grafana.
-        {
-            let _span =
-                debug_span!(target: "sync", "set_sync", sync = "BlockSync").entered();
-            debug!(target: "sync", prev_sync_status = ?sync_status);
-            *sync_status =
-                SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
-            debug!(target: "sync", ?sync_status);
-        }
+        sync_status.update(SyncStatus::BodySync {
+            start_height,
+            current_height: head.height,
+            highest_height,
+        });
         Ok(false)
     }
 

@@ -82,7 +82,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
-use tracing::{debug_span, trace, debug, error, info, warn};
+use tracing::{debug, debug_span, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
@@ -1060,7 +1060,8 @@ impl Client {
         was_requested: bool,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), near_chain::Error> {
-        let _span = debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
+        let _span =
+            debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
         self.chain.blocks_delay_tracker.mark_block_received(
             &block,
             StaticClock::instant(),
@@ -1255,7 +1256,8 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
         should_produce_chunk: bool,
     ) -> (Vec<CryptoHash>, HashMap<CryptoHash, near_chain::Error>) {
-        let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk).entered();
+        let _span = debug_span!(target: "client", "postprocess_ready_blocks", should_produce_chunk)
+            .entered();
         let me = self
             .validator_signer
             .as_ref()
@@ -1802,8 +1804,7 @@ impl Client {
         &mut self,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
-        let _span =
-            debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
+        let _span = debug_span!(target: "client", "process_blocks_with_missing_chunks").entered();
         let me =
             self.validator_signer.as_ref().map(|validator_signer| validator_signer.validator_id());
         let mut blocks_processing_artifacts = BlockProcessingArtifact::default();
@@ -2473,8 +2474,7 @@ impl Client {
 /* implements functions used to communicate with network */
 impl Client {
     pub fn request_block(&self, hash: CryptoHash, peer_id: PeerId) {
-        let _span =
-            debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
+        let _span = debug_span!(target: "client", "request_block", ?hash, ?peer_id).entered();
         match self.chain.block_exists(&hash) {
             Ok(false) => {
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(

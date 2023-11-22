@@ -12,7 +12,7 @@ use near_primitives::{
     },
     types::{AccountId, ShardId},
 };
-use tracing::{debug_span, debug, error};
+use tracing::{debug, debug_span, error};
 
 pub fn need_receipt(
     prev_block_hash: &CryptoHash,

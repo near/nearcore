@@ -97,7 +97,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
-use tracing::{debug, error, info, warn, Span, debug_span};
+use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -1797,7 +1797,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
-        let _span = debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
+        let _span =
+            debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
         let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
@@ -2104,7 +2105,8 @@ impl Chain {
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span = debug_span!(target: "chain", "start_process_block_impl", block_height) .entered();
+        let _span =
+            debug_span!(target: "chain", "start_process_block_impl", block_height).entered();
         // 0) Before we proceed with any further processing, we first check that the block
         // hash and signature matches to make sure the block is indeed produced by the assigned
         // block producer. If not, we drop the block immediately

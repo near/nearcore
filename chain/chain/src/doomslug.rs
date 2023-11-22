@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use tracing::{debug, info, debug_span};
+use tracing::{debug, debug_span, info};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -739,7 +739,7 @@ impl Doomslug {
                                         enough_approvals_for = ?now.saturating_duration_since(when),
                                         "ready to produce block, but does not have enough chunks");
                                 } else {
-info!(
+                                    info!(
                                         target: "doomslug",
                                         target_height,
                                         need_to_wait_for = ?(when + delay).saturating_duration_since(now),

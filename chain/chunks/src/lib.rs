@@ -127,7 +127,7 @@ use rand::seq::IteratorRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::{debug_span, debug, error, warn};
+use tracing::{debug, debug_span, error, warn};
 
 pub mod adapter;
 mod chunk_cache;
@@ -673,7 +673,8 @@ impl ShardsManager {
             target: "chunks",
             "request_chunks",
             ?prev_hash,
-            num_chunks_to_request = chunks_to_request.len()).entered();
+            num_chunks_to_request = chunks_to_request.len())
+        .entered();
         for chunk_header in chunks_to_request {
             self.request_chunk_single(&chunk_header, prev_hash, false);
         }
@@ -1260,8 +1261,7 @@ impl ShardsManager {
     // then in `process_partial_encoded_chunk` after checking the previous block is ready
     fn validate_chunk_header(&self, header: &ShardChunkHeader) -> Result<(), Error> {
         let chunk_hash = header.chunk_hash();
-        let _span =
-            debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
+        let _span = debug_span!(target: "chunks", "validate_chunk_header", ?chunk_hash).entered();
         // 1.  check signature
         // Ideally, validating the chunk header needs the previous block to be accepted already.
         // However, we want to be able to validate chunk header in advance so we can save
@@ -1718,7 +1718,8 @@ impl ShardsManager {
     /// the previous block is accepted. So we need to check if there are any chunks can be marked as
     /// complete when a new block is accepted.
     pub fn check_incomplete_chunks(&mut self, prev_block_hash: &CryptoHash) {
-        let _span = debug_span!(target: "chunks", "check_incomplete_chunks", ?prev_block_hash).entered();
+        let _span =
+            debug_span!(target: "chunks", "check_incomplete_chunks", ?prev_block_hash).entered();
         let mut chunks_to_process = vec![];
         if let Some(chunk_hashes) = self.encoded_chunks.get_incomplete_chunks(prev_block_hash) {
             for chunk_hash in chunk_hashes {
