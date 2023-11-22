@@ -143,7 +143,7 @@ fn check_meta_tx_execution(
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicit, protocol_version) {
-                // Eth-implicit accounts must not have access key.
+                // ETH-implicit accounts must not have access key.
                 panic!("No access keys");
             } else {
                 PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
@@ -826,10 +826,10 @@ fn meta_tx_create_eth_implicit_account_fails() {
 /// in the same meta transaction.
 ///
 /// This is expected to fail with `AccountDoesNotExist`, known limitation of NEP-366.
-/// In case of Near-implicit accounts it only works with accounts that already exist
+/// In case of NEAR-implicit accounts it only works with accounts that already exist
 /// because it needs to do a nonce check against the access key,
 /// which can only exist if the account exists.
-/// In case of Eth-implicit accounts the access key does not exist anyway.
+/// In case of ETH-implicit accounts the access key does not exist anyway.
 fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
@@ -876,8 +876,8 @@ fn meta_tx_create_and_use_eth_implicit_account() {
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
 ///
-/// Using the account should only work for Near-implicit accounts,
-/// as Eth-implicit accounts do not have access keys
+/// Using the account should only work for NEAR-implicit accounts,
+/// as ETH-implicit accounts do not have access keys
 /// and they can only be used by calling associated smart contract.
 fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
