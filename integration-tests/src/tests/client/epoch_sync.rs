@@ -4,7 +4,7 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_chain::ChainStoreAccess;
+use near_chain::{BlockProcessingArtifact, ChainStoreAccess};
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -16,11 +16,14 @@ use near_o11y::testonly::{init_integration_logger, init_test_logger};
 use near_o11y::WithSpanContextExt;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
+use near_primitives::state_part::PartId;
+use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
 use near_primitives::types::EpochId;
+use near_primitives::utils::MaybeValidated;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::BlockHeight;
 use near_store::Mode::ReadOnly;
@@ -304,5 +307,192 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
         }
 
         last_epoch_id = last_final_header.epoch_id().clone();
+    }
+}
+
+/// This is an unreliable test that mocks/reimplements sync logic.
+/// After epoch sync is integrated into sync process we can write a better test.
+///
+/// The test simulates two clients, one of which is
+/// - stopped after one epoch
+/// - synced through epoch sync, header sync, state sync, and body sync
+/// - in sync with other client for two more epochs
+#[test]
+#[ignore]
+fn test_node_after_simulated_sync() {
+    init_test_logger();
+    let num_clients = 2;
+    let epoch_length = 20;
+    let num_epochs = 5;
+    // Max height for clients[0] before sync.
+    let max_height_0 = epoch_length * num_epochs - 1;
+    // Max height for clients[1] before sync.
+    let max_height_1 = epoch_length;
+
+    // TestEnv setup
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.epoch_length = epoch_length;
+
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .clients_count(num_clients)
+        .real_stores()
+        .use_state_snapshots()
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    // Produce blocks
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
+    let mut blocks = vec![];
+
+    for h in 1..max_height_0 {
+        for tx in generate_transactions(&last_hash, h) {
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        }
+
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        last_hash = *block.hash();
+        blocks.push(block.clone());
+
+        if h < max_height_1 {
+            env.process_block(1, block.clone(), Provenance::NONE);
+        }
+    }
+
+    // Do "epoch sync" up to last epoch
+
+    // Current epoch for clients[0].
+    let epoch_id0 = env.clients[0].chain.header_head().unwrap().epoch_id;
+    // Next epoch for clients[1].
+    let mut epoch_id1 = env.clients[1].chain.header_head().unwrap().epoch_id;
+
+    // We rely on the fact that epoch_id0 is not finished for clients[0].
+    // So we need to "sync" all epochs in [epoch_id1, epoch_id0).
+    while epoch_id1 != epoch_id0 {
+        tracing::debug!("Syncing epoch {:?}", epoch_id1);
+
+        let epoch_sync_data = env.clients[0].chain.store().get_epoch_sync_info(&epoch_id1).unwrap();
+        env.clients[1].chain.validate_and_record_epoch_sync_info(&epoch_sync_data).unwrap();
+
+        epoch_id1 = env.clients[1]
+            .epoch_manager
+            .get_next_epoch_id(&env.clients[1].chain.header_head().unwrap().last_block_hash)
+            .unwrap();
+    }
+
+    // Do "header sync" for the current epoch for clients[0].
+    tracing::debug!("Client 0 Header Head: {:?}", env.clients[0].chain.header_head());
+    tracing::debug!("Client 1 Header Head Before: {:?}", env.clients[1].chain.header_head());
+
+    let mut last_epoch_headers = vec![];
+    for block in &blocks {
+        if *block.header().epoch_id() == epoch_id0 {
+            last_epoch_headers.push(block.header().clone());
+        }
+    }
+    env.clients[1].chain.sync_block_headers(last_epoch_headers, &mut vec![]).unwrap();
+
+    tracing::debug!("Client 0 Header Head: {:?}", env.clients[0].chain.header_head());
+    tracing::debug!("Client 1 Header Head After: {:?}", env.clients[1].chain.header_head());
+
+    // Do "state sync" for the last epoch
+    // write last block of prev epoch
+    {
+        let mut store_update = env.clients[1].chain.store().store().store_update();
+
+        let mut last_block = &blocks[0];
+        for block in &blocks {
+            if *block.header().epoch_id() == epoch_id0 {
+                break;
+            }
+            last_block = block;
+        }
+
+        tracing::debug!("Write block {:?}", last_block.header());
+
+        store_update.insert_ser(DBCol::Block, last_block.hash().as_ref(), last_block).unwrap();
+        store_update.commit().unwrap();
+    }
+
+    let sync_hash = *env.clients[0]
+        .epoch_manager
+        .get_block_info(&env.clients[0].chain.header_head().unwrap().last_block_hash)
+        .unwrap()
+        .epoch_first_block();
+    tracing::debug!("SYNC HASH: {:?}", sync_hash);
+    for shard_id in 0..env.clients[0].epoch_manager.num_shards(&epoch_id0).unwrap() {
+        tracing::debug!("Start syncing shard {:?}", shard_id);
+        let sync_block_header = env.clients[0].chain.get_block_header(&sync_hash).unwrap();
+        let sync_prev_header =
+            env.clients[0].chain.get_previous_header(&sync_block_header).unwrap();
+        let sync_prev_prev_hash = sync_prev_header.prev_hash();
+
+        let state_header =
+            env.clients[0].chain.compute_state_response_header(shard_id, sync_hash).unwrap();
+        let state_root = state_header.chunk_prev_state_root();
+        let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+
+        for part_id in 0..num_parts {
+            tracing::debug!("Syncing part {:?} of {:?}", part_id, num_parts);
+            let state_part = env.clients[0]
+                .chain
+                .runtime_adapter
+                .obtain_state_part(
+                    shard_id,
+                    sync_prev_prev_hash,
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                )
+                .unwrap();
+
+            env.clients[1]
+                .runtime_adapter
+                .apply_state_part(
+                    shard_id,
+                    &state_root,
+                    PartId::new(part_id, num_parts),
+                    state_part.as_ref(),
+                    &epoch_id0,
+                )
+                .unwrap();
+        }
+    }
+
+    env.clients[1]
+        .chain
+        .reset_heads_post_state_sync(
+            &None,
+            sync_hash,
+            &mut BlockProcessingArtifact::default(),
+            Arc::new(|_| {}),
+        )
+        .unwrap();
+
+    tracing::debug!("Client 0 Head: {:?}", env.clients[0].chain.head());
+    tracing::debug!("Client 1 Head: {:?}", env.clients[1].chain.head());
+
+    // Do "body sync" for the last epoch
+
+    for block in &blocks {
+        if *block.header().epoch_id() == epoch_id0 {
+            tracing::debug!("Receive block {:?}", block.header());
+            env.clients[1]
+                .process_block_test(MaybeValidated::from(block.clone()), Provenance::NONE)
+                .unwrap();
+        }
+    }
+
+    // Produce blocks on clients[0] and process them on clients[1]
+    for h in max_height_0..(max_height_0 + 2 * epoch_length) {
+        tracing::debug!("Produce and process block {}", h);
+        for tx in generate_transactions(&last_hash, h) {
+            assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
+        }
+
+        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        env.process_block(0, block.clone(), Provenance::PRODUCED);
+        env.process_block(1, block.clone(), Provenance::NONE);
+        last_hash = *block.hash();
     }
 }
