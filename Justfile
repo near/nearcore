@@ -7,6 +7,7 @@ with_macos_excludes := if os() == "macos" {
     ""
 }
 nightly_flags := "--features nightly,test_features"
+bash := if os() == "macos" { "/bin/bash" } else { "/usr/bin/bash" }
 
 # all the tests, as close to CI as possible
 test: test-ci test-extra
@@ -50,7 +51,7 @@ nextest-integration TYPE:
 
 # generate a codecov report for RULE
 codecov RULE:
-    #!/usr/bin/bash
+    #!{{ bash }}
     set -euxo pipefail
     source <(cargo llvm-cov show-env --export-prefix)
     just {{ RULE }}
