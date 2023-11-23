@@ -22,7 +22,7 @@ impl StorageMutator {
         state_roots: Vec<StateRoot>,
     ) -> anyhow::Result<Self> {
         let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-        assert_eq!(shard_layout.num_shards(), state_roots.len() as u64);
+        assert_eq!(shard_layout.shard_ids().count(), state_roots.len());
 
         let mut mutators = vec![];
         for state_root in state_roots {

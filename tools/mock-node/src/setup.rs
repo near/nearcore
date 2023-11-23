@@ -14,7 +14,7 @@ use near_network::types::PeerInfo;
 use near_primitives::network::PeerId;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::{BlockHeight, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
 use nearcore::{NearConfig, NightshadeRuntime};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
@@ -248,7 +248,8 @@ pub fn setup_mock_node(
     .unwrap();
     let head = chain.head().unwrap();
     let target_height = min(target_height.unwrap_or(head.height), head.height);
-    let num_shards = mock_network_epoch_manager.num_shards(&head.epoch_id).unwrap();
+    let num_shards =
+        mock_network_epoch_manager.shard_ids(&head.epoch_id).unwrap().len() as NumShards;
 
     config.network_config.peer_store.boot_nodes.clear();
     let mock_peer = setup_mock_peer(

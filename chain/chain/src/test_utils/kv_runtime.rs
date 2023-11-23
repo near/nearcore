@@ -326,7 +326,7 @@ impl KeyValueRuntime {
         epoch_manager: &MockEpochManager,
         no_gc: bool,
     ) -> Arc<Self> {
-        let num_shards = epoch_manager.num_shards(&EpochId::default()).unwrap();
+        let num_shards = epoch_manager.shard_ids(&EpochId::default()).unwrap().len() as NumShards;
         let epoch_length =
             epoch_manager.get_epoch_config(&EpochId::default()).unwrap().epoch_length;
         let tries = TestTriesBuilder::new()
@@ -411,10 +411,6 @@ fn create_receipt_nonce(
 impl EpochManagerAdapter for MockEpochManager {
     fn epoch_exists(&self, epoch_id: &EpochId) -> bool {
         self.hash_to_valset.write().unwrap().contains_key(epoch_id)
-    }
-
-    fn num_shards(&self, _epoch_id: &EpochId) -> Result<NumShards, EpochError> {
-        Ok(self.num_shards)
     }
 
     fn shard_ids(&self, _epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {

@@ -1065,8 +1065,7 @@ impl ClientActor {
                     .client
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
-                    || num_chunks as u64
-                        == self.client.epoch_manager.num_shards(&epoch_id).unwrap();
+                    || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
 
                 if self.client.doomslug.ready_to_produce_block(
                     StaticClock::instant(),

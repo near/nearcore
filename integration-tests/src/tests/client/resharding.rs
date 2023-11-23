@@ -348,12 +348,13 @@ impl TestReshardingEnv {
         }
 
         {
-            let num_shards = env.clients[0]
-                .epoch_manager
-                .get_shard_layout_from_prev_block(block.header().prev_hash())
-                .unwrap()
-                .num_shards();
             if let Some(expected_num_shards) = expected_num_shards {
+                let num_shards = env.clients[0]
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(block.header().prev_hash())
+                    .unwrap()
+                    .shard_ids()
+                    .count() as NumShards;
                 assert_eq!(num_shards, expected_num_shards);
             }
         }
