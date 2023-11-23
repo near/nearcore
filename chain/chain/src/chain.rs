@@ -1686,7 +1686,7 @@ impl Chain {
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
-        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
@@ -2323,7 +2323,7 @@ impl Chain {
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
         let epoch_id = block.header().epoch_id();
-        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
@@ -2709,7 +2709,8 @@ impl Chain {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok((0..epoch_manager.num_shards(&epoch_id)?)
+        Ok((epoch_manager.shard_ids(&epoch_id)?)
+            .into_iter()
             .filter(|shard_id| {
                 Self::should_catch_up_shard(
                     epoch_manager,
@@ -3591,7 +3592,7 @@ impl Chain {
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
-        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
             if !self.shard_tracker.care_about_shard(
@@ -4751,7 +4752,7 @@ impl Chain {
         }
         let mut account_id_to_shard_id_map = HashMap::new();
         let mut shard_receipts: Vec<_> =
-            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
+            shard_layout.shard_ids().into_iter().map(|shard_id| (shard_id, Vec::new())).collect();
         for receipt in receipts.iter() {
             let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
                 Some(id) => *id,
