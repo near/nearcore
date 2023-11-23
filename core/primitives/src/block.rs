@@ -1,12 +1,3 @@
-use std::sync::Arc;
-
-use crate::static_clock::StaticClock;
-use borsh::{BorshDeserialize, BorshSerialize};
-
-use chrono::{DateTime, Utc};
-use near_crypto::Signature;
-use primitive_types::U256;
-
 use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
@@ -21,11 +12,18 @@ use crate::sharding::{
     ChunkHashHeight, EncodedShardChunk, ReedSolomonWrapper, ShardChunk, ShardChunkHeader,
     ShardChunkHeaderV1,
 };
-use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, NumShards, StateRoot};
+use crate::static_clock::StaticClock;
+use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::utils::to_timestamp;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
+use borsh::{BorshDeserialize, BorshSerialize};
+use chrono::{DateTime, Utc};
+use near_crypto::Signature;
+use near_primitives_core::types::ShardId;
+use primitive_types::U256;
 use std::ops::Index;
+use std::sync::Arc;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {
@@ -95,22 +93,23 @@ pub enum Block {
 
 pub fn genesis_chunks(
     state_roots: Vec<StateRoot>,
-    num_shards: NumShards,
+    shard_ids: &[ShardId],
     initial_gas_limit: Gas,
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<ShardChunk> {
-    assert!(state_roots.len() == 1 || state_roots.len() == (num_shards as usize));
+    assert!(state_roots.len() == 1 || state_roots.len() == shard_ids.len());
     let mut rs = ReedSolomonWrapper::new(1, 2);
 
-    (0..num_shards)
-        .map(|i| {
+    shard_ids
+        .into_iter()
+        .map(|&shard_id| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[i as usize % state_roots.len()],
+                state_roots[shard_id as usize % state_roots.len()],
                 CryptoHash::default(),
                 genesis_height,
-                i,
+                shard_id,
                 &mut rs,
                 0,
                 initial_gas_limit,
@@ -130,6 +129,7 @@ pub fn genesis_chunks(
         })
         .collect()
 }
+
 impl Block {
     fn block_from_protocol_version(
         this_epoch_protocol_version: ProtocolVersion,
