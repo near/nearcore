@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -225,6 +225,31 @@ fn get_gas_usage_in_block(
     result
 }
 
+/// A struct that can be used to find N biggest accounts by gas usage in an efficient manner.
+struct BiggestAccountsFinder {
+    accounts: BTreeSet<(BigGas, AccountId)>,
+    accounts_num: usize,
+}
+
+impl BiggestAccountsFinder {
+    pub fn new(accounts_num: usize) -> BiggestAccountsFinder {
+        BiggestAccountsFinder { accounts: BTreeSet::new(), accounts_num }
+    }
+
+    pub fn add_account_stats(&mut self, account: AccountId, used_gas: BigGas) {
+        self.accounts.insert((used_gas, account));
+
+        // If there are more accounts than desired, remove the one with the smallest gas usage
+        while self.accounts.len() > self.accounts_num {
+            self.accounts.pop_first();
+        }
+    }
+
+    pub fn get_biggest_accounts(&self) -> impl Iterator<Item = (AccountId, BigGas)> + '_ {
+        self.accounts.iter().rev().map(|(gas, account)| (account.clone(), *gas))
+    }
+}
+
 fn analyse_gas_usage(
     blocks_iter: impl Iterator<Item = Block>,
     chain_store: &ChainStore,
@@ -302,5 +327,22 @@ fn analyse_gas_usage(
             None => println!("  No optimal split for this shard"),
         }
         println!("");
+    }
+
+    // Find 10 biggest accounts by gas usage
+    let mut biggest_accounts_finder = BiggestAccountsFinder::new(10);
+    for shard in gas_usage_stats.shards.values() {
+        for (account, used_gas) in &shard.used_gas_per_account {
+            biggest_accounts_finder.add_account_stats(account.clone(), *used_gas);
+        }
+    }
+    println!("10 biggest accounts by gas usage:");
+    for (i, (account, gas_usage)) in biggest_accounts_finder.get_biggest_accounts().enumerate() {
+        println!("#{}: {}", i + 1, account);
+        println!(
+            "    Used gas: {} ({} of total)",
+            gas_usage,
+            as_percentage_of(gas_usage, total_gas)
+        )
     }
 }
