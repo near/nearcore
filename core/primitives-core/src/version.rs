@@ -128,7 +128,7 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/509
     #[cfg(feature = "protocol_feature_chunk_validation")]
     ChunkValidation,
-    EthImplicit,
+    EthImplicitAccounts,
 }
 
 impl ProtocolFeature {
@@ -184,7 +184,7 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV2 => 135,
             #[cfg(feature = "protocol_feature_chunk_validation")]
             ProtocolFeature::ChunkValidation => 137,
-            ProtocolFeature::EthImplicit => 138,
+            ProtocolFeature::EthImplicitAccounts => 138,
         }
     }
 }

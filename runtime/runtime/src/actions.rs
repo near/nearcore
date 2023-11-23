@@ -477,7 +477,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
-            if checked_feature!("stable", EthImplicit, current_protocol_version) {
+            if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
                 // TODO(eth-implicit) Use real Wallet Contract.
                 let wallet_contract = wallet_contract_placeholder();
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
@@ -918,7 +918,6 @@ pub(crate) fn check_account_existence(
     config: &RuntimeConfig,
     is_the_only_action: bool,
     is_refund: bool,
-    current_protocol_version: ProtocolVersion,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -930,7 +929,7 @@ pub(crate) fn check_account_existence(
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
                 if config.wasm_config.implicit_account_creation
-                    && account_is_implicit(account_id, current_protocol_version)
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
                 {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
@@ -952,7 +951,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    && account_is_implicit(account_id, current_protocol_version)
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -1407,7 +1406,6 @@ mod tests {
                 &RuntimeConfig::test(),
                 false,
                 false,
-                apply_state.current_protocol_version,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );

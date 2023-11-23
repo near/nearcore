@@ -125,7 +125,7 @@ fn test_transfer_tokens_near_implicit_account_runtime() {
 
 #[test]
 fn test_transfer_tokens_eth_implicit_account_runtime() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     let node = create_runtime_node();
@@ -142,7 +142,7 @@ fn test_trying_to_create_near_implicit_account_runtime() {
 
 #[test]
 fn test_trying_to_create_eth_implicit_account_runtime() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     let node = create_runtime_node();

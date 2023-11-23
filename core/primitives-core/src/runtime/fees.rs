@@ -3,10 +3,9 @@
 //! * sir -- sender is receiver. Receipts that are directed by an account to itself are guaranteed
 //!   to not be cross-shard which is cheaper than cross-shard. Conversely, when sender is not a
 //!   receiver it might or might not be a cross-shard communication.
-use crate::checked_feature;
 use crate::config::ActionCosts;
 use crate::num_rational::Rational32;
-use crate::types::{Balance, Gas, ProtocolVersion};
+use crate::types::{Balance, Gas};
 use enum_map::EnumMap;
 use near_account_id::AccountType;
 
@@ -210,25 +209,24 @@ impl StorageUsageConfig {
 pub fn transfer_exec_fee(
     cfg: &RuntimeFeesConfig,
     implicit_account_creation_allowed: bool,
+    eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-    protocol_version: ProtocolVersion,
 ) -> Gas {
     let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
-    match (implicit_account_creation_allowed, receiver_account_type) {
+    match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
+    {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
+        (_, _, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        (false, _) => transfer_fee,
+        (false, _, _) => transfer_fee,
+        // No account will be created, just a regular transfer.
+        (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => {
-            if checked_feature!("stable", EthImplicit, protocol_version) {
-                transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
-            } else {
-                transfer_fee
-            }
+        (true, true, AccountType::EthImplicitAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).exec_fee()
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, AccountType::NearImplicitAccount) => {
+        (true, _, AccountType::NearImplicitAccount) => {
             transfer_fee
                 + cfg.fee(ActionCosts::create_account).exec_fee()
                 + cfg.fee(ActionCosts::add_full_access_key).exec_fee()
@@ -240,25 +238,24 @@ pub fn transfer_send_fee(
     cfg: &RuntimeFeesConfig,
     sender_is_receiver: bool,
     implicit_account_creation_allowed: bool,
+    eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
-    protocol_version: ProtocolVersion,
 ) -> Gas {
     let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
-    match (implicit_account_creation_allowed, receiver_account_type) {
+    match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
+    {
         // Regular transfer to a named account.
-        (_, AccountType::NamedAccount) => transfer_fee,
+        (_, _, AccountType::NamedAccount) => transfer_fee,
         // No account will be created, just a regular transfer.
-        (false, _) => transfer_fee,
+        (false, _, _) => transfer_fee,
+        // No account will be created, just a regular transfer.
+        (true, false, AccountType::EthImplicitAccount) => transfer_fee,
         // Extra fee for the CreateAccount.
-        (true, AccountType::EthImplicitAccount) => {
-            if checked_feature!("stable", EthImplicit, protocol_version) {
-                transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
-            } else {
-                transfer_fee
-            }
+        (true, true, AccountType::EthImplicitAccount) => {
+            transfer_fee + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
         }
         // Extra fees for the CreateAccount and AddFullAccessKey.
-        (true, AccountType::NearImplicitAccount) => {
+        (true, _, AccountType::NearImplicitAccount) => {
             transfer_fee
                 + cfg.fee(ActionCosts::create_account).send_fee(sender_is_receiver)
                 + cfg.fee(ActionCosts::add_full_access_key).send_fee(sender_is_receiver)

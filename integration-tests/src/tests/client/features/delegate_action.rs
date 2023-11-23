@@ -142,7 +142,7 @@ fn check_meta_tx_execution(
     let user_pubk = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
         AccountType::EthImplicitAccount => {
-            if checked_feature!("stable", EthImplicit, protocol_version) {
+            if checked_feature!("stable", EthImplicitAccounts, protocol_version) {
                 // ETH-implicit accounts must not have access key.
                 panic!("No access keys");
             } else {
@@ -816,7 +816,7 @@ fn meta_tx_create_near_implicit_account_fails() {
 
 #[test]
 fn meta_tx_create_eth_implicit_account_fails() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     meta_tx_create_implicit_account_fails(eth_implicit_test_account());
@@ -863,7 +863,7 @@ fn meta_tx_create_and_use_near_implicit_account() {
 
 #[test]
 fn meta_tx_create_and_use_eth_implicit_account() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
@@ -941,7 +941,7 @@ fn meta_tx_create_near_implicit_account() {
 
 #[test]
 fn meta_tx_create_eth_implicit_account() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     meta_tx_create_implicit_account(eth_implicit_test_account());

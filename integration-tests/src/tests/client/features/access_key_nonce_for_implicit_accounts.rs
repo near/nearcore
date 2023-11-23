@@ -242,7 +242,7 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
 /// Test that transactions from ETH-implicit accounts are rejected.
 #[test]
 fn test_transaction_from_eth_implicit_account_fail() {
-    if !checked_feature!("stable", EthImplicit, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);

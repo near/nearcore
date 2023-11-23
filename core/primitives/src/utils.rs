@@ -8,7 +8,6 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde;
 
-use crate::checked_feature;
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
@@ -472,7 +471,7 @@ where
     Serializable(object)
 }
 
-// TODO(eth-implicit) Replace this function (and wat dependency) with real Wallet Contract implementation.
+// TODO(eth-implicit) Replace this function (and wat dependency) with a real Wallet Contract implementation.
 pub fn wallet_contract_placeholder() -> ContractCode {
     let code = wat::parse_str(r#"(module (func (export "main")))"#);
     ContractCode::new(code.unwrap().to_vec(), None)
@@ -480,9 +479,9 @@ pub fn wallet_contract_placeholder() -> ContractCode {
 
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.
 /// This function is a wrapper for `is_implicit` method so that we can easily differentiate its behavior
-/// based on the protocol version.
-pub fn account_is_implicit(account_id: &AccountId, protocol_version: ProtocolVersion) -> bool {
-    if checked_feature!("stable", EthImplicit, protocol_version) {
+/// based on whether ETH-implicit accounts are enabled.
+pub fn account_is_implicit(account_id: &AccountId, eth_implicit_accounts_enabled: bool) -> bool {
+    if eth_implicit_accounts_enabled {
         account_id.get_account_type().is_implicit()
     } else {
         account_id.get_account_type() == AccountType::NearImplicitAccount
