@@ -687,6 +687,10 @@ pub mod validator_stake {
             u16::try_from(self.stake() / stake_per_mandate)
                 .expect("number of mandats should fit u16")
         }
+
+        pub fn partial_mandate_weight(&self, stake_per_mandate: Balance) -> Balance {
+            self.stake() % stake_per_mandate
+        }
     }
 }
 
