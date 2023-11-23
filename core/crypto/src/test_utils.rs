@@ -43,7 +43,7 @@ impl SecretKey {
                 let keypair = ed25519_key_pair_from_seed(seed);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_keypair_bytes()))
             }
-            _ => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
+            KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
         }
     }
 }

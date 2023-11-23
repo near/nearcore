@@ -431,7 +431,7 @@ pub(crate) fn action_create_account(
     ));
 }
 
-/// Can only be used for NEAR-implicit accounts.
+/// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
@@ -487,6 +487,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 *account =
                     Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
 
+                // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
                 set_code(state_update, account_id.clone(), &wallet_contract);
                 // Precompile the contract and store result (compiled code or error) in the database.
                 // Note, that contract compilation costs are already accounted in deploy cost using
@@ -498,9 +499,14 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 )
                 .ok();
             } else {
+                // This panic is unreachable as this is an implicit account creation transfer.
+                // `check_account_existence` would fail because in this protocol version `account_is_implicit`
+                // would return false for an account that is of the ETH-implicit type.
                 panic!("must be near-implicit");
             }
         }
+        // This panic is unreachable as this is an implicit account creation transfer.
+        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
         AccountType::NamedAccount => panic!("must be implicit"),
     }
 }

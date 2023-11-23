@@ -19,7 +19,9 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{Action, AddKeyAction, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{derive_account_id_from_public_key, wallet_contract_placeholder};
+use near_primitives::utils::{
+    derive_eth_implicit_account_id, derive_near_implicit_account_id, wallet_contract_placeholder,
+};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
@@ -205,7 +207,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
 fn test_transaction_hash_collision_for_near_implicit_account_fail() {
     let protocol_version = ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version();
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let near_implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+    let public_key = secret_key.public_key();
+    let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
     let near_implicit_account_signer =
         InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
     assert_matches!(
@@ -223,7 +226,8 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
     let protocol_version =
         ProtocolFeature::AccessKeyNonceForImplicitAccounts.protocol_version() - 1;
     let secret_key = SecretKey::from_seed(KeyType::ED25519, "test");
-    let near_implicit_account_id = derive_account_id_from_public_key(&secret_key.public_key());
+    let public_key = secret_key.public_key();
+    let near_implicit_account_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
     let near_implicit_account_signer =
         InMemorySigner::from_secret_key(near_implicit_account_id, secret_key);
     assert_matches!(
@@ -254,7 +258,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
 
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
     let public_key = secret_key.public_key();
-    let eth_implicit_account_id = derive_account_id_from_public_key(&public_key);
+    let eth_implicit_account_id = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
     let eth_implicit_account_signer =
         InMemorySigner::from_secret_key(eth_implicit_account_id.clone(), secret_key);
 
