@@ -1,5 +1,6 @@
 mod adjust_database;
 mod analyse_data_size_distribution;
+mod analyse_gas_usage;
 pub mod commands;
 mod compact;
 mod corrupt;
