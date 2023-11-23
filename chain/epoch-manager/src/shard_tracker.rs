@@ -71,10 +71,11 @@ impl ShardTracker {
             TrackedConfig::Accounts(tracked_accounts) => {
                 let shard_layout = self.epoch_manager.get_shard_layout(epoch_id)?;
                 let tracking_mask = self.tracking_shards_cache.get_or_put(epoch_id.clone(), |_| {
-                    let mut tracking_mask = vec![false; shard_layout.num_shards() as usize];
+                    let mut tracking_mask: Vec<_> =
+                        shard_layout.shard_ids().map(|_| false).collect();
                     for account_id in tracked_accounts {
                         let shard_id = account_id_to_shard_id(account_id, &shard_layout);
-                        *tracking_mask.get_mut(shard_id as usize).unwrap() = true;
+                        tracking_mask[shard_id as usize] = true;
                     }
                     tracking_mask
                 });

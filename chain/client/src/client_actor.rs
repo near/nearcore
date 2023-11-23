@@ -60,7 +60,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::static_clock::StaticClock;
-use near_primitives::types::{BlockHeight, ShardId};
+use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::{from_timestamp, MaybeValidated};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -1665,18 +1665,22 @@ impl ClientActor {
                         .unwrap()
                         .epoch_id()
                         .clone();
-                    let shards_to_sync: Vec<ShardId> =
-                        (0..self.client.epoch_manager.num_shards(&epoch_id).unwrap())
-                            .filter(|x| {
-                                cares_about_shard_this_or_next_epoch(
-                                    me.as_ref(),
-                                    &prev_hash,
-                                    *x,
-                                    true,
-                                    &self.client.shard_tracker,
-                                )
-                            })
-                            .collect();
+                    let shards_to_sync: Vec<_> = self
+                        .client
+                        .epoch_manager
+                        .shard_ids(&epoch_id)
+                        .unwrap()
+                        .into_iter()
+                        .filter(|&shard_id| {
+                            cares_about_shard_this_or_next_epoch(
+                                me.as_ref(),
+                                &prev_hash,
+                                shard_id,
+                                true,
+                                &self.client.shard_tracker,
+                            )
+                        })
+                        .collect();
 
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);

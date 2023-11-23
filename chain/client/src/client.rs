@@ -1661,7 +1661,7 @@ impl Client {
     fn produce_chunks(&mut self, block: &Block, validator_id: AccountId) {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().hash()).unwrap();
-        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id).unwrap() {
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id).unwrap() {
             let next_height = block.header().height() + 1;
             let epoch_manager = self.epoch_manager.as_ref();
             let chunk_proposer =
@@ -2544,8 +2544,7 @@ impl Client {
         let tracked_shards = if self.config.tracked_shards.is_empty() {
             vec![]
         } else {
-            let num_shards = self.epoch_manager.num_shards(&tip.epoch_id)?;
-            (0..num_shards).collect()
+            self.epoch_manager.shard_ids(&tip.epoch_id)?
         };
         let tier1_accounts = self.get_tier1_accounts(&tip)?;
         let block = self.chain.get_block(&tip.last_block_hash)?;

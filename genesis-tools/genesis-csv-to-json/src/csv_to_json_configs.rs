@@ -38,7 +38,7 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Verify that key files exist.
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 
-    if tracked_shards.iter().any(|shard_id| *shard_id >= NUM_SHARDS) {
+    if tracked_shards.iter().any(|&shard_id| shard_id >= NUM_SHARDS) {
         panic!("Trying to track a shard that does not exist");
     }
 

@@ -84,10 +84,10 @@ fn test_state_dump() {
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;
 
-            let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
-            assert_ne!(num_shards, 0);
+            let shard_ids = epoch_manager.shard_ids(&epoch_id).unwrap();
+            assert_ne!(shard_ids.len(), 0);
 
-            for shard_id in 0..num_shards {
+            for shard_id in shard_ids {
                 let num_parts = 1;
                 for part_id in 0..num_parts {
                     let path = root_dir.path().join(external_storage_location(
@@ -258,10 +258,10 @@ fn run_state_sync_with_dumped_parts(
         wait_or_timeout(100, 10000, || async {
             let mut all_parts_present = true;
 
-            let num_shards = epoch_manager.num_shards(&epoch_id).unwrap();
-            assert_ne!(num_shards, 0);
+            let shard_ids = epoch_manager.shard_ids(&epoch_id).unwrap();
+            assert_ne!(shard_ids.len(), 0);
 
-            for shard_id in 0..num_shards {
+            for shard_id in shard_ids {
                 for part_id in 0..num_parts {
                     let path = root_dir.path().join(external_storage_location(
                         &config.chain_id,

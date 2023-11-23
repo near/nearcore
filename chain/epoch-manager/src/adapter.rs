@@ -37,6 +37,9 @@ pub trait EpochManagerAdapter: Send + Sync {
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError>;
 
+    /// Get the list of shard ids
+    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
+
     /// Number of Reed-Solomon parts we split each chunk into.
     ///
     /// Note: this shouldn't be too large, our Reed-Solomon supports at most 256
@@ -410,6 +413,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id)?.num_shards())
+    }
+
+    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
     fn num_total_parts(&self) -> usize {

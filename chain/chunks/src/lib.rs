@@ -505,7 +505,10 @@ impl ShardsManager {
 
     fn get_tracking_shards(&self, parent_hash: &CryptoHash) -> HashSet<ShardId> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-        (0..self.epoch_manager.num_shards(&epoch_id).unwrap())
+        self.epoch_manager
+            .shard_ids(&epoch_id)
+            .unwrap()
+            .into_iter()
             .filter(|chunk_shard_id| {
                 cares_about_shard_this_or_next_epoch(
                     self.me.as_ref(),
@@ -1273,7 +1276,7 @@ impl ShardsManager {
             };
         }
 
-        if header.shard_id() >= self.epoch_manager.num_shards(&epoch_id)? {
+        if !self.epoch_manager.shard_ids(&epoch_id)?.contains(&header.shard_id()) {
             return if epoch_id_confirmed {
                 byzantine_assert!(false);
                 Err(Error::InvalidChunkShardId)
@@ -1718,8 +1721,10 @@ impl ShardsManager {
         let block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
-        let num_shards = self.epoch_manager.num_shards(&epoch_id)?;
-        let mut next_chunk_producers = (0..num_shards)
+        let mut next_chunk_producers = self
+            .epoch_manager
+            .shard_ids(&epoch_id)?
+            .into_iter()
             .map(|shard_id| {
                 self.epoch_manager.get_chunk_producer(&epoch_id, current_chunk_height + 1, shard_id)
             })
@@ -1769,8 +1774,7 @@ impl ShardsManager {
         chunk_entry: &EncodedChunksCacheEntry,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
-        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id)? {
-            let shard_id = shard_id as ShardId;
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if !chunk_entry.receipts.contains_key(&shard_id) {
                 if need_receipt(prev_block_hash, shard_id, self.me.as_ref(), &self.shard_tracker) {
                     return Ok(false);

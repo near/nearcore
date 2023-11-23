@@ -194,7 +194,7 @@ impl ShardLayout {
     /// Returns error if `shard_id` is an invalid shard id in the current layout
     /// Panics if `self` has no parent shard layout
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
-        if shard_id > self.num_shards() {
+        if !self.shard_ids().any(|id| id == shard_id) {
             return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
         let parent_shard_id = match self {
@@ -223,6 +223,10 @@ impl ShardLayout {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
         }
+    }
+
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
+        0..self.num_shards()
     }
 
     /// Returns shard uids for all shards in the shard layout
