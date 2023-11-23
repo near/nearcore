@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use ed25519_dalek::ed25519::signature::{Signer, Verifier};
 use once_cell::sync::Lazy;
 use primitive_types::U256;
-use rand::rngs::OsRng;
+use secp256k1::rand::rngs::OsRng;
 use secp256k1::Message;
 use std::convert::AsRef;
 use std::fmt::{Debug, Display, Formatter};
@@ -305,19 +305,17 @@ impl SecretKey {
     pub fn from_random(key_type: KeyType) -> SecretKey {
         match key_type {
             KeyType::ED25519 => {
-                let keypair = ed25519_dalek::Keypair::generate(&mut OsRng);
-                SecretKey::ED25519(ED25519SecretKey(keypair.to_bytes()))
+                let keypair = ed25519_dalek::SigningKey::generate(&mut OsRng);
+                SecretKey::ED25519(ED25519SecretKey(keypair.to_keypair_bytes()))
             }
-            KeyType::SECP256K1 => {
-                SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut secp256k1::rand::rngs::OsRng))
-            }
+            KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1::SecretKey::new(&mut OsRng)),
         }
     }
 
     pub fn sign(&self, data: &[u8]) -> Signature {
         match &self {
             SecretKey::ED25519(secret_key) => {
-                let keypair = ed25519_dalek::Keypair::from_bytes(&secret_key.0).unwrap();
+                let keypair = ed25519_dalek::SigningKey::from_keypair_bytes(&secret_key.0).unwrap();
                 Signature::ED25519(keypair.sign(data))
             }
 
@@ -508,13 +506,13 @@ impl Signature {
         signature_data: &[u8],
     ) -> Result<Self, crate::errors::ParseSignatureError> {
         match signature_type {
-            KeyType::ED25519 => Ok(Signature::ED25519(
-                ed25519_dalek::Signature::from_bytes(signature_data).map_err(|err| {
-                    crate::errors::ParseSignatureError::InvalidData {
+            KeyType::ED25519 => Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(
+                <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(signature_data).map_err(
+                    |err| crate::errors::ParseSignatureError::InvalidData {
                         error_message: err.to_string(),
-                    }
-                })?,
-            )),
+                    },
+                )?,
+            ))),
             KeyType::SECP256K1 => {
                 Ok(Signature::SECP256K1(Secp256K1Signature::try_from(signature_data).map_err(
                     |_| crate::errors::ParseSignatureError::InvalidData {
@@ -530,7 +528,7 @@ impl Signature {
     pub fn verify(&self, data: &[u8], public_key: &PublicKey) -> bool {
         match (&self, public_key) {
             (Signature::ED25519(signature), PublicKey::ED25519(public_key)) => {
-                match ed25519_dalek::PublicKey::from_bytes(&public_key.0) {
+                match ed25519_dalek::VerifyingKey::from_bytes(&public_key.0) {
                     Err(_) => false,
                     Ok(public_key) => public_key.verify(data, signature).is_ok(),
                 }
@@ -598,10 +596,14 @@ impl BorshDeserialize for Signature {
             KeyType::ED25519 => {
                 let array: [u8; ed25519_dalek::SIGNATURE_LENGTH] =
                     BorshDeserialize::deserialize_reader(rd)?;
-                Ok(Signature::ED25519(
-                    ed25519_dalek::Signature::from_bytes(&array)
-                        .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?,
-                ))
+                // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
+                // but was removed with version 2. It is not actually any good a check, but we have
+                // it here in case we need to keep backward compatibility. Maybe this check is not
+                // actually required, but please think carefully before removing it.
+                if array[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
+                    return Err(Error::new(ErrorKind::InvalidData, "signature error"));
+                }
+                Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(&array)))
             }
             KeyType::SECP256K1 => {
                 let array: [u8; 65] = BorshDeserialize::deserialize_reader(rd)?;
@@ -613,11 +615,15 @@ impl BorshDeserialize for Signature {
 
 impl Display for Signature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let buf;
         let (key_type, key_data) = match self {
-            Signature::ED25519(signature) => (KeyType::ED25519, signature.as_ref()),
+            Signature::ED25519(signature) => {
+                buf = signature.to_bytes();
+                (KeyType::ED25519, &buf[..])
+            }
             Signature::SECP256K1(signature) => (KeyType::SECP256K1, &signature.0[..]),
         };
-        write!(f, "{}:{}", key_type, Bs58(key_data))
+        write!(f, "{}:{}", key_type, Bs58(&key_data))
     }
 }
 
@@ -647,8 +653,7 @@ impl FromStr for Signature {
         Ok(match sig_type {
             KeyType::ED25519 => {
                 let data = decode_bs58::<{ ed25519_dalek::SIGNATURE_LENGTH }>(sig_data)?;
-                let sig = ed25519_dalek::Signature::from_bytes(&data)
-                    .map_err(|err| Self::Err::InvalidData { error_message: err.to_string() })?;
+                let sig = ed25519_dalek::Signature::from_bytes(&data);
                 Signature::ED25519(sig)
             }
             KeyType::SECP256K1 => Signature::SECP256K1(Secp256K1Signature(decode_bs58(sig_data)?)),
