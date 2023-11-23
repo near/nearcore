@@ -16,7 +16,7 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_store::{NodeStorage, ShardUId, Store};
 use nearcore::open_storage;
 
-use crate::block_iterators::LastNBlocksIterator;
+use crate::block_iterators::{CommandArgs, LastNBlocksIterator};
 
 /// `Gas` is an u64, but it stil might overflow when analysing a large amount of blocks.
 /// 1ms of compute is about 1TGas = 10^12 gas. One epoch takes 43200 seconds (43200000ms).
@@ -30,6 +30,14 @@ pub(crate) struct AnalyseGasUsageCommand {
     /// Analyse the last N blocks in the blockchain
     #[arg(long)]
     last_blocks: Option<u64>,
+
+    /// Analyse blocks from the given block height, inclusive
+    #[arg(long)]
+    from_block_height: Option<BlockHeight>,
+
+    /// Analyse blocks up to the given block height, inclusive
+    #[arg(long)]
+    to_block_height: Option<BlockHeight>,
 }
 
 impl AnalyseGasUsageCommand {
@@ -50,8 +58,22 @@ impl AnalyseGasUsageCommand {
             EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();
 
         // Create an iterator over the blocks that should be analysed
-        let last_blocks_to_analyse: u64 = self.last_blocks.unwrap_or(100);
-        let blocks_iter = LastNBlocksIterator::new(last_blocks_to_analyse, chain_store.clone());
+        let blocks_iter_opt = crate::block_iterators::make_block_iterator_from_command_args(
+            CommandArgs {
+                last_blocks: self.last_blocks,
+                from_block_height: self.from_block_height,
+                to_block_height: self.to_block_height,
+            },
+            chain_store.clone(),
+        );
+
+        let blocks_iter = match blocks_iter_opt {
+            Some(iter) => iter,
+            None => {
+                println!("No arguments, defaulting to last 100 blocks");
+                Box::new(LastNBlocksIterator::new(100, chain_store.clone()))
+            }
+        };
 
         // Analyse
         analyse_gas_usage(blocks_iter, &chain_store, &epoch_manager);
