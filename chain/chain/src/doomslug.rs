@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use tracing::{debug, debug_span, info};
+use tracing::{debug, debug_span, field, info};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -699,11 +699,14 @@ impl Doomslug {
         has_enough_chunks: bool,
         log_block_production_info: bool,
     ) -> bool {
-        let _span = debug_span!(
+        let span = debug_span!(
             target: "doomslug",
             "ready_to_produce_block",
             has_enough_chunks,
-            target_height)
+            target_height,
+            enough_approvals_for = field::Empty,
+            ready_to_produce_block = field::Empty,
+            need_to_wait = field::Empty)
         .entered();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
@@ -716,12 +719,15 @@ impl Doomslug {
                 match block_production_readiness {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
+                        let enough_approvals_for = now.saturating_duration_since(when);
+                        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
+                        span.record("ready_to_produce_block", true);
                         if has_enough_chunks {
                             if log_block_production_info {
                                 info!(
                                     target: "doomslug",
                                     target_height,
-                                    enough_approvals_for = ?now.saturating_duration_since(when),
+                                    ?enough_approvals_for,
                                     "ready to produce block, has enough approvals, has enough chunks");
                             }
                             true
@@ -731,19 +737,20 @@ impl Doomslug {
                             ) / 6;
 
                             let ready = now > when + delay;
+                            span.record("need_to_wait", !ready);
                             if log_block_production_info {
                                 if ready {
                                     info!(
                                         target: "doomslug",
                                         target_height,
-                                        enough_approvals_for = ?now.saturating_duration_since(when),
+                                        ?enough_approvals_for,
                                         "ready to produce block, but does not have enough chunks");
                                 } else {
                                     info!(
                                         target: "doomslug",
                                         target_height,
                                         need_to_wait_for = ?(when + delay).saturating_duration_since(now),
-                                        enough_approvals_for = ?now.saturating_duration_since(when),
+                                        ?enough_approvals_for,
                                         "not ready to produce block, need to wait");
                                 }
                             }
