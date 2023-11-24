@@ -98,15 +98,21 @@ pub fn genesis_chunks(
     genesis_height: BlockHeight,
     genesis_protocol_version: ProtocolVersion,
 ) -> Vec<ShardChunk> {
-    assert!(state_roots.len() == 1 || state_roots.len() == shard_ids.len());
     let mut rs = ReedSolomonWrapper::new(1, 2);
+    let state_roots = if state_roots.len() == shard_ids.len() {
+        state_roots
+    } else {
+        assert_eq!(state_roots.len(), 1);
+        std::iter::repeat(state_roots[0]).take(shard_ids.len()).collect()
+    };
 
     shard_ids
         .into_iter()
-        .map(|&shard_id| {
+        .zip(state_roots)
+        .map(|(&shard_id, state_root)| {
             let (encoded_chunk, _) = EncodedShardChunk::new(
                 CryptoHash::default(),
-                state_roots[shard_id as usize % state_roots.len()],
+                state_root,
                 CryptoHash::default(),
                 genesis_height,
                 shard_id,
