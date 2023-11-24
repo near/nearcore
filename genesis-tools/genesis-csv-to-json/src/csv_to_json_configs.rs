@@ -1,6 +1,3 @@
-use std::fs::File;
-use std::path::Path;
-
 use near_chain_configs::{Genesis, GenesisConfig};
 use near_primitives::types::{Balance, NumShards, ShardId};
 use near_primitives::utils::get_num_seats_per_shard;
@@ -13,9 +10,12 @@ use nearcore::config::{
     TRANSACTION_VALIDITY_PERIOD,
 };
 use nearcore::NEAR_BASE;
+use std::collections::HashSet;
+use std::fs::File;
+use std::path::Path;
 
 const ACCOUNTS_FILE: &str = "accounts.csv";
-const NUM_SHARDS: NumShards = 8;
+const SHARDS: &'static [ShardId] = &[0, 1, 2, 3, 4, 5, 6, 7];
 
 fn verify_total_supply(total_supply: Balance, chain_id: &str) {
     if chain_id == near_primitives::chains::MAINNET {
@@ -38,7 +38,8 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
     // Verify that key files exist.
     assert!(home.join(NODE_KEY_FILE).as_path().exists(), "Node key file should exist");
 
-    if tracked_shards.iter().any(|&shard_id| shard_id >= NUM_SHARDS) {
+    let shards_set: HashSet<_> = SHARDS.iter().collect();
+    if tracked_shards.iter().any(|shard_id| !shards_set.contains(shard_id)) {
         panic!("Trying to track a shard that does not exist");
     }
 
@@ -61,10 +62,10 @@ pub fn csv_to_json_configs(home: &Path, chain_id: String, tracked_shards: Vec<Sh
         chain_id: chain_id.clone(),
         num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
         num_block_producer_seats_per_shard: get_num_seats_per_shard(
-            NUM_SHARDS,
+            SHARDS.len() as NumShards,
             NUM_BLOCK_PRODUCER_SEATS,
         ),
-        avg_hidden_validator_seats_per_shard: vec![0; NUM_SHARDS as usize],
+        avg_hidden_validator_seats_per_shard: SHARDS.iter().map(|_| 0).collect(),
         dynamic_resharding: false,
         protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
         epoch_length: EXPECTED_EPOCH_LENGTH,
