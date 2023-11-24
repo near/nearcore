@@ -48,6 +48,7 @@ fn cargo_build_cmd(target_dir: &std::path::Path) -> Command {
 
     res.env_remove("CARGO_BUILD_RUSTFLAGS");
     res.env_remove("CARGO_ENCODED_RUSTFLAGS");
+    res.env_remove("RUSTC_WORKSPACE_WRAPPER");
 
     res.env("RUSTFLAGS", "-Dwarnings");
     res.env("CARGO_TARGET_DIR", target_dir);

@@ -33,12 +33,14 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
+sha3.workspace = true
 smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
+wat.workspace = true
 
 near-crypto.workspace = true
 near-fmt.workspace = true

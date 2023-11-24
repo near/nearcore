@@ -1,7 +1,10 @@
 use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
 use near_chain_configs::Genesis;
+use near_crypto::SecretKey;
+use near_primitives::checked_feature;
 use near_primitives::state_record::StateRecord;
+use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -121,10 +124,30 @@ fn test_transfer_tokens_near_implicit_account_runtime() {
 }
 
 #[test]
+fn test_transfer_tokens_eth_implicit_account_runtime() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    let node = create_runtime_node();
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    transfer_tokens_implicit_account(node, secret_key.public_key());
+}
+
+#[test]
 fn test_trying_to_create_near_implicit_account_runtime() {
     let node = create_runtime_node();
     let public_key = node.user().signer().public_key();
     trying_to_create_implicit_account(node, public_key);
+}
+
+#[test]
+fn test_trying_to_create_eth_implicit_account_runtime() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    let node = create_runtime_node();
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    trying_to_create_implicit_account(node, secret_key.public_key());
 }
 
 #[test]

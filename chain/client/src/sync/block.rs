@@ -74,8 +74,12 @@ impl BlockSync {
             Some(height) => height,
             None => head.height,
         };
-        *sync_status =
-            SyncStatus::BodySync { start_height, current_height: head.height, highest_height };
+
+        sync_status.update(SyncStatus::BodySync {
+            start_height,
+            current_height: head.height,
+            highest_height,
+        });
         Ok(false)
     }
 

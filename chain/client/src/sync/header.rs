@@ -1,6 +1,3 @@
-use std::cmp::min;
-use std::time::Duration as TimeDuration;
-
 use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
 use near_chain::{Chain, ChainStoreAccess};
@@ -14,6 +11,8 @@ use near_primitives::types::BlockHeight;
 use near_primitives::utils::to_timestamp;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use std::cmp::min;
+use std::time::Duration as TimeDuration;
 use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
@@ -89,11 +88,12 @@ impl HeaderSync {
                 Some(height) => height,
                 None => chain.head()?.height,
             };
-            *sync_status = SyncStatus::HeaderSync {
+
+            sync_status.update(SyncStatus::HeaderSync {
                 start_height,
                 current_height: header_head.height,
                 highest_height,
-            };
+            });
             self.syncing_peer = None;
             if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
                 if peer.highest_block_height > header_head.height {

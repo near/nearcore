@@ -202,3 +202,4 @@ ed25519_verify: false
 alt_bn128: false
 function_call_weight: false
 vm_kind: Wasmer0
+eth_implicit_accounts: false
