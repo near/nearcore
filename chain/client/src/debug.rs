@@ -334,28 +334,25 @@ impl ClientActor {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-
-        let tracked_shards: Vec<(bool, bool)> = (0..self
-            .client
-            .epoch_manager
-            .num_shards(&epoch_id)
-            .unwrap())
-            .map(|x| {
-                (
-                    self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, x, true),
-                    self.client.shard_tracker.will_care_about_shard(
-                        me.as_ref(),
-                        &fetch_hash,
-                        x,
-                        true,
-                    ),
+        let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+        let shards_tracked_this_epoch = shard_ids
+            .iter()
+            .map(|&shard_id| {
+                self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, shard_id, true)
+            })
+            .collect();
+        let shards_tracked_next_epoch = shard_ids
+            .into_iter()
+            .map(|shard_id| {
+                self.client.shard_tracker.will_care_about_shard(
+                    me.as_ref(),
+                    &fetch_hash,
+                    shard_id,
+                    true,
                 )
             })
             .collect();
-        Ok(TrackedShardsView {
-            shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
-            shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
-        })
+        Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
 
     fn get_recent_epoch_info(
@@ -710,7 +707,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: chrono::DateTime::from_utc(
+                timestamp: chrono::DateTime::from_naive_utc_and_offset(
                     chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
                         .unwrap(),
                     chrono::Utc,

@@ -417,6 +417,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.num_shards)
     }
 
+    fn shard_ids(&self, _epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
+        Ok((0..self.num_shards).collect())
+    }
+
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -547,6 +551,10 @@ impl EpochManagerAdapter for MockEpochManager {
             != self.get_epoch_and_valset(prev_prev_hash)?.0)
     }
 
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        self.is_next_block_epoch_start(hash)
+    }
+
     fn get_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -613,13 +621,6 @@ impl EpochManagerAdapter for MockEpochManager {
             Some(block_header) => Ok(block_header.height()),
             None => Ok(0),
         }
-    }
-
-    fn get_prev_epoch_id(&self, block_hash: &CryptoHash) -> Result<EpochId, EpochError> {
-        let header = self
-            .get_block_header(block_hash)?
-            .ok_or_else(|| EpochError::MissingBlock(*block_hash))?;
-        self.get_prev_epoch_id_from_prev_block(header.prev_hash())
     }
 
     fn get_prev_epoch_id_from_prev_block(
@@ -955,9 +956,13 @@ impl EpochManagerAdapter for MockEpochManager {
     fn get_all_epoch_hashes(
         &self,
         _last_block_info: &BlockInfo,
+        _hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
     ) -> Result<Vec<CryptoHash>, EpochError> {
         Ok(vec![])
     }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
 }
 
 impl RuntimeAdapter for KeyValueRuntime {

@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix.workspace = true
 derive-enum-from-into.workspace = true

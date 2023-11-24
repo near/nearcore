@@ -1086,6 +1086,20 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
+    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
+    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
+    }
+
     pub fn get_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1845,12 +1859,12 @@ impl EpochManager {
     }
 
     #[cfg(feature = "new_epoch_sync")]
-    pub fn get_all_epoch_hashes(
+    pub fn get_all_epoch_hashes_from_db(
         &self,
         last_block_info: &BlockInfo,
     ) -> Result<Vec<CryptoHash>, EpochError> {
         let _span =
-            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes", ?last_block_info)
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_db", ?last_block_info)
                 .entered();
 
         let mut result = vec![];
@@ -1874,6 +1888,30 @@ impl EpochManager {
         }
         // First block of an epoch is not covered by the while loop.
         result.push(*current_block_info.hash());
+
+        Ok(result)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes_from_cache(
+        &self,
+        last_block_info: &BlockInfo,
+        hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_cache", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let mut current_hash = *last_block_info.hash();
+        while current_hash != *last_block_info.epoch_first_block() {
+            result.push(current_hash);
+            current_hash = *hash_to_prev_hash
+                .get(&current_hash)
+                .ok_or(EpochError::MissingBlock(current_hash))?;
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(current_hash);
 
         Ok(result)
     }

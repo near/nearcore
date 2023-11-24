@@ -5,9 +5,11 @@ authors.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -25,6 +27,7 @@ rayon.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
@@ -51,7 +54,7 @@ byzantine_asserts = []
 expensive_tests = []
 test_features = []
 no_cache = ["near-store/no_cache"]
-new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync", "near-epoch-manager/new_epoch_sync"]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync", "near-epoch-manager/new_epoch_sync", "near-chain-primitives/new_epoch_sync"]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",

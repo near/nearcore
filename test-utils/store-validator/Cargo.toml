@@ -8,9 +8,12 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
-ansi_term.workspace = true
 clap.workspace = true
+yansi.workspace = true
 
 near-epoch-manager.workspace = true
 near-chain-configs.workspace = true

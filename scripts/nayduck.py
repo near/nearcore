@@ -38,6 +38,10 @@ def _parse_args():
                          DEFAULT_TEST_FILE)
 
     parser = argparse.ArgumentParser(description='Run tests.')
+    parser.add_argument(
+        '--cancel',
+        '-c',
+        help='Cancel scheduled run. In progress tests cannot be stopped.')
     parser.add_argument('--branch',
                         '-b',
                         help='Branch to test. By default gets current one.')
@@ -278,7 +282,7 @@ def run_locally(args, tests):
         subprocess.check_call(cmd, cwd=cwd, timeout=_parse_timeout(timeout))
 
 
-def run_remotely(args, tests):
+def run_command(args, tests):
     import requests
 
     try:
@@ -317,9 +321,14 @@ def run_remotely(args, tests):
 
     while True:
         print('Sending request ...')
-        res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
-                            json=post,
-                            cookies={'nay-code': code})
+        if args.cancel:
+            res = requests.post(NAYDUCK_BASE_HREF +
+                                f'/api/run/{args.cancel}/cancel',
+                                cookies={'nay-code': code})
+        else:
+            res = requests.post(NAYDUCK_BASE_HREF + '/api/run/new',
+                                json=post,
+                                cookies={'nay-code': code})
         if res.status_code != 401:
             break
         print(f'{styles[0]}Unauthorised.{styles[2]}\n')
@@ -327,7 +336,12 @@ def run_remotely(args, tests):
 
     if res.status_code == 200:
         json_res = json.loads(res.text)
-        print(styles[json_res['code'] == 0] + json_res['response'] + styles[2])
+        if args.cancel:
+            print(styles[1] + 'Cancelled ' + str(json_res) + ' test(s)' +
+                  styles[2])
+        else:
+            print(styles[json_res['code'] == 0] + json_res['response'] +
+                  styles[2])
     else:
         print(f'{styles[0]}Got status code {res.status_code}:{styles[2]}\n')
         print(res.text)
@@ -347,7 +361,7 @@ def main():
     if args.run_locally:
         run_locally(args, tests)
     else:
-        run_remotely(args, tests)
+        run_command(args, tests)
 
 
 if __name__ == "__main__":

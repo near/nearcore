@@ -264,7 +264,7 @@ impl ViewClientActor {
         let head = self.chain.head()?;
         let epoch_id = self.epoch_manager.get_epoch_id(&head.last_block_hash)?;
         let epoch_info: Arc<EpochInfo> = self.epoch_manager.get_epoch_info(&epoch_id)?;
-        let num_shards = self.epoch_manager.num_shards(&epoch_id)?;
+        let shard_ids = self.epoch_manager.shard_ids(&epoch_id)?;
         let cur_block_info = self.epoch_manager.get_block_info(&head.last_block_hash)?;
         let next_epoch_start_height =
             self.epoch_manager.get_epoch_start_height(cur_block_info.hash())?
@@ -277,8 +277,9 @@ impl ViewClientActor {
         for block_height in head.height..next_epoch_start_height {
             let bp = epoch_info.sample_block_producer(block_height);
             let bp = epoch_info.get_validator(bp).account_id().clone();
-            let cps: Vec<AccountId> = (0..num_shards)
-                .map(|shard_id| {
+            let cps: Vec<AccountId> = shard_ids
+                .iter()
+                .map(|&shard_id| {
                     let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
                     let cp = epoch_info.get_validator(cp).account_id().clone();
                     cp

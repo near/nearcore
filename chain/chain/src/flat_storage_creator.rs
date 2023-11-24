@@ -435,13 +435,13 @@ impl FlatStorageCreator {
         num_threads: usize,
     ) -> Result<Option<Self>, Error> {
         let chain_head = chain_store.head()?;
-        let num_shards = epoch_manager.num_shards(&chain_head.epoch_id)?;
+        let shard_ids = epoch_manager.shard_ids(&chain_head.epoch_id)?;
         let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
         let mut creation_needed = false;
         let flat_storage_manager = runtime.get_flat_storage_manager();
         // Create flat storage for all shards.
         // TODO(nikurt): Choose which shards need to open the flat storage.
-        for shard_id in 0..num_shards {
+        for shard_id in shard_ids {
             // The node applies transactions from the shards it cares about this and the next epoch.
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
             let status = flat_storage_manager.get_flat_storage_status(shard_uid);

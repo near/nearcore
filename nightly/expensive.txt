@@ -185,8 +185,8 @@ expensive integration-tests integration_tests tests::nearcore::rpc_error_structs
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_tx_invalid_tx_error
 expensive integration-tests integration_tests tests::nearcore::rpc_error_structs::test_tx_invalid_tx_error --features nightly
 
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_tx_on_lightclient_must_return_does_not_track_shard
-expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_tx_on_lightclient_must_return_does_not_track_shard --features nightly
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_status_on_lightclient_must_return_does_not_track_shard
+expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_tx_status_on_lightclient_must_return_does_not_track_shard --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_unknown_tx_must_return_error
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_check_unknown_tx_must_return_error --features nightly
 expensive integration-tests integration_tests tests::nearcore::rpc_nodes::test_get_execution_outcome_tx_failure

@@ -6,7 +6,6 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
-use ansi_term::Color::Red;
 use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
@@ -48,6 +47,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use yansi::Color::Red;
 
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
@@ -671,9 +671,14 @@ pub(crate) fn print_chain(
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
                 .unwrap_or("error".to_owned());
-            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
+            println!(
+                "{: >3} {} | {: >10}",
+                height,
+                Red.style().bold().paint("MISSING"),
+                block_producer
+            );
         } else {
-            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
+            println!("{: >3} {}", height, Red.style().bold().paint("MISSING"));
         }
     }
 }
@@ -1107,11 +1112,13 @@ fn print_state_stats_for_shard_uid(
     let iter = get_state_stats_account_iter(&group_by);
     let mut current_size = ByteSize::default();
     for state_stats_account in iter {
-        current_size += state_stats_account.size;
-        if 2 * current_size.as_u64() > state_stats.total_size.as_u64() {
-            state_stats.middle_state_record = Some(state_stats_account);
+        let new_size = current_size + state_stats_account.size;
+        if 2 * new_size.as_u64() > state_stats.total_size.as_u64() {
+            state_stats.middle_account = Some(state_stats_account);
+            state_stats.middle_account_leading_size = Some(current_size);
             break;
         }
+        current_size = new_size;
     }
 
     tracing::info!(target: "state_viewer", "{shard_uid:?}");
@@ -1209,7 +1216,12 @@ pub struct StateStats {
     pub total_size: ByteSize,
     pub total_count: usize,
 
-    pub middle_state_record: Option<StateStatsAccount>,
+    // The account that is in the middle of the state in respect to storage.
+    pub middle_account: Option<StateStatsAccount>,
+    // The total size of all accounts leading to the middle account.
+    // Can be used to determin how does the middle account split the state.
+    pub middle_account_leading_size: Option<ByteSize>,
+
     pub top_accounts: BinaryHeap<StateStatsAccount>,
 }
 
@@ -1221,11 +1233,23 @@ impl core::fmt::Debug for StateStats {
             .checked_div(self.total_count as u64)
             .map(ByteSize::b)
             .unwrap_or_default();
+
+        let left_size = self.middle_account_leading_size.unwrap_or_default();
+        let middle_size = self.middle_account.as_ref().map(|a| a.size).unwrap_or_default();
+        let right_size = self.total_size.as_u64() - left_size.as_u64() - middle_size.as_u64();
+        let right_size = ByteSize::b(right_size);
+
+        let left_percent = 100 * left_size.as_u64() / self.total_size.as_u64();
+        let middle_percent = 100 * middle_size.as_u64() / self.total_size.as_u64();
+        let right_percent = 100 * right_size.as_u64() / self.total_size.as_u64();
+
         f.debug_struct("StateStats")
             .field("total_size", &self.total_size)
             .field("total_count", &self.total_count)
             .field("average_size", &average_size)
-            .field("middle_state_record", &self.middle_state_record.as_ref().unwrap())
+            .field("middle_account", &self.middle_account.as_ref().unwrap())
+            .field("split_size", &format!("{left_size:?} : {middle_size:?} : {right_size:?}"))
+            .field("split_percent", &format!("{left_percent}:{middle_percent}:{right_percent}"))
             .field("top_accounts", &self.top_accounts)
             .finish()
     }
@@ -1286,7 +1310,7 @@ impl PartialOrd for StateStatsAccount {
 
 impl std::fmt::Debug for StateStatsAccount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateStatsStateRecord")
+        f.debug_struct("StateStatsAccount")
             .field("account_id", &self.account_id.as_str())
             .field("size", &self.size)
             .finish()

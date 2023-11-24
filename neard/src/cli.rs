@@ -6,6 +6,8 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+#[cfg(feature = "new_epoch_sync")]
+use near_epoch_sync_tool::EpochSyncCommand;
 use near_flat_storage::commands::FlatStorageCommand;
 use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
@@ -144,6 +146,10 @@ impl NeardCmd {
             NeardSubCommand::StatePartsDumpCheck(cmd) => {
                 cmd.run()?;
             }
+            #[cfg(feature = "new_epoch_sync")]
+            NeardSubCommand::EpochSync(cmd) => {
+                cmd.run(&home_dir)?;
+            }
         };
         Ok(())
     }
@@ -272,6 +278,10 @@ pub(super) enum NeardSubCommand {
 
     /// Check completeness of dumped state parts of an epoch
     StatePartsDumpCheck(StatePartsDumpCheckCommand),
+
+    #[cfg(feature = "new_epoch_sync")]
+    /// Testing tool for epoch sync
+    EpochSync(EpochSyncCommand),
 }
 
 #[derive(clap::Parser)]
@@ -761,11 +771,13 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
             println!(
                 "{}",
-                ansi_term::Colour::Red.bold().paint(format!(
+                yansi::Paint::default(format!(
                     "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
                     block_outcome_root,
                     light_client_proof.block_header_lite.inner_lite.outcome_root
                 ))
+                .fg(yansi::Color::Red)
+                .bold()
             );
             return Err(VerifyProofError::InvalidOutcomeRootProof);
         }
@@ -774,19 +786,19 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.hash()
             != light_client_proof.outcome_proof.block_hash
         {
-            println!("{}",
-            ansi_term::Colour::Red.bold().paint(format!(
-                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
-                light_client_proof.block_header_lite.hash(),
-                light_client_proof.outcome_proof.block_hash
-            )));
+            println!(
+                "{}",
+                yansi::Paint::default(format!(
+                    "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                    light_client_proof.block_header_lite.hash(),
+                    light_client_proof.outcome_proof.block_hash
+                )).fg(yansi::Color::Red).bold()
+            );
             return Err(VerifyProofError::InvalidBlockHashProof);
         } else {
             println!(
                 "{}",
-                ansi_term::Colour::Green
-                    .bold()
-                    .paint(format!("Block hash matches {:?}", block_hash))
+                yansi::Paint::green(format!("Block hash matches {:?}", block_hash)).bold()
             );
         }
 

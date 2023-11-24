@@ -5,7 +5,7 @@ use near_primitives::epoch_manager::{EpochConfig, RngSeed};
 use near_primitives::errors::EpochError;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
+    AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
 #[cfg(feature = "protocol_feature_chunk_validation")]
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
@@ -32,7 +32,7 @@ pub fn proposals_to_epoch_info(
         "Proposals should not have duplicates"
     );
 
-    let num_shards = epoch_config.shard_layout.num_shards();
+    let shard_ids: Vec<_> = epoch_config.shard_layout.shard_ids().collect();
     let min_stake_ratio = {
         let rational = epoch_config.validator_selection_config.minimum_stake_ratio;
         Ratio::new(*rational.numer() as u128, *rational.denom() as u128)
@@ -64,7 +64,7 @@ pub fn proposals_to_epoch_info(
                 &mut chunk_producer_proposals,
                 max_cp_selected,
                 min_stake_ratio,
-                num_shards,
+                shard_ids.len() as NumShards,
                 last_version,
             );
             (chunk_producer_proposals, chunk_producers, cp_stake_treshold)
@@ -114,13 +114,15 @@ pub fn proposals_to_epoch_info(
     {
         let minimum_validators_per_shard =
             epoch_config.validator_selection_config.minimum_validators_per_shard as usize;
-        let shard_assignment =
-            assign_shards(chunk_producers, num_shards, minimum_validators_per_shard).map_err(
-                |_| EpochError::NotEnoughValidators {
-                    num_validators: num_chunk_producers as u64,
-                    num_shards,
-                },
-            )?;
+        let shard_assignment = assign_shards(
+            chunk_producers,
+            shard_ids.len() as NumShards,
+            minimum_validators_per_shard,
+        )
+        .map_err(|_| EpochError::NotEnoughValidators {
+            num_validators: num_chunk_producers as u64,
+            num_shards: shard_ids.len() as NumShards,
+        })?;
 
         let mut chunk_producers_settlement: Vec<Vec<ValidatorId>> =
             shard_assignment.iter().map(|vs| Vec::with_capacity(vs.len())).collect();
@@ -152,14 +154,19 @@ pub fn proposals_to_epoch_info(
     } else {
         if chunk_producers.is_empty() {
             // All validators tried to unstake?
-            return Err(EpochError::NotEnoughValidators { num_validators: 0u64, num_shards });
+            return Err(EpochError::NotEnoughValidators {
+                num_validators: 0u64,
+                num_shards: shard_ids.len() as NumShards,
+            });
         }
         let mut id = 0usize;
         // Here we assign validators to chunks (we try to keep number of shards assigned for
         // each validator as even as possible). Note that in prod configuration number of seats
         // per shard is the same as maximal number of block producers, so normally all
         // validators would be assigned to all chunks
-        (0usize..(num_shards as usize))
+        shard_ids
+            .iter()
+            .map(|&shard_id| shard_id as usize)
             .map(|shard_id| {
                 (0..epoch_config.num_block_producer_seats_per_shard[shard_id]
                     .min(block_producers_settlement.len() as u64))
@@ -179,7 +186,7 @@ pub fn proposals_to_epoch_info(
         // TODO(#10014) determine `min_mandates_per_shard`
         let min_mandates_per_shard = 0;
         let validator_mandates_config =
-            ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, num_shards as usize);
+            ValidatorMandatesConfig::new(threshold, min_mandates_per_shard, shard_ids.len());
         // We can use `all_validators` to construct mandates Since a validator's position in
         // `all_validators` corresponds to its `ValidatorId`
         ValidatorMandates::new(validator_mandates_config, &all_validators)
