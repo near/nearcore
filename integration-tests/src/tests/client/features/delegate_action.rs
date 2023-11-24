@@ -143,8 +143,7 @@ fn check_meta_tx_execution(
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, protocol_version) {
-                // ETH-implicit accounts must not have access key.
-                panic!("No access keys");
+                panic!("ETH-implicit accounts must not have access key");
             } else {
                 PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
             }
