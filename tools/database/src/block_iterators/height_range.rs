@@ -65,17 +65,20 @@ impl Iterator for BlockHeightRangeIterator {
     type Item = Block;
 
     fn next(&mut self) -> Option<Block> {
-        if let Some(hash) = self.current_block_hash.take() {
-            let current_block = self.chain_store.get_block(&hash).unwrap();
-            // Make sure that the block is within the from..=to range, stop iterating if it isn't
-            if current_block.header().height() >= self.from_block_height {
-                // Set the previous block as "current" one, as long as the current one isn't the genesis block
-                if current_block.header().height() != self.chain_store.get_genesis_height() {
-                    self.current_block_hash = Some(*current_block.header().prev_hash());
-                }
+        let current_block_hash: CryptoHash = match self.current_block_hash.take() {
+            Some(hash) => hash,
+            None => return None,
+        };
+        let current_block = self.chain_store.get_block(&current_block_hash).unwrap();
 
-                return Some(current_block);
+        // Make sure that the block is within the from..=to range, stop iterating if it isn't
+        if current_block.header().height() >= self.from_block_height {
+            // Set the previous block as "current" one, as long as the current one isn't the genesis block
+            if current_block.header().height() != self.chain_store.get_genesis_height() {
+                self.current_block_hash = Some(*current_block.header().prev_hash());
             }
+
+            return Some(current_block);
         }
 
         None
