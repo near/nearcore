@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use clap::Parser;
 use near_chain::{Block, ChainStore};
+use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
+use nearcore::config::load_config;
 
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
@@ -16,7 +18,9 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
 use near_store::{NodeStorage, ShardUId, Store};
 use nearcore::open_storage;
 
-use crate::block_iterators::{CommandArgs, LastNBlocksIterator};
+use crate::block_iterators::{
+    make_block_iterator_from_command_args, CommandArgs, LastNBlocksIterator,
+};
 
 /// `Gas` is an u64, but it stil might overflow when analysing a large amount of blocks.
 /// 1ms of compute is about 1TGas = 10^12 gas. One epoch takes 43200 seconds (43200000ms).
@@ -49,9 +53,7 @@ pub(crate) struct AnalyseGasUsageCommand {
 impl AnalyseGasUsageCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         // Create a ChainStore and EpochManager that will be used to read blockchain data.
-        let mut near_config =
-            nearcore::config::load_config(home, near_chain_configs::GenesisValidationMode::Full)
-                .unwrap();
+        let mut near_config = load_config(home, GenesisValidationMode::Full).unwrap();
         let node_storage: NodeStorage = open_storage(&home, &mut near_config).unwrap();
         let store: Store =
             node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
@@ -64,7 +66,7 @@ impl AnalyseGasUsageCommand {
             EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();
 
         // Create an iterator over the blocks that should be analysed
-        let blocks_iter_opt = crate::block_iterators::make_block_iterator_from_command_args(
+        let blocks_iter_opt = make_block_iterator_from_command_args(
             CommandArgs {
                 last_blocks: self.last_blocks,
                 from_block_height: self.from_block_height,
