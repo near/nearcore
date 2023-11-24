@@ -25,6 +25,12 @@ use crate::block_iterators::{CommandArgs, LastNBlocksIterator};
 /// To avoid overflows, let's use `BigGas` for storing gas amounts in the code.
 type BigGas = u128;
 
+/// Display gas amount in a human-friendly way
+fn display_gas(gas: BigGas) -> String {
+    let tera_gas = gas as f64 / 1e12;
+    format!("{:.2} TGas", tera_gas)
+}
+
 #[derive(Parser)]
 pub(crate) struct AnalyseGasUsageCommand {
     /// Analyse the last N blocks in the blockchain
@@ -299,13 +305,13 @@ fn analyse_gas_usage(
     }
     let total_gas: BigGas = gas_usage_stats.used_gas_total();
     println!("");
-    println!("Total gas used: {}", total_gas);
+    println!("Total gas used: {}", display_gas(total_gas));
     println!("");
     for (shard_uid, shard_usage) in &gas_usage_stats.shards {
         println!("Shard: {}", shard_uid);
         println!(
             "  Gas usage: {} ({} of total)",
-            shard_usage.used_gas_total,
+            display_gas(shard_usage.used_gas_total),
             as_percentage_of(shard_usage.used_gas_total, total_gas)
         );
         println!("  Number of accounts: {}", shard_usage.used_gas_per_account.len());
@@ -315,12 +321,12 @@ fn analyse_gas_usage(
                 println!("    split_account: {}", shard_split.split_account);
                 println!(
                     "    gas(account < split_account): {} ({} of shard)",
-                    shard_split.gas_left,
+                    display_gas(shard_split.gas_left),
                     as_percentage_of(shard_split.gas_left, shard_usage.used_gas_total)
                 );
                 println!(
                     "    gas(account >= split_account): {} ({} of shard)",
-                    shard_split.gas_right,
+                    display_gas(shard_split.gas_right),
                     as_percentage_of(shard_split.gas_right, shard_usage.used_gas_total)
                 );
             }
@@ -341,7 +347,7 @@ fn analyse_gas_usage(
         println!("#{}: {}", i + 1, account);
         println!(
             "    Used gas: {} ({} of total)",
-            gas_usage,
+            display_gas(gas_usage),
             as_percentage_of(gas_usage, total_gas)
         )
     }
