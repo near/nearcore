@@ -113,9 +113,8 @@ impl GasUsageInShard {
     }
 
     pub fn add_used_gas(&mut self, account: AccountId, used_gas: BigGas) {
-        let old_used_gas: &BigGas = self.used_gas_per_account.get(&account).unwrap_or(&0);
-        let new_used_gas: BigGas = old_used_gas.checked_add(used_gas).unwrap();
-        self.used_gas_per_account.insert(account, new_used_gas);
+        let account_gas = self.used_gas_per_account.entry(account).or_insert(0);
+        *account_gas = account_gas.checked_add(used_gas).unwrap();
     }
 
     pub fn used_gas_total(&self) -> BigGas {
