@@ -84,9 +84,11 @@ impl ValidatorMandates {
             );
         }
 
-        // TODO comment why partials aren't considered for `required_mandates`
+        // Not counting partials towards `required_mandates` as the weight of partials and its
+        // distribution across shards may vary widely.
+        //
         // Construct vector with capacity as most likely some validators' stake will not be evenly
-        // divided by `config.stake_per_mandate`.
+        // divided by `config.stake_per_mandate`, i.e. some validators will have partials.
         let mut partials = Vec::with_capacity(validators.len());
         for i in 0..validators.len() {
             let partial_weight = validators[i].partial_mandate_weight(config.stake_per_mandate);
@@ -109,7 +111,7 @@ impl ValidatorMandates {
         let shuffled_mandates = self.shuffled_mandates(rng);
         let shuffled_partials = self.shuffled_partials(rng);
 
-        // TODO shuffle shard ids
+        // TODO(#10014) shuffle shard ids to avoid a bias towards smaller shard ids
         let mut mandates_per_shard = Vec::with_capacity(self.config.num_shards);
         for shard_id in 0..self.config.num_shards {
             let mut assignments: HashMap<ValidatorId, AssignmentWeight> = HashMap::new();
