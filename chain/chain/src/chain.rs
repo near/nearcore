@@ -4771,27 +4771,23 @@ impl Chain {
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
-        if shard_layout.num_shards() == 1 {
+        let num_shards = shard_layout.shard_ids().count();
+        if num_shards == 1 {
             return vec![CryptoHash::hash_borsh(ReceiptList(0, receipts))];
         }
-        let mut account_id_to_shard_id_map = HashMap::new();
-        let mut shard_receipts: Vec<_> =
-            shard_layout.shard_ids().into_iter().map(|shard_id| (shard_id, Vec::new())).collect();
-        for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
-                Some(id) => *id,
-                None => {
-                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
-                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
-                    id
-                }
-            };
-            shard_receipts[shard_id as usize].1.push(receipt);
+        let mut cache = HashMap::new();
+        let mut result = HashMap::with_capacity(num_shards);
+        for receipt in receipts {
+            let &mut shard_id = cache
+                .entry(&receipt.receiver_id)
+                .or_insert_with(|| account_id_to_shard_id(&receipt.receiver_id, shard_layout));
+            let entry = result.entry(shard_id).or_insert_with(Vec::new);
+            entry.push(receipt);
         }
-        shard_receipts
+        result
             .into_iter()
-            .map(|(i, rs)| {
-                let bytes = borsh::to_vec(&(i, rs)).unwrap();
+            .map(|(shard_id, receipts)| {
+                let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
                 hash(&bytes)
             })
             .collect()
