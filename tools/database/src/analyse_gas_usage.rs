@@ -160,6 +160,24 @@ impl GasUsageInShard {
         }
         best_split
     }
+
+    pub fn biggest_account(&self) -> Option<(AccountId, BigGas)> {
+        let mut result: Option<(AccountId, BigGas)> = None;
+
+        for (account, used_gas) in &self.used_gas_per_account {
+            match &mut result {
+                None => result = Some((account.clone(), *used_gas)),
+                Some((best_account, best_gas)) => {
+                    if *used_gas > *best_gas {
+                        *best_account = account.clone();
+                        *best_gas = *used_gas
+                    }
+                }
+            }
+        }
+
+        result
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -358,12 +376,20 @@ fn analyse_gas_usage(
             as_percentage_of(shard_total_gas, total_gas)
         );
         println!("  Number of accounts: {}", shard_usage.used_gas_per_account.len());
+        if let Some((biggest_account, biggest_account_gas)) = shard_usage.biggest_account() {
+            println!("  Biggest account: {}", biggest_account);
+            println!(
+                "  Biggest account gas: {} ({} of shard total)",
+                display_gas(biggest_account_gas),
+                as_percentage_of(biggest_account_gas, shard_total_gas)
+            );
+        }
         match shard_usage.calculate_split() {
             Some(shard_split) => {
                 println!("  Optimal split:");
                 println!("    split_account: {}", shard_split.split_account);
                 println!(
-                    "    gas(splitaccount): {}",
+                    "    gas(split_account): {}",
                     display_gas(
                         *shard_usage.used_gas_per_account.get(&shard_split.split_account).unwrap()
                     )
