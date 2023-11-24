@@ -29,7 +29,7 @@ impl Iterator for LastNBlocksIterator {
         };
 
         if let Some(current_block_hash) = self.current_block_hash.take() {
-            let current_block: Block = self.chain_store.get_block(&current_block_hash).unwrap();
+            let current_block = self.chain_store.get_block(&current_block_hash).unwrap();
 
             // Set the previous block as "current" one, as long as the current one isn't the genesis block
             if current_block.header().height() != self.chain_store.get_genesis_height() {

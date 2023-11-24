@@ -32,11 +32,11 @@ impl BlockHeightRangeIterator {
             }
         }
 
-        let min_height: BlockHeight = chain_store.get_genesis_height();
-        let max_height: BlockHeight = chain_store.head().unwrap().height;
+        let min_height = chain_store.get_genesis_height();
+        let max_height = chain_store.head().unwrap().height;
 
-        let from_height: BlockHeight = from_height_opt.unwrap_or(min_height);
-        let mut to_height: BlockHeight = to_height_opt.unwrap_or(max_height);
+        let from_height = from_height_opt.unwrap_or(min_height);
+        let mut to_height = to_height_opt.unwrap_or(max_height);
 
         // There is no point in going over nonexisting blocks past the highest height
         if to_height > max_height {
@@ -65,7 +65,7 @@ impl Iterator for BlockHeightRangeIterator {
     type Item = Block;
 
     fn next(&mut self) -> Option<Block> {
-        let current_block_hash: CryptoHash = match self.current_block_hash.take() {
+        let current_block_hash = match self.current_block_hash.take() {
             Some(hash) => hash,
             None => return None,
         };

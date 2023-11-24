@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use clap::Parser;
 use near_chain::{Block, ChainStore};
@@ -9,13 +8,10 @@ use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::EpochManager;
 use nearcore::config::load_config;
 
-use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout};
-use near_primitives::transaction::ExecutionOutcome;
-use near_primitives::types::{AccountId, BlockHeight, EpochId, ShardId};
+use near_primitives::shard_layout::{account_id_to_shard_id, ShardUId};
+use near_primitives::types::{AccountId, BlockHeight};
 
-use near_store::{NodeStorage, ShardUId, Store};
 use nearcore::open_storage;
 
 use crate::block_iterators::{
@@ -54,9 +50,8 @@ impl AnalyseGasUsageCommand {
     pub(crate) fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         // Create a ChainStore and EpochManager that will be used to read blockchain data.
         let mut near_config = load_config(home, GenesisValidationMode::Full).unwrap();
-        let node_storage: NodeStorage = open_storage(&home, &mut near_config).unwrap();
-        let store: Store =
-            node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
+        let node_storage = open_storage(&home, &mut near_config).unwrap();
+        let store = node_storage.get_split_store().unwrap_or_else(|| node_storage.get_hot_store());
         let chain_store = Rc::new(ChainStore::new(
             store.clone(),
             near_config.genesis.config.genesis_height,
@@ -133,7 +128,7 @@ impl GasUsageInShard {
 
     /// Calculate the optimal point at which this shard could be split into two halves with similar gas usage
     pub fn calculate_split(&self) -> Option<ShardSplit> {
-        let total_gas: BigGas = self.used_gas_total();
+        let total_gas = self.used_gas_total();
         if total_gas == 0 || self.used_gas_per_account.len() < 2 {
             return None;
         }
@@ -219,34 +214,33 @@ fn get_gas_usage_in_block(
     chain_store: &ChainStore,
     epoch_manager: &EpochManager,
 ) -> GasUsageStats {
-    let block_info: Arc<BlockInfo> = epoch_manager.get_block_info(block.hash()).unwrap();
-    let epoch_id: &EpochId = block_info.epoch_id();
-    let shard_layout: ShardLayout = epoch_manager.get_shard_layout(epoch_id).unwrap();
+    let block_info = epoch_manager.get_block_info(block.hash()).unwrap();
+    let epoch_id = block_info.epoch_id();
+    let shard_layout = epoch_manager.get_shard_layout(epoch_id).unwrap();
 
     let mut result = GasUsageStats::new();
 
     // Go over every chunk in this block and gather data
     for chunk_header in block.chunks().iter() {
-        let shard_id: ShardId = chunk_header.shard_id();
-        let shard_uid: ShardUId = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+        let shard_id = chunk_header.shard_id();
+        let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
 
         let mut gas_usage_in_shard = GasUsageInShard::new();
 
         // The outcome of each transaction and receipt executed in this chunk is saved in the database as an ExecutionOutcome.
         // Go through all ExecutionOutcomes from this chunk and record the gas usage.
-        let outcome_ids: Vec<CryptoHash> =
+        let outcome_ids =
             chain_store.get_outcomes_by_block_hash_and_shard_id(block.hash(), shard_id).unwrap();
         for outcome_id in outcome_ids {
-            let outcome: ExecutionOutcome = chain_store
+            let outcome = chain_store
                 .get_outcome_by_id_and_block_hash(&outcome_id, block.hash())
                 .unwrap()
                 .unwrap()
                 .outcome;
 
             // Sanity check - make sure that the executor of this outcome belongs to this shard
-            let account_shard: ShardId =
-                account_id_to_shard_id(&outcome.executor_id, &shard_layout);
-            assert_eq!(account_shard, shard_id);
+            let account_shard_id = account_id_to_shard_id(&outcome.executor_id, &shard_layout);
+            assert_eq!(account_shard_id, shard_id);
 
             gas_usage_in_shard.add_used_gas(outcome.executor_id, outcome.gas_burnt.into());
         }
@@ -345,8 +339,7 @@ fn analyse_gas_usage(
         }
         last_analysed_block = Some((block.header().height(), *block.hash()));
 
-        let gas_usage_in_block: GasUsageStats =
-            get_gas_usage_in_block(&block, chain_store, epoch_manager);
+        let gas_usage_in_block = get_gas_usage_in_block(&block, chain_store, epoch_manager);
         gas_usage_stats.merge(gas_usage_in_block);
     }
 
@@ -363,13 +356,13 @@ fn analyse_gas_usage(
     if let Some((block_height, block_hash)) = last_analysed_block {
         println!("Block: height = {block_height}, hash = {block_hash}");
     }
-    let total_gas: BigGas = gas_usage_stats.used_gas_total();
+    let total_gas = gas_usage_stats.used_gas_total();
     println!("");
     println!("Total gas used: {}", display_gas(total_gas));
     println!("");
     for (shard_uid, shard_usage) in &gas_usage_stats.shards {
         println!("Shard: {}", shard_uid);
-        let shard_total_gas: BigGas = shard_usage.used_gas_total();
+        let shard_total_gas = shard_usage.used_gas_total();
         println!(
             "  Gas usage: {} ({} of total)",
             display_gas(shard_usage.used_gas_total()),
