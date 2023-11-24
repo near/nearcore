@@ -123,7 +123,6 @@ impl GasUsageInShard {
         for (account_id, used_gas) in &other.used_gas_per_account {
             self.add_used_gas(account_id.clone(), *used_gas);
         }
-        self.used_gas_total = self.used_gas_total.checked_add(other.used_gas_total).unwrap();
     }
 
     /// Calculate the optimal point at which this shard could be split into two halves with similar gas usage
