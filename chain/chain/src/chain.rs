@@ -3964,16 +3964,24 @@ impl Chain {
                 );
                 insert_job(stateful_job)?;
 
-                let stateless_job = self.get_stateless_validation_job(
-                    me,
-                    block,
-                    prev_block,
-                    chunk_header,
-                    prev_chunk_header,
-                    shard_id as ShardId,
-                    mode,
-                );
-                insert_job(stateless_job)?;
+                let protocol_version =
+                    self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+                if checked_feature!(
+                    "protocol_feature_chunk_validation",
+                    ChunkValidation,
+                    protocol_version
+                ) {
+                    let stateless_job = self.get_stateless_validation_job(
+                        me,
+                        block,
+                        prev_block,
+                        chunk_header,
+                        prev_chunk_header,
+                        shard_id as ShardId,
+                        mode,
+                    );
+                    insert_job(stateless_job)?;
+                }
 
                 return Ok(jobs);
             })
