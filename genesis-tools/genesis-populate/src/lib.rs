@@ -204,9 +204,10 @@ impl GenesisBuilder {
     }
 
     fn write_genesis_block(&mut self) -> Result<()> {
+        let shard_ids: Vec<_> = self.genesis.config.shard_layout.shard_ids().collect();
         let genesis_chunks = genesis_chunks(
             self.roots.values().cloned().collect(),
-            self.genesis.config.shard_layout.num_shards(),
+            &shard_ids,
             self.genesis.config.gas_limit,
             self.genesis.config.genesis_height,
             self.genesis.config.protocol_version,

@@ -460,9 +460,9 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let num_shards = 32;
+        let shard_ids: Vec<_> = (0..32).collect();
         let genesis_chunks =
-            genesis_chunks(vec![Trie::EMPTY_ROOT], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+            genesis_chunks(vec![Trie::EMPTY_ROOT], &shard_ids, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,

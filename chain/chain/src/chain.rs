@@ -540,7 +540,7 @@ impl Chain {
             .expect("genesis should be initialized.");
         let genesis_chunks = genesis_chunks(
             state_roots,
-            epoch_manager.num_shards(&EpochId::default())?,
+            &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -621,7 +621,7 @@ impl Chain {
         );
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            epoch_manager.num_shards(&EpochId::default())?,
+            &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
