@@ -256,6 +256,16 @@ impl BiggestAccountsFinder {
     }
 }
 
+// Calculates how much percent of `big` is `small` and returns it as a string.
+// Example: as_percentage_of(10, 100) == "10.0%"
+fn as_percentage_of(small: BigGas, big: BigGas) -> String {
+    if big > 0 {
+        format!("{:.1}%", small as f64 / big as f64 * 100.0)
+    } else {
+        format!("-")
+    }
+}
+
 fn analyse_gas_usage(
     blocks_iter: impl Iterator<Item = Block>,
     chain_store: &ChainStore,
@@ -279,16 +289,6 @@ fn analyse_gas_usage(
             get_gas_usage_in_block(&block, chain_store, epoch_manager);
         gas_usage_stats.merge(gas_usage_in_block);
     }
-
-    // Calculates how much percent of `big` is `small` and returns it as a string.
-    // Example: as_percentage_of(10, 100) == "10.0%"
-    let as_percentage_of = |small: BigGas, big: BigGas| {
-        if big > 0 {
-            format!("{:.1}%", small as f64 / big as f64 * 100.0)
-        } else {
-            format!("-")
-        }
-    };
 
     // Print out the analysis
     if blocks_count == 0 {
