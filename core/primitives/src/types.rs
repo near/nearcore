@@ -1046,3 +1046,33 @@ pub struct StateChangesForShard {
     pub shard_id: ShardId,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
 }
+
+#[cfg(test)]
+mod tests {
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives_core::types::Balance;
+
+    use super::validator_stake::ValidatorStake;
+
+    fn new_validator_stake(stake: Balance) -> ValidatorStake {
+        ValidatorStake::new(
+            "test_account".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            stake,
+        )
+    }
+
+    #[test]
+    fn test_validator_stake_num_mandates() {
+        assert_eq!(new_validator_stake(0).num_mandates(5), 0);
+        assert_eq!(new_validator_stake(10).num_mandates(5), 2);
+        assert_eq!(new_validator_stake(12).num_mandates(5), 2);
+    }
+
+    #[test]
+    fn test_validator_partial_mandate_weight() {
+        assert_eq!(new_validator_stake(0).partial_mandate_weight(5), 0);
+        assert_eq!(new_validator_stake(10).partial_mandate_weight(5), 0);
+        assert_eq!(new_validator_stake(12).partial_mandate_weight(5), 2);
+    }
+}
