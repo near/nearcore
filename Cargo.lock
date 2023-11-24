@@ -4207,11 +4207,13 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serde_yaml",
+ "sha3",
  "smart-default",
  "strum",
  "thiserror",
  "time",
  "tracing",
+ "wat",
 ]
 
 [[package]]

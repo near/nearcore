@@ -12,18 +12,21 @@ use near_crypto::{KeyType, PublicKey, Signer};
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
+use near_primitives::checked_feature;
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
 };
-use near_primitives::test_utils::{create_user_test_signer, near_implicit_test_account};
+use near_primitives::test_utils::{
+    create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
+};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion};
+use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
@@ -121,6 +124,7 @@ fn check_meta_tx_execution(
     receiver: AccountId,
 ) -> (FinalExecutionOutcomeView, i128, i128, i128) {
     let node_user = node.user();
+    let protocol_version = node.genesis().config.protocol_version;
 
     assert_eq!(
         relayer,
@@ -137,7 +141,13 @@ fn check_meta_tx_execution(
         .nonce;
     let user_pubk = match sender.get_account_type() {
         AccountType::NearImplicitAccount => PublicKey::from_near_implicit_account(&sender).unwrap(),
-        AccountType::EthImplicitAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
+        AccountType::EthImplicitAccount => {
+            if checked_feature!("stable", EthImplicitAccounts, protocol_version) {
+                panic!("ETH-implicit accounts must not have access key");
+            } else {
+                PublicKey::from_seed(KeyType::ED25519, sender.as_ref())
+            }
+        }
         AccountType::NamedAccount => PublicKey::from_seed(KeyType::ED25519, sender.as_ref()),
     };
     let user_nonce_before = node_user.get_access_key(&sender, &user_pubk).unwrap().nonce;
@@ -803,12 +813,22 @@ fn meta_tx_create_near_implicit_account_fails() {
     meta_tx_create_implicit_account_fails(near_implicit_test_account());
 }
 
+#[test]
+fn meta_tx_create_eth_implicit_account_fails() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    meta_tx_create_implicit_account_fails(eth_implicit_test_account());
+}
+
 /// Try creating an implicit account with a meta tx transfer and use the account
 /// in the same meta transaction.
 ///
 /// This is expected to fail with `AccountDoesNotExist`, known limitation of NEP-366.
-/// It only works with accounts that already exists because it needs to do a
-/// nonce check against the access key, which can only exist if the account exists.
+/// In case of NEAR-implicit accounts it only works with accounts that already exist
+/// because it needs to do a nonce check against the access key,
+/// which can only exist if the account exists.
+/// In case of ETH-implicit accounts the access key does not exist anyway.
 fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
@@ -840,12 +860,24 @@ fn meta_tx_create_and_use_near_implicit_account() {
     meta_tx_create_and_use_implicit_account(near_implicit_test_account());
 }
 
-/// Creating an implicit account with a meta tx transfer and use the account in
+#[test]
+fn meta_tx_create_and_use_eth_implicit_account() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    meta_tx_create_and_use_implicit_account(eth_implicit_test_account());
+}
+
+/// Creating an implicit account with a meta tx transfer and try using the account in
 /// a second meta transaction.
 ///
 /// Creation through a meta tx should work as normal, it's just that the relayer
 /// pays for the storage and the user could delete the account and cash in,
 /// hence this workflow is not ideal from all circumstances.
+///
+/// Using the account should only work for NEAR-implicit accounts,
+/// as ETH-implicit accounts do not have access keys
+/// and they can only be used by calling associated smart contract.
 fn meta_tx_create_implicit_account(new_account: AccountId) {
     let relayer = bob_account();
     let sender = alice_account();
@@ -860,8 +892,8 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
 
     let tx_cost = match new_account.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
-        AccountType::EthImplicitAccount => panic!("must be near-implicit"),
-        AccountType::NamedAccount => panic!("must be near-implicit"),
+        AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::NamedAccount => panic!("must be implicit"),
     };
     check_meta_tx_no_fn_call(
         &node,
@@ -878,6 +910,13 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     let balance = node.view_balance(&new_account).expect("failed looking up balance");
     assert_eq!(balance, initial_amount);
 
+    if new_account.get_account_type() == AccountType::EthImplicitAccount {
+        // ETH-implicit account must not have access key added.
+        assert!(node.user().is_locked(&new_account).unwrap());
+        // We will not attempt to make a transfer from this account.
+        return;
+    }
+
     // Now test we can use this account in a meta transaction that sends back half the tokens to alice.
     let transfer_amount = initial_amount / 2;
     let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
@@ -887,19 +926,22 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
         actions,
         tx_cost,
         transfer_amount,
-        new_account.clone(),
+        new_account,
         relayer,
         sender,
     )
     .assert_success();
-
-    // balance of the new account should NOT change, the relayer pays for it!
-    // (note: relayer balance checks etc are done in the shared checker function)
-    let balance = node.view_balance(&new_account).expect("failed looking up balance");
-    assert_eq!(balance, initial_amount);
 }
 
 #[test]
 fn meta_tx_create_near_implicit_account() {
     meta_tx_create_implicit_account(near_implicit_test_account());
+}
+
+#[test]
+fn meta_tx_create_eth_implicit_account() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    meta_tx_create_implicit_account(eth_implicit_test_account());
 }
