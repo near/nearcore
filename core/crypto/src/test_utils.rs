@@ -28,7 +28,10 @@ impl PublicKey {
                 let keypair = ed25519_key_pair_from_seed(seed);
                 PublicKey::ED25519(ED25519PublicKey(keypair.verifying_key().to_bytes()))
             }
-            _ => unimplemented!(),
+            KeyType::SECP256K1 => {
+                let secret_key = SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed));
+                PublicKey::SECP256K1(secret_key.public_key().unwrap_as_secp256k1().clone())
+            }
         }
     }
 }
@@ -40,7 +43,7 @@ impl SecretKey {
                 let keypair = ed25519_key_pair_from_seed(seed);
                 SecretKey::ED25519(ED25519SecretKey(keypair.to_keypair_bytes()))
             }
-            _ => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
+            KeyType::SECP256K1 => SecretKey::SECP256K1(secp256k1_secret_key_from_seed(seed)),
         }
     }
 }

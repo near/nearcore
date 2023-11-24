@@ -107,10 +107,11 @@ pub fn map_account(
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let public_key =
-                PublicKey::from_near_implicit_account(account_id).expect("must be near-implicit");
+                PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
             let mapped_key = map_key(&public_key, secret);
-            derive_near_implicit_account_id(mapped_key.public_key().unwrap_as_ed25519())
+            derive_near_implicit_account_id(&mapped_key.public_key().unwrap_as_ed25519())
         }
+        // TODO(eth-implicit) map to a new ETH address
         AccountType::EthImplicitAccount => account_id.clone(),
         AccountType::NamedAccount => account_id.clone(),
     }

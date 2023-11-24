@@ -172,4 +172,5 @@ ed25519_verify                          true
 alt_bn128                               true
 function_call_weight                    true
 vm_kind                                 NearVm
+eth_implicit_accounts                   false
 

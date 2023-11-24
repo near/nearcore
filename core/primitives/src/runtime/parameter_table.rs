@@ -323,6 +323,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 ed25519_verify: params.get(Parameter::Ed25519Verify)?,
                 alt_bn128: params.get(Parameter::AltBn128)?,
                 function_call_weight: params.get(Parameter::FunctionCallWeight)?,
+                eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
