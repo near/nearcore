@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 #[inline]
 pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
-    #[cfg(feature = "costs_counting")]
+    #[cfg(any(test, feature = "costs_counting"))]
     {
         thread_local! {
             static EXT_COSTS_COUNTER: std::cell::RefCell<HashMap<ExtCosts, u64>> =
@@ -19,7 +19,7 @@ pub fn with_ext_cost_counter(f: impl FnOnce(&mut HashMap<ExtCosts, u64>)) {
         }
         EXT_COSTS_COUNTER.with(|rc| f(&mut *rc.borrow_mut()));
     }
-    #[cfg(not(feature = "costs_counting"))]
+    #[cfg(not(any(test, feature = "costs_counting")))]
     let _ = f;
 }
 

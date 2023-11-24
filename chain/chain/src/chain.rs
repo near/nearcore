@@ -97,7 +97,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
-use tracing::{debug, error, info, warn, Span};
+use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -358,6 +358,15 @@ pub struct BlockMissingChunks {
     pub missing_chunks: Vec<ShardChunkHeader>,
 }
 
+impl Debug for BlockMissingChunks {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockMissingChunks")
+            .field("prev_hash", &self.prev_hash)
+            .field("num_missing_chunks", &self.missing_chunks.len())
+            .finish()
+    }
+}
+
 /// Contains information needed to request chunks for orphans
 /// Fields will be used as arguments for `request_chunks_for_orphan`
 pub struct OrphanMissingChunks {
@@ -368,6 +377,16 @@ pub struct OrphanMissingChunks {
     /// this is used as an argument for `request_chunks_for_orphan`
     /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is used for
     pub ancestor_hash: CryptoHash,
+}
+
+impl Debug for OrphanMissingChunks {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrphanMissingChunks")
+            .field("epoch_id", &self.epoch_id)
+            .field("ancestor_hash", &self.ancestor_hash)
+            .field("num_missing_chunks", &self.missing_chunks.len())
+            .finish()
+    }
 }
 
 /// Check if block header is known
@@ -1778,6 +1797,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
+        let _span =
+            debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
         let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
@@ -1818,6 +1839,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
+        let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
@@ -2083,11 +2105,8 @@ impl Chain {
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "start_process_block_impl",
-            height = block_height)
-        .entered();
+        let _span =
+            debug_span!(target: "chain", "start_process_block_impl", block_height).entered();
         // 0) Before we proceed with any further processing, we first check that the block
         // hash and signature matches to make sure the block is indeed produced by the assigned
         // block producer. If not, we drop the block immediately
@@ -2234,7 +2253,7 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         spawn(move || {
-            // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
+            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
@@ -2803,8 +2822,13 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
+        let _span = debug_span!(
+            target: "chain",
+            "check_orphans",
+            ?prev_hash,
+            num_orphans = self.orphans.len())
+        .entered();
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: from {}, # total orphans {}", prev_hash, self.orphans.len());
         // check within the descendents of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
         let orphans_to_check =
@@ -5264,7 +5288,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+                warn!(target: "chain", hash = %block.hash(), %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -5903,7 +5927,7 @@ pub fn do_apply_chunks(
             // a single span.
             task(&parent_span)
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>
