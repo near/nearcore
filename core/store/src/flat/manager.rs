@@ -115,7 +115,7 @@ impl FlatStorageManager {
                             ?new_flat_head,
                             ?err,
                             ?shard_uid,
-                            block_hash = ?block.header().hash(),
+                            // block_hash = ?block.header().hash(),
                             "Cannot update flat head");
                     }
                     _ => {

@@ -13,11 +13,11 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
 use crate::types::{
     AcceptedBlock, ApplySplitStateResultOrStateChanges, ApplyTransactionResult, Block,
     BlockEconomicsConfig, BlockHeader, BlockStatus, ChainConfig, ChainGenesis, Provenance,
-    RuntimeAdapter, RuntimeStorageConfig,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use crate::update_shard::{
-    process_shard_update, ApplyChunkResult, BlockContext, NewChunkResult, OldChunkResult,
-    ShardContext, ShardUpdateReason, StateSplitResult,
+    process_shard_update, BlockContext, NewChunkResult, OldChunkResult, ShardBlockUpdateResult,
+    ShardContext, ShardUpdateReason, ShardUpdateResult, StateSplitResult,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -432,7 +432,7 @@ pub fn check_known(
     check_known_store(chain, block_hash)
 }
 
-type BlockApplyChunksResult = (CryptoHash, Vec<Result<ApplyChunkResult, Error>>);
+type BlockApplyChunksResult = (CryptoHash, Vec<Result<ShardUpdateResult, Error>>);
 
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
@@ -497,7 +497,7 @@ impl Drop for Chain {
 
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
-type UpdateShardJob = Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send + 'static>;
+type UpdateShardJob = Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + 'static>;
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
 /// to update shards, the second element is BlockPreprocessInfo
@@ -2228,7 +2228,7 @@ impl Chain {
         &self,
         block_hash: CryptoHash,
         block_height: BlockHeight,
-        work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
+        work: Vec<Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send>>,
         apply_chunks_done_marker: Arc<OnceCell<()>>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
@@ -2259,7 +2259,7 @@ impl Chain {
         me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
-        apply_results: Vec<Result<ApplyChunkResult, Error>>,
+        apply_results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let mut chain_update = self.chain_update();
         let new_head =
@@ -2275,7 +2275,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_hash: CryptoHash,
-        apply_results: Vec<Result<ApplyChunkResult, Error>>,
+        apply_results: Vec<Result<ShardUpdateResult, Error>>,
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<AcceptedBlock, Error> {
@@ -2323,6 +2323,7 @@ impl Chain {
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
         let epoch_id = block.header().epoch_id();
+
         for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
@@ -3582,7 +3583,7 @@ impl Chain {
         &mut self,
         me: &Option<AccountId>,
         block_hash: &CryptoHash,
-        results: Vec<Result<ApplyChunkResult, Error>>,
+        results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.store.get_block(block_hash)?;
         let mut chain_update = self.chain_update();
@@ -3876,6 +3877,39 @@ impl Chain {
             .collect()
     }
 
+    /// Returns sequence of blocks in chain from `last_block_hash` (inclusive)
+    /// until the block with height `first_block_height` (inclusive if `include_with_height`
+    /// is true). For each block hash in resulting `Vec`, next entry contains hash of its
+    /// parent on chain.
+    /// TODO(logunov): consider uniting with `get_incoming_receipts_for_shard` because it
+    /// has the same purpose.
+    fn get_blocks_until_height(
+        &self,
+        mut last_block_hash: CryptoHash,
+        first_block_height: BlockHeight,
+        include_with_height: bool,
+    ) -> Result<Vec<CryptoHash>, Error> {
+        let mut blocks = vec![];
+        loop {
+            let header = self.get_block_header(&last_block_hash)?;
+            if header.height() < first_block_height {
+                return Err(Error::InvalidBlockHeight(first_block_height));
+            }
+
+            if header.height() == first_block_height {
+                break;
+            }
+
+            blocks.push(last_block_hash);
+            let prev_hash = header.prev_hash().clone();
+            last_block_hash = prev_hash;
+        }
+        if include_with_height {
+            blocks.push(last_block_hash);
+        }
+        Ok(blocks)
+    }
+
     /// Creates jobs which will update shards for the given block and incoming
     /// receipts aggregated for it.
     fn apply_chunks_preprocessing(
@@ -3891,16 +3925,33 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
-        block
+        Ok(block
             .chunks()
             .iter()
             .zip(prev_chunk_headers.iter())
             .enumerate()
-            .filter_map(|(shard_id, (chunk_header, prev_chunk_header))| {
+            .map(|(shard_id, (chunk_header, prev_chunk_header))| -> Result<Vec<_>, Error> {
                 // XXX: This is a bit questionable -- sandbox state patching works
                 // only for a single shard. This so far has been enough.
                 let state_patch = state_patch.take();
-                let update_shard_job = self.get_update_shard_job(
+
+                let mut jobs = vec![];
+                // Insert job into list of all jobs to run, if job is valid.
+                let mut insert_job = |job: Result<Option<UpdateShardJob>, Error>| {
+                    match job {
+                        Ok(Some(processor)) => jobs.push(processor),
+                        Ok(None) => {}
+                        Err(err) => {
+                            if err.is_bad_data() {
+                                invalid_chunks.push(chunk_header.clone());
+                            }
+                            return Err(err);
+                        }
+                    }
+                    return Ok(());
+                };
+
+                let stateful_job = self.get_update_shard_job(
                     me,
                     block,
                     prev_block,
@@ -3911,18 +3962,57 @@ impl Chain {
                     incoming_receipts,
                     state_patch,
                 );
-                match update_shard_job {
-                    Ok(Some(processor)) => Some(Ok(processor)),
-                    Ok(None) => None,
-                    Err(err) => {
-                        if err.is_bad_data() {
-                            invalid_chunks.push(chunk_header.clone());
-                        }
-                        Some(Err(err))
-                    }
-                }
+                insert_job(stateful_job)?;
+
+                let stateless_job = self.get_stateless_validation_job(
+                    me,
+                    block,
+                    prev_block,
+                    chunk_header,
+                    prev_chunk_header,
+                    shard_id as ShardId,
+                    mode,
+                );
+                insert_job(stateless_job)?;
+
+                return Ok(jobs);
             })
-            .collect()
+            .collect::<Result<Vec<Vec<UpdateShardJob>>, Error>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>())
+    }
+
+    fn get_shard_context(
+        &self,
+        me: &Option<AccountId>,
+        block_header: &BlockHeader,
+        shard_id: ShardId,
+        mode: ApplyChunksMode,
+        storage_data_source: StorageDataSource,
+    ) -> Result<ShardContext, Error> {
+        let prev_hash = block_header.prev_hash();
+        let epoch_id = block_header.epoch_id();
+        let cares_about_shard_this_epoch =
+            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let cares_about_shard_next_epoch =
+            self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
+        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
+        let should_apply_transactions = get_should_apply_transactions(
+            mode,
+            cares_about_shard_this_epoch,
+            cares_about_shard_next_epoch,
+        );
+        let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+        Ok(ShardContext {
+            shard_uid,
+            cares_about_shard_this_epoch,
+            will_shard_layout_change,
+            should_apply_transactions,
+            need_to_split_states,
+            storage_data_source,
+        })
     }
 
     /// This method returns the closure that is responsible for updating a shard.
@@ -3939,17 +4029,9 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<Option<UpdateShardJob>, Error> {
         let prev_hash = block.header().prev_hash();
-        let cares_about_shard_this_epoch =
-            self.shard_tracker.care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-        let cares_about_shard_next_epoch =
-            self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
-        let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let should_apply_transactions = get_should_apply_transactions(
-            mode,
-            cares_about_shard_this_epoch,
-            cares_about_shard_next_epoch,
-        );
-        let need_to_split_states = will_shard_layout_change && cares_about_shard_next_epoch;
+        let shard_context =
+            self.get_shard_context(me, block.header(), shard_id, mode, StorageDataSource::Db)?;
+
         // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
         // 1) if should_apply_transactions == true && split_state_roots.is_some(),
         //     that means split states are ready.
@@ -3965,19 +4047,19 @@ impl Chain {
         //    called with mode NotCaughtUp, therefore `state_changes_for_split_states` have been
         //    stored in the database. Then we can safely read that and apply that to the split
         //    states
-        let split_state_roots = if need_to_split_states && mode != ApplyChunksMode::NotCaughtUp {
-            Some(self.get_split_state_roots(block, shard_id)?)
-        } else {
-            None
-        };
+        let split_state_roots =
+            if shard_context.need_to_split_states && mode != ApplyChunksMode::NotCaughtUp {
+                Some(self.get_split_state_roots(block, shard_id)?)
+            } else {
+                None
+            };
 
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id())?;
         let is_new_chunk = chunk_header.height_included() == block.header().height();
-        let shard_update_reason = if should_apply_transactions {
+        let shard_update_reason = if shard_context.should_apply_transactions {
             if is_new_chunk {
                 // Validate new chunk and collect incoming receipts for it.
 
-                let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_uid)?;
+                let prev_chunk_extra = self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?;
                 let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
                 let prev_chunk_height_included = prev_chunk_header.height_included();
 
@@ -4028,12 +4110,16 @@ impl Chain {
                 ShardUpdateReason::NewChunk(chunk, receipts, split_state_roots)
             } else {
                 ShardUpdateReason::OldChunk(
-                    ChunkExtra::clone(self.get_chunk_extra(prev_hash, &shard_uid)?.as_ref()),
+                    ChunkExtra::clone(
+                        self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.as_ref(),
+                    ),
                     split_state_roots,
                 )
             }
         } else if let Some(split_state_roots) = split_state_roots {
-            assert!(mode == ApplyChunksMode::CatchingUp && cares_about_shard_this_epoch);
+            assert!(
+                mode == ApplyChunksMode::CatchingUp && shard_context.cares_about_shard_this_epoch
+            );
             ShardUpdateReason::StateSplit(
                 split_state_roots,
                 self.store().get_state_changes_for_split_states(block.hash(), shard_id)?,
@@ -4050,16 +4136,208 @@ impl Chain {
             shard_id,
             is_new_chunk,
         )?;
-        Ok(Some(Box::new(move |parent_span| -> Result<ApplyChunkResult, Error> {
-            Ok(process_shard_update(
+        Ok(Some(Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
+            Ok(ShardUpdateResult::Stateful(process_shard_update(
                 parent_span,
                 runtime.as_ref(),
                 epoch_manager.as_ref(),
                 shard_update_reason,
                 block_context,
-                ShardContext { shard_uid, will_shard_layout_change },
+                shard_context,
                 state_patch,
-            )?)
+            )?))
+        })))
+    }
+
+    /// Returns closure which should validate a chunk without state, if chunk is present.
+    /// TODO(logunov):
+    /// 1. Currently result of this job is not applied and used only to validate with
+    /// stateful chunk execution. Later current execution must be deprecated in favour of
+    /// this one.
+    /// 2. Use state witness and make this method truly stateless.
+    /// 3. Use range of blocks between chunk and previous existing chunk to collect
+    /// incoming receipts.
+    fn get_stateless_validation_job(
+        &self,
+        me: &Option<AccountId>,
+        block: &Block,
+        prev_block: &Block,
+        chunk_header: &ShardChunkHeader,
+        prev_chunk_header: &ShardChunkHeader,
+        shard_id: ShardId,
+        mode: ApplyChunksMode,
+    ) -> Result<Option<UpdateShardJob>, Error> {
+        let last_shard_context =
+            self.get_shard_context(me, block.header(), shard_id, mode, StorageDataSource::Db)?;
+        let is_new_chunk = chunk_header.height_included() == block.header().height();
+
+        // If we don't track a shard or there is no chunk, there is nothing to validate.
+        if !last_shard_context.should_apply_transactions || !is_new_chunk {
+            return Ok(None);
+        }
+
+        // Validate transactions in chunk.
+        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
+        self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
+
+        let runtime = self.runtime_adapter.clone();
+        let epoch_manager = self.epoch_manager.clone();
+        let shard_id = prev_chunk_header.shard_id();
+        let prev_chunk_height_included = prev_chunk_header.height_included();
+        let prev_chunk_prev_hash = prev_chunk_header.prev_block_hash().clone();
+
+        // If previous chunk is genesis chunk, its execution is trivial.
+        // TODO(logunov): check that state witness is empty.
+        if prev_chunk_prev_hash == CryptoHash::default() {
+            return Ok(None);
+        }
+
+        // Find the block at which height previous chunk was created.
+        // We will apply previous chunk to validate state witness in current chunk.
+        let mut last_blocks = self.get_blocks_until_height(
+            prev_block.hash().clone(),
+            prev_chunk_height_included,
+            true,
+        )?;
+        let prev_chunk_block_hash = last_blocks.pop().unwrap();
+        let prev_chunk_block_header = self.get_block_header(&prev_chunk_block_hash)?;
+        assert_eq!(prev_chunk_block_header.prev_hash(), &prev_chunk_prev_hash);
+
+        // Check that current and previous chunks have the same shard layouts because
+        // resharding is not supported yet - we need to determine parent shard id otherwise.
+        let prev_chunk_prev_block = self.get_block(&prev_chunk_prev_hash)?;
+        let shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(prev_block.header().prev_hash())?;
+        let prev_shard_layout = epoch_manager
+            .get_shard_layout_from_prev_block(prev_chunk_prev_block.header().prev_hash())?;
+        if shard_layout != prev_shard_layout {
+            return Ok(None);
+        }
+
+        // Do the same check for previous and previous-previous chunk, because we
+        // iterate over blocks between them to check shard update, and we will use
+        // the same shard id again for simplicity.
+        // TODO(logunov): does `prev_prev_chunk` always exist in DB?
+        let prev_prev_chunk = &prev_chunk_prev_block.chunks()[shard_id as usize];
+        let prev_prev_chunk_prev_hash = prev_prev_chunk.prev_block_hash();
+        let prev_prev_chunk_height_included = prev_prev_chunk.height_included();
+        let prev_prev_shard_layout =
+            epoch_manager.get_shard_layout_from_prev_block(prev_prev_chunk_prev_hash)?;
+        if prev_shard_layout != prev_prev_shard_layout {
+            return Ok(None);
+        }
+
+        // Collect receipts appeared on chain between previous and previous-previous chunk.
+        // Ideally we should collect receipts from current chunk (excluded) to previous chunk
+        // (included). But now we verify results against current stateful logic.
+        let receipts_response = &self.store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
+            shard_id,
+            prev_chunk_block_hash,
+            prev_prev_chunk_height_included,
+        )?;
+        let receipts = collect_receipts_from_response(receipts_response);
+
+        // Get sequence of blocks for which we will process shard update.
+        let blocks_to_execute = self.get_blocks_until_height(
+            prev_chunk_block_hash,
+            prev_prev_chunk_height_included,
+            false,
+        )?;
+        let mut execution_contexts: Vec<(BlockContext, ShardContext)> = vec![];
+        for block_hash in blocks_to_execute {
+            let block_header = self.get_block_header(&block_hash)?;
+            let prev_block_header = self.get_previous_header(&block_header)?;
+            let shard_context = self.get_shard_context(
+                me,
+                &block_header,
+                shard_id,
+                mode,
+                StorageDataSource::DbTrieOnly,
+            )?;
+            if shard_context.need_to_split_states {
+                return Ok(None);
+            }
+            execution_contexts.push((
+                self.get_block_context_for_shard_update(
+                    &block_header,
+                    &prev_block_header,
+                    shard_id,
+                    block_hash == prev_chunk_block_hash,
+                )?,
+                shard_context,
+            ));
+        }
+        execution_contexts.reverse();
+
+        // Create stateless validation job.
+        // Its initial state corresponds to the block at which `prev_prev_chunk` was created.
+        // Then, we process updates for missing chunks, until we find a block at which
+        // `prev_chunk` was created.
+        // And finally we process update for the `prev_chunk`.
+        let mut current_chunk_extra = ChunkExtra::clone(
+            self.get_chunk_extra(
+                &execution_contexts[0].0.prev_block_hash,
+                &execution_contexts[0].1.shard_uid,
+            )?
+            .as_ref(),
+        );
+        let (last_block_context, last_shard_context) = execution_contexts.pop().unwrap();
+        let prev_chunk = self.get_chunk_clone_from_header(&prev_chunk_header.clone())?;
+        Ok(Some(Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
+            let mut result = vec![];
+            for (block_context, shard_context) in execution_contexts {
+                let block_result = process_shard_update(
+                    parent_span,
+                    runtime.as_ref(),
+                    epoch_manager.as_ref(),
+                    ShardUpdateReason::OldChunk(current_chunk_extra.clone(), None),
+                    block_context.clone(),
+                    shard_context,
+                    SandboxStatePatch::default(),
+                )?;
+                if let ShardBlockUpdateResult::OldChunk(OldChunkResult {
+                    shard_uid,
+                    apply_result,
+                    apply_split_result_or_state_changes: _,
+                }) = block_result
+                {
+                    *current_chunk_extra.state_root_mut() = apply_result.new_root;
+                    result.push((block_context.block_hash, shard_uid, current_chunk_extra.clone()));
+                }
+            }
+            let block_result = process_shard_update(
+                parent_span,
+                runtime.as_ref(),
+                epoch_manager.as_ref(),
+                ShardUpdateReason::NewChunk(prev_chunk, receipts, None),
+                last_block_context.clone(),
+                last_shard_context,
+                SandboxStatePatch::default(),
+            )?;
+            if let ShardBlockUpdateResult::NewChunk(NewChunkResult {
+                gas_limit,
+                shard_uid,
+                apply_result,
+                apply_split_result_or_state_changes: _,
+            }) = block_result
+            {
+                let (outcome_root, _) =
+                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                result.push((
+                    last_block_context.block_hash,
+                    shard_uid,
+                    ChunkExtra::new(
+                        &apply_result.new_root,
+                        outcome_root,
+                        apply_result.validator_proposals,
+                        apply_result.total_gas_burnt,
+                        gas_limit,
+                        apply_result.total_balance_burnt,
+                    ),
+                ));
+            }
+            Ok(ShardUpdateResult::Stateless(result))
         })))
     }
 
@@ -5001,11 +5279,29 @@ impl<'a> ChainUpdate<'a> {
     fn apply_chunk_postprocessing(
         &mut self,
         block: &Block,
-        apply_results: Vec<ApplyChunkResult>,
+        apply_results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(block, result)?
+            match result {
+                ShardUpdateResult::Stateful(result) => {
+                    self.process_apply_chunk_result(block, result)?
+                }
+                ShardUpdateResult::Stateless(results) => {
+                    for (block_hash, shard_uid, chunk_extra) in results {
+                        eprintln!("TESTING {block_hash} {shard_uid}");
+                        let expected_chunk_extra =
+                            self.chain_store_update.get_chunk_extra(&block_hash, &shard_uid)?;
+                        assert_eq!(
+                            &chunk_extra,
+                            expected_chunk_extra.as_ref(),
+                            "For stateless validation, chunk extras for block {} and shard {} do not match",
+                            block_hash,
+                            shard_uid
+                        );
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -5154,13 +5450,13 @@ impl<'a> ChainUpdate<'a> {
     fn process_apply_chunk_result(
         &mut self,
         block: &Block,
-        result: ApplyChunkResult,
+        result: ShardBlockUpdateResult,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ApplyChunkResult::NewChunk(NewChunkResult {
+            ShardBlockUpdateResult::NewChunk(NewChunkResult {
                 gas_limit,
                 shard_uid,
                 apply_result,
@@ -5211,7 +5507,7 @@ impl<'a> ChainUpdate<'a> {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
-            ApplyChunkResult::OldChunk(OldChunkResult {
+            ShardBlockUpdateResult::OldChunk(OldChunkResult {
                 shard_uid,
                 apply_result,
                 apply_split_result_or_state_changes,
@@ -5238,7 +5534,7 @@ impl<'a> ChainUpdate<'a> {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
             }
-            ApplyChunkResult::StateSplit(StateSplitResult { shard_uid, results }) => {
+            ShardBlockUpdateResult::StateSplit(StateSplitResult { shard_uid, results }) => {
                 self.chain_store_update
                     .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
                 self.process_split_state(
@@ -5258,7 +5554,7 @@ impl<'a> ChainUpdate<'a> {
         me: &Option<AccountId>,
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
-        apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
+        apply_chunks_results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
@@ -5891,8 +6187,8 @@ impl<'a> ChainUpdate<'a> {
 pub fn do_apply_chunks(
     block_hash: CryptoHash,
     block_height: BlockHeight,
-    work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
-) -> Vec<Result<ApplyChunkResult, Error>> {
+    work: Vec<Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send>>,
+) -> Vec<Result<ShardUpdateResult, Error>> {
     let parent_span =
         tracing::debug_span!(target: "chain", "do_apply_chunks", block_height, %block_hash)
             .entered();
@@ -5960,7 +6256,7 @@ pub struct BlockCatchUpRequest {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
     pub block_height: BlockHeight,
-    pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ApplyChunkResult, Error> + Send>>,
+    pub work: Vec<Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send>>,
 }
 
 // Skip `work`, because displaying functions is not possible.
@@ -5980,7 +6276,7 @@ impl Debug for BlockCatchUpRequest {
 pub struct BlockCatchUpResponse {
     pub sync_hash: CryptoHash,
     pub block_hash: CryptoHash,
-    pub results: Vec<Result<ApplyChunkResult, Error>>,
+    pub results: Vec<Result<ShardUpdateResult, Error>>,
 }
 
 /// Helper to track blocks catch up
@@ -6005,7 +6301,7 @@ pub struct BlocksCatchUpState {
     /// preprocessing
     pub scheduled_blocks: HashSet<CryptoHash>,
     /// Map from block hashes that were processed to (saved store update, process results)
-    pub processed_blocks: HashMap<CryptoHash, Vec<Result<ApplyChunkResult, Error>>>,
+    pub processed_blocks: HashMap<CryptoHash, Vec<Result<ShardUpdateResult, Error>>>,
     /// Collection of block hashes that are fully processed
     pub done_blocks: Vec<CryptoHash>,
 }

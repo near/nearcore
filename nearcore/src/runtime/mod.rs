@@ -843,8 +843,12 @@ impl RuntimeAdapter for NightshadeRuntime {
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
 
+        // If there is no flat storage on disk, use trie but simulate costs with enabled
+        // flat storage by not charging gas for trie nodes.
+        let dont_charge_gas_for_trie_node_access =
+            storage_config.source == StorageDataSource::DbTrieOnly;
         let mut trie = match storage_config.source {
-            StorageDataSource::Db => self.get_trie_for_shard(
+            StorageDataSource::Db | StorageDataSource::DbTrieOnly => self.get_trie_for_shard(
                 shard_id,
                 prev_block_hash,
                 storage_config.state_root,
@@ -858,6 +862,9 @@ impl RuntimeAdapter for NightshadeRuntime {
         };
         if storage_config.record_storage {
             trie = trie.recording_reads();
+        }
+        if dont_charge_gas_for_trie_node_access {
+            trie.dont_charge_gas_for_trie_node_access();
         }
 
         match self.process_state_update(
