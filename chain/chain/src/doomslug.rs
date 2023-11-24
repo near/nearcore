@@ -11,7 +11,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, ApprovalStake, Balance, BlockHeight, BlockHeightDelta};
 use near_primitives::validator_signer::ValidatorSigner;
-use tracing::info;
+use tracing::{debug, debug_span, field, info};
 
 /// Have that many iterations in the timer instead of `loop` to prevent potential bugs from blocking
 /// the node
@@ -699,6 +699,15 @@ impl Doomslug {
         has_enough_chunks: bool,
         log_block_production_info: bool,
     ) -> bool {
+        let span = debug_span!(
+            target: "doomslug",
+            "ready_to_produce_block",
+            has_enough_chunks,
+            target_height,
+            enough_approvals_for = field::Empty,
+            ready_to_produce_block = field::Empty,
+            need_to_wait = field::Empty)
+        .entered();
         let hash_or_height =
             ApprovalInner::new(&self.tip.block_hash, self.tip.height, target_height);
         if let Some(approval_trackers_at_height) = self.approval_tracking.get_mut(&target_height) {
@@ -710,9 +719,16 @@ impl Doomslug {
                 match block_production_readiness {
                     DoomslugBlockProductionReadiness::NotReady => false,
                     DoomslugBlockProductionReadiness::ReadySince(when) => {
+                        let enough_approvals_for = now.saturating_duration_since(when);
+                        span.record("enough_approvals_for", enough_approvals_for.as_secs_f64());
+                        span.record("ready_to_produce_block", true);
                         if has_enough_chunks {
                             if log_block_production_info {
-                                info!("ready to produce block @ {}, has enough approvals for {:?}, has enough chunks", target_height, now.saturating_duration_since(when));
+                                info!(
+                                    target: "doomslug",
+                                    target_height,
+                                    ?enough_approvals_for,
+                                    "ready to produce block, has enough approvals, has enough chunks");
                             }
                             true
                         } else {
@@ -721,11 +737,21 @@ impl Doomslug {
                             ) / 6;
 
                             let ready = now > when + delay;
+                            span.record("need_to_wait", !ready);
                             if log_block_production_info {
                                 if ready {
-                                    info!("ready to produce block @ {}, has enough approvals for {:?}, does not have enough chunks", target_height, now.saturating_duration_since(when));
+                                    info!(
+                                        target: "doomslug",
+                                        target_height,
+                                        ?enough_approvals_for,
+                                        "ready to produce block, but does not have enough chunks");
                                 } else {
-                                    info!("not ready to produce block @ {}, need to wait {:?}, has enough approvals for {:?}", target_height, (when + delay).saturating_duration_since(now), now.saturating_duration_since(when));
+                                    info!(
+                                        target: "doomslug",
+                                        target_height,
+                                        need_to_wait_for = ?(when + delay).saturating_duration_since(now),
+                                        ?enough_approvals_for,
+                                        "not ready to produce block, need to wait");
                                 }
                             }
                             ready
@@ -733,9 +759,11 @@ impl Doomslug {
                     }
                 }
             } else {
+                debug!(target: "doomslug", target_height, ?hash_or_height, "No approval tracker");
                 false
             }
         } else {
+            debug!(target: "doomslug", target_height, "No approval trackers at height");
             false
         }
     }

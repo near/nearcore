@@ -3671,6 +3671,7 @@ dependencies = [
  "serde_json",
  "strum",
  "thiserror",
+ "tracing",
  "yansi",
 ]
 

@@ -78,7 +78,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
@@ -421,6 +421,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
+            info!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
             let blocks_at_height = this
                 .client
                 .chain
@@ -1212,13 +1213,17 @@ impl ClientActor {
     /// this function in `check_triggers`, because the actix queue may be blocked by other messages
     /// and we want to prioritize block processing.
     fn try_process_unfinished_blocks(&mut self) {
-        let (accepted_blocks, _errors) =
+        let _span = debug_span!(target: "client", "try_process_unfinished_blocks").entered();
+        let (accepted_blocks, errors) =
             self.client.postprocess_ready_blocks(self.get_apply_chunks_done_callback(), true);
-        // TODO: log the errors
+        if !errors.is_empty() {
+            error!(target: "client", ?errors, "try_process_unfinished_blocks got errors");
+        }
         self.process_accepted_blocks(accepted_blocks);
     }
 
     fn try_handle_block_production(&mut self) {
+        let _span = debug_span!(target: "client", "try_handle_block_production").entered();
         if let Err(err) = self.handle_block_production() {
             tracing::error!(target: "client", ?err, "Handle block production failed")
         }
@@ -1273,12 +1278,13 @@ impl ClientActor {
             if let Err(e) = &res {
                 match e {
                     near_chain::Error::ChunksMissing(_) => {
+                        debug!(target: "client", "chunks missing");
                         // missing chunks were already handled in Client::process_block, we don't need to
                         // do anything here
                         return Ok(());
                     }
                     _ => {
-                        error!(target: "client", "Failed to process freshly produced block: {:?}", res);
+                        error!(target: "client", ?res, "Failed to process freshly produced block");
                         byzantine_assert!(false);
                         return res.map_err(|err| err.into());
                     }
@@ -1368,7 +1374,9 @@ impl ClientActor {
     }
 
     fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
-        info!(target: "client", "Received {} block headers from {}", headers.len(), peer_id);
+        let _span =
+            debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
+                .entered();
         if headers.is_empty() {
             return true;
         }
@@ -1585,10 +1593,9 @@ impl ClientActor {
             | SyncRequirement::NoPeers
             | SyncRequirement::AdvHeaderSyncDisabled => {
                 if currently_syncing {
-                    info!(target: "client", "disabling sync: {}", &sync);
-                    self.client.sync_status = SyncStatus::NoSync;
-
                     // Initial transition out of "syncing" state.
+                    debug!(target: "sync", prev_sync_status = ?self.client.sync_status, "disabling sync");
+                    self.client.sync_status.update(SyncStatus::NoSync);
                     // Announce this client's account id if their epoch is coming up.
                     let head = unwrap_and_report!(self.client.chain.head());
                     self.check_send_announce_account(head.prev_block_hash);
@@ -1598,10 +1605,7 @@ impl ClientActor {
             SyncRequirement::SyncNeeded { highest_height, .. } => {
                 let mut notify_start_sync = false;
                 if !currently_syncing {
-                    info!(
-                        target: "client",
-                        "enabling sync: {}", &sync,
-                    );
+                    info!(target: "client", ?sync, "enabling sync");
                 }
                 // Run each step of syncing separately.
                 unwrap_and_report!(self.client.header_sync.run(
@@ -1641,7 +1645,15 @@ impl ClientActor {
                                     .reset_data_pre_state_sync(sync_hash));
                             }
                             let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                            self.client.sync_status = SyncStatus::StateSync(s);
+                            // An artificial span to easily detect a node getting into the sync state in Grafana.
+                            {
+                                let _span =
+                                    debug_span!(target: "sync", "set_sync", sync = "StateSync")
+                                        .entered();
+                                debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
+                                self.client.sync_status = SyncStatus::StateSync(s);
+                                debug!(target: "sync", sync_status = ?self.client.sync_status);
+                            }
                             // This is the first time we run state sync.
                             notify_start_sync = true;
                         }
@@ -1758,12 +1770,11 @@ impl ClientActor {
 
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
-
-                            self.client.sync_status = SyncStatus::BodySync {
+                            self.client.sync_status.update(SyncStatus::BodySync {
                                 start_height: 0,
                                 current_height: 0,
                                 highest_height: 0,
-                            };
+                            });
                         }
                     }
                 }
