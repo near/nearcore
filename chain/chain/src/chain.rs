@@ -5297,7 +5297,6 @@ impl<'a> ChainUpdate<'a> {
                 }
                 ShardUpdateResult::Stateless(results) => {
                     for (block_hash, shard_uid, chunk_extra) in results {
-                        eprintln!("TESTING {block_hash} {shard_uid}");
                         let expected_chunk_extra =
                             self.chain_store_update.get_chunk_extra(&block_hash, &shard_uid)?;
                         assert_eq!(
