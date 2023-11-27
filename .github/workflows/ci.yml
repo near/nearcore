@@ -8,6 +8,9 @@ on:
   pull_request:
   merge_group:
 
+env:
+  CI_HACKS: 1
+
 jobs:
   cargo_nextest:
     name: "Cargo Nextest (${{matrix.name}})"

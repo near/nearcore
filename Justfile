@@ -9,6 +9,7 @@ with_macos_excludes := if os() == "macos" {
 nightly_flags := "--features nightly,test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
+ci_hack_nextest_profile := env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
 test: test-ci test-extra
@@ -42,7 +43,7 @@ nextest-integration TYPE:
         --locked \
         --package integration-tests \
         --cargo-profile dev-release \
-        --profile ci \
+        {{ ci_hack_nextest_profile }} \
         {{ if TYPE == "nightly" { nightly_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neither 'nightly' nor 'stable'") } }}
