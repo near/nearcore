@@ -46,10 +46,16 @@ impl ValidatorMandatesConfig {
 pub struct ValidatorMandates {
     /// The configuration applied to the mandates.
     config: ValidatorMandatesConfig,
+    /// Each element represents a validator mandate held by the validator with the given id.
+    ///
     /// The id of a validator who holds `n >= 0` mandates occurs `n` times in the vector.
     mandates: Vec<ValidatorId>,
-    /// Contains partial mandates. Validators whose stake can be distributed across mandates without
-    /// remainder are not represented in this vector.
+    /// Each element represents a partial validator mandate held by the validator with the given id.
+    /// For example, an element `(1, 42)` represents the partial mandate of the validator with id 1
+    /// which has a weight of 42.
+    ///
+    /// Validators whose stake can be distributed across mandates without remainder are not
+    /// represented in this vector.
     partials: Vec<(ValidatorId, Balance)>,
 }
 
@@ -111,12 +117,20 @@ impl ValidatorMandates {
         let shuffled_mandates = self.shuffled_mandates(rng);
         let shuffled_partials = self.shuffled_partials(rng);
 
+        // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
+        // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
+        // num_shards == shard_id`
+        //
+        // Assume, for example, there are 10 mandates and 4 shards. Then the shard with id 1 gets
+        // assigned the mandates with indices 1, 5, and 9.
+        //
         // TODO(#10014) shuffle shard ids to avoid a bias towards smaller shard ids
         let mut mandates_per_shard = Vec::with_capacity(self.config.num_shards);
         for shard_id in 0..self.config.num_shards {
             let mut assignments: HashMap<ValidatorId, AssignmentWeight> = HashMap::new();
 
-            // Assign shuffled mandates at position `i` to the shard with id `i % num_shards`.
+            // For the current `shard_id`, collect mandates with index `i` such that
+            // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                 let id = shuffled_mandates[idx];
                 assignments
@@ -127,7 +141,8 @@ impl ValidatorMandates {
                     .or_insert(AssignmentWeight::new(1, 0));
             }
 
-            // Assign shuffled partials at position `i` to the shard with id `i % num_shards`.
+            // For the current `shard_id`, collect partials with index `i` such that
+            // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
                 let (id, partial_weight) = shuffled_partials[idx];
                 assignments
