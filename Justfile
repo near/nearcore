@@ -7,13 +7,12 @@ with_macos_excludes := if os() == "macos" {
     ""
 }
 nightly_flags := "--features nightly,test_features"
-bash := if os() == "macos" { "/bin/bash" } else { "/usr/bin/bash" }
 
 # all the tests, as close to CI as possible
 test: test-ci test-extra
 
 # only the tests that are exactly the same as the ones in CI
-test-ci: (nextest "stable") (nextest "nightly") check-style
+test-ci: (nextest "stable") (nextest "nightly") python-style-checks
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -51,14 +50,14 @@ nextest-integration TYPE:
 
 # generate a codecov report for RULE
 codecov RULE:
-    #!{{ bash }}
+    #!/usr/bin/env bash
     set -euxo pipefail
     source <(cargo llvm-cov show-env --export-prefix)
-    just {{ RULE }}
+    {{ just_executable() }} {{ RULE }}
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
 
-# style checks
-check-style:
+# style checks from python scripts
+python-style-checks:
     python3 scripts/check_nightly.py
     python3 scripts/check_pytests.py
     python3 scripts/fix_nightly_feature_flags.py
@@ -66,6 +65,8 @@ check-style:
 
 # lychee-based url validity checks
 check-lychee:
+    # This is not actually run in CI. GITHUB_TOKEN can still be set locally by people who want
+    # to reproduce CI behavior in a better way.
     lychee . {{ if env("GITHUB_TOKEN", "") != "" { "" } else { "-a 429" } }}
     @echo {{ if env("GITHUB_TOKEN", "") != "" { "" } \
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
