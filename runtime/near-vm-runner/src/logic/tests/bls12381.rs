@@ -41,10 +41,19 @@ mod tests {
         p
     }
 
+    fn get_rnd() -> RAND {
+        let mut rnd: RAND = RAND::new();
+        rnd.clean();
+        let mut raw : [u8;100]=[0;100];
+        for i in 0..100 {raw[i]=i as u8}
+
+        rnd.seed(100,&raw);
+
+        rnd
+    }
+
     fn get_g1_sum(p: &[u8], q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
         let mut buffer = vec![vec![0], p.to_vec(), vec![0], q.to_vec()];
-
-        println!("{:?}", buffer);
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
@@ -71,7 +80,7 @@ mod tests {
 
 
         // 0 + P = P + 0 = P
-        let mut rnd: RAND = RAND::new();
+        let mut rnd = get_rnd();
         for _ in 0..10 {
             let p = get_random_g1_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
@@ -100,7 +109,8 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let mut rnd: RAND = RAND::new();
+        let mut rnd = get_rnd();
+
         for _ in 0..100 {
             let mut p = get_random_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
@@ -155,12 +165,7 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let mut rnd: RAND = RAND::new();
-        rnd.clean();
-        let mut raw : [u8;100]=[0;100];
-        for i in 0..100 {raw[i]=i as u8}
-
-        rnd.seed(100,&raw);
+        let mut rnd = get_rnd();
 
         //points not from G1
         for _ in 0..100 {
