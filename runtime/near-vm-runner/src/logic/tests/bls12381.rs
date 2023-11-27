@@ -218,7 +218,7 @@ mod tests {
         zero[0] = 64;
 
         for _ in 0..10 {
-            let p = get_random_not_g1_curve_point(&mut rnd);
+            let p = get_random_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             // P - P = - P + P = 0
@@ -232,6 +232,17 @@ mod tests {
             let p_inv_inv = get_g1_inverse(p_inv.as_slice(), &mut logic);
 
             assert_eq!(p_ser.to_vec(), p_inv_inv);
+        }
+
+        // P in G1 => -P in G1
+        for _ in 0..10 {
+            let p = get_random_g1_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
+
+            let p_inv = get_g1_inverse(&p_ser, &mut logic);
+
+            let result_point = deserialize_g1(&p_inv).unwrap();
+            assert!(subgroup_check_g1(&result_point));
         }
     }
 
