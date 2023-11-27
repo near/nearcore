@@ -298,3 +298,13 @@ jobs:
       - uses: lycheeverse/lychee-action@2ac9f030ccdea0033e2510a23a67da2a2da98492
         with:
           fail: true
+
+  cargo_audit:
+    name: "Cargo Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-audit
+      - run: cargo audit -D warnings

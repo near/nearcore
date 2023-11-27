@@ -155,7 +155,7 @@ impl Compiler for SinglepassCompiler {
                         reader.get_operators_reader()?.into_iter_with_offsets();
                     while generator.has_control_frames() {
                         let (op, pos) =
-                            tracing::debug_span!(target: "near_vm", "parsing-next-operator")
+                            tracing::trace_span!(target: "near_vm", "parsing-next-operator")
                                 .in_scope(|| operator_reader.next().unwrap())?;
                         generator.set_srcloc(pos as u32);
                         generator.feed_operator(op).map_err(to_compile_error)?;

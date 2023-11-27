@@ -295,28 +295,33 @@ mod tests {
 
     fn get_all_shards_care_about(
         tracker: &ShardTracker,
-        num_shards: NumShards,
+        shard_ids: &[ShardId],
         parent_hash: &CryptoHash,
     ) -> HashSet<ShardId> {
-        (0..num_shards)
-            .filter(|shard_id| tracker.care_about_shard(None, parent_hash, *shard_id, true))
+        shard_ids
+            .into_iter()
+            .filter(|&&shard_id| tracker.care_about_shard(None, parent_hash, shard_id, true))
+            .cloned()
             .collect()
     }
 
     fn get_all_shards_will_care_about(
         tracker: &ShardTracker,
-        num_shards: NumShards,
+        shard_ids: &[ShardId],
         parent_hash: &CryptoHash,
     ) -> HashSet<ShardId> {
-        (0..num_shards)
-            .filter(|shard_id| tracker.will_care_about_shard(None, parent_hash, *shard_id, true))
+        shard_ids
+            .into_iter()
+            .filter(|&&shard_id| tracker.will_care_about_shard(None, parent_hash, shard_id, true))
+            .cloned()
             .collect()
     }
 
     #[test]
     fn test_track_accounts() {
-        let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let shard_ids: Vec<_> = (0..4).collect();
+        let epoch_manager =
+            get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
         let shard_layout = epoch_manager.read().get_shard_layout(&EpochId::default()).unwrap();
         let tracked_accounts = vec!["test1".parse().unwrap(), "test2".parse().unwrap()];
         let tracker =
@@ -328,28 +333,29 @@ mod tests {
             .insert(account_id_to_shard_id(&"test2".parse().unwrap(), &shard_layout));
 
         assert_eq!(
-            get_all_shards_care_about(&tracker, num_shards, &CryptoHash::default()),
+            get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
             total_tracked_shards
         );
         assert_eq!(
-            get_all_shards_will_care_about(&tracker, num_shards, &CryptoHash::default()),
+            get_all_shards_will_care_about(&tracker, &shard_ids, &CryptoHash::default()),
             total_tracked_shards
         );
     }
 
     #[test]
     fn test_track_all_shards() {
-        let num_shards = 4;
-        let epoch_manager = get_epoch_manager(PROTOCOL_VERSION, num_shards, false);
+        let shard_ids: Vec<_> = (0..4).collect();
+        let epoch_manager =
+            get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false);
         let tracker = ShardTracker::new(TrackedConfig::AllShards, Arc::new(epoch_manager));
-        let total_tracked_shards: HashSet<_> = (0..num_shards).collect();
+        let total_tracked_shards: HashSet<_> = shard_ids.iter().cloned().collect();
 
         assert_eq!(
-            get_all_shards_care_about(&tracker, num_shards, &CryptoHash::default()),
+            get_all_shards_care_about(&tracker, &shard_ids, &CryptoHash::default()),
             total_tracked_shards
         );
         assert_eq!(
-            get_all_shards_will_care_about(&tracker, num_shards, &CryptoHash::default()),
+            get_all_shards_will_care_about(&tracker, &shard_ids, &CryptoHash::default()),
             total_tracked_shards
         );
     }
@@ -357,8 +363,9 @@ mod tests {
     #[test]
     fn test_track_schedule() {
         // Creates a ShardTracker that changes every epoch tracked shards.
-        let num_shards = 4;
-        let epoch_manager = Arc::new(get_epoch_manager(PROTOCOL_VERSION, num_shards, false));
+        let shard_ids: Vec<_> = (0..4).collect();
+        let epoch_manager =
+            Arc::new(get_epoch_manager(PROTOCOL_VERSION, shard_ids.len() as NumShards, false));
         let subset1 = HashSet::from([0, 1]);
         let subset2 = HashSet::from([1, 2]);
         let subset3 = HashSet::from([2, 3]);
@@ -386,15 +393,15 @@ mod tests {
             }
         }
 
-        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[4]), subset2);
-        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[5]), subset3);
-        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[6]), subset1);
-        assert_eq!(get_all_shards_care_about(&tracker, num_shards, &h[7]), subset2);
+        assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[4]), subset2);
+        assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[5]), subset3);
+        assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[6]), subset1);
+        assert_eq!(get_all_shards_care_about(&tracker, &shard_ids, &h[7]), subset2);
 
-        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[4]), subset3);
-        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[5]), subset1);
-        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[6]), subset2);
-        assert_eq!(get_all_shards_will_care_about(&tracker, num_shards, &h[7]), subset3);
+        assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[4]), subset3);
+        assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[5]), subset1);
+        assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[6]), subset2);
+        assert_eq!(get_all_shards_will_care_about(&tracker, &shard_ids, &h[7]), subset3);
     }
 
     #[test]
@@ -458,11 +465,19 @@ mod tests {
             }
 
             assert_eq!(
-                get_all_shards_care_about(&tracker, shard_layout.num_shards(), &h[i - 1]),
+                get_all_shards_care_about(
+                    &tracker,
+                    &shard_layout.shard_ids().collect::<Vec<_>>(),
+                    &h[i - 1]
+                ),
                 total_tracked_shards
             );
             assert_eq!(
-                get_all_shards_will_care_about(&tracker, next_shard_layout.num_shards(), &h[i - 1]),
+                get_all_shards_will_care_about(
+                    &tracker,
+                    &next_shard_layout.shard_ids().collect::<Vec<_>>(),
+                    &h[i - 1]
+                ),
                 total_next_tracked_shards
             );
         }

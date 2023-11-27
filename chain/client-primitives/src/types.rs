@@ -21,6 +21,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tracing::debug_span;
 use yansi::Color::Magenta;
 use yansi::Style;
 
@@ -320,6 +321,13 @@ impl SyncStatus {
             SyncStatus::BodySync { start_height, .. } => Some(*start_height),
             _ => None,
         }
+    }
+
+    pub fn update(&mut self, new_value: Self) {
+        let _span =
+            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+                .entered();
+        *self = new_value
     }
 }
 
