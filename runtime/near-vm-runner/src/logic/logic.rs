@@ -921,15 +921,15 @@ impl<'a> VMLogic<'a> {
                 blst::blst_p1_deserialize(&mut pk_aff, data[i*97 + 1..(i + 1)*97].as_ptr());
             }
 
-            if sign == 1 {
-                unsafe {
-                    blst::blst_fp_inverse(&mut pk_aff.y, &pk_aff.y);
-                }
-            }
-
             let mut pk = blst::blst_p1::default();
             unsafe {
                 blst::blst_p1_from_affine(&mut pk, &pk_aff);
+            }
+
+            if sign == 1 {
+                unsafe {
+                    blst::blst_p1_cneg(&mut pk, true);
+                }
             }
 
             unsafe {

@@ -61,6 +61,15 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g1_inverse(p: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
+        let buffer = vec![vec![1], p.to_vec()];
+
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     #[test]
     fn test_bls12381_g1_sum_edge_cases() {
         let mut logic_builder = VMLogicBuilder::default();
@@ -217,6 +226,12 @@ mod tests {
             let got2 = get_g1_sum(0,&p_ser, 1, &p_ser, &mut logic);
             assert_eq!(got1, got2);
             assert_eq!(got1, zero.to_vec());
+
+            // -(-P)
+            let p_inv = get_g1_inverse(&p_ser, &mut logic);
+            let p_inv_inv = get_g1_inverse(p_inv.as_slice(), &mut logic);
+
+            assert_eq!(p_ser.to_vec(), p_inv_inv);
         }
     }
 
