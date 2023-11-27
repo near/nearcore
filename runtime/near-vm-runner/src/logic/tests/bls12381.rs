@@ -244,6 +244,19 @@ mod tests {
             let result_point = deserialize_g1(&p_inv).unwrap();
             assert!(subgroup_check_g1(&result_point));
         }
+
+        // Random point check with library
+        for _ in 0..10 {
+            let mut p = get_random_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
+
+            let p_inv = get_g1_inverse(&p_ser, &mut logic);
+
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g1(&p);
+
+            assert_eq!(p_neg_ser.to_vec(), p_inv);
+        }
     }
 
 }
