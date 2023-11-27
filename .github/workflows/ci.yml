@@ -34,6 +34,8 @@ jobs:
             os: macos-latest-xlarge
             # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
             # them at earliest convenience :)
+            # Note that run_integ_tests also leads to coverage not being uploaded to codecov below,
+            # the corresponding step is commented-out.
             flags: "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
             run_integ_tests: false
     timeout-minutes: 90
@@ -336,12 +338,12 @@ jobs:
           files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: integration-macos.json
-          fail_ci_if_error: true
-          flags: integration-tests,macos
+      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     files: integration-macos.json
+      #     fail_ci_if_error: true
+      #     flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
