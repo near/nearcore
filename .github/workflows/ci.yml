@@ -8,6 +8,10 @@ on:
   pull_request:
   merge_group:
 
+# BE CAREFUL IF EDITING THIS FILE:
+# If you add/remove python tests from here, you should also update `check_pytests.py`’s list of GHA_TESTS
+# so that it stays in-sync, to make sure no tests are lost.
+
 jobs:
   cargo_nextest:
     name: "Cargo Nextest (${{matrix.name}})"
