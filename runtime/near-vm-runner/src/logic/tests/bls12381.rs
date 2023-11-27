@@ -112,6 +112,21 @@ mod tests {
             let got = get_g1_sum(&p_ser, &p_ser, &mut logic);
             assert_eq!(pmul2_ser.to_vec(), got);
         }
+
+        // P + (-(P + P))
+        for _ in 0..10 {
+            let mut p = get_random_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
+
+            let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
+            pmul2.neg();
+            let pmul2_neg_ser = serialize_uncompressed_g1(&pmul2);
+
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g1(&p);
+            let got = get_g1_sum(&p_ser, &pmul2_neg_ser, &mut logic);
+            assert_eq!(p_neg_ser.to_vec(), got);
+        }
     }
 
     #[test]
