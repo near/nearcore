@@ -9,6 +9,7 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::state_sync::Noop;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
@@ -26,7 +27,7 @@ use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 #[derive(actix::Message)]
 #[rtype("()")]
@@ -514,8 +515,17 @@ pub(crate) async fn start(
             let genesis_id = chain.genesis_id.clone();
             let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
             cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc.as_sender(), genesis_id)
-                .unwrap()
+            let state_sync = Arc::new(RwLock::new(Noop));
+            PeerManagerActor::spawn(
+                clock,
+                store,
+                cfg,
+                fc.clone(),
+                state_sync,
+                fc.as_sender(),
+                genesis_id,
+            )
+            .unwrap()
         }
     })
     .await;

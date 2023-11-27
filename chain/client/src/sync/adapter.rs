@@ -1,4 +1,5 @@
 use super::sync_actor::SyncActor;
+use crate::adapter::StateResponse;
 use actix::dev::ToEnvelope;
 use actix::prelude::SendError;
 use actix::{Actor, Message};
@@ -6,7 +7,7 @@ use actix_rt::Arbiter;
 use core::fmt::Debug;
 use near_async::messaging::Sender;
 use near_network::types::{
-    PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
+    PeerManagerMessageRequest, StateResponseInfo, StateSync as NetworkStateSync,
 };
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
@@ -108,9 +109,15 @@ impl SyncAdapter {
 }
 
 /// Interface for network
-#[async_trait::async_trait]
 impl NetworkStateSync for SyncAdapter {
-    async fn send(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
-        self.send(shard_uid, msg.with_span_context());
+    fn send(&self, info: StateResponseInfo) {
+        // This is O(N) complexity where N is the number of active shards.
+        if let Some(&shard_uid) =
+            self.actor_handler_map.keys().find(|shard_uid| shard_uid.shard_id() == info.shard_id())
+        {
+            self.send(shard_uid, StateResponse(Box::new(info)).with_span_context());
+        } else {
+            warn!(target: "sync", shard_id = info.shard_id(), "No sync actor to process this request. Message may be delayed or this is an unrequested message.");
+        }
     }
 }

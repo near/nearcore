@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix::{Actor, AsyncContext, System};
 use futures::FutureExt;
 use near_async::messaging::Sender;
+use near_network::state_sync::Noop;
 use tracing::info;
 
 use near_actix_test_utils::run_actix;
@@ -25,11 +26,13 @@ fn make_peer_manager(
 ) -> actix::Addr<PeerManagerActor> {
     let mut config = config::NetworkConfig::from_seed(seed, addr);
     config.peer_store.boot_nodes = convert_boot_nodes(boot_nodes);
+    let state_sync = Arc::new(RwLock::new(Noop));
     PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config,
         Arc::new(near_network::client::Noop),
+        state_sync,
         Sender::noop(),
         GenesisId::default(),
     )

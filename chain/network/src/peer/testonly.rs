@@ -10,6 +10,7 @@ use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor;
 use crate::peer_manager::peer_store;
 use crate::private_actix::SendMessage;
+use crate::state_sync::Noop;
 use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
@@ -18,7 +19,7 @@ use near_async::messaging::IntoSender;
 use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub struct PeerConfig {
     pub chain: Arc<data::Chain>,
@@ -100,6 +101,7 @@ impl PeerHandle {
         let store = store::Store::from(near_store::db::TestDB::new());
         let mut network_cfg = cfg.network.clone();
         network_cfg.event_sink = send.sink().compose(Event::Network);
+        let state_sync = Arc::new(RwLock::new(Noop));
         let network_state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
@@ -107,6 +109,7 @@ impl PeerHandle {
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
             fc.clone(),
+            state_sync,
             fc.as_sender(),
             vec![],
         ));

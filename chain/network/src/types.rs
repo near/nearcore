@@ -10,7 +10,7 @@ pub use crate::network_protocol::{
     StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
-pub use crate::state_sync::{StateSync, StateSyncResponse};
+pub use crate::state_sync::StateSync;
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
 };

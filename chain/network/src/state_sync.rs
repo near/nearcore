@@ -1,17 +1,12 @@
-use near_store::ShardUId;
+use crate::network_protocol::StateResponseInfo;
 
-/// State sync response from peers.
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-pub enum StateSyncResponse {
-    HeaderResponse,
-    PartResponse,
+/// State sync interface for network.
+/// The implementation uses try_send to avoid blocking.
+pub trait StateSync: Send + Sync + 'static {
+    fn send(&self, info: StateResponseInfo);
 }
 
-/// A strongly typed asynchronous API for the State Sync logic
-/// It abstracts away the fact that it is implemented using actix
-/// actors.
-#[async_trait::async_trait]
-pub trait StateSync: Send + Sync + 'static {
-    async fn send(&self, shard_uid: ShardUId, msg: StateSyncResponse);
+pub struct Noop;
+impl StateSync for Noop {
+    fn send(&self, _info: StateResponseInfo) {}
 }
