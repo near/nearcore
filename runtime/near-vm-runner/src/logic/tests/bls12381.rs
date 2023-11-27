@@ -53,7 +53,7 @@ mod tests {
     }
 
     fn get_g1_sum(p: &[u8], q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
-        let mut buffer = vec![vec![0], p.to_vec(), vec![0], q.to_vec()];
+        let buffer = vec![vec![0], p.to_vec(), vec![0], q.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
@@ -67,17 +67,10 @@ mod tests {
         let mut logic = logic_builder.build();
 
         // 0 + 0
-        let mut zero: [u8; 97] = [0; 97];
-        zero[1] = 64;
-        let buffer: [[u8; 97]; 2] = [zero; 2];
-
-        let input = logic.internal_mem_write(buffer.concat().as_slice());
-
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-        assert_eq!(res, 0);
-        let got = logic.registers().get_for_free(0).unwrap();
-        assert_eq!(&zero[1..97], got);
-
+        let mut zero: [u8; 96] = [0; 96];
+        zero[0] = 64;
+        let got = get_g1_sum(&zero, &zero, &mut logic);
+        assert_eq!(zero.to_vec(), got);
 
         // 0 + P = P + 0 = P
         let mut rnd = get_rnd();
@@ -85,22 +78,26 @@ mod tests {
             let p = get_random_g1_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
-            let mut buffer = vec![vec![0], p_ser.to_vec(), zero.to_vec()];
+            let got = get_g1_sum(&zero, &p_ser, &mut logic);
+            assert_eq!(p_ser.to_vec(), got);
 
-            let mut input = logic.internal_mem_write(buffer.concat().as_slice());
+            let got = get_g1_sum(&p_ser, &zero, &mut logic);
+            assert_eq!(p_ser.to_vec(), got);
+        }
 
-            let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            let got = logic.registers().get_for_free(0).unwrap();
-            assert_eq!(&p_ser, got);
+        // P + (-P) = (-P) + P =  0
+        for _ in 0..10 {
+            let mut p = get_random_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
 
-            buffer = vec![zero.to_vec(), vec![0], p_ser.to_vec()];
-            input = logic.internal_mem_write(buffer.concat().as_slice());
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g1(&p);
 
-            let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            let got = logic.registers().get_for_free(0).unwrap();
-            assert_eq!(&p_ser, got);
+            let got = get_g1_sum(&p_neg_ser, &p_ser, &mut logic);
+            assert_eq!(zero.to_vec(), got);
+
+            let got = get_g1_sum(&p_ser, &p_neg_ser, &mut logic);
+            assert_eq!(zero.to_vec(), got);
         }
     }
 
@@ -118,18 +115,9 @@ mod tests {
             let q = get_random_curve_point(&mut rnd);
             let q_ser = serialize_uncompressed_g1(&q);
 
-            let mut buffer = vec![vec![0], p_ser.to_vec(), vec![0], q_ser.to_vec()];
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            let got1 = logic.registers().get_for_free(0).unwrap().to_vec();
-
             // P + Q = Q + P
-            buffer = vec![vec![0], q_ser.to_vec(), vec![0], p_ser.to_vec()];
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            let got2 = logic.registers().get_for_free(0).unwrap().to_vec();
+            let got1 = get_g1_sum(&p_ser, &q_ser, &mut logic);
+            let got2 = get_g1_sum(&q_ser, &p_ser, &mut logic);
             assert_eq!(got1, got2);
 
             // compare with library results
@@ -147,13 +135,7 @@ mod tests {
             let q = get_random_g1_point(&mut rnd);
             let q_ser = serialize_uncompressed_g1(&q);
 
-            let buffer = vec![vec![0], p_ser.to_vec(), vec![0], q_ser.to_vec()];
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-
-            let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-
-            let got1 = logic.registers().get_for_free(0).unwrap().to_vec();
+            let got1 = get_g1_sum(&p_ser, &q_ser, &mut logic);
 
             let result_point = deserialize_g1(&got1).unwrap();
             assert!(subgroup_check_g1(&result_point));
