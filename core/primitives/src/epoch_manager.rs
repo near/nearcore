@@ -689,7 +689,6 @@ pub mod epoch_info {
             seat_price: Balance,
             protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
-            #[cfg(feature = "protocol_feature_chunk_validation")]
             validator_mandates: ValidatorMandates,
         ) -> Self {
             if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
@@ -704,17 +703,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!(
-                    "protocol_feature_chunk_validation",
-                    ChunkValidation,
-                    protocol_version
-                ) {
-                    // This block is entered only if feature `protocol_feature_chunk_validation` is
-                    // enabled. In that case `validator_mandates` is a parameter of the function and
-                    // the variable shadowing below is not included. Still, the following
-                    // declaration of `validator_mandates` is needed to satisfy the compiler.
-                    #[cfg(not(feature = "protocol_feature_chunk_validation"))]
-                    let validator_mandates = Default::default();
+                if checked_feature!("stable", ChunkValidation, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,
