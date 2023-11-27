@@ -157,6 +157,7 @@ pub enum Parameter {
     AltBn128,
     FunctionCallWeight,
     VmKind,
+    EthImplicitAccounts,
 }
 
 #[derive(

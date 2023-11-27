@@ -51,7 +51,7 @@ impl Packable for Scalar {
     type Packed = [u8; 32];
 
     fn unpack(data: &[u8; 32]) -> Option<Self> {
-        Scalar::from_canonical_bytes(*data)
+        Scalar::from_canonical_bytes(*data).into()
     }
 
     fn pack(&self) -> [u8; 32] {

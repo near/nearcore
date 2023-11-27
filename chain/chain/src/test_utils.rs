@@ -329,7 +329,7 @@ mod test {
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
-        for shard_id in 0..shard_layout.num_shards() {
+        for shard_id in shard_layout.shard_ids() {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {

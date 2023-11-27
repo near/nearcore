@@ -144,8 +144,7 @@ impl ShardedTransactionPool {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, str::FromStr};
-
+    use crate::client::ShardedTransactionPool;
     use near_crypto::{InMemorySigner, KeyType};
     use near_o11y::testonly::init_test_logger;
     use near_pool::types::PoolIterator;
@@ -157,9 +156,8 @@ mod tests {
         types::AccountId,
     };
     use near_store::ShardUId;
-    use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
-
-    use crate::client::ShardedTransactionPool;
+    use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
+    use std::{collections::HashMap, str::FromStr};
 
     const TEST_SEED: RngSeed = [3; 32];
 
@@ -206,9 +204,9 @@ mod tests {
         let n = 100;
         tracing::info!("inserting {n} transactions into the pool using the old shard layout");
         for i in 0..n {
-            let num_shards = old_shard_layout.num_shards();
-            let signer_shard_id = rng.gen_range(0..num_shards);
-            let receiver_shard_id = rng.gen_range(0..num_shards);
+            let shard_ids: Vec<_> = old_shard_layout.shard_ids().collect();
+            let &signer_shard_id = shard_ids.choose(&mut rng).unwrap();
+            let &receiver_shard_id = shard_ids.choose(&mut rng).unwrap();
             let nonce = i as u64;
 
             let signer_id = *shard_id_to_accounts[&signer_shard_id].choose(&mut rng).unwrap();
@@ -242,8 +240,8 @@ mod tests {
 
         tracing::info!("checking the pool after resharding");
         {
-            let num_shards = new_shard_layout.num_shards();
-            for shard_id in 0..num_shards {
+            let shard_ids: Vec<_> = new_shard_layout.shard_ids().collect();
+            for &shard_id in shard_ids.iter() {
                 let shard_id = shard_id as u32;
                 let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
                 let pool = pool.pool_for_shard(shard_uid);
@@ -253,7 +251,7 @@ mod tests {
             }
 
             let mut total = 0;
-            for shard_id in 0..num_shards {
+            for shard_id in shard_ids {
                 let shard_id = shard_id as u32;
                 let shard_uid = ShardUId { shard_id, version: new_shard_layout.version() };
                 let mut pool_iter = pool.get_pool_iterator(shard_uid).unwrap();

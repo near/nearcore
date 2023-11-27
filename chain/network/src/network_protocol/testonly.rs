@@ -216,15 +216,11 @@ impl ChunkSet {
         Self { chunks: HashMap::default() }
     }
     pub fn make(&mut self) -> Vec<ShardChunk> {
+        let shard_ids: Vec<_> = (0..4).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
-        let chunks = genesis_chunks(
-            vec![StateRoot::new()], // state_roots
-            4,                      // num_shards
-            1000,                   // initial_gas_limit
-            0,                      // genesis_height
-            version::PROTOCOL_VERSION,
-        );
+        let chunks =
+            genesis_chunks(vec![StateRoot::new()], &shard_ids, 1000, 0, version::PROTOCOL_VERSION);
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
     }

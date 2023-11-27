@@ -2561,6 +2561,8 @@ pub struct VMConfigView {
     pub alt_bn128: bool,
     /// See [`VMConfig::function_call_weight`].
     pub function_call_weight: bool,
+    /// See [`VMConfig::eth_implicit_accounts`].
+    pub eth_implicit_accounts: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -2585,6 +2587,7 @@ impl From<near_vm_runner::logic::Config> for VMConfigView {
             alt_bn128: config.alt_bn128,
             function_call_weight: config.function_call_weight,
             vm_kind: config.vm_kind,
+            eth_implicit_accounts: config.eth_implicit_accounts,
         }
     }
 }
@@ -2605,6 +2608,7 @@ impl From<VMConfigView> for near_vm_runner::logic::Config {
             alt_bn128: view.alt_bn128,
             function_call_weight: view.function_call_weight,
             vm_kind: view.vm_kind,
+            eth_implicit_accounts: view.eth_implicit_accounts,
         }
     }
 }

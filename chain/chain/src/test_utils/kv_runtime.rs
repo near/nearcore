@@ -417,6 +417,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(self.num_shards)
     }
 
+    fn shard_ids(&self, _epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
+        Ok((0..self.num_shards).collect())
+    }
+
     fn num_total_parts(&self) -> usize {
         12 + (self.num_shards as usize + 1) % 50
     }
@@ -956,6 +960,9 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<CryptoHash>, EpochError> {
         Ok(vec![])
     }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn force_update_aggregator(&self, _epoch_id: &EpochId, _hash: &CryptoHash) {}
 }
 
 impl RuntimeAdapter for KeyValueRuntime {

@@ -16,7 +16,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::types::{AccountId, Balance, TrieNodesCount};
-use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
@@ -336,12 +336,16 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
+
+    let receiver_id = match public_key.key_type() {
+        KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
+        KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+    };
 
     let transfer_cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => fee_helper.create_account_transfer_full_key_cost(),
-        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
-        AccountType::NamedAccount => std::panic!("must be near-implicit"),
+        AccountType::EthImplicitAccount => fee_helper.create_account_transfer_cost(),
+        AccountType::NamedAccount => std::panic!("must be implicit"),
     };
 
     let transaction_result =
@@ -369,8 +373,11 @@ pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) 
         AccountType::NearImplicitAccount => {
             assert_eq!(view_access_key.unwrap(), AccessKey::full_access().into());
         }
-        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
-        AccountType::NamedAccount => std::panic!("must be near-implicit"),
+        AccountType::EthImplicitAccount => {
+            // A transfer to ETH-implicit address does not create access key.
+            assert!(view_access_key.is_err());
+        }
+        AccountType::NamedAccount => std::panic!("must be implicit"),
     }
 
     let transaction_result =
@@ -401,31 +408,34 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
     let root = node_user.get_state_root();
     let tokens_used = 10u128.pow(25);
     let fee_helper = fee_helper(&node);
-    let receiver_id = derive_near_implicit_account_id(public_key.unwrap_as_ed25519());
+
+    let receiver_id = match public_key.key_type() {
+        KeyType::ED25519 => derive_near_implicit_account_id(public_key.unwrap_as_ed25519()),
+        KeyType::SECP256K1 => derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1()),
+    };
 
     let transaction_result = node_user
-        .create_account(
-            account_id.clone(),
-            receiver_id.clone(),
-            node.signer().public_key(),
-            tokens_used,
-        )
+        .create_account(account_id.clone(), receiver_id.clone(), public_key, tokens_used)
         .unwrap();
+
+    let create_account_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
+    let add_access_key_fee = fee_helper
+        .cfg()
+        .fee(near_primitives::config::ActionCosts::add_full_access_key)
+        .send_fee(false);
 
     let cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
-            let fail_cost =
-                fee_helper.create_account_transfer_full_key_cost_fail_on_create_account();
-            let create_account_fee =
-                fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
-            let add_access_key_fee = fee_helper
-                .cfg()
-                .fee(near_primitives::config::ActionCosts::add_full_access_key)
-                .send_fee(false);
-            fail_cost + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
+            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+                + fee_helper.gas_to_balance(create_account_fee + add_access_key_fee)
         }
-        AccountType::EthImplicitAccount => std::panic!("must be near-implicit"),
-        AccountType::NamedAccount => std::panic!("must be near-implicit"),
+        AccountType::EthImplicitAccount => {
+            // This test uses `node_user.create_account` method that is normally used for NamedAccounts and should fail here.
+            fee_helper.create_account_transfer_full_key_cost_fail_on_create_account()
+                // We add this fee analogously to the NEAR-implicit match arm above (without `add_access_key_fee`).
+                + fee_helper.gas_to_balance(create_account_fee)
+        }
+        AccountType::NamedAccount => std::panic!("must be implicit"),
     };
 
     assert_eq!(

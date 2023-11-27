@@ -66,7 +66,7 @@ pub fn spawn_state_sync_dump(
 
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
-    let num_shards = {
+    let shard_ids = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
             epoch_manager.clone(),
@@ -77,13 +77,14 @@ pub fn spawn_state_sync_dump(
             false,
         )?;
         let epoch_id = chain.head()?.epoch_id;
-        epoch_manager.num_shards(&epoch_id)
+        epoch_manager.shard_ids(&epoch_id)
     }?;
 
     let chain_id = client_config.chain_id.clone();
     let keep_running = Arc::new(AtomicBool::new(true));
     // Start a thread for each shard.
-    let handles = (0..num_shards as usize)
+    let handles = shard_ids
+        .into_iter()
         .map(|shard_id| {
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();

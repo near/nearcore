@@ -1,4 +1,6 @@
 use crate::types::BlockHeaderInfo;
+#[cfg(feature = "new_epoch_sync")]
+use crate::EpochInfoAggregator;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
@@ -34,6 +36,9 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     /// Get current number of shards.
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError>;
+
+    /// Get the list of shard ids
+    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError>;
 
     /// Number of Reed-Solomon parts we split each chunk into.
     ///
@@ -394,6 +399,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         last_block_info: &BlockInfo,
         hash_to_prev_hash: Option<&HashMap<CryptoHash, CryptoHash>>,
     ) -> Result<Vec<CryptoHash>, EpochError>;
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash);
 }
 
 impl EpochManagerAdapter for EpochManagerHandle {
@@ -405,6 +413,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn num_shards(&self, epoch_id: &EpochId) -> Result<NumShards, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_shard_layout(epoch_id)?.num_shards())
+    }
+
+    fn shard_ids(&self, epoch_id: &EpochId) -> Result<Vec<ShardId>, EpochError> {
+        let epoch_manager = self.read();
+        Ok(epoch_manager.get_shard_layout(epoch_id)?.shard_ids().collect())
     }
 
     fn num_total_parts(&self) -> usize {
@@ -974,5 +987,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
                 epoch_manager.get_all_epoch_hashes_from_cache(last_block_info, hash_to_prev_hash)
             }
         }
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn force_update_aggregator(&self, epoch_id: &EpochId, hash: &CryptoHash) {
+        let mut epoch_manager = self.write();
+        epoch_manager.epoch_info_aggregator = EpochInfoAggregator::new(epoch_id.clone(), *hash);
     }
 }

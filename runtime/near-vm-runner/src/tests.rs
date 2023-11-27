@@ -48,6 +48,7 @@ impl crate::logic::Config {
             ed25519_verify: config.ed25519_verify,
             alt_bn128: config.alt_bn128,
             function_call_weight: config.function_call_weight,
+            eth_implicit_accounts: config.eth_implicit_accounts,
             limit_config: crate::config::LimitConfig {
                 max_gas_burnt: config.limit_config.max_gas_burnt,
                 max_stack_height: config.limit_config.max_stack_height,
