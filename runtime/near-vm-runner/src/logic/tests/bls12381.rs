@@ -257,6 +257,23 @@ mod tests {
 
             assert_eq!(p_neg_ser.to_vec(), p_inv);
         }
+
+        // Not from G1 points
+        for _ in 0..10 {
+            let mut p = get_random_not_g1_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
+
+            let p_inv = get_g1_inverse(&p_ser, &mut logic);
+
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g1(&p);
+
+            assert_eq!(p_neg_ser.to_vec(), p_inv);
+        }
+
+        // -0
+        let zero_inv = get_g1_inverse(&zero, &mut logic);
+        assert_eq!(zero.to_vec(), zero_inv);
     }
 
 }
