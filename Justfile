@@ -8,6 +8,8 @@ with_macos_excludes := if os() == "macos" {
 }
 nightly_flags := "--features nightly,test_features"
 
+export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
+
 # all the tests, as close to CI as possible
 test: test-ci test-extra
 
@@ -55,6 +57,8 @@ codecov RULE:
     source <(cargo llvm-cov show-env --export-prefix)
     {{ just_executable() }} {{ RULE }}
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+    # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
+    find target -name '*.profraw' -delete
 
 # style checks from python scripts
 python-style-checks:
