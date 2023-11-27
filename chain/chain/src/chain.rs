@@ -93,7 +93,7 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
@@ -4771,27 +4771,30 @@ impl Chain {
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
-        if shard_layout.num_shards() == 1 {
+        let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
+        if shard_ids.len() == 1 {
             return vec![CryptoHash::hash_borsh(ReceiptList(0, receipts))];
         }
-        let mut account_id_to_shard_id_map = HashMap::new();
-        let mut shard_receipts: Vec<_> =
-            shard_layout.shard_ids().into_iter().map(|shard_id| (shard_id, Vec::new())).collect();
-        for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
-                Some(id) => *id,
-                None => {
-                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
-                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
-                    id
-                }
-            };
-            shard_receipts[shard_id as usize].1.push(receipt);
+        // Using a BTreeMap instead of HashMap to enable in order iteration
+        // below.
+        //
+        // Pre-populating because even if there are no receipts for a shard, we
+        // need an empty vector for it.
+        let mut result: BTreeMap<_, _> =
+            shard_ids.into_iter().map(|shard_id| (shard_id, vec![])).collect();
+        let mut cache = HashMap::new();
+        for receipt in receipts {
+            let &mut shard_id = cache
+                .entry(&receipt.receiver_id)
+                .or_insert_with(|| account_id_to_shard_id(&receipt.receiver_id, shard_layout));
+            // This unwrap should be safe as we pre-populated the map with all
+            // valid shard ids.
+            result.get_mut(&shard_id).unwrap().push(receipt);
         }
-        shard_receipts
+        result
             .into_iter()
-            .map(|(i, rs)| {
-                let bytes = borsh::to_vec(&(i, rs)).unwrap();
+            .map(|(shard_id, receipts)| {
+                let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
                 hash(&bytes)
             })
             .collect()
