@@ -70,6 +70,13 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g1_sum_many_points(buffer: &Vec<Vec<u8>>, logic: &mut TestVMLogic) -> Vec<u8> {
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     #[test]
     fn test_bls12381_g1_sum_edge_cases() {
         let mut logic_builder = VMLogicBuilder::default();
@@ -274,6 +281,21 @@ mod tests {
         // -0
         let zero_inv = get_g1_inverse(&zero, &mut logic);
         assert_eq!(zero.to_vec(), zero_inv);
+    }
+
+    #[test]
+    fn test_bls12381_g1_sum_many_points() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut rnd = get_rnd();
+
+        let mut zero: [u8; 96] = [0; 96];
+        zero[0] = 64;
+
+        //empty input
+        let res = get_g1_sum_many_points(&vec![vec![0u8; 0]], &mut logic);
+        assert_eq!(zero.to_vec(), res);
     }
 
 }
