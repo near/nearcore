@@ -62,11 +62,7 @@ jobs:
       - run: cargo nextest run --locked --workspace --exclude integration-tests --cargo-profile dev-release --profile ci ${{ matrix.flags }}
         env:
           RUST_BACKTRACE: short
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
-      - uses: actions/upload-artifact@v3
-        with:
-          name: cov-${{ matrix.id }}-unit
-          path: codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path unit-${{ matrix.id }}.json
       # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
       - run: find target -name '*.profraw' -delete
 
@@ -75,12 +71,14 @@ jobs:
         if: matrix.run_integ_tests
         env:
           RUST_BACKTRACE: short
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path integration-${{ matrix.id }}.json
         if: matrix.run_integ_tests
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-${{ matrix.id }}-integration
-          path: codecov.json
+          name: coverage
+          path: |
+            unit-${{ matrix.id }}.json
+            integration-${{ matrix.id }}.json
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
@@ -115,11 +113,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-backward-compat.json
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-py-backward-compat
-          path: codecov.json
+          name: coverage
+          path: py-backward-compat.json
 
   py_db_migration:
     name: "Database Migration"
@@ -145,11 +143,11 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/db_migration.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-db-migration.json
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-py-db-migration
-          path: codecov.json
+          name: coverage
+          path: py-db-migration.json
 
   py_sanity_checks:
     name: "Sanity Checks"
@@ -183,11 +181,11 @@ jobs:
       - run: python3 pytest/tests/sanity/spin_up_cluster.py
         env:
           NEAR_ROOT: "target/dev-release"
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-sanity-checks.json
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-py-sanity-checks
-          path: codecov.json
+          name: coverage
+          path: py-sanity-checks.json
 
   py_genesis_check:
     name: "Genesis Changes"
@@ -212,11 +210,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-genesis-check.json
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-py-genesis-check
-          path: codecov.json
+          name: coverage
+          path: py-genesis-check.json
 
   py_style_check:
     name: "Style"
@@ -256,11 +254,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/upgradable.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-upgradability.json
       - uses: actions/upload-artifact@v3
         with:
-          name: cov-py-upgradability
-          path: codecov.json
+          name: coverage
+          path: py-upgradability.json
 
   rpc_error_schema:
     name: "RPC Schema"
@@ -306,69 +304,71 @@ jobs:
       - py_upgradability
     steps:
       - uses: actions/download-artifact@v3
+        with:
+          name: coverage
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-linux-unit/codecov.json
+          files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-linux-nightly-unit/codecov.json
+          files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-macos-unit/codecov.json
+          files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-linux-integration/codecov.json
+          files: integration-linux.json
           fail_ci_if_error: true
           flags: integration-tests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-linux-nightly-integration/codecov.json
+          files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-macos-integration/codecov.json
+          files: integration-macos.json
           fail_ci_if_error: true
           flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-py-backward-compat/codecov.json
+          files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-py-db-migration/codecov.json
+          files: py-db-migration.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-py-sanity-checks/codecov.json
+          files: py-sanity-checks.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-py-genesis-check/codecov.json
+          files: py-genesis-check.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: cov-py-upgradability/codecov.json
+          files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
