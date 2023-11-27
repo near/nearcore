@@ -305,6 +305,7 @@ jobs:
       - py_genesis_check
       - py_upgradability
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v3
         with:
           name: coverage
