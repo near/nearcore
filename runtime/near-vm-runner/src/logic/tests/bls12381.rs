@@ -52,8 +52,8 @@ mod tests {
         rnd
     }
 
-    fn get_g1_sum(p: &[u8], q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
-        let buffer = vec![vec![0], p.to_vec(), vec![0], q.to_vec()];
+    fn get_g1_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
+        let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
@@ -69,7 +69,7 @@ mod tests {
         // 0 + 0
         let mut zero: [u8; 96] = [0; 96];
         zero[0] = 64;
-        let got = get_g1_sum(&zero, &zero, &mut logic);
+        let got = get_g1_sum(0, &zero, 0, &zero, &mut logic);
         assert_eq!(zero.to_vec(), got);
 
         // 0 + P = P + 0 = P
@@ -78,10 +78,10 @@ mod tests {
             let p = get_random_g1_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
-            let got = get_g1_sum(&zero, &p_ser, &mut logic);
+            let got = get_g1_sum(0, &zero, 0, &p_ser, &mut logic);
             assert_eq!(p_ser.to_vec(), got);
 
-            let got = get_g1_sum(&p_ser, &zero, &mut logic);
+            let got = get_g1_sum(0,&p_ser, 0, &zero, &mut logic);
             assert_eq!(p_ser.to_vec(), got);
         }
 
@@ -93,10 +93,10 @@ mod tests {
             p.neg();
             let p_neg_ser = serialize_uncompressed_g1(&p);
 
-            let got = get_g1_sum(&p_neg_ser, &p_ser, &mut logic);
+            let got = get_g1_sum(0, &p_neg_ser, 0, &p_ser, &mut logic);
             assert_eq!(zero.to_vec(), got);
 
-            let got = get_g1_sum(&p_ser, &p_neg_ser, &mut logic);
+            let got = get_g1_sum(0, &p_ser, 0, &p_neg_ser, &mut logic);
             assert_eq!(zero.to_vec(), got);
         }
 
@@ -109,7 +109,7 @@ mod tests {
             let pmul2 = p.mul(&Big::from_bytes(&[2]));
             let pmul2_ser = serialize_uncompressed_g1(&pmul2);
 
-            let got = get_g1_sum(&p_ser, &p_ser, &mut logic);
+            let got = get_g1_sum(0, &p_ser, 0, &p_ser, &mut logic);
             assert_eq!(pmul2_ser.to_vec(), got);
         }
 
@@ -124,7 +124,7 @@ mod tests {
 
             p.neg();
             let p_neg_ser = serialize_uncompressed_g1(&p);
-            let got = get_g1_sum(&p_ser, &pmul2_neg_ser, &mut logic);
+            let got = get_g1_sum(0, &p_ser, 0, &pmul2_neg_ser, &mut logic);
             assert_eq!(p_neg_ser.to_vec(), got);
         }
     }
@@ -144,8 +144,8 @@ mod tests {
             let q_ser = serialize_uncompressed_g1(&q);
 
             // P + Q = Q + P
-            let got1 = get_g1_sum(&p_ser, &q_ser, &mut logic);
-            let got2 = get_g1_sum(&q_ser, &p_ser, &mut logic);
+            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser, &mut logic);
+            let got2 = get_g1_sum(0, &q_ser,0,  &p_ser, &mut logic);
             assert_eq!(got1, got2);
 
             // compare with library results
@@ -163,7 +163,7 @@ mod tests {
             let q = get_random_g1_point(&mut rnd);
             let q_ser = serialize_uncompressed_g1(&q);
 
-            let got1 = get_g1_sum(&p_ser, &q_ser, &mut logic);
+            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser, &mut logic);
 
             let result_point = deserialize_g1(&got1).unwrap();
             assert!(subgroup_check_g1(&result_point));
@@ -186,8 +186,8 @@ mod tests {
             let q_ser = serialize_uncompressed_g1(&q);
 
             // P + Q = Q + P
-            let got1 = get_g1_sum(&p_ser, &q_ser, &mut logic);
-            let got2 = get_g1_sum(&q_ser, &p_ser, &mut logic);
+            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser, &mut logic);
+            let got2 = get_g1_sum(0, &q_ser, 0, &p_ser, &mut logic);
             assert_eq!(got1, got2);
 
             // compare with library results
@@ -197,4 +197,27 @@ mod tests {
             assert_eq!(library_sum.to_vec(), got1);
         }
     }
+
+    #[test]
+    fn test_bls12381_g1_sum_inverse() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut rnd = get_rnd();
+
+        let mut zero: [u8; 96] = [0; 96];
+        zero[0] = 64;
+
+        for _ in 0..10 {
+            let p = get_random_not_g1_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g1(&p);
+
+            // P - P = - P + P = 0
+            let got1 = get_g1_sum(1, &p_ser, 0,&p_ser, &mut logic);
+            let got2 = get_g1_sum(0,&p_ser, 1, &p_ser, &mut logic);
+            assert_eq!(got1, got2);
+            assert_eq!(got1, zero.to_vec());
+        }
+    }
+
 }
