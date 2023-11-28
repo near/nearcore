@@ -17,7 +17,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
     #[error("found multiple entries for the same peer_id")]
     DuplicatePeerId,

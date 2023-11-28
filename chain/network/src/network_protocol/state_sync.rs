@@ -79,7 +79,7 @@ pub struct SyncSnapshotHosts {
     pub hosts: Vec<Arc<SnapshotHostInfo>>,
 }
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub enum SnapshotHostInfoVerificationError {
     #[error("SnapshotHostInfo is signed with an invalid signature")]
     InvalidSignature,
