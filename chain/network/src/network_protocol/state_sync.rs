@@ -3,6 +3,7 @@ use near_crypto::SecretKey;
 use near_crypto::Signature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::sharding::MAX_SHARDS_PER_HOST;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 
@@ -54,8 +55,18 @@ impl SnapshotHostInfo {
         Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards)
     }
 
-    pub(crate) fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.peer_id.public_key())
+    pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
+        if !self.signature.verify(self.hash().as_ref(), self.peer_id.public_key()) {
+            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+        }
+
+        // Number of shards must be limited, otherwise it'd be possible to create malicious
+        // messages with millions of shard ids.
+        if self.shards.len() > MAX_SHARDS_PER_HOST {
+            return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
+        }
+
+        Ok(())
     }
 }
 
@@ -66,4 +77,15 @@ impl SnapshotHostInfo {
 #[derive(Clone, Debug, Eq, PartialEq, Hash, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct SyncSnapshotHosts {
     pub hosts: Vec<Arc<SnapshotHostInfo>>,
+}
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum SnapshotHostInfoVerificationError {
+    #[error("SnapshotHostInfo is signed with an invalid signature")]
+    InvalidSignature,
+    #[error(
+        "SnapshotHostInfo contains more shards than allowed: {0} > {} (MAX_SHARDS_PER_HOST)",
+        MAX_SHARDS_PER_HOST
+    )]
+    TooManyShards(usize),
 }
