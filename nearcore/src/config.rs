@@ -134,7 +134,6 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
@@ -933,9 +932,7 @@ fn generate_or_load_keys(
 ) -> anyhow::Result<()> {
     generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
     match chain_id {
-        near_primitives::chains::MAINNET
-        | near_primitives::chains::TESTNET
-        | near_primitives::chains::BETANET => {
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
@@ -946,7 +943,7 @@ fn generate_or_load_keys(
     Ok(())
 }
 
-fn set_block_production_delay(chain_id: &str, config: &mut Config) {
+fn set_block_production_delay(fast: bool, chain_id: &str, config: &mut Config) {
     match chain_id {
         near_primitives::chains::MAINNET => {
             config.consensus.min_block_production_delay =
@@ -960,7 +957,14 @@ fn set_block_production_delay(chain_id: &str, config: &mut Config) {
             config.consensus.max_block_production_delay =
                 Duration::from_millis(TESTNET_MAX_BLOCK_PRODUCTION_DELAY);
         }
-        _ => {}
+        _ => {
+            if fast {
+                config.consensus.min_block_production_delay =
+                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                config.consensus.max_block_production_delay =
+                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+            }
+        }
     }
 }
 
@@ -1015,6 +1019,9 @@ pub fn init_configs(
     }
 
     let mut config = Config::default();
+    // Make sure node tracks all shards, see
+    // https://github.com/near/nearcore/issues/7388
+    config.tracked_shards = vec![0];
     // If a config gets generated, block production times may need to be updated.
     set_block_production_delay(&chain_id, &mut config);
 
@@ -1033,46 +1040,36 @@ pub fn init_configs(
         config.network.boot_nodes = nodes.to_string();
     }
 
-    if max_gas_burnt_view.is_some() {
-        config.max_gas_burnt_view = max_gas_burnt_view;
+    if let Some(max_gas_burnt_view) = max_gas_burnt_view {
+        config.max_gas_burnt_view = Some(max_gas_burnt_view);
     }
 
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
     generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        near_primitives::chains::MAINNET => {
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
+            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
+        }
+        _ => {
+            // Create new configuration, key files and genesis for one validator.
+            config.network.skip_sync_wait = true;
+        }
+    }
 
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
+    config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+        format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+    })?;
 
-            config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
+    match chain_id.as_ref() {
+        near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
-
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        near_primitives::chains::TESTNET | near_primitives::chains::BETANET => {
-            if test_seed.is_some() {
-                bail!("Test seed is not supported for {chain_id}");
-            }
-
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
-
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
+        near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
                 let records_path = dir.join(filename);
 
@@ -1102,11 +1099,7 @@ pub fn init_configs(
                 genesis_path_str = match genesis {
                     Some(g) => g,
                     None => {
-                        bail!(
-                            "Genesis file is required for {}.\
-                             Use <--genesis|--download-genesis>",
-                            &chain_id
-                        );
+                        bail!("Genesis file is required for {chain_id}.\nUse <--genesis|--download-genesis>");
                     }
                 };
             }
@@ -1129,27 +1122,9 @@ pub fn init_configs(
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
+            info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
         }
         _ => {
-            // Create new configuration, key files and genesis for one validator.
-            config.network.skip_sync_wait = true;
-
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
-
-            if fast {
-                config.consensus.min_block_production_delay =
-                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
-                config.consensus.max_block_production_delay =
-                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-            }
-
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
             let validator_file = dir.join(&config.validator_key_file);
             let signer = InMemorySigner::from_file(&validator_file).unwrap();
 
@@ -1167,7 +1142,7 @@ pub fn init_configs(
                 ShardLayout::v1(
                     (1..num_shards)
                         .map(|f| {
-                            AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap()
+                            AccountId::from_str(format!("shard{f}.test.near").as_str()).unwrap()
                         })
                         .collect(),
                     None,
@@ -1495,9 +1470,7 @@ pub fn load_config(
             if validator_signer.is_some()
                 && matches!(
                     genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET
-                        | near_primitives::chains::TESTNET
-                        | near_primitives::chains::BETANET
+                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
                 )
                 && config.tracked_shards.is_empty()
             {

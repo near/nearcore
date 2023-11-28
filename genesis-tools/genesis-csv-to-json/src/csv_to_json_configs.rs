@@ -25,8 +25,7 @@ fn verify_total_supply(total_supply: Balance, chain_id: &str) {
             "Total supply should be exactly 1 billion"
         );
     } else if total_supply > 10_000_000_000 * NEAR_BASE
-        && (chain_id == near_primitives::chains::TESTNET
-            || chain_id == near_primitives::chains::STAKEWARS)
+        && chain_id == near_primitives::chains::TESTNET
     {
         panic!("Total supply should not be more than 10 billion");
     }
