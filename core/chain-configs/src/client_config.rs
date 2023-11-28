@@ -302,6 +302,9 @@ pub struct ClientConfig {
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
     pub state_split_config: StateSplitConfig,
+    /// If the node is not a chunk producer within that many blocks, then route
+    /// to upcoming chunk producers.
+    pub tx_routing_height_horizon: BlockHeightDelta,
 }
 
 impl ClientConfig {
@@ -377,6 +380,7 @@ impl ClientConfig {
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
             state_split_config: StateSplitConfig::default(),
+            tx_routing_height_horizon: 4,
         }
     }
 }

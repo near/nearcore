@@ -244,6 +244,7 @@ pub fn setup_mock_node(
         &chain_genesis,
         DoomslugThresholdMode::NoApprovals,
         config.client_config.save_trie_changes,
+        4,
     )
     .unwrap();
     let head = chain.head().unwrap();

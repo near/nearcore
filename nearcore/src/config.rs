@@ -194,6 +194,10 @@ fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
 }
 
+fn default_tx_routing_height_horizon() -> BlockHeightDelta {
+    4
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -341,7 +345,11 @@ pub struct Config {
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
+    // Configuration for resharding.
     pub state_split_config: StateSplitConfig,
+    /// If the node is not a chunk producer within that many blocks, then route
+    /// to upcoming chunk producers.
+    pub tx_routing_height_horizon: BlockHeightDelta,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -383,6 +391,7 @@ impl Default for Config {
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             enable_multiline_logging: None,
             state_split_config: StateSplitConfig::default(),
+            tx_routing_height_horizon: default_tx_routing_height_horizon(),
         }
     }
 }
@@ -680,6 +689,7 @@ impl NearConfig {
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
                 state_split_config: config.state_split_config,
+                tx_routing_height_horizon: config.tx_routing_height_horizon,
             },
             network_config: NetworkConfig::new(
                 config.network,
