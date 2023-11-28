@@ -1,4 +1,4 @@
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::{testonly as data, SnapshotHostInfoVerificationError};
 use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache};
 use crate::testonly::assert_is_superset;
 use crate::testonly::{make_rng, AsSet as _};
@@ -87,7 +87,12 @@ async fn invalid_signature() {
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, vec![0, 1, 2, 3], &key1));
     let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()]).await;
     // invalid signature => InvalidSignature
-    assert_eq!(Some(SnapshotHostInfoError::InvalidSignature), res.1);
+    assert_eq!(
+        Some(SnapshotHostInfoError::VerificationError(
+            SnapshotHostInfoVerificationError::InvalidSignature
+        )),
+        res.1
+    );
     // Partial update is allowed in case an error is encountered.
     // The valid info1 may or may not be processed before the invalid info0 is detected
     // due to parallelization, so we check for superset rather than strict equality.
