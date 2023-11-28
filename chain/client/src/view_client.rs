@@ -11,7 +11,6 @@ use crate::{
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
-use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -531,7 +530,7 @@ impl ViewClientActor {
                     .epoch_manager
                     .get_chunk_producer(
                         &head.epoch_id,
-                        head.height + TX_ROUTING_HEIGHT_HORIZON - 1,
+                        head.height + self.config.tx_routing_height_horizon - 1,
                         target_shard_id,
                     )
                     .map_err(|err| TxStatusError::ChainError(err.into()))?;
