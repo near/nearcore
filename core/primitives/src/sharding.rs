@@ -15,6 +15,15 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug_span;
 
+/// Maximum number of shards that can be tracked by a single host (peer).
+/// A single host can track multiple shards, but it's unreasonable for them
+/// to handle more than MAX_SHARDS_PER_HOST. Tracking a shard requires a significant
+/// amount of resources, tracking this many would be impractical.
+/// One reason why it's useful to have a limit of shards per host is because it allows to
+/// limit the size of incoming messages that contain some kind of information for each tracked shard.
+/// Without this limit we would have to handle messages with thousands of shard ids, which could cause problems.
+pub const MAX_SHARDS_PER_HOST: usize = 128;
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
