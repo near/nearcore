@@ -71,7 +71,7 @@ pub fn try_map_result<I: ParallelIterator, T: Send, E: Error + Send>(
     let results_iter = optional_result_iter.while_some();
 
     // Split the results into two groups - the left group contains the outputs resulting from a successful execution,
-    // while the right group contains errors. Collect them into twp separate Vecs.
+    // while the right group contains errors. Collect them into two separate Vecs.
     let (outputs, errors): (Vec<T>, Vec<E>) = results_iter
         .map(|res| match res {
             Ok(value) => Either::Left(value),
