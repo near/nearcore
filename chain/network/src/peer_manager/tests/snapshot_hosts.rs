@@ -263,7 +263,7 @@ async fn too_many_shards_not_broadcast() {
                 return; // Received the expected message - end the test
             }
 
-            // Even though `ok_info_a`` and `ok_info_b`` were sent in an invalid message,
+            // Even though `ok_info_a` and `ok_info_b` were sent in an invalid message,
             // they were themselevs valid so the PeerManager can optionally accept them
             // and broadcast them to other peers. This is an expected behavior, let's filter them out here.
             if info == ok_info_a || info == ok_info_b {
