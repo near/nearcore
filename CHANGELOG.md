@@ -1,5 +1,19 @@
 # Changelog
 
+## [unreleased]
+
+### Protocol Changes
+
+* Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
+* Adjust the number of block producers and chunk producers on testnet to facilitate testing of chunk-only producers [#9563](https://github.com/near/nearcore/pull/9563)
+
+
+### Non-protocol Changes
+
+* Add prometheus metrics for the internal state of the doomslug. [#9458](https://github.com/near/nearcore/pull/9458)
+* Fix `EXPERIMENTAL_protocol_config` to apply overrides from `EpochConfig`. [#9692](https://github.com/near/nearcore/pull/9692)
+* Add config option `tx_routing_height_horizon` to configure how many chunk producers are notified about the tx. [#10251](https://github.com/near/nearcore/pull/10251)
+
 ## 1.36.0
 
 ### Protocol Changes
