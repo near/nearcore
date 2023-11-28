@@ -11,6 +11,7 @@ use crate::{
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
+use near_chain::chain::TX_ROUTING_HEIGHT_HORIZON;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -526,7 +527,14 @@ impl ViewClientActor {
                     .epoch_manager
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
-                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
+                let validator = self
+                    .epoch_manager
+                    .get_chunk_producer(
+                        &head.epoch_id,
+                        head.height + TX_ROUTING_HEIGHT_HORIZON - 1,
+                        target_shard_id,
+                    )
+                    .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
