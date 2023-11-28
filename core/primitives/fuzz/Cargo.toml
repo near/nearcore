@@ -16,17 +16,19 @@ arbitrary.workspace = true
 libfuzzer-sys.workspace = true
 wasm-smith.workspace = true
 wasmprinter.workspace = true
+borsh.workspace = true
 
 near-primitives.workspace = true
 near-test-contracts.workspace = true
-near-vm-errors.workspace = true
-near-vm-logic.workspace = true
 near-vm-runner.workspace = true
 near-network.workspace = true
 near-crypto.workspace = true
 near-chain.workspace = true
 near-chunks.workspace = true
 near-epoch-manager.workspace = true
+near-store.workspace = true
+near-async.workspace = true
+
 
 [[bin]]
 name = "block"

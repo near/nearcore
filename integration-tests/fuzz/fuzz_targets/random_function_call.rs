@@ -13,6 +13,7 @@ struct Params {
 
 impl Params {
     fn random_method_name(&self) -> String {
+        // some interesting methods
         let method_names = vec![
             "storage_deposit",
             "storage_withdraw",
@@ -32,12 +33,11 @@ fn create_runtime_node() -> impl Node {
     RuntimeNode::new(&alice_account())
 }
 
+// Only looking for an unhandled crash
 libfuzzer_sys::fuzz_target!(|args: Params| {
     let node = create_runtime_node();
     let node_user = node.user();
-    let root = node_user.get_state_root();
-    let transaction_result = node_user
-        .function_call(alice_account(), bob_account(), args.random_method_name().as_str(), args.args, 10u64.pow(14), 0)
-        .unwrap();
+    let _ = node_user
+        .function_call(alice_account(), bob_account(), args.random_method_name().as_str(), args.args, 10u64.pow(14), 0);
 });
 

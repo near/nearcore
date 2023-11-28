@@ -174,28 +174,23 @@ impl<'a> VMLogic<'a> {
         &self.logs
     }
 
-    /// Returns receipt metadata for created receipts
-    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
-        &self.receipt_manager.action_receipts
-    }
-
-    pub(crate) fn receipt_manager(&self) -> &ReceiptManager {
-        &self.receipt_manager
-    }
-
-    pub(crate) fn gas_counter(&self) -> &GasCounter {
+    #[cfg(test)]
+    pub(super) fn gas_counter(&self) -> &GasCounter {
         &self.gas_counter
     }
 
-    pub(crate) fn config(&self) -> &VMConfig {
+    #[cfg(test)]
+    pub(super) fn config(&self) -> &Config {
         &self.config
     }
 
-    pub(crate) fn memory(&mut self) -> &mut crate::vmstate::Memory<'a> {
+    #[cfg(test)]
+    pub(super) fn memory(&mut self) -> &mut super::vmstate::Memory<'a> {
         &mut self.memory
     }
 
-    pub(crate) fn registers(&mut self) -> &mut crate::vmstate::Registers {
+    #[cfg(test)]
+    pub(super) fn registers(&mut self) -> &mut super::vmstate::Registers {
         &mut self.registers
     }
 
@@ -2957,3 +2952,4 @@ impl std::fmt::Debug for VMOutcome {
         Ok(())
     }
 }
+

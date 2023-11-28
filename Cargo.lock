@@ -2862,7 +2862,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests-fuzz"
-version = "1.35.0"
+version = "0.0.0"
 dependencies = [
  "arbitrary",
  "integration-tests",
@@ -3436,6 +3436,7 @@ version = "1.0.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d10d45a9c49c3e975c362cf4d1dc1d7b72a716b30394bea56ee2a8fb225f50b7"
 dependencies = [
+ "arbitrary",
  "borsh 1.0.0",
  "serde",
 ]
@@ -3700,19 +3701,20 @@ dependencies = [
 
 [[package]]
 name = "near-core-primitives-fuzz"
-version = "1.35.0"
+version = "0.0.0"
 dependencies = [
  "arbitrary",
+ "borsh 1.0.0",
  "libfuzzer-sys",
+ "near-async",
  "near-chain",
  "near-chunks",
  "near-crypto",
  "near-epoch-manager",
  "near-network",
  "near-primitives",
+ "near-store",
  "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-runner",
  "wasm-smith",
  "wasmprinter",
@@ -3722,6 +3724,7 @@ dependencies = [
 name = "near-crypto"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "blake2",
  "borsh 1.0.0",
  "bs58",
@@ -4642,234 +4645,6 @@ dependencies = [
  "tracing-subscriber",
  "wat",
  "winapi",
-]
-
-[[package]]
-name = "near-vm-compiler"
-version = "1.35.0"
-dependencies = [
- "enumset",
- "finite-wasm",
- "hashbrown 0.11.2",
- "near-vm-types",
- "near-vm-vm",
- "rkyv",
- "smallvec",
- "target-lexicon 0.12.3",
- "thiserror",
- "tracing",
- "wasmparser 0.99.0",
-]
-
-[[package]]
-name = "near-vm-compiler-fuzz"
-version = "1.35.0"
-dependencies = [
- "arbitrary",
- "borsh 0.10.2",
- "ed25519-dalek",
- "libfuzzer-sys",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-o11y",
- "near-primitives",
- "near-primitives-core",
- "near-stdx",
- "near-test-contracts",
- "near-vm",
- "near-vm-compiler",
- "near-vm-engine",
- "near-vm-engine-universal",
- "near-vm-errors",
- "near-vm-logic",
- "near-vm-runner",
- "near-vm-vm",
- "ripemd",
- "serde",
- "serde_json",
- "sha2 0.10.6",
- "sha3",
- "tracing",
- "wasm-smith",
- "wasmprinter",
- "zeropool-bn",
-]
-
-[[package]]
-name = "near-vm-compiler-singlepass"
-version = "1.35.0"
-dependencies = [
- "dynasm",
- "dynasmrt",
- "enumset",
- "finite-wasm",
- "hashbrown 0.11.2",
- "lazy_static",
- "memoffset",
- "more-asserts",
- "near-vm-compiler",
- "near-vm-types",
- "near-vm-vm",
- "rayon",
- "smallvec",
- "strum",
- "target-lexicon 0.12.3",
- "tracing",
-]
-
-[[package]]
-name = "near-vm-compiler-test-derive"
-version = "1.35.0"
-dependencies = [
- "pretty_assertions",
- "proc-macro2",
- "quote",
- "syn 2.0.15",
- "trybuild",
-]
-
-[[package]]
-name = "near-vm-engine"
-version = "1.35.0"
-dependencies = [
- "backtrace",
- "enumset",
- "finite-wasm",
- "lazy_static",
- "memmap2",
- "more-asserts",
- "near-vm-compiler",
- "near-vm-types",
- "near-vm-vm",
- "rustc-demangle",
- "target-lexicon 0.12.3",
- "thiserror",
-]
-
-[[package]]
-name = "near-vm-engine-universal"
-version = "1.35.0"
-dependencies = [
- "cfg-if 1.0.0",
- "enumset",
- "finite-wasm",
- "leb128",
- "near-vm-compiler",
- "near-vm-engine",
- "near-vm-types",
- "near-vm-vm",
- "prefix-sum-vec",
- "region",
- "rkyv",
- "thiserror",
- "tracing",
- "wasmparser 0.99.0",
- "winapi",
-]
-
-[[package]]
-name = "near-vm-errors"
-version = "1.35.0"
-dependencies = [
- "borsh 0.10.2",
- "near-account-id",
- "near-rpc-error-macro",
- "serde",
- "strum",
- "thiserror",
-]
-
-[[package]]
-name = "near-vm-logic"
-version = "1.35.0"
-dependencies = [
- "borsh 0.10.2",
- "ed25519-dalek",
- "expect-test",
- "hex",
- "near-account-id",
- "near-crypto",
- "near-fmt",
- "near-o11y",
- "near-primitives",
- "near-primitives-core",
- "near-stdx",
- "near-vm-errors",
- "ripemd",
- "serde",
- "serde_json",
- "sha2 0.10.6",
- "sha3",
- "tracing",
- "zeropool-bn",
-]
-
-[[package]]
-name = "near-vm-runner"
-version = "1.35.0"
-dependencies = [
- "anyhow",
- "arbitrary",
- "assert_matches",
- "bolero",
- "borsh 0.10.2",
- "clap 4.2.4",
- "expect-test",
- "finite-wasm",
- "hex",
- "loupe",
- "memoffset",
- "near-cache",
- "near-primitives",
- "near-primitives-core",
- "near-stable-hasher",
- "near-test-contracts",
- "near-vm-compiler",
- "near-vm-compiler-singlepass",
- "near-vm-engine",
- "near-vm-engine-universal",
- "near-vm-errors",
- "near-vm-logic",
- "near-vm-types",
- "near-vm-vm",
- "once_cell",
- "parity-wasm 0.41.0",
- "parity-wasm 0.42.2",
- "prefix-sum-vec",
- "pwasm-utils",
- "rand 0.8.5",
- "serde",
- "tracing",
- "wasm-encoder 0.27.0",
- "wasm-smith",
- "wasmer-compiler-near",
- "wasmer-compiler-singlepass-near",
- "wasmer-engine-near",
- "wasmer-engine-universal-near",
- "wasmer-runtime-core-near",
- "wasmer-runtime-near",
- "wasmer-types-near",
- "wasmer-vm-near",
- "wasmparser 0.78.2",
- "wasmprinter",
- "wasmtime",
- "wat",
-]
-
-[[package]]
-name = "near-vm-runner-fuzz"
-version = "1.35.0"
-dependencies = [
- "arbitrary",
- "libfuzzer-sys",
- "near-primitives",
- "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
- "near-vm-runner",
- "wasm-smith",
- "wasmprinter",
 ]
 
 [[package]]
@@ -6308,7 +6083,7 @@ dependencies = [
 
 [[package]]
 name = "runtime-runtime-fuzz"
-version = "1.35.0"
+version = "0.0.0"
 dependencies = [
  "arbitrary",
  "libfuzzer-sys",
@@ -6319,8 +6094,6 @@ dependencies = [
  "near-network",
  "near-primitives",
  "near-test-contracts",
- "near-vm-errors",
- "near-vm-logic",
  "near-vm-runner",
  "node-runtime",
  "wasm-smith",

@@ -4,7 +4,6 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, ReceiptEnum};
-use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 
 /// Initial balance used in tests.

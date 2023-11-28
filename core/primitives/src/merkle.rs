@@ -2,6 +2,8 @@ use crate::hash::CryptoHash;
 use crate::types::MerkleHash;
 use borsh::{BorshDeserialize, BorshSerialize};
 
+use arbitrary::Arbitrary;
+
 #[derive(
     Debug,
     Clone,
@@ -11,6 +13,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub struct MerklePathItem {
     pub hash: MerkleHash,
@@ -28,6 +31,7 @@ pub type MerklePath = Vec<MerklePathItem>;
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub enum Direction {
     Left,

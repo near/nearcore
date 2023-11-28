@@ -14,6 +14,7 @@ use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::sync::Arc;
+use arbitrary::Arbitrary;
 
 /// Hash used by to store state root.
 pub type StateRoot = CryptoHash;
@@ -515,11 +516,12 @@ pub mod validator_stake {
     use near_crypto::PublicKey;
     use near_primitives_core::types::{AccountId, Balance};
     use serde::Serialize;
+    use arbitrary::Arbitrary;
 
     pub use super::ValidatorStakeV1;
 
     /// Stores validator and its stake.
-    #[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+    #[derive(BorshSerialize, BorshDeserialize, Serialize, Arbitrary, Debug, Clone, PartialEq, Eq)]
     #[serde(tag = "validator_stake_struct_version")]
     pub enum ValidatorStake {
         V1(ValidatorStakeV1),
@@ -699,6 +701,15 @@ pub struct ValidatorStakeV1 {
     pub public_key: PublicKey,
     /// Stake / weight of the validator.
     pub stake: Balance,
+}
+
+impl Arbitrary<'_> for ValidatorStakeV1 {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let account_id = AccountId::arbitrary(u)?;
+        let public_key = PublicKey::arbitrary(u)?;
+        let stake = Balance::arbitrary(u)?;
+        Ok(ValidatorStakeV1 { account_id, public_key, stake })
+    }
 }
 
 /// Information after block was processed.

@@ -5,6 +5,8 @@ use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use std::sync::Arc;
+use arbitrary::{Arbitrary, Unstructured};
 
 /// Serialized TrieNodeWithSize or state value.
 pub type TrieValue = std::sync::Arc<[u8]>;
@@ -17,6 +19,18 @@ pub enum PartialState {
     TrieValues(Vec<TrieValue>),
 }
 
+impl Arbitrary<'_> for PartialState {
+    fn arbitrary(u: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut trie_values = Vec::new();
+        for _ in 0..u.arbitrary::<u8>()? {
+            let trie_value: Arc<[u8]> = Arc::from(Vec::<u8>::arbitrary(u)?.into_boxed_slice());
+            trie_values.push(trie_value);
+        }
+
+        Ok(PartialState::TrieValues(trie_values))
+    }
+}
+
 impl PartialState {
     pub fn len(&self) -> usize {
         let Self::TrieValues(values) = self;
@@ -25,7 +39,7 @@ impl PartialState {
 }
 
 /// Double signed block.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 pub struct BlockDoubleSign {
     pub left_block_header: Vec<u8>,
     pub right_block_header: Vec<u8>,
@@ -38,7 +52,7 @@ impl std::fmt::Display for BlockDoubleSign {
 }
 
 /// Invalid chunk (body of the chunk doesn't match proofs or invalid encoding).
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkProofs {
     /// Encoded block header that contains invalid chunk.
     pub block_header: Vec<u8>,
@@ -52,14 +66,14 @@ pub struct ChunkProofs {
 /// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
 /// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
 /// decoded.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
     Encoded(EncodedShardChunk),
     Decoded(ShardChunk),
 }
 
 /// Doesn't match post-{state root, outgoing receipts, gas used, etc} results after applying previous chunk.
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 pub struct ChunkState {
     /// Encoded prev block header.
     pub prev_block_header: Vec<u8>,
@@ -77,7 +91,7 @@ pub struct ChunkState {
     pub partial_state: PartialState,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 // TODO(#1313): Use Box
 #[allow(clippy::large_enum_variant)]
 pub enum ChallengeBody {
@@ -95,6 +109,16 @@ pub struct Challenge {
 
     #[borsh(skip)]
     pub hash: CryptoHash,
+}
+
+impl Arbitrary<'_> for Challenge {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let body = ChallengeBody::arbitrary(u)?;
+        let account_id = AccountId::arbitrary(u)?;
+        let signature = Signature::arbitrary(u)?;
+        let hash = CryptoHash::arbitrary(u)?;
+        Ok(Challenge { body, account_id, signature, hash })
+    }
 }
 
 impl Challenge {

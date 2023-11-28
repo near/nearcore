@@ -9,6 +9,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::io::{Error, ErrorKind, Read, Write};
 use std::str::FromStr;
+use arbitrary::{Unstructured, Arbitrary};
 
 pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
@@ -65,7 +66,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, Arbitrary)]
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
@@ -86,7 +87,7 @@ impl std::fmt::Debug for Secp256K1PublicKey {
     }
 }
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From, Arbitrary)]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -108,7 +109,7 @@ impl std::fmt::Debug for ED25519PublicKey {
 }
 
 /// Public key container supporting different curves.
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Arbitrary)]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
@@ -504,6 +505,13 @@ impl Hash for Signature {
             Signature::SECP256K1(sig) => sig.hash(state),
         };
     }
+}
+
+
+impl Arbitrary<'_> for Signature {
+     fn arbitrary(_input: &mut Unstructured<'_>) -> arbitrary::Result<Self> {
+         Ok(Signature::ED25519(ed25519_dalek::Signature::from_bytes(&[0u8; ed25519_dalek::SIGNATURE_LENGTH])))
+     }
 }
 
 impl Signature {

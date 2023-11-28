@@ -49,7 +49,7 @@ pub struct ChunkTestFixture {
 
 impl Default for ChunkTestFixture {
     fn default() -> Self {
-        Self::new(false, 3, 6, 6, true)
+        Self::new(false, 3, 6, 6, true, Vec::new())
     }
 }
 
@@ -60,6 +60,7 @@ impl ChunkTestFixture {
         num_block_producers: usize,
         num_chunk_only_producers: usize,
         track_all_shards: bool,
+        receipts: Vec<Receipt>,
     ) -> Self {
         if num_shards > num_block_producers as u64 {
             panic!("Invalid setup: there must be at least as many block producers as shards");
@@ -129,7 +130,6 @@ impl ChunkTestFixture {
             .find(|v| v != &mock_chunk_producer && v != &mock_shard_tracker)
             .unwrap();
 
-        let receipts = Vec::new();
         let shard_layout = epoch_manager.get_shard_layout(&EpochId::default()).unwrap();
         let receipts_hashes = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let (receipts_root, _) = merkle::merklize(&receipts_hashes);

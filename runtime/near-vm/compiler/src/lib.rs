@@ -24,7 +24,7 @@
 
 mod lib {
     pub mod std {
-        pub use std::{borrow, boxed, collections, fmt, str, string, sync, vec};
+        pub use std::{borrow, boxed, fmt, str, string, sync, vec};
     }
 }
 

@@ -65,6 +65,8 @@ pub mod receipt_manager;
 pub mod state_viewer;
 mod verifier;
 
+pub mod test_utils;
+
 // this is to access from fuzz_targets
 pub mod runtime_group_tools;
 
@@ -1518,6 +1520,7 @@ impl Runtime {
     }
 }
 
+
 #[cfg(test)]
 pub mod tests {
     use assert_matches::assert_matches;
@@ -1534,7 +1537,7 @@ pub mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::config::{ExtCosts, ParameterCost};
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
+
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1593,65 +1596,6 @@ pub mod tests {
         let new_state_update = tries.new_trie_update(ShardUId::single_shard(), new_root);
         let get_res = get_account(&new_state_update, &account_id).unwrap().unwrap();
         assert_eq!(test_account, get_res);
-    }
-
-    /***************/
-    /* Apply tests */
-    /***************/
-
-    pub fn setup_runtime(
-        initial_balance: Balance,
-        initial_locked: Balance,
-        gas_limit: Gas,
-    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
-    {
-        let tries = TestTriesBuilder::new().build();
-        let root = MerkleHash::default();
-        let runtime = Runtime::new();
-        let account_id = alice_account();
-        let signer = Arc::new(InMemorySigner::from_seed(
-            account_id.clone(),
-            KeyType::ED25519,
-            account_id.as_ref(),
-        ));
-
-        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let mut initial_account = account_new(initial_balance, hash(&[]));
-        // For the account and a full access key
-        initial_account.set_storage_usage(182);
-        initial_account.set_locked(initial_locked);
-        set_account(&mut initial_state, account_id.clone(), &initial_account);
-        set_access_key(
-            &mut initial_state,
-            account_id,
-            signer.public_key(),
-            &AccessKey::full_access(),
-        );
-        initial_state.commit(StateChangeCause::InitialState);
-        let trie_changes = initial_state.finalize().unwrap().1;
-        let mut store_update = tries.store_update();
-        let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
-        store_update.commit().unwrap();
-
-        let apply_state = ApplyState {
-            block_height: 1,
-            prev_block_hash: Default::default(),
-            block_hash: Default::default(),
-            epoch_id: Default::default(),
-            epoch_height: 0,
-            gas_price: GAS_PRICE,
-            block_timestamp: 100,
-            gas_limit: Some(gas_limit),
-            random_seed: Default::default(),
-            current_protocol_version: PROTOCOL_VERSION,
-            config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
-            is_new_chunk: true,
-            migration_data: Arc::new(MigrationData::default()),
-            migration_flags: MigrationFlags::default(),
-        };
-
-        (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
     }
 
     #[test]

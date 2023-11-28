@@ -13,6 +13,7 @@ use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use arbitrary::Arbitrary;
 
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
@@ -39,6 +40,18 @@ pub struct Transaction {
     pub actions: Vec<Action>,
 }
 
+impl Arbitrary<'_> for Transaction {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let signer_id = AccountId::arbitrary(u)?;
+        let public_key = PublicKey::arbitrary(u)?;
+        let nonce = Nonce::arbitrary(u)?;
+        let receiver_id = AccountId::arbitrary(u)?;
+        let block_hash = CryptoHash::arbitrary(u)?;
+        let actions = Vec::<Action>::arbitrary(u)?;
+        Ok(Self { signer_id, public_key, nonce, receiver_id, block_hash, actions })
+    }
+}
+
 impl Transaction {
     /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
@@ -47,7 +60,7 @@ impl Transaction {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Eq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Arbitrary, Eq, Debug, Clone)]
 #[borsh(init=init)]
 pub struct SignedTransaction {
     pub transaction: Transaction,

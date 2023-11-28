@@ -92,6 +92,7 @@ impl<'a> Memory<'a> {
         self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_for_free(&mut self, offset: u64, buf: &[u8]) -> Result<()> {
         self.0.write_memory(offset, buf).map_err(|_| HostError::MemoryAccessViolation.into())
     }

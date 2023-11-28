@@ -4,6 +4,7 @@ use crate::types::{Balance, Nonce, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use std::io;
+use arbitrary::Arbitrary;
 
 #[derive(
     BorshSerialize,
@@ -149,6 +150,7 @@ impl BorshSerialize for Account {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
+    Arbitrary,
     PartialEq,
     Eq,
     Hash,
@@ -179,6 +181,7 @@ impl AccessKey {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
+    Arbitrary,
     PartialEq,
     Eq,
     Hash,
@@ -204,6 +207,7 @@ pub enum AccessKeyPermission {
     BorshDeserialize,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
     PartialEq,
     Eq,
     Hash,

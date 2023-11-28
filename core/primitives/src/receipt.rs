@@ -10,8 +10,10 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
+use arbitrary::Arbitrary;
 
 pub use near_vm_runner::logic::DataReceiver;
+
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
@@ -35,6 +37,23 @@ pub struct Receipt {
     pub receipt_id: CryptoHash,
     /// A receipt type
     pub receipt: ReceiptEnum,
+}
+
+// implement Arbitrary for Receipt
+impl Arbitrary<'_> for Receipt {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let predecessor_id = AccountId::arbitrary(u)?;
+        let receiver_id = AccountId::arbitrary(u)?;
+
+        let receipt_id = CryptoHash::arbitrary(u)?;
+        let receipt = ReceiptEnum::arbitrary(u)?;
+        Ok(Receipt {
+            predecessor_id,
+            receiver_id,
+            receipt_id,
+            receipt,
+        })
+    }
 }
 
 impl Borrow<CryptoHash> for Receipt {
@@ -101,6 +120,7 @@ impl Receipt {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
+    Arbitrary,
     Clone,
     Debug,
     PartialEq,
@@ -144,12 +164,32 @@ pub struct ActionReceipt {
     pub actions: Vec<Action>,
 }
 
+impl Arbitrary<'_> for ActionReceipt {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let signer_id = AccountId::arbitrary(u)?;
+        let signer_public_key = PublicKey::arbitrary(u)?;
+        let gas_price = Balance::arbitrary(u)?;
+        let output_data_receivers = Vec::arbitrary(u)?;
+        let input_data_ids = Vec::arbitrary(u)?;
+        let actions = Vec::arbitrary(u)?;
+        Ok(ActionReceipt {
+            signer_id,
+            signer_public_key,
+            gas_price,
+            output_data_receivers,
+            input_data_ids,
+            actions,
+        })
+    }
+}
+
 /// An incoming (ingress) `DataReceipt` which is going to a Receipt's `receiver` input_data_ids
 /// Which will be converted to `PromiseResult::Successful(value)` or `PromiseResult::Failed`
 #[serde_as]
 #[derive(
     BorshSerialize,
     BorshDeserialize,
+    Arbitrary,
     Hash,
     PartialEq,
     Eq,

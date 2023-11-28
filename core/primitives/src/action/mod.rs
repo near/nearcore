@@ -10,6 +10,7 @@ use near_primitives_core::{
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::fmt;
+use arbitrary::Arbitrary;
 
 fn base64(s: &[u8]) -> String {
     use base64::Engine;
@@ -19,6 +20,7 @@ fn base64(s: &[u8]) -> String {
 #[derive(
     BorshSerialize,
     BorshDeserialize,
+    Arbitrary,
     PartialEq,
     Eq,
     Clone,
@@ -43,6 +45,7 @@ pub struct AddKeyAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub struct CreateAccountAction {}
 
@@ -60,6 +63,13 @@ pub struct DeleteAccountAction {
     pub beneficiary_id: AccountId,
 }
 
+impl Arbitrary<'_> for DeleteAccountAction  {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let beneficiary_id = AccountId::arbitrary(u)?;
+        Ok(Self { beneficiary_id })
+    }
+}
+
 #[derive(
     BorshSerialize,
     BorshDeserialize,
@@ -69,6 +79,7 @@ pub struct DeleteAccountAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub struct DeleteKeyAction {
     /// A public key associated with the access_key to be deleted.
@@ -78,7 +89,7 @@ pub struct DeleteKeyAction {
 /// Deploy contract action
 #[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Arbitrary,
 )]
 pub struct DeployContractAction {
     /// WebAssembly binary
@@ -96,7 +107,7 @@ impl fmt::Debug for DeployContractAction {
 
 #[serde_as]
 #[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
+    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone, Arbitrary
 )]
 pub struct FunctionCallAction {
     pub method_name: String,
@@ -128,6 +139,7 @@ impl fmt::Debug for FunctionCallAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub struct StakeAction {
     /// Amount of tokens to stake.
@@ -146,6 +158,7 @@ pub struct StakeAction {
     Debug,
     serde::Serialize,
     serde::Deserialize,
+    Arbitrary,
 )]
 pub struct TransferAction {
     #[serde(with = "dec_format")]
@@ -162,6 +175,7 @@ pub struct TransferAction {
     serde::Serialize,
     serde::Deserialize,
     strum::AsRefStr,
+    Arbitrary,
 )]
 pub enum Action {
     /// Create an (sub)account using a transaction `receiver_id` as an ID for

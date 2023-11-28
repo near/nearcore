@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use std::fmt;
+use arbitrary::Arbitrary;
 use types::AccountId;
 
 mod alt_bn128;
@@ -83,4 +84,13 @@ impl TrieNodesCount {
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
+}
+
+impl Arbitrary<'_> for DataReceiver {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        Ok(Self {
+            data_id: Arbitrary::arbitrary(u)?,
+            receiver_id: AccountId::arbitrary(u)?,
+        })
+    }
 }

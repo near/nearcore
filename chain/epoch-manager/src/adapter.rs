@@ -429,7 +429,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         }
     }
 
-    fn num_data_parts(&self) -> usize {
+    fn num_data_parts<'a>(&'a self) -> usize {
         let total_parts = self.num_total_parts();
         if total_parts <= 3 {
             1

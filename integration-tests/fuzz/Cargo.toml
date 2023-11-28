@@ -21,19 +21,8 @@ testlib.workspace = true
 rand.workspace = true
 
 [[bin]]
-name = "random_call"
-path = "fuzz_targets/random_call.rs"
+name = "random_function_call"
+path = "fuzz_targets/random_function_call.rs"
 test = false
 doc = false
 
-[[bin]]
-name = "sum_with_input"
-path = "fuzz_targets/sum_with_input.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "log_something"
-path = "fuzz_targets/log_something.rs"
-test = false
-doc = false

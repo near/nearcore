@@ -13,6 +13,7 @@ use near_primitives_core::types::BlockHeight;
 use near_primitives_core::types::{AccountId, Nonce};
 use serde::{Deserialize, Serialize};
 use std::io::{Error, ErrorKind, Read};
+use arbitrary::Arbitrary;
 
 /// This is an index number of Action::Delegate in Action enumeration
 const ACTION_DELEGATE_NUMBER: u8 = 8;
@@ -38,7 +39,29 @@ pub struct DelegateAction {
     pub public_key: PublicKey,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+impl Arbitrary<'_> for DelegateAction {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let sender_id = AccountId::arbitrary(u)?;
+        let receiver_id = AccountId::arbitrary(u)?;
+        let actions = Vec::<Action>::arbitrary(u)?
+            .into_iter()
+            .map(|a| NonDelegateAction::try_from(a).unwrap())
+            .collect();
+        let nonce = Nonce::arbitrary(u)?;
+        let max_block_height = BlockHeight::arbitrary(u)?;
+        let public_key = PublicKey::arbitrary(u)?;
+        Ok(Self {
+            sender_id,
+            receiver_id,
+            actions,
+            nonce,
+            max_block_height,
+            public_key,
+        })
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
 pub struct SignedDelegateAction {
     pub delegate_action: DelegateAction,
     pub signature: Signature,
@@ -90,7 +113,7 @@ mod private_non_delegate_action {
     /// in several places. For example, borsh de-/serialization relies on it. If the
     /// invariant is broken, we may end up with a `Transaction` or `Receipt` that we
     /// can serialize but deserializing it back causes a parsing error.
-    #[derive(Serialize, BorshSerialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+    #[derive(Serialize, BorshSerialize, Deserialize, Arbitrary, PartialEq, Eq, Clone, Debug)]
     pub struct NonDelegateAction(Action);
 
     impl From<NonDelegateAction> for Action {

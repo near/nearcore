@@ -13,6 +13,7 @@ publish = true
 workspace = true
 
 [dependencies]
+arbitrary.workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
