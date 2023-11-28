@@ -139,7 +139,6 @@ impl ViewClientActor {
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,
-            config.tx_routing_height_horizon,
         )?;
         Ok(ViewClientActor {
             adv,

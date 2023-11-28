@@ -503,10 +503,6 @@ pub struct Chain {
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
     pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
-
-    /// If the node is not a chunk producer within that many blocks, then route
-    /// to upcoming chunk producers.
-    tx_routing_height_horizon: BlockHeightDelta,
 }
 
 impl Drop for Chain {
@@ -569,7 +565,6 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
-        tx_routing_height_horizon: BlockHeightDelta,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
         let store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
@@ -601,7 +596,6 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
             state_split_config: StateSplitConfig::default(),
-            tx_routing_height_horizon,
         })
     }
 
@@ -778,7 +772,6 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks,
             state_split_config: chain_config.state_split_config,
-            tx_routing_height_horizon: 0,
         })
     }
 

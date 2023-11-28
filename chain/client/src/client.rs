@@ -2009,8 +2009,8 @@ impl Client {
         let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
         let mut validators = HashSet::new();
-        for horizon in
-            (2..=self.config.tx_routing_height_horizon).chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
+        for horizon in (2..=self.config.tx_routing_height_horizon)
+            .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
         {
             let target_height = head.height + horizon - 1;
             let validator =
