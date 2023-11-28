@@ -1,9 +1,12 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use near_chain_configs::ExternalStorageLocation::GCS;
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
+    get_initial_supply, ClientConfig, ExternalStorageConfig, GCConfig, Genesis, GenesisConfig,
+    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
+    SyncConfig, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -60,8 +63,18 @@ pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
 /// Expected block production time in ms.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
 
+/// Mainnet and testnet validators are configured with a different value due to
+/// performance values.
+pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_300;
+pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
+
 /// Maximum time to delay block production without approvals is ms.
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
+
+/// Mainnet and testnet validators are configured with a different value due to
+/// performance values.
+pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 3_000;
+pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_500;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
@@ -170,6 +183,26 @@ fn default_sync_height_threshold() -> u64 {
     1
 }
 
+fn default_epoch_sync_enabled() -> bool {
+    false
+}
+
+fn default_state_sync() -> Option<StateSyncConfig> {
+    Some(StateSyncConfig {
+        dump: None,
+        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+            location: GCS { bucket: "state-parts".to_string() },
+            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+            num_concurrent_requests_during_catchup:
+                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+        }),
+    })
+}
+
+fn default_state_sync_enabled() -> bool {
+    true
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -196,6 +229,10 @@ fn default_transaction_pool_size_limit() -> Option<u64> {
 
 fn default_tx_routing_height_horizon() -> BlockHeightDelta {
     4
+}
+
+fn default_enable_multiline_logging() -> Option<bool> {
+    Some(true)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -333,8 +370,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_sync_enabled: Option<bool>,
+    pub state_sync_enabled: bool,
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
@@ -377,7 +413,7 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
-            epoch_sync_enabled: true,
+            epoch_sync_enabled: default_epoch_sync_enabled(),
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
@@ -386,10 +422,10 @@ impl Default for Config {
             cold_store: None,
             split_storage: None,
             expected_shutdown: None,
-            state_sync: None,
-            state_sync_enabled: None,
+            state_sync: default_state_sync(),
+            state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
-            enable_multiline_logging: None,
+            enable_multiline_logging: default_enable_multiline_logging(),
             state_split_config: StateSplitConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
         }
@@ -684,7 +720,7 @@ impl NearConfig {
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_enabled: config.store.flat_storage_creation_enabled,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
+                state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
@@ -910,6 +946,24 @@ fn generate_or_load_keys(
     Ok(())
 }
 
+fn set_block_production_delay(chain_id: &str, config: &mut Config) {
+    match chain_id {
+        near_primitives::chains::MAINNET => {
+            config.consensus.min_block_production_delay =
+                Duration::from_millis(MAINNET_MIN_BLOCK_PRODUCTION_DELAY);
+            config.consensus.max_block_production_delay =
+                Duration::from_millis(MAINNET_MAX_BLOCK_PRODUCTION_DELAY);
+        }
+        near_primitives::chains::TESTNET => {
+            config.consensus.min_block_production_delay =
+                Duration::from_millis(TESTNET_MIN_BLOCK_PRODUCTION_DELAY);
+            config.consensus.max_block_production_delay =
+                Duration::from_millis(TESTNET_MAX_BLOCK_PRODUCTION_DELAY);
+        }
+        _ => {}
+    }
+}
+
 /// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.
 ///
 /// This method supports the following use cases:
@@ -961,6 +1015,8 @@ pub fn init_configs(
     }
 
     let mut config = Config::default();
+    // If a config gets generated, block production times may need to be updated.
+    set_block_production_delay(&chain_id, &mut config);
 
     if let Some(url) = download_config_url {
         download_config(url, &dir.join(CONFIG_FILENAME))
