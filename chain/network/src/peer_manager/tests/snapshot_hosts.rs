@@ -15,6 +15,7 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
+use near_primitives::sharding::MAX_SHARDS_PER_HOST;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -164,7 +165,7 @@ async fn invalid_signature_not_broadcast() {
     let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
-    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has an invalid signature.");
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has too many shard ids.");
     let random_secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
     let invalid_info = make_snapshot_host_info(&peer1_config.node_id(), &random_secret_key, rng);
 
@@ -188,6 +189,90 @@ async fn invalid_signature_not_broadcast() {
 
     let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
     assert_eq!(msg.hosts, vec![info2]);
+}
+
+/// Test that a SnapshotHostInfo message with more shards than allowed isn't broadcast by PeerManager.
+#[tokio::test]
+async fn too_many_shards_not_broadcast() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "Connect peers, expect initial sync to be empty.");
+    let peer1_config = chain.make_config(rng);
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let peer2_config = chain.make_config(rng);
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), peer2_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let mut peer3 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has more shard ids than allowed.");
+    let too_many_shards: Vec<ShardId> = (0..(MAX_SHARDS_PER_HOST as u64 + 1)).collect();
+    let invalid_info = Arc::new(SnapshotHostInfo::new(
+        peer1_config.node_id(),
+        CryptoHash::hash_borsh(rng.gen::<u64>()),
+        rng.gen(),
+        too_many_shards,
+        &peer1_config.node_key,
+    ));
+
+    let ok_info_a = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
+    let ok_info_b = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
+
+    let invalid_message = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+        hosts: vec![ok_info_a.clone(), invalid_info, ok_info_b.clone()],
+    });
+    peer1.send(invalid_message).await;
+
+    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+
+    let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
+
+    peer2
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
+        .await;
+
+    tracing::info!(target:"test", "Make sure that only valid messages are broadcast.");
+
+    loop {
+        let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+        for info in msg.hosts {
+            if info == info2 {
+                return; // Received the expected message - end the test
+            }
+
+            // Even though `ok_info_a`` and `ok_info_b`` were sent in an invalid message,
+            // they were themselevs valid so the PeerManager can optionally accept them
+            // and broadcast them to other peers. This is an expected behavior, let's filter them out here.
+            if info == ok_info_a || info == ok_info_b {
+                continue;
+            }
+
+            panic!("Unexpected host info received: {:#?}", info);
+        }
+    }
 }
 
 /// Test that SyncSnapshotHosts message is propagated between many PeerManager instances.
