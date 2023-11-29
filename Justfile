@@ -59,7 +59,7 @@ codecov RULE:
     set -euxo pipefail
     # TODO: remove this hack, see also https://github.com/rust-lang/cargo/issues/13040
     source <(cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS)
-    export RUSTC_WORKSPACE_WRAPPER="$(pwd)/scripts/rustc-coverage-wrapper.sh"
+    export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
