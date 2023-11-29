@@ -46,11 +46,11 @@ impl PublicKey {
 // manner.
 #[allow(clippy::arithmetic_side_effects)]
 fn basemul(s: Scalar) -> Point {
-    &s * &GT
+    &s * &*GT
 }
 
 fn safe_invert(s: Scalar) -> Scalar {
-    Scalar::conditional_select(&s, &Scalar::one(), s.ct_eq(&Scalar::zero())).invert()
+    Scalar::conditional_select(&s, &Scalar::ONE, s.ct_eq(&Scalar::ZERO)).invert()
 }
 
 impl SecretKey {
@@ -122,7 +122,7 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 mod tests {
     use super::*;
 
-    use rand::rngs::OsRng;
+    use secp256k1::rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
 

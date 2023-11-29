@@ -181,6 +181,7 @@ expression: config_view
     "ed25519_verify": false,
     "alt_bn128": false,
     "function_call_weight": true,
+    "eth_implicit_accounts": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,

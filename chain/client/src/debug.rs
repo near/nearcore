@@ -334,13 +334,15 @@ impl ClientActor {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        let num_shards = self.client.epoch_manager.num_shards(&epoch_id).unwrap();
-        let shards_tracked_this_epoch = (0..num_shards)
-            .map(|shard_id| {
+        let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+        let shards_tracked_this_epoch = shard_ids
+            .iter()
+            .map(|&shard_id| {
                 self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, shard_id, true)
             })
             .collect();
-        let shards_tracked_next_epoch = (0..num_shards)
+        let shards_tracked_next_epoch = shard_ids
+            .into_iter()
             .map(|shard_id| {
                 self.client.shard_tracker.will_care_about_shard(
                     me.as_ref(),

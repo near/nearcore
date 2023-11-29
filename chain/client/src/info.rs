@@ -137,8 +137,8 @@ impl InfoHelper {
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
-        if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
-            for shard_id in 0..num_shards {
+        if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
+            for shard_id in shard_ids {
                 let tracked = client.shard_tracker.care_about_shard(
                     me,
                     &head.last_block_hash,
@@ -180,8 +180,8 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
-            for shard_id in 0..num_shards {
+        } else if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
+            for shard_id in shard_ids {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
@@ -196,7 +196,7 @@ impl InfoHelper {
     fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
         let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
-        let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
+        let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap_or_default();
         if let Ok(epoch_info) = epoch_info {
             metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
             metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
@@ -236,7 +236,7 @@ impl InfoHelper {
                     .set(stake_to_blocks(stake, stake_sum))
             });
 
-            for shard_id in 0..number_of_shards {
+            for shard_id in shard_ids {
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {

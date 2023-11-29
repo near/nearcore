@@ -281,9 +281,10 @@ fn get_keys_from_store(
                 DBKeyType::PreviousBlockHash => {
                     vec![block.header().prev_hash().as_bytes().to_vec()]
                 }
-                DBKeyType::ShardId => {
-                    (0..shard_layout.num_shards()).map(|si| si.to_le_bytes().to_vec()).collect()
-                }
+                DBKeyType::ShardId => shard_layout
+                    .shard_ids()
+                    .map(|shard_id| shard_id.to_le_bytes().to_vec())
+                    .collect(),
                 DBKeyType::ShardUId => shard_layout
                     .get_shard_uids()
                     .iter()
@@ -345,7 +346,8 @@ fn get_keys_from_store(
                         DBCol::OutcomeIds.key_type(),
                         &[DBKeyType::BlockHash, DBKeyType::ShardId]
                     );
-                    (0..shard_layout.num_shards())
+                    shard_layout
+                        .shard_ids()
                         .map(|shard_id| {
                             store.get_ser(
                                 DBCol::OutcomeIds,

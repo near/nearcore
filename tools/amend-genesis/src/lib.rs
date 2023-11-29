@@ -350,12 +350,14 @@ pub fn amend_genesis(
     if let Some(n) = genesis_changes.num_seats {
         genesis.config.num_block_producer_seats = n;
     }
-    if let Some(l) = shard_layout {
+    if let Some(shard_layout) = shard_layout {
         genesis.config.avg_hidden_validator_seats_per_shard =
-            (0..l.num_shards()).map(|_| 0).collect();
-        genesis.config.num_block_producer_seats_per_shard =
-            utils::get_num_seats_per_shard(l.num_shards(), genesis.config.num_block_producer_seats);
-        genesis.config.shard_layout = l;
+            shard_layout.shard_ids().into_iter().map(|_| 0).collect();
+        genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
+            shard_layout.num_shards(),
+            genesis.config.num_block_producer_seats,
+        );
+        genesis.config.shard_layout = shard_layout;
     }
     if let Some(v) = genesis_changes.protocol_version {
         genesis.config.protocol_version = v;

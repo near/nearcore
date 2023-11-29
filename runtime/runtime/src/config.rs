@@ -100,6 +100,7 @@ pub fn total_send_fees(
                     fees,
                     sender_is_receiver,
                     config.wasm_config.implicit_account_creation,
+                    config.wasm_config.eth_implicit_accounts,
                     receiver_id.get_account_type(),
                 )
             }
@@ -194,6 +195,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             transfer_exec_fee(
                 fees,
                 config.wasm_config.implicit_account_creation,
+                config.wasm_config.eth_implicit_accounts,
                 receiver_id.get_account_type(),
             )
         }

@@ -93,11 +93,11 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
-use tracing::{debug, error, info, warn, Span};
+use tracing::{debug, debug_span, error, info, warn, Span};
 
 /// Maximum number of orphans chain can store.
 pub const MAX_ORPHAN_SIZE: usize = 1024;
@@ -130,9 +130,6 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
-
-/// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
 
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
@@ -358,6 +355,15 @@ pub struct BlockMissingChunks {
     pub missing_chunks: Vec<ShardChunkHeader>,
 }
 
+impl Debug for BlockMissingChunks {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockMissingChunks")
+            .field("prev_hash", &self.prev_hash)
+            .field("num_missing_chunks", &self.missing_chunks.len())
+            .finish()
+    }
+}
+
 /// Contains information needed to request chunks for orphans
 /// Fields will be used as arguments for `request_chunks_for_orphan`
 pub struct OrphanMissingChunks {
@@ -368,6 +374,16 @@ pub struct OrphanMissingChunks {
     /// this is used as an argument for `request_chunks_for_orphan`
     /// see comments in `request_chunks_for_orphan` for what `ancestor_hash` is used for
     pub ancestor_hash: CryptoHash,
+}
+
+impl Debug for OrphanMissingChunks {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrphanMissingChunks")
+            .field("epoch_id", &self.epoch_id)
+            .field("ancestor_hash", &self.ancestor_hash)
+            .field("num_missing_chunks", &self.missing_chunks.len())
+            .finish()
+    }
 }
 
 /// Check if block header is known
@@ -521,7 +537,7 @@ impl Chain {
             .expect("genesis should be initialized.");
         let genesis_chunks = genesis_chunks(
             state_roots,
-            epoch_manager.num_shards(&EpochId::default())?,
+            &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -602,7 +618,7 @@ impl Chain {
         );
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),
-            epoch_manager.num_shards(&EpochId::default())?,
+            &epoch_manager.shard_ids(&EpochId::default())?,
             chain_genesis.gas_limit,
             chain_genesis.height,
             chain_genesis.protocol_version,
@@ -1357,7 +1373,7 @@ impl Chain {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.epoch_manager.num_shards(header.epoch_id())? {
+        if header.chunk_mask().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
             return Err(Error::InvalidChunkMask);
         }
 
@@ -1686,7 +1702,7 @@ impl Chain {
         parent_hash: CryptoHash,
     ) -> Result<bool, Error> {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&parent_hash)?;
-        for shard_id in 0..self.epoch_manager.num_shards(&epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(&epoch_id)? {
             if self.shard_tracker.care_about_shard(me.as_ref(), &parent_hash, shard_id, true)
                 || self.shard_tracker.will_care_about_shard(
                     me.as_ref(),
@@ -1778,6 +1794,8 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> Result<(), Error> {
+        let _span =
+            debug_span!(target: "chain", "start_process_block_async", ?provenance).entered();
         let block_received_time = StaticClock::instant();
         metrics::BLOCK_PROCESSING_ATTEMPTS_TOTAL.inc();
 
@@ -1818,6 +1836,7 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) -> (Vec<AcceptedBlock>, HashMap<CryptoHash, Error>) {
+        let _span = debug_span!(target: "chain", "postprocess_ready_blocks_chain").entered();
         let mut accepted_blocks = vec![];
         let mut errors = HashMap::new();
         while let Ok((block_hash, apply_result)) = self.apply_chunks_receiver.try_recv() {
@@ -2083,11 +2102,8 @@ impl Chain {
         block_received_time: Instant,
     ) -> Result<(), Error> {
         let block_height = block.header().height();
-        let _span = tracing::debug_span!(
-            target: "chain",
-            "start_process_block_impl",
-            height = block_height)
-        .entered();
+        let _span =
+            debug_span!(target: "chain", "start_process_block_impl", block_height).entered();
         // 0) Before we proceed with any further processing, we first check that the block
         // hash and signature matches to make sure the block is indeed produced by the assigned
         // block producer. If not, we drop the block immediately
@@ -2234,7 +2250,7 @@ impl Chain {
     ) {
         let sc = self.apply_chunks_sender.clone();
         spawn(move || {
-            // do_apply_chunks runs `work` parallelly, but still waits for all of them to finish
+            // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
             // thread is already shut down. The node is already crashed, so we can unwrap here
@@ -2323,8 +2339,7 @@ impl Chain {
         // the last final block on chain, which is OK, because in the flat storage implementation
         // we don't assume that.
         let epoch_id = block.header().epoch_id();
-
-        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             let need_flat_storage_update = if is_caught_up {
                 // If we already caught up this epoch, then flat storage exists for both shards which we already track
                 // and shards which will be tracked in next epoch, so we can update them.
@@ -2438,7 +2453,7 @@ impl Chain {
             return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
         }
 
-        if block.chunks().len() != self.epoch_manager.num_shards(header.epoch_id())? as usize {
+        if block.chunks().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
             return Err(Error::IncorrectNumberOfChunkHeaders);
         }
 
@@ -2710,7 +2725,8 @@ impl Chain {
         parent_hash: &CryptoHash,
     ) -> Result<Vec<ShardId>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash)?;
-        Ok((0..epoch_manager.num_shards(&epoch_id)?)
+        Ok((epoch_manager.shard_ids(&epoch_id)?)
+            .into_iter()
             .filter(|shard_id| {
                 Self::should_catch_up_shard(
                     epoch_manager,
@@ -2803,8 +2819,13 @@ impl Chain {
         block_processing_artifacts: &mut BlockProcessingArtifact,
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
+        let _span = debug_span!(
+            target: "chain",
+            "check_orphans",
+            ?prev_hash,
+            num_orphans = self.orphans.len())
+        .entered();
         // Check if there are orphans we can process.
-        debug!(target: "chain", "Check orphans: from {}, # total orphans {}", prev_hash, self.orphans.len());
         // check within the descendents of `prev_hash` to see if there are orphans there that
         // are ready to request missing chunks for
         let orphans_to_check =
@@ -3592,7 +3613,7 @@ impl Chain {
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
-        for shard_id in 0..self.epoch_manager.num_shards(epoch_id)? {
+        for shard_id in self.epoch_manager.shard_ids(epoch_id)? {
             // Update flat storage for each shard being caught up. We catch up a shard if it is tracked in the next
             // epoch. If it is tracked in this epoch as well, it was updated during regular block processing.
             if !self.shard_tracker.care_about_shard(
@@ -3750,25 +3771,6 @@ impl Chain {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
-    }
-
-    /// Find a validator to forward transactions to
-    pub fn find_chunk_producer_for_forwarding(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        horizon: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let target_height = head.height + horizon - 1;
-        Ok(self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?)
-    }
-
-    /// Find a validator that is responsible for a given shard to forward requests to
-    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 
     pub fn check_blocks_final_and_canonical(
@@ -5015,9 +5017,8 @@ impl Chain {
         prev_block: &Block,
     ) -> Result<Vec<ShardChunkHeader>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
-        let num_shards = epoch_manager.num_shards(&epoch_id)?;
-        let prev_shard_ids =
-            epoch_manager.get_prev_shard_ids(prev_block.hash(), (0..num_shards).collect())?;
+        let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
+        let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
         let chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
@@ -5038,7 +5039,7 @@ impl Chain {
         receipts: Vec<Receipt>,
         shard_layout: &ShardLayout,
     ) -> HashMap<ShardId, Vec<Receipt>> {
-        let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
+        let mut result = HashMap::new();
         for receipt in receipts {
             let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
@@ -5051,27 +5052,26 @@ impl Chain {
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
-        if shard_layout.num_shards() == 1 {
-            return vec![CryptoHash::hash_borsh(ReceiptList(0, receipts))];
+        // Using a BTreeMap instead of HashMap to enable in order iteration
+        // below.
+        //
+        // Pre-populating because even if there are no receipts for a shard, we
+        // need an empty vector for it.
+        let mut result: BTreeMap<_, _> =
+            shard_layout.shard_ids().map(|shard_id| (shard_id, vec![])).collect();
+        let mut cache = HashMap::new();
+        for receipt in receipts {
+            let &mut shard_id = cache
+                .entry(&receipt.receiver_id)
+                .or_insert_with(|| account_id_to_shard_id(&receipt.receiver_id, shard_layout));
+            // This unwrap should be safe as we pre-populated the map with all
+            // valid shard ids.
+            result.get_mut(&shard_id).unwrap().push(receipt);
         }
-        let mut account_id_to_shard_id_map = HashMap::new();
-        let mut shard_receipts: Vec<_> =
-            (0..shard_layout.num_shards()).map(|i| (i, Vec::new())).collect();
-        for receipt in receipts.iter() {
-            let shard_id = match account_id_to_shard_id_map.get(&receipt.receiver_id) {
-                Some(id) => *id,
-                None => {
-                    let id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
-                    account_id_to_shard_id_map.insert(receipt.receiver_id.clone(), id);
-                    id
-                }
-            };
-            shard_receipts[shard_id as usize].1.push(receipt);
-        }
-        shard_receipts
+        result
             .into_iter()
-            .map(|(i, rs)| {
-                let bytes = borsh::to_vec(&(i, rs)).unwrap();
+            .map(|(shard_id, receipts)| {
+                let bytes = borsh::to_vec(&(shard_id, receipts)).unwrap();
                 hash(&bytes)
             })
             .collect()
@@ -5255,7 +5255,7 @@ impl<'a> ChainUpdate<'a> {
     /// Note that this function should be called after `save_block` is called on
     /// this block because it requires that the block info is available in
     /// EpochManager, otherwise it will return an error.
-    pub fn save_receipt_id_to_shard_id_for_block(
+    fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
         hash: &CryptoHash,
@@ -5585,7 +5585,7 @@ impl<'a> ChainUpdate<'a> {
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
-                warn!(target:"chain", hash = %block.hash(), error = %err, "Error in applying chunks for block");
+                warn!(target: "chain", hash = %block.hash(), %err, "Error in applying chunks for block");
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
@@ -5680,7 +5680,7 @@ impl<'a> ChainUpdate<'a> {
 
             let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
             SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
-            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.num_shards() as i64);
+            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
         }
         Ok(res)
     }
@@ -6224,7 +6224,7 @@ pub fn do_apply_chunks(
             // a single span.
             task(&parent_span)
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 pub fn collect_receipts<'a, T>(receipt_proofs: T) -> Vec<Receipt>

@@ -45,9 +45,7 @@ skip = [
     { name = "cfg-if", version = "=1.0.0" },
 
     # `sha2`, `blake3` and `curve25519-dalek` need to be updated.
-    { name = "block-buffer", version = "=0.9.0" },
     { name = "digest", version = "=0.9.0" },
-    { name = "sha2", version = "=0.9.9" },
 
     # Need this specific version of pwasm-utils for backwards-compatible
     # stack limiting.

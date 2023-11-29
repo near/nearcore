@@ -40,9 +40,13 @@ fn map_ed25519(
 
     ed25519_map_secret(&mut buf[..ed25519_dalek::SECRET_KEY_LENGTH], public, secret);
 
-    let secret_key =
-        ed25519_dalek::SecretKey::from_bytes(&buf[..ed25519_dalek::SECRET_KEY_LENGTH]).unwrap();
-    let public_key = ed25519_dalek::PublicKey::from(&secret_key);
+    let secret_key = ed25519_dalek::SigningKey::from_bytes(
+        <&[u8; ed25519_dalek::SECRET_KEY_LENGTH]>::try_from(
+            &buf[..ed25519_dalek::SECRET_KEY_LENGTH],
+        )
+        .unwrap(),
+    );
+    let public_key = ed25519_dalek::VerifyingKey::from(&secret_key);
 
     buf[ed25519_dalek::SECRET_KEY_LENGTH..].copy_from_slice(public_key.as_bytes());
     ED25519SecretKey(buf)
@@ -103,10 +107,11 @@ pub fn map_account(
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let public_key =
-                PublicKey::from_near_implicit_account(account_id).expect("must be near-implicit");
+                PublicKey::from_near_implicit_account(account_id).expect("must be implicit");
             let mapped_key = map_key(&public_key, secret);
-            derive_near_implicit_account_id(mapped_key.public_key().unwrap_as_ed25519())
+            derive_near_implicit_account_id(&mapped_key.public_key().unwrap_as_ed25519())
         }
+        // TODO(eth-implicit) map to a new ETH address
         AccountType::EthImplicitAccount => account_id.clone(),
         AccountType::NamedAccount => account_id.clone(),
     }

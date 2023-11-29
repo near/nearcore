@@ -561,6 +561,11 @@ pub fn near_implicit_test_account_secret() -> SecretKey {
     "ed25519:5roj6k68kvZu3UEJFyXSfjdKGrodgZUfFLZFpzYXWtESNsLWhYrq3JGi4YpqeVKuw1m9R2TEHjfgWT1fjUqB1DNy".parse().unwrap()
 }
 
+/// A fixed ETH-implicit account.
+pub fn eth_implicit_test_account() -> AccountId {
+    "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
+}
+
 impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.

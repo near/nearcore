@@ -22,7 +22,9 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::create_random_seed;
+use near_primitives::utils::{
+    account_is_implicit, create_random_seed, wallet_contract_placeholder,
+};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -429,9 +431,10 @@ pub(crate) fn action_create_account(
     ));
 }
 
-/// Can only be used for NEAR-implicit accounts.
+/// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
@@ -473,9 +476,38 @@ pub(crate) fn action_implicit_account_creation_transfer(
         }
         // Invariant: The `account_id` is implicit.
         // It holds because in the only calling site, we've checked the permissions before.
-        AccountType::EthImplicitAccount | AccountType::NamedAccount => {
-            panic!("must be near-implicit")
+        AccountType::EthImplicitAccount => {
+            if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+                // TODO(eth-implicit) Use real Wallet Contract.
+                let wallet_contract = wallet_contract_placeholder();
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + fee_config.storage_usage_config.num_extra_bytes_record
+                    + wallet_contract.code().len() as u64;
+
+                *account =
+                    Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
+
+                // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
+                set_code(state_update, account_id.clone(), &wallet_contract);
+                // Precompile the contract and store result (compiled code or error) in the database.
+                // Note, that contract compilation costs are already accounted in deploy cost using
+                // special logic in estimator (see get_runtime_config() function).
+                precompile_contract(
+                    &wallet_contract,
+                    &apply_state.config.wasm_config,
+                    apply_state.cache.as_deref(),
+                )
+                .ok();
+            } else {
+                // This panic is unreachable as this is an implicit account creation transfer.
+                // `check_account_existence` would fail because in this protocol version `account_is_implicit`
+                // would return false for an account that is of the ETH-implicit type.
+                panic!("must be near-implicit");
+            }
         }
+        // This panic is unreachable as this is an implicit account creation transfer.
+        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
+        AccountType::NamedAccount => panic!("must be implicit"),
     }
 }
 
@@ -897,8 +929,7 @@ pub(crate) fn check_account_existence(
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
                 if config.wasm_config.implicit_account_creation
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    && account_id.get_account_type() == AccountType::NearImplicitAccount
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
                 {
                     // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
@@ -920,8 +951,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return if config.wasm_config.implicit_account_creation
                     && is_the_only_action
-                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                    && account_id.get_account_type() == AccountType::NearImplicitAccount
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
                     && !is_refund
                 {
                     // OK. It's implicit account creation.
@@ -1375,7 +1405,7 @@ mod tests {
                 &sender_id,
                 &RuntimeConfig::test(),
                 false,
-                false
+                false,
             ),
             Err(ActionErrorKind::AccountDoesNotExist { account_id: sender_id.clone() }.into())
         );

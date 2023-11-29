@@ -252,6 +252,14 @@ impl User for RuntimeUser {
             .map_err(|err| err.to_string())
     }
 
+    fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer
+            .view_access_keys(&state_update, account_id)
+            .map(|access_keys| access_keys.is_empty())
+            .map_err(|err| err.to_string())
+    }
+
     fn view_call(
         &self,
         account_id: &AccountId,

@@ -83,7 +83,8 @@ fn dump_state_changes(
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
         let key = KeyForStateChanges::for_block(block_header.hash());
-        let mut state_changes_per_shard = vec![vec![];epoch_manager.num_shards(epoch_id).unwrap() as usize];
+        let mut state_changes_per_shard: Vec<_> =
+            epoch_manager.shard_ids(epoch_id).unwrap().into_iter().map(|_| vec![]).collect();
 
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();

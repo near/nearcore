@@ -1,9 +1,12 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use near_chain_configs::ExternalStorageLocation::GCS;
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
+    get_initial_supply, ClientConfig, ExternalStorageConfig, GCConfig, Genesis, GenesisConfig,
+    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
+    SyncConfig, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -60,8 +63,18 @@ pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
 /// Expected block production time in ms.
 pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
 
+/// Mainnet and testnet validators are configured with a different value due to
+/// performance values.
+pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_300;
+pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
+
 /// Maximum time to delay block production without approvals is ms.
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
+
+/// Mainnet and testnet validators are configured with a different value due to
+/// performance values.
+pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 3_000;
+pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_500;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
@@ -121,7 +134,6 @@ pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
-pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
 
 /// The rate at which the gas price can be adjusted (alpha in the formula).
@@ -170,6 +182,26 @@ fn default_sync_height_threshold() -> u64 {
     1
 }
 
+fn default_epoch_sync_enabled() -> bool {
+    false
+}
+
+fn default_state_sync() -> Option<StateSyncConfig> {
+    Some(StateSyncConfig {
+        dump: None,
+        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+            location: GCS { bucket: "state-parts".to_string() },
+            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+            num_concurrent_requests_during_catchup:
+                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+        }),
+    })
+}
+
+fn default_state_sync_enabled() -> bool {
+    true
+}
+
 fn default_view_client_threads() -> usize {
     4
 }
@@ -192,6 +224,14 @@ fn default_trie_viewer_state_size_limit() -> Option<u64> {
 
 fn default_transaction_pool_size_limit() -> Option<u64> {
     Some(100_000_000) // 100 MB.
+}
+
+fn default_tx_routing_height_horizon() -> BlockHeightDelta {
+    4
+}
+
+fn default_enable_multiline_logging() -> Option<bool> {
+    Some(true)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -329,8 +369,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state_sync_enabled: Option<bool>,
+    pub state_sync_enabled: bool,
     /// Options for syncing state.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_sync: Option<StateSyncConfig>,
@@ -341,7 +380,11 @@ pub struct Config {
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
+    // Configuration for resharding.
     pub state_split_config: StateSplitConfig,
+    /// If the node is not a chunk producer within that many blocks, then route
+    /// to upcoming chunk producers.
+    pub tx_routing_height_horizon: BlockHeightDelta,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -369,7 +412,7 @@ impl Default for Config {
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
             gc: GCConfig::default(),
-            epoch_sync_enabled: true,
+            epoch_sync_enabled: default_epoch_sync_enabled(),
             view_client_threads: default_view_client_threads(),
             view_client_throttle_period: default_view_client_throttle_period(),
             trie_viewer_state_size_limit: default_trie_viewer_state_size_limit(),
@@ -378,11 +421,12 @@ impl Default for Config {
             cold_store: None,
             split_storage: None,
             expected_shutdown: None,
-            state_sync: None,
-            state_sync_enabled: None,
+            state_sync: default_state_sync(),
+            state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
-            enable_multiline_logging: None,
+            enable_multiline_logging: default_enable_multiline_logging(),
             state_split_config: StateSplitConfig::default(),
+            tx_routing_height_horizon: default_tx_routing_height_horizon(),
         }
     }
 }
@@ -675,11 +719,12 @@ impl NearConfig {
                 client_background_migration_threads: config.store.background_migration_threads,
                 flat_storage_creation_enabled: config.store.flat_storage_creation_enabled,
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
-                state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
+                state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
                 state_split_config: config.state_split_config,
+                tx_routing_height_horizon: config.tx_routing_height_horizon,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -887,9 +932,7 @@ fn generate_or_load_keys(
 ) -> anyhow::Result<()> {
     generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
     match chain_id {
-        near_primitives::chains::MAINNET
-        | near_primitives::chains::TESTNET
-        | near_primitives::chains::BETANET => {
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
@@ -898,6 +941,31 @@ fn generate_or_load_keys(
         }
     }
     Ok(())
+}
+
+fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
+    match chain_id {
+        near_primitives::chains::MAINNET => {
+            config.consensus.min_block_production_delay =
+                Duration::from_millis(MAINNET_MIN_BLOCK_PRODUCTION_DELAY);
+            config.consensus.max_block_production_delay =
+                Duration::from_millis(MAINNET_MAX_BLOCK_PRODUCTION_DELAY);
+        }
+        near_primitives::chains::TESTNET => {
+            config.consensus.min_block_production_delay =
+                Duration::from_millis(TESTNET_MIN_BLOCK_PRODUCTION_DELAY);
+            config.consensus.max_block_production_delay =
+                Duration::from_millis(TESTNET_MAX_BLOCK_PRODUCTION_DELAY);
+        }
+        _ => {
+            if fast {
+                config.consensus.min_block_production_delay =
+                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                config.consensus.max_block_production_delay =
+                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+            }
+        }
+    }
 }
 
 /// Initializes Genesis, client Config, node and validator keys, and stores in the specified folder.
@@ -951,6 +1019,11 @@ pub fn init_configs(
     }
 
     let mut config = Config::default();
+    // Make sure node tracks all shards, see
+    // https://github.com/near/nearcore/issues/7388
+    config.tracked_shards = vec![0];
+    // If a config gets generated, block production times may need to be updated.
+    set_block_production_delay(&chain_id, fast, &mut config);
 
     if let Some(url) = download_config_url {
         download_config(url, &dir.join(CONFIG_FILENAME))
@@ -967,46 +1040,36 @@ pub fn init_configs(
         config.network.boot_nodes = nodes.to_string();
     }
 
-    if max_gas_burnt_view.is_some() {
-        config.max_gas_burnt_view = max_gas_burnt_view;
+    if let Some(max_gas_burnt_view) = max_gas_burnt_view {
+        config.max_gas_burnt_view = Some(max_gas_burnt_view);
     }
 
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
     generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        near_primitives::chains::MAINNET => {
+        near_primitives::chains::MAINNET | near_primitives::chains::TESTNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
+            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
+        }
+        _ => {
+            // Create new configuration, key files and genesis for one validator.
+            config.network.skip_sync_wait = true;
+        }
+    }
 
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
+    config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
+        format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
+    })?;
 
-            config.telemetry.endpoints.push(MAINNET_TELEMETRY_URL.to_string());
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
+    match chain_id.as_ref() {
+        near_primitives::chains::MAINNET => {
             let genesis = near_mainnet_res::mainnet_genesis();
-
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        near_primitives::chains::TESTNET | near_primitives::chains::BETANET => {
-            if test_seed.is_some() {
-                bail!("Test seed is not supported for {chain_id}");
-            }
-
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
-
-            config.telemetry.endpoints.push(NETWORK_TELEMETRY_URL.replace("{}", &chain_id));
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
+        near_primitives::chains::TESTNET => {
             if let Some(ref filename) = config.genesis_records_file {
                 let records_path = dir.join(filename);
 
@@ -1036,11 +1099,7 @@ pub fn init_configs(
                 genesis_path_str = match genesis {
                     Some(g) => g,
                     None => {
-                        bail!(
-                            "Genesis file is required for {}.\
-                             Use <--genesis|--download-genesis>",
-                            &chain_id
-                        );
+                        bail!("Genesis file is required for {chain_id}.\nUse <--genesis|--download-genesis>");
                     }
                 };
             }
@@ -1063,27 +1122,9 @@ pub fn init_configs(
             genesis.config.chain_id = chain_id.clone();
 
             genesis.to_file(dir.join(config.genesis_file));
-            info!(target: "near", "Generated for {} network node key and genesis file in {}", chain_id, dir.display());
+            info!(target: "near", "Generated for {chain_id} network node key and genesis file in {}", dir.display());
         }
         _ => {
-            // Create new configuration, key files and genesis for one validator.
-            config.network.skip_sync_wait = true;
-
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
-
-            if fast {
-                config.consensus.min_block_production_delay =
-                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
-                config.consensus.max_block_production_delay =
-                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
-            }
-
-            config.write_to_file(&dir.join(CONFIG_FILENAME)).with_context(|| {
-                format!("Error writing config to {}", dir.join(CONFIG_FILENAME).display())
-            })?;
-
             let validator_file = dir.join(&config.validator_key_file);
             let signer = InMemorySigner::from_file(&validator_file).unwrap();
 
@@ -1101,7 +1142,7 @@ pub fn init_configs(
                 ShardLayout::v1(
                     (1..num_shards)
                         .map(|f| {
-                            AccountId::from_str(format!("shard{}.test.near", f).as_str()).unwrap()
+                            AccountId::from_str(format!("shard{f}.test.near").as_str()).unwrap()
                         })
                         .collect(),
                     None,
@@ -1429,9 +1470,7 @@ pub fn load_config(
             if validator_signer.is_some()
                 && matches!(
                     genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET
-                        | near_primitives::chains::TESTNET
-                        | near_primitives::chains::BETANET
+                    near_primitives::chains::MAINNET | near_primitives::chains::TESTNET
                 )
                 && config.tracked_shards.is_empty()
             {
