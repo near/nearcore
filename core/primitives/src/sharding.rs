@@ -22,6 +22,8 @@ use tracing::debug_span;
 /// One reason why it's useful to have a limit of shards per host is because it allows to
 /// limit the size of incoming messages that contain some kind of information for each tracked shard.
 /// Without this limit we would have to handle messages with thousands of shard ids, which could cause problems.
+/// TODO(resharding): at the moment this limit isn't enforced anywhere, make sure that the limit is respected
+/// before rolling out dynamic resharding.
 pub const MAX_SHARDS_PER_HOST: usize = 128;
 
 #[derive(
