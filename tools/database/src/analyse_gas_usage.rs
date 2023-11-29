@@ -96,9 +96,9 @@ struct GasUsageInShard {
 struct ShardSplit {
     /// Account on which the shard would be split
     pub split_account: AccountId,
-    /// Gas used by accounts <= split_account
+    /// Gas used by accounts < split_account
     pub gas_left: BigGas,
-    /// Gas used by accounts > split_account
+    /// Gas used by accounts => split_account
     pub gas_right: BigGas,
 }
 
@@ -141,10 +141,7 @@ impl GasUsageInShard {
         let mut gas_right: BigGas = total_gas;
 
         for (account, used_gas) in &self.used_gas_per_account {
-            // We are now considering a split of (left <= account) and (right > account),
-            // so the current gas should be included in the left part of the split
-            gas_left = gas_left.checked_add(*used_gas).unwrap();
-            gas_right = gas_right.checked_sub(*used_gas).unwrap();
+            // We are now considering a split of (left < account) and (right >= account)
 
             let difference: BigGas = gas_left.abs_diff(gas_right);
             if difference < best_difference {
@@ -152,6 +149,9 @@ impl GasUsageInShard {
                 best_split =
                     Some(ShardSplit { split_account: account.clone(), gas_left, gas_right });
             }
+
+            gas_left = gas_left.checked_add(*used_gas).unwrap();
+            gas_right = gas_right.checked_sub(*used_gas).unwrap();
         }
         best_split
     }
@@ -387,11 +387,11 @@ fn analyse_gas_usage(
                         *shard_usage.used_gas_per_account.get(&shard_split.split_account).unwrap()
                     )
                 );
-                println!("    Left (account <= split_account):");
+                println!("    Left (account < split_account):");
                 let left_accounts =
                     shard_usage.used_gas_per_account.range(..=shard_split.split_account.clone());
                 display_shard_split_stats(left_accounts, shard_total_gas);
-                println!("    Right (account > split_account):");
+                println!("    Right (account >= split_account):");
                 let right_accounts =
                     shard_usage.used_gas_per_account.range(shard_split.split_account..).skip(1);
                 display_shard_split_stats(right_accounts, shard_total_gas);
@@ -457,7 +457,7 @@ mod tests {
         shard_usage.add_used_gas(account("b"), 12345);
 
         let optimal_split =
-            ShardSplit { split_account: account("a"), gas_left: 12345, gas_right: 12345 };
+            ShardSplit { split_account: account("b"), gas_left: 12345, gas_right: 12345 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
@@ -470,7 +470,7 @@ mod tests {
         shard_usage.add_used_gas(account("b"), 12345);
 
         let optimal_split =
-            ShardSplit { split_account: account("a"), gas_left: 123, gas_right: 12345 };
+            ShardSplit { split_account: account("b"), gas_left: 123, gas_right: 12345 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
@@ -483,7 +483,7 @@ mod tests {
         shard_usage.add_used_gas(account("b"), 123);
 
         let optimal_split =
-            ShardSplit { split_account: account("a"), gas_left: 12345, gas_right: 123 };
+            ShardSplit { split_account: account("b"), gas_left: 12345, gas_right: 123 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
@@ -538,7 +538,7 @@ mod tests {
         // Optimal split:
         // 1 + 3 + 5 + 2 = 11
         // 8 + 1 + 2 + 8 = 19
-        let optimal_split = ShardSplit { split_account: account("d"), gas_left: 11, gas_right: 19 };
+        let optimal_split = ShardSplit { split_account: account("e"), gas_left: 11, gas_right: 19 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
@@ -557,7 +557,7 @@ mod tests {
         shard_usage.add_used_gas(account("h"), 1);
 
         let optimal_split =
-            ShardSplit { split_account: account("a"), gas_left: 10000, gas_right: 7 };
+            ShardSplit { split_account: account("b"), gas_left: 10000, gas_right: 7 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
@@ -576,7 +576,7 @@ mod tests {
         shard_usage.add_used_gas(account("h"), 10000);
 
         let optimal_split =
-            ShardSplit { split_account: account("g"), gas_left: 7, gas_right: 10000 };
+            ShardSplit { split_account: account("h"), gas_left: 7, gas_right: 10000 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 }
