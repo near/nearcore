@@ -33,7 +33,16 @@ HELPER_SCRIPTS = [
 
 PYTEST_TESTS_DIRECTORY = pathlib.Path('pytest/tests')
 NIGHTLY_TESTS_FILE = pathlib.Path(nayduck.DEFAULT_TEST_FILE)
-BUILDKITE_PIPELINE_FILE = pathlib.Path('.buildkite/pipeline.yml')
+
+# TODO: this should read ci.yml and fetch the list of tests from there
+# Currently, the list of tests is hardcoded, so if a test is removed/added to ci.yml then the list
+# here should be updated too
+GHA_TESTS = [
+    "sanity/backward_compatible.py",
+    "sanity/db_migration.py",
+    "sanity/spin_up_cluster.py",
+    "sanity/upgradable.py",
+]
 
 StrGenerator = typing.Generator[str, None, None]
 
@@ -91,31 +100,6 @@ def read_nayduck_tests(path: pathlib.Path) -> StrGenerator:
             found_todo = False
 
 
-def read_pipeline_tests(filename: pathlib.Path) -> StrGenerator:
-    """Reads pytest tests mentioned in Buildkite pipeline file.
-
-    The parsing of the pipeline configuration is quite naive.  All this function
-    is looking for is a "cd pytest" line in a step's command followed by
-    "python3 tests/<name>" lines.  The <name> is yielded for each such line.
-
-    Args:
-        filename: Path to the Buildkite pipeline configuration file.
-    Yields:
-        pytest tests mentioned in the commands in the configuration file.
-    """
-    with open(filename) as rd:
-        data = yaml.load(rd, Loader=yaml.SafeLoader)
-    for step in data.get('steps', ()):
-        in_pytest = False
-        for line in step.get('command', '').splitlines():
-            line = line.strip()
-            line = re.sub(r'\s+', ' ', line)
-            if line == 'cd pytest':
-                in_pytest = True
-            elif in_pytest and line.startswith('python3 tests/'):
-                yield line.split()[1][6:]
-
-
 def print_error(missing: typing.Collection[str]) -> None:
     """Formats and outputs an error message listing missing tests."""
     this_file = os.path.relpath(__file__)
@@ -164,7 +148,7 @@ def main() -> int:
     count = len(missing)
     missing.difference_update(
         read_nayduck_tests(pathlib.Path(nayduck.DEFAULT_TEST_FILE)))
-    missing.difference_update(read_pipeline_tests(BUILDKITE_PIPELINE_FILE))
+    missing.difference_update(GHA_TESTS)
     missing = set(filename for filename in missing if not any(
         fnmatch.fnmatch(filename, pattern) for pattern in HELPER_SCRIPTS))
     if missing:

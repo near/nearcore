@@ -147,6 +147,16 @@ impl<'a> ConfigValidator<'a> {
                 }
             }
         }
+
+        let tx_routing_height_horizon = self.config.tx_routing_height_horizon;
+        if tx_routing_height_horizon < 2 {
+            let error_message = format!("'config.tx_routing_height_horizon' needs to be at least 2, got {tx_routing_height_horizon}.");
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if tx_routing_height_horizon > 100 {
+            let error_message = format!("'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}.");
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
     }
 
     fn result_with_full_error(&self) -> Result<(), ValidationError> {
@@ -218,6 +228,26 @@ mod test {
         let mut config = Config::default();
         config.cold_store = Some(config.store.clone());
         config.save_trie_changes = Some(false);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.tx_routing_height_horizon' needs to be at least 2, got 1."
+    )]
+    fn test_tx_routing_height_horizon_too_low() {
+        let mut config = Config::default();
+        config.tx_routing_height_horizon = 1;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got 1000000000."
+    )]
+    fn test_tx_routing_height_horizon_too_high() {
+        let mut config = Config::default();
+        config.tx_routing_height_horizon = 1_000_000_000;
         validate_config(&config).unwrap();
     }
 }

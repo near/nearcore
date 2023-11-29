@@ -19,7 +19,7 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks, TX_ROUTING_HEIGHT_HORIZON,
+    OrphanMissingChunks,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::resharding::StateSplitRequest;
@@ -2003,24 +2003,27 @@ impl Client {
     fn forward_tx(&self, epoch_id: &EpochId, tx: &SignedTransaction) -> Result<(), Error> {
         let shard_id =
             self.epoch_manager.account_id_to_shard_id(&tx.transaction.signer_id, epoch_id)?;
-        let head = self.chain.head()?;
+        // Use the header head to make sure the list of validators is as
+        // up-to-date as possible.
+        let head = self.chain.header_head()?;
         let maybe_next_epoch_id = self.get_next_epoch_id_if_at_boundary(&head)?;
 
         let mut validators = HashSet::new();
-        for horizon in
-            (2..=TX_ROUTING_HEIGHT_HORIZON).chain(vec![TX_ROUTING_HEIGHT_HORIZON * 2].into_iter())
+        for horizon in (2..=self.config.tx_routing_height_horizon)
+            .chain(vec![self.config.tx_routing_height_horizon * 2].into_iter())
         {
+            let target_height = head.height + horizon - 1;
             let validator =
-                self.chain.find_chunk_producer_for_forwarding(epoch_id, shard_id, horizon)?;
+                self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?;
             validators.insert(validator);
             if let Some(next_epoch_id) = &maybe_next_epoch_id {
                 let next_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(&tx.transaction.signer_id, next_epoch_id)?;
-                let validator = self.chain.find_chunk_producer_for_forwarding(
+                let validator = self.epoch_manager.get_chunk_producer(
                     next_epoch_id,
+                    target_height,
                     next_shard_id,
-                    horizon,
                 )?;
                 validators.insert(validator);
             }
@@ -2071,7 +2074,7 @@ impl Client {
                 + self.config.epoch_length;
 
         let epoch_boundary_possible =
-            head.height + TX_ROUTING_HEIGHT_HORIZON >= next_epoch_estimated_height;
+            head.height + self.config.tx_routing_height_horizon >= next_epoch_estimated_height;
         if epoch_boundary_possible {
             Ok(Some(self.epoch_manager.get_next_epoch_id_from_prev_block(&head.last_block_hash)?))
         } else {
@@ -2228,7 +2231,7 @@ impl Client {
             return Ok(false);
         };
 
-        for i in 1..=TX_ROUTING_HEIGHT_HORIZON {
+        for i in 1..=self.config.tx_routing_height_horizon {
             let chunk_producer =
                 self.epoch_manager.get_chunk_producer(&epoch_id, head.height + i, shard_id)?;
             if &chunk_producer == account_id {

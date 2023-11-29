@@ -12,6 +12,7 @@
 
 * Add prometheus metrics for the internal state of the doomslug. [#9458](https://github.com/near/nearcore/pull/9458)
 * Fix `EXPERIMENTAL_protocol_config` to apply overrides from `EpochConfig`. [#9692](https://github.com/near/nearcore/pull/9692)
+* Add config option `tx_routing_height_horizon` to configure how many chunk producers are notified about the tx. [#10251](https://github.com/near/nearcore/pull/10251)
 
 ## 1.36.0
 
