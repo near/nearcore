@@ -225,7 +225,7 @@ jobs:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user -r pytest/requirements.txt
-      - run: just check-style
+      - run: just python-style-checks
 
   py_upgradability:
     name: "Upgradability"
