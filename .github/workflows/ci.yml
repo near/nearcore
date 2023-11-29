@@ -8,6 +8,9 @@ on:
   pull_request:
   merge_group:
 
+env:
+  CI_HACKS: 1
+
 # BE CAREFUL IF EDITING THIS FILE:
 # If you add/remove python tests from here, you should also update `check_pytests.py`’s list of GHA_TESTS
 # so that it stays in-sync, to make sure no tests are lost.
@@ -24,29 +27,28 @@ jobs:
             id: linux
             cache_id: linux
             os: ubuntu-22.04-16core
-            flags: ""
-            run_integ_tests: true
+            type: stable
+            runs_integ_tests: true
           - name: Linux Nightly
             id: linux-nightly
             cache_id: linux
             os: ubuntu-22.04-16core
-            flags: "--features nightly,test_features"
-            run_integ_tests: true
+            type: nightly
+            runs_integ_tests: true
           - name: MacOS
             id: macos
             cache_id: macos
             os: macos-latest-xlarge
-            # FIXME: some of these tests don't work very well on MacOS at the moment. Should fix
-            # them at earliest convenience :)
-            # Note that run_integ_tests also leads to coverage not being uploaded to codecov below,
-            # the corresponding step is commented-out.
-            flags: "--exclude node-runtime --exclude runtime-params-estimator --exclude near-network --exclude estimator-warehouse"
-            run_integ_tests: false
+            type: stable
+            runs_integ_tests: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       # Install all the required tools
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-nextest
@@ -62,23 +64,16 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
-      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
-      # Run unit tests
-      - run: cargo nextest run --locked --workspace --exclude integration-tests --cargo-profile dev-release --profile ci ${{ matrix.flags }}
-        env:
-          RUST_BACKTRACE: short
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path unit-${{ matrix.id }}.json
-      # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
-      - run: find target -name '*.profraw' -delete
 
-      # Run integration tests
-      - run: cargo nextest run --locked --package integration-tests --cargo-profile dev-release --profile ci ${{ matrix.flags }}
-        if: matrix.run_integ_tests
-        env:
-          RUST_BACKTRACE: short
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path integration-${{ matrix.id }}.json
-        if: matrix.run_integ_tests
+      # Run the tests
+      - run: just codecov "nextest-unit ${{ matrix.type }}"
+      - run: mv codecov.json unit-${{ matrix.id }}.json
+      - run: just codecov "nextest-integration ${{ matrix.type }}"
+        if: matrix.runs_integ_tests
+      - run: mv codecov.json integration-${{ matrix.id }}.json
+        if: matrix.runs_integ_tests
+
+      # Upload the coverage
       - uses: actions/upload-artifact@v3
         with:
           name: coverage
@@ -227,15 +222,15 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user -r pytest/requirements.txt
-      - run: python3 scripts/check_nightly.py
-      - run: python3 scripts/check_pytests.py
-      - run: python3 scripts/fix_nightly_feature_flags.py
-      - run: ./scripts/formatting --check
+      - run: just python-style-checks
 
   py_upgradability:
     name: "Upgradability"
@@ -276,8 +271,10 @@ jobs:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-linux"
           save-if: "false" # use the cache from nextest, but don’t double-save
-      - run: ./chain/jsonrpc/build_errors_schema.sh
-      - run: git diff --quiet ./chain/jsonrpc/res/rpc_errors_schema.json || exit 1
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-rpc-errors-schema
 
   lychee_checks:
     name: "Lychee Lints"
