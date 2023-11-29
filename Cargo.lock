@@ -3642,6 +3642,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "rand 0.8.5",
+ "rayon",
  "reed-solomon-erasure",
  "regex",
  "reqwest",

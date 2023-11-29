@@ -18,11 +18,11 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId,
     ValidatorInfoIdentifier,
 };
+use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-#[cfg(feature = "new_epoch_sync")]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -186,6 +186,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError>;
+
+    /// Gets the chunk validators for a given height and shard.
+    fn get_chunk_validators(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -641,6 +649,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
+    }
+
+    fn get_chunk_validators(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.get_chunk_validators(epoch_id, shard_id, height)
     }
 
     fn get_validator_by_account_id(

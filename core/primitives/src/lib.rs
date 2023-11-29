@@ -10,6 +10,7 @@ pub mod block;
 pub mod block_header;
 pub mod chains;
 pub mod challenge;
+pub mod chunk_validation;
 pub mod epoch_manager;
 pub mod epoch_sync;
 pub mod errors;

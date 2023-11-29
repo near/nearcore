@@ -27,6 +27,7 @@ num-rational.workspace = true
 once_cell.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
+rayon.workspace = true
 reed-solomon-erasure.workspace = true
 regex.workspace = true
 reqwest.workspace = true

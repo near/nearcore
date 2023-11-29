@@ -857,6 +857,8 @@ pub enum EpochError {
         num_validators: u64,
         num_shards: u64,
     },
+    /// Error selecting validators for a chunk.
+    ChunkValidatorSelectionError(String),
 }
 
 impl std::error::Error for EpochError {}
@@ -881,6 +883,9 @@ impl Display for EpochError {
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "There were not enough validator proposals to fill all shards. num_proposals: {}, num_shards: {}", num_validators, num_shards)
             }
+            EpochError::ChunkValidatorSelectionError(err) => {
+                write!(f, "Error selecting validators for a chunk: {}", err)
+            }
         }
     }
 }
@@ -900,6 +905,9 @@ impl Debug for EpochError {
             EpochError::ShardingError(err) => write!(f, "ShardingError({})", err),
             EpochError::NotEnoughValidators { num_shards, num_validators } => {
                 write!(f, "NotEnoughValidators({}, {})", num_validators, num_shards)
+            }
+            EpochError::ChunkValidatorSelectionError(err) => {
+                write!(f, "ChunkValidatorSelectionError({})", err)
             }
         }
     }

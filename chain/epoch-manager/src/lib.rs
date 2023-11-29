@@ -18,6 +18,7 @@ use near_primitives::types::{
     EpochInfoProvider, NumBlocks, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -914,6 +915,30 @@ impl EpochManager {
 
             Ok(producers.iter().map(|producer_id| epoch_info.get_validator(*producer_id)).collect())
         })
+    }
+
+    /// Returns the list of chunk validators for the given shard_id and height.
+    pub fn get_chunk_validators(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
+        let chunk_validators =
+            chunk_validators_per_shard.get(shard_id as usize).ok_or_else(|| {
+                EpochError::ChunkValidatorSelectionError(format!(
+                    "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
+                    shard_id, height, epoch_id,
+                ))
+            })?;
+        Ok(chunk_validators
+            .iter()
+            .map(|(validator_id, seats)| {
+                (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
+            })
+            .collect())
     }
 
     /// get_heuristic_block_approvers_ordered: block producers for epoch

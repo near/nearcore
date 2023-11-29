@@ -828,6 +828,8 @@ pub fn setup_mock_all_validators(
                         | NetworkRequests::TxStatus(_, _, _)
                         | NetworkRequests::SnapshotHostInfo { .. }
                         | NetworkRequests::Challenge(_) => {}
+                        NetworkRequests::ChunkStateWitness(_, _) => todo!(),
+                        NetworkRequests::ChunkEndorsement(_) => todo!(),
                     };
                 }
                 resp
