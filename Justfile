@@ -9,7 +9,7 @@ with_macos_excludes := if os() == "macos" {
 nightly_flags := "--features nightly,test_features"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
-ci_hack_nextest_profile := env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
+ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
 test: test-ci test-extra
