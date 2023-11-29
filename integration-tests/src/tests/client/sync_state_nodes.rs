@@ -936,7 +936,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .unwrap();
             near1.config.store.state_snapshot_enabled = false;
             near1.config.store.state_snapshot_compaction_enabled = false;
-            near1.config.state_sync_enabled = Some(false);
+            near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
 
             let _node1 = start_with_config(dir1.path(), near1).expect("start_with_config");
@@ -954,7 +954,7 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .unwrap();
             near2.config.store.state_snapshot_enabled = true;
             near2.config.store.state_snapshot_compaction_enabled = false;
-            near2.config.state_sync_enabled = Some(false);
+            near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
 
             let nearcore::NearNode { view_client: view_client2, .. } =

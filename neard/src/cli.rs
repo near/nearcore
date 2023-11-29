@@ -516,7 +516,6 @@ impl RunCmd {
         {
             if near_config.client_config.chain_id == near_primitives::chains::MAINNET
                 || near_config.client_config.chain_id == near_primitives::chains::TESTNET
-                || near_config.client_config.chain_id == near_primitives::chains::BETANET
             {
                 eprintln!(
                     "Sandbox node can only run dedicate localnet, cannot connect to a network"
