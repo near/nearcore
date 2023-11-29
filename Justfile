@@ -57,11 +57,12 @@ nextest-integration TYPE *FLAGS:
 codecov RULE:
     #!/usr/bin/env bash
     set -euxo pipefail
-    # TODO: remove this hack, see also https://github.com/rust-lang/cargo/issues/13040
-    source <(cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS)
+    # Note: macos seems to not support `source <()` as a way to set environment variables, but
+    # `$()` seems to work on both linux and macos.
+    # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
+    $(cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS)
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
-    find . -name '*.profraw'
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
     find target -name '*.profraw' -delete
