@@ -4222,7 +4222,7 @@ impl Chain {
                 let block_hash = block.hash();
                 // TODO(logunov): this is probably happening just after state sync; needs to be
                 // fixed before stateless validation release.
-                debug!(target: "client", block_height, block_hash, shard_id, prev_chunk_prev_hash, "Previous block for previous chunk is missing: {e}");
+                debug!(target: "client", block_height, ?block_hash, shard_id, ?prev_chunk_prev_hash, "Previous block for previous chunk is missing: {e}");
                 return Ok(None);
             }
         };
@@ -4305,7 +4305,7 @@ impl Chain {
                 let block_hash = block.hash();
                 let requested_block_hash = execution_contexts[0].0.prev_block_hash;
                 let requested_shard_uid = execution_contexts[0].1.shard_uid;
-                debug!(target: "client", block_height, block_hash, requested_block_hash, requested_shard_uid, "Chunk extra is missing: {e}");
+                debug!(target: "client", block_height, ?block_hash, ?requested_block_hash, ?requested_shard_uid, "Chunk extra is missing: {e}");
                 return Ok(None);
             }
         };
