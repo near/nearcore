@@ -30,7 +30,7 @@ nextest-unit TYPE *FLAGS:
         --workspace \
         --exclude integration-tests \
         --cargo-profile dev-release \
-        --profile ci \
+        {{ ci_hack_nextest_profile }} \
         {{ with_macos_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
            else if TYPE == "stable" { "" } \
