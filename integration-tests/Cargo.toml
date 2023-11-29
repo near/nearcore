@@ -58,6 +58,7 @@ near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
 near-undo-block.workspace = true
 near-vm-runner.workspace = true
+near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 testlib.workspace = true

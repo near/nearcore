@@ -19,7 +19,6 @@ use crate::version::{
 
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
-use near_vm_runner::ContractCode;
 
 use std::mem::size_of;
 use std::ops::Deref;
@@ -469,12 +468,6 @@ where
     T: serde::Serialize,
 {
     Serializable(object)
-}
-
-// TODO(eth-implicit) Replace this function (and wat dependency) with a real Wallet Contract implementation.
-pub fn wallet_contract_placeholder() -> ContractCode {
-    let code = wat::parse_str(r#"(module (func (export "main")))"#);
-    ContractCode::new(code.unwrap().to_vec(), None)
 }
 
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.

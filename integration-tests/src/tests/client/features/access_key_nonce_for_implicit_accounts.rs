@@ -19,11 +19,10 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::transaction::{Action, AddKeyAction, DeployContractAction, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{
-    derive_eth_implicit_account_id, derive_near_implicit_account_id, wallet_contract_placeholder,
-};
+use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::FinalExecutionStatus;
+use near_wallet_contract::wallet_contract;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -251,7 +250,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let deposit_for_account_creation = 10u128.pow(23);
+    let deposit_for_account_creation = 10 * nearcore::NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
@@ -324,7 +323,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     assert_eq!(response, expected_tx_error);
 
     // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract_placeholder().code().to_vec();
+    let wallet_contract_code = wallet_contract().code().to_vec();
     let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
         nonce,
         eth_implicit_account_id.clone(),

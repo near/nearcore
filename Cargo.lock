@@ -2844,6 +2844,7 @@ dependencies = [
  "near-test-contracts",
  "near-undo-block",
  "near-vm-runner",
+ "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "once_cell",
@@ -4215,7 +4216,6 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "wat",
 ]
 
 [[package]]
@@ -4665,6 +4665,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-wallet-contract"
+version = "0.0.0"
+dependencies = [
+ "near-vm-runner",
+ "wasm-encoder 0.27.0",
+ "wasm-smith",
+ "wat",
+]
+
+[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
@@ -4820,6 +4830,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
+ "near-wallet-contract",
  "num-bigint 0.3.3",
  "num-rational",
  "num-traits",

@@ -22,9 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::{
-    account_is_implicit, create_random_seed, wallet_contract_placeholder,
-};
+use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -41,6 +39,7 @@ use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_wallet_contract::wallet_contract;
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -479,7 +478,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
                 // TODO(eth-implicit) Use real Wallet Contract.
-                let wallet_contract = wallet_contract_placeholder();
+                let wallet_contract = wallet_contract();
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + fee_config.storage_usage_config.num_extra_bytes_record
                     + wallet_contract.code().len() as u64;

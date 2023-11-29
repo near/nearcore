@@ -33,6 +33,7 @@ near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner.workspace = true
+near-wallet-contract.workspace = true
 
 [features]
 nightly = [
@@ -73,4 +74,5 @@ tempfile.workspace = true
 near-chain-configs.workspace = true
 near-store = { workspace = true, features = ["test_features"] }
 near-test-contracts.workspace = true
+near-wallet-contract.workspace = true
 testlib.workspace = true

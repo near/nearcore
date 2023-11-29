@@ -887,7 +887,7 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     node.view_account(&new_account).expect_err("account already exists");
 
     let fee_helper = fee_helper(&node);
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = 10 * nearcore::NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
 
     let tx_cost = match new_account.get_account_type() {

@@ -1,0 +1,22 @@
+[package]
+name = "near-wallet-contract"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "A temporary Wallet Contract placeholder."
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+near-vm-runner.workspace = true
+wat.workspace = true
+wasm-encoder.workspace = true
+wasm-smith.workspace = true
+
+[features]
+nightly = []
