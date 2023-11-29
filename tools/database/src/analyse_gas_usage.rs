@@ -291,31 +291,31 @@ fn display_shard_split_stats<'a>(
     total_shard_gas: BigGas,
 ) {
     let mut accounts_num: u64 = 0;
-    let mut total_gas: BigGas = 0;
+    let mut total_split_half_gas: BigGas = 0;
     let mut top_3_finder = BiggestAccountsFinder::new(3);
 
     for (account, used_gas) in accounts {
         accounts_num += 1;
-        total_gas = total_gas.checked_add(*used_gas).unwrap();
+        total_split_half_gas = total_split_half_gas.checked_add(*used_gas).unwrap();
         top_3_finder.add_account_stats(account.clone(), *used_gas);
     }
 
     let indent = "      ";
     println!(
-        "{}Gas: {} ({} of shard total)",
+        "{}Gas: {} ({} of shard)",
         indent,
-        display_gas(total_gas),
-        as_percentage_of(total_gas, total_shard_gas)
+        display_gas(total_split_half_gas),
+        as_percentage_of(total_split_half_gas, total_shard_gas)
     );
     println!("{}Accounts: {}", indent, accounts_num);
     println!("{}Top 3 accounts:", indent);
     for (i, (account, used_gas)) in top_3_finder.get_biggest_accounts().enumerate() {
         println!("{}  #{}: {}", indent, i + 1, account);
         println!(
-            "{}      Used gas: {} ({} of shard split half)",
+            "{}      Used gas: {} ({} of shard)",
             indent,
             display_gas(used_gas),
-            as_percentage_of(used_gas, total_gas)
+            as_percentage_of(used_gas, total_shard_gas)
         )
     }
 }
@@ -372,7 +372,7 @@ fn analyse_gas_usage(
         if let Some((biggest_account, biggest_account_gas)) = shard_usage.biggest_account() {
             println!("  Biggest account: {}", biggest_account);
             println!(
-                "  Biggest account gas: {} ({} of shard total)",
+                "  Biggest account gas: {} ({} of shard)",
                 display_gas(biggest_account_gas),
                 as_percentage_of(biggest_account_gas, shard_total_gas)
             );
