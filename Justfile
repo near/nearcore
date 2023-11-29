@@ -21,10 +21,10 @@ test-ci: (nextest "stable") (nextest "nightly") python-style-checks
 test-extra: check-lychee
 
 # all cargo tests, TYPE is "stable" or "nightly"
-nextest TYPE: (nextest-unit TYPE) (nextest-integration TYPE)
+nextest TYPE *FLAGS: (nextest-unit TYPE FLAGS) (nextest-integration TYPE FLAGS)
 
 # cargo unit tests, TYPE is "stable" or "nightly"
-nextest-unit TYPE:
+nextest-unit TYPE *FLAGS:
     cargo nextest run \
         --locked \
         --workspace \
@@ -34,11 +34,12 @@ nextest-unit TYPE:
         {{ with_macos_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
            else if TYPE == "stable" { "" } \
-           else { error("TYPE is neighter 'nightly' nor 'stable'") } }}
+           else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
+        {{ FLAGS }}
 
 # cargo integration tests, TYPE is "stable" or "nightly"
 [linux]
-nextest-integration TYPE:
+nextest-integration TYPE *FLAGS:
     cargo nextest run \
         --locked \
         --package integration-tests \
@@ -46,9 +47,10 @@ nextest-integration TYPE:
         {{ ci_hack_nextest_profile }} \
         {{ if TYPE == "nightly" { nightly_flags } \
            else if TYPE == "stable" { "" } \
-           else { error("TYPE is neither 'nightly' nor 'stable'") } }}
+           else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
+        {{ FLAGS }}
 [macos]
-nextest-integration TYPE:
+nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
 # generate a codecov report for RULE
