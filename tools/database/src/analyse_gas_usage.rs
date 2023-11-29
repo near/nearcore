@@ -381,11 +381,14 @@ fn analyse_gas_usage(
             Some(shard_split) => {
                 println!("  Optimal split:");
                 println!("    split_account: {}", shard_split.split_account);
+                let split_account_gas =
+                    *shard_usage.used_gas_per_account.get(&shard_split.split_account).unwrap();
+                println!("    gas(split_account): {}", display_gas(split_account_gas));
                 println!(
-                    "    gas(split_account): {}",
-                    display_gas(
-                        *shard_usage.used_gas_per_account.get(&shard_split.split_account).unwrap()
-                    )
+                    "    Gas distribution (left, split_acc, right): ({}, {}, {})",
+                    as_percentage_of(shard_split.gas_left, shard_total_gas),
+                    as_percentage_of(split_account_gas, shard_total_gas),
+                    as_percentage_of(shard_split.gas_right.saturating_sub(split_account_gas), shard_total_gas)
                 );
                 println!("    Left (account < split_account):");
                 let left_accounts =
