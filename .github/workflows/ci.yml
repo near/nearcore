@@ -28,16 +28,19 @@ jobs:
             cache_id: linux
             os: ubuntu-22.04-16core
             type: stable
+            runs_integ_tests: true
           - name: Linux Nightly
             id: linux-nightly
             cache_id: linux
             os: ubuntu-22.04-16core
             type: nightly
+            runs_integ_tests: true
           - name: MacOS
             id: macos
             cache_id: macos
             os: macos-latest-xlarge
             type: stable
+            runs_integ_tests: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +69,9 @@ jobs:
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv codecov.json unit-${{ matrix.id }}.json
       - run: just codecov "nextest-integration ${{ matrix.type }}"
+        if: matrix.runs_integ_tests
       - run: mv codecov.json integration-${{ matrix.id }}.json
+        if: matrix.runs_integ_tests
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
