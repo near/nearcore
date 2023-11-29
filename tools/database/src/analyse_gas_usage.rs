@@ -388,7 +388,10 @@ fn analyse_gas_usage(
                     "    Gas distribution (left, boundary_acc, right): ({}, {}, {})",
                     as_percentage_of(shard_split.gas_left, shard_total_gas),
                     as_percentage_of(boundary_account_gas, shard_total_gas),
-                    as_percentage_of(shard_split.gas_right.saturating_sub(boundary_account_gas), shard_total_gas)
+                    as_percentage_of(
+                        shard_split.gas_right.saturating_sub(boundary_account_gas),
+                        shard_total_gas
+                    )
                 );
                 println!("    Left (account < boundary_account):");
                 let left_accounts =
@@ -541,7 +544,8 @@ mod tests {
         // Optimal split:
         // 1 + 3 + 5 + 2 = 11
         // 8 + 1 + 2 + 8 = 19
-        let optimal_split = ShardSplit { boundary_account: account("e"), gas_left: 11, gas_right: 19 };
+        let optimal_split =
+            ShardSplit { boundary_account: account("e"), gas_left: 11, gas_right: 19 };
         assert_eq!(shard_usage.calculate_split(), Some(optimal_split));
     }
 
