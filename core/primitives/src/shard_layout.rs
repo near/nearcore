@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
-use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -246,17 +245,16 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             u64::from_le_bytes(*bytes) % num_shards
         }
         ShardLayout::V1(ShardLayoutV1 { boundary_accounts, .. }) => {
-            // Note: As we scale up the number of shards we can consider
-            // changing this method to do a binary search rather than linear
-            // scan. For the time being, with only 4 shards, this is perfectly fine.
-            let mut shard_id: ShardId = 0;
+            // When we have many shards, we could consider changing the linear
+            // scan to a binary search.
+            let mut shard_id = 0;
             for boundary_account in boundary_accounts {
-                if boundary_account.cmp(account_id) == Greater {
-                    break;
+                if boundary_account > account_id {
+                    return shard_id;
                 }
                 shard_id += 1;
             }
-            shard_id
+            panic!("Unable to find the shard id for account id {}", account_id);
         }
     }
 }
