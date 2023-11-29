@@ -131,9 +131,6 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
-
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -3774,25 +3771,6 @@ impl Chain {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
-    }
-
-    /// Find a validator to forward transactions to
-    pub fn find_chunk_producer_for_forwarding(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        horizon: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let target_height = head.height + horizon - 1;
-        Ok(self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?)
-    }
-
-    /// Find a validator that is responsible for a given shard to forward requests to
-    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
     }
 
     pub fn check_blocks_final_and_canonical(

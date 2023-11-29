@@ -13,18 +13,11 @@ use itertools::Itertools;
 use near_async::time;
 use near_o11y::testonly::init_test_logger;
 use near_store::db::TestDB;
+use peer_manager::testonly::FDS_PER_PEER;
 use pretty_assertions::assert_eq;
 use rand::seq::SliceRandom as _;
 use std::collections::HashSet;
 use std::sync::Arc;
-
-/// Each actix arbiter (in fact, the underlying tokio runtime) creates 4 file descriptors:
-/// 1. eventfd2()
-/// 2. epoll_create1()
-/// 3. fcntl() duplicating one end of some globally shared socketpair()
-/// 4. fcntl() duplicating epoll socket created in (2)
-/// This gives 5 file descriptors per PeerActor (4 + 1 TCP socket).
-const FDS_PER_PEER: usize = 5;
 
 #[tokio::test]
 async fn broadcast() {
