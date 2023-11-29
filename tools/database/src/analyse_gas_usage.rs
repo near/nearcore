@@ -392,11 +392,11 @@ fn analyse_gas_usage(
                 );
                 println!("    Left (account < split_account):");
                 let left_accounts =
-                    shard_usage.used_gas_per_account.range(..=shard_split.split_account.clone());
+                    shard_usage.used_gas_per_account.range(..shard_split.split_account.clone());
                 display_shard_split_stats(left_accounts, shard_total_gas);
                 println!("    Right (account >= split_account):");
                 let right_accounts =
-                    shard_usage.used_gas_per_account.range(shard_split.split_account..).skip(1);
+                    shard_usage.used_gas_per_account.range(shard_split.split_account..);
                 display_shard_split_stats(right_accounts, shard_total_gas);
             }
             None => println!("  No optimal split for this shard"),
