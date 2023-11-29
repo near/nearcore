@@ -943,7 +943,7 @@ fn generate_or_load_keys(
     Ok(())
 }
 
-fn set_block_production_delay(fast: bool, chain_id: &str, config: &mut Config) {
+fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
     match chain_id {
         near_primitives::chains::MAINNET => {
             config.consensus.min_block_production_delay =
@@ -1023,7 +1023,7 @@ pub fn init_configs(
     // https://github.com/near/nearcore/issues/7388
     config.tracked_shards = vec![0];
     // If a config gets generated, block production times may need to be updated.
-    set_block_production_delay(&chain_id, &mut config);
+    set_block_production_delay(&chain_id, fast, &mut config);
 
     if let Some(url) = download_config_url {
         download_config(url, &dir.join(CONFIG_FILENAME))
