@@ -61,7 +61,7 @@ codecov RULE:
     # `$()` seems to work on both linux and macos.
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
     cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS > env
-    source env
+    source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
     env
