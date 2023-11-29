@@ -4213,7 +4213,17 @@ impl Chain {
 
         // Check that current and previous chunks have the same shard layouts because
         // resharding is not supported yet - we need to determine parent shard id otherwise.
-        let prev_chunk_prev_block = self.get_block(&prev_chunk_prev_hash)?;
+        let prev_chunk_prev_block = match self.get_block(&prev_chunk_prev_hash) {
+            Ok(b) => b,
+            Err(e) => {
+                let block_height = block.header().height();
+                let block_hash = block.hash();
+                // TODO(logunov): this is probably happening just after state sync; needs to be
+                // fixed before stateless validation release.
+                debug!(target: "client", block_height, block_hash, shard_id, prev_chunk_prev_hash, "Previous block for previous chunk is missing: {e}");
+                return Ok(None);
+            }
+        };
         let shard_layout =
             epoch_manager.get_shard_layout_from_prev_block(prev_block.header().prev_hash())?;
         let prev_shard_layout = epoch_manager
@@ -4283,13 +4293,20 @@ impl Chain {
         // Then, we process updates for missing chunks, until we find a block at which
         // `prev_chunk` was created.
         // And finally we process update for the `prev_chunk`.
-        let mut current_chunk_extra = ChunkExtra::clone(
-            self.get_chunk_extra(
-                &execution_contexts[0].0.prev_block_hash,
-                &execution_contexts[0].1.shard_uid,
-            )?
-            .as_ref(),
-        );
+        let mut current_chunk_extra = match self.get_chunk_extra(
+            &execution_contexts[0].0.prev_block_hash,
+            &execution_contexts[0].1.shard_uid,
+        ) {
+            Ok(c) => ChunkExtra::clone(c.as_ref()),
+            Err(e) => {
+                let block_height = block.header().height();
+                let block_hash = block.hash();
+                let requested_block_hash = execution_contexts[0].0.prev_block_hash;
+                let requested_shard_uid = execution_contexts[0].1.shard_uid;
+                debug!(target: "client", block_height, block_hash, requested_block_hash, requested_shard_uid, "Chunk extra is missing: {e}");
+                return Ok(None);
+            }
+        };
         let (last_block_context, last_shard_context) = execution_contexts.pop().unwrap();
         let prev_chunk = self.get_chunk_clone_from_header(&prev_chunk_header.clone())?;
         Ok(Some(Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
