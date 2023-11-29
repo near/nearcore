@@ -61,6 +61,7 @@ codecov RULE:
     source <(cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS)
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
+    find . -name '*.profraw'
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
     find target -name '*.profraw' -delete
