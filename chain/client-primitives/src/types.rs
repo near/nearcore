@@ -264,7 +264,7 @@ impl std::fmt::Debug for StateSyncStatus {
 }
 
 /// Various status sync can be in, whether it's fast sync or archival.
-#[derive(Clone, Debug, strum::AsRefStr)]
+#[derive(Clone, Debug, strum::AsRefStr, strum::Display)]
 pub enum SyncStatus {
     /// Initial state. Not enough peers to do anything yet.
     AwaitingPeers,
@@ -327,7 +327,8 @@ impl SyncStatus {
         let _span =
             debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
-        *self = new_value
+        crate::metrics::SYNC_STATUS_COUNTER.with_label_values(&[&format!("{new_value}")]).inc();
+        *self = new_value;
     }
 }
 

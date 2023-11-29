@@ -1643,16 +1643,9 @@ impl ClientActor {
                                     .chain
                                     .reset_data_pre_state_sync(sync_hash));
                             }
-                            let s = StateSyncStatus { sync_hash, sync_status: HashMap::default() };
-                            // An artificial span to easily detect a node getting into the sync state in Grafana.
-                            {
-                                let _span =
-                                    debug_span!(target: "sync", "set_sync", sync = "StateSync")
-                                        .entered();
-                                debug!(target: "sync", prev_sync_status = ?self.client.sync_status);
-                                self.client.sync_status = SyncStatus::StateSync(s);
-                                debug!(target: "sync", sync_status = ?self.client.sync_status);
-                            }
+                            self.client.sync_status.update(SyncStatus::StateSync(
+                                StateSyncStatus { sync_hash, sync_status: HashMap::default() },
+                            ));
                             // This is the first time we run state sync.
                             notify_start_sync = true;
                         }
