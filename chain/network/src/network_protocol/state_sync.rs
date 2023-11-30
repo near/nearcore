@@ -56,14 +56,14 @@ impl SnapshotHostInfo {
     }
 
     pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
-        if !self.signature.verify(self.hash().as_ref(), self.peer_id.public_key()) {
-            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
-        }
-
         // Number of shards must be limited, otherwise it'd be possible to create malicious
         // messages with millions of shard ids.
         if self.shards.len() > MAX_SHARDS_PER_HOST {
             return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
+        }
+
+        if !self.signature.verify(self.hash().as_ref(), self.peer_id.public_key()) {
+            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
         }
 
         Ok(())
