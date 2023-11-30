@@ -5,6 +5,8 @@ mod tests {
     use amcl::bls381::ecp::ECP;
     use amcl::rand::RAND;
     use amcl::bls381::bls381::utils::{subgroup_check_g1, serialize_uncompressed_g1};
+    use rand::thread_rng;
+    use rand::seq::SliceRandom;
 
     fn get_random_g1_point(rnd: &mut RAND) -> ECP {
         let r: Big = Big::random(rnd);
@@ -70,7 +72,15 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn get_g1_sum_many_points(buffer: &Vec<Vec<u8>>, logic: &mut TestVMLogic) -> Vec<u8> {
+    fn get_g1_sum_many_points(points: &Vec<(u8, ECP)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(vec![points[i].0]);
+            buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
+        }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
@@ -285,17 +295,40 @@ mod tests {
 
     #[test]
     fn test_bls12381_g1_sum_many_points() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
         let mut rnd = get_rnd();
 
         let mut zero: [u8; 96] = [0; 96];
         zero[0] = 64;
 
         //empty input
-        let res = get_g1_sum_many_points(&vec![vec![0u8; 0]], &mut logic);
+        let res = get_g1_sum_many_points(&vec![]);
         assert_eq!(zero.to_vec(), res);
+
+        const MAX_N: usize = 676;
+
+        for n in 0 .. MAX_N {
+            let mut res3 = ECP::new();
+
+            let mut points: Vec<(u8, ECP)> = vec![];
+            for i in 0 .. n {
+                points.push((rnd.getbyte() % 2, get_random_curve_point(&mut rnd)));
+
+                let mut current_point = points[i].1.clone();
+                if points[i].0 == 1 {
+                    current_point.neg();
+                }
+
+                res3.add(&current_point);
+            }
+
+            let res1 = get_g1_sum_many_points(&points);
+
+            points.shuffle(&mut thread_rng());
+            let res2 = get_g1_sum_many_points(&points);
+            assert_eq!(res1, res2);
+
+            assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
+        }
     }
 
 }
