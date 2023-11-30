@@ -421,7 +421,7 @@ fn test_node_after_simulated_sync() {
         .unwrap()
         .epoch_first_block();
     tracing::debug!("SYNC HASH: {:?}", sync_hash);
-    for shard_id in 0..env.clients[0].epoch_manager.num_shards(&epoch_id0).unwrap() {
+    for shard_id in env.clients[0].epoch_manager.shard_ids(&epoch_id0).unwrap() {
         tracing::debug!("Start syncing shard {:?}", shard_id);
         let sync_block_header = env.clients[0].chain.get_block_header(&sync_hash).unwrap();
         let sync_prev_header =
