@@ -10,7 +10,6 @@ use crate::testonly::{make_rng, AsSet as _};
 use crate::types::NetworkRequests;
 use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
-use itertools::Itertools;
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -35,7 +34,8 @@ fn make_snapshot_host_info(
     let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
     let max_shard_id: ShardId = 32;
     let shards_num: usize = rng.gen_range(1..16);
-    let shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
+    let mut shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
+    shards.sort();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -440,8 +440,8 @@ async fn too_many_shards_truncate() {
         // Shard ids are taken from the original vector
         assert!(*shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
     }
-    // The shard_ids are unique
-    assert_eq!(info.shards.iter().unique().count(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+    // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
+    assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
     // The list isn't truncated by choosing the first half of the shards vec, it should be chosen randomly.
     // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.
     assert_ne!(&info.shards, &too_many_shards[..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO]);

@@ -22,7 +22,7 @@ pub struct SnapshotHostInfo {
     pub sync_hash: CryptoHash,
     /// Ordinal of the epoch of the state root
     pub epoch_height: EpochHeight,
-    /// List of shards included in the snapshot
+    /// List of shards included in the snapshot.
     pub shards: Vec<ShardId>,
     /// Signature on (sync_hash, epoch_height, shards)
     pub signature: Signature,

@@ -800,6 +800,8 @@ impl PeerManagerActor {
                         .copied()
                         .collect();
                 }
+                // Sort the shards to keep things tidy
+                shards.sort();
 
                 // Sign the information about the locally created snapshot using the keys in the
                 // network config before broadcasting it
