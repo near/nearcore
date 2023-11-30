@@ -647,6 +647,7 @@ mod tests {
     /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
     /// [`ValidatorMandates`].
     #[test]
+    #[cfg(feature = "nightly")]
     fn test_chunk_validators_sampling() {
         let num_shards = 4;
         let epoch_config = create_epoch_config(
