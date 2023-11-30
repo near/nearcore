@@ -146,6 +146,11 @@ pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
 /// The assumption is that no single host is going to track state for more than 128 shards. Keeping state for
 /// a shard requires significant resources, so a single peer shouldn't be able to handle too many of them.
 /// If this assumption changes in the future, this limit will have to be revisited.
+///
+/// Warning: adjusting this constant directly will break upgradeability. A new versioned-node would not interop
+/// correctly with an old-versioned node; it could send an excessively large message to an old node.
+/// If we ever want to change it we will need to introduce separate send and receive limits,
+/// increase the receive limit in one release then increase the send limit in the next.
 pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 128;
 
 impl VersionedAccountData {
