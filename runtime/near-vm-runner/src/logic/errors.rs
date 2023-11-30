@@ -301,6 +301,8 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
+    // Invalid input to bls12381 family of functions
+    BLS12381InvalidInput { msg: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -506,6 +508,7 @@ impl std::fmt::Display for HostError {
             AltBn128InvalidInput { msg } => write!(f, "AltBn128 invalid input: {}", msg),
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
             Ed25519VerifyInvalidInput { msg } => write!(f, "ED25519 signature verification error: {}", msg),
+            BLS12381InvalidInput { msg} => write!(f, "BLS12-381 invalid input: {}", msg),
         }
     }
 }

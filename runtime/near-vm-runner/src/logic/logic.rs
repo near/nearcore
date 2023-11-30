@@ -906,6 +906,13 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g1_sum_base)?;
+
+        if value_len % 97 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_g1_sum: {} is not divisible by 97", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res_pk = blst::blst_p1::default();

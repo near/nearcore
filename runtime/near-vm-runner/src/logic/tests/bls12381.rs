@@ -7,6 +7,7 @@ mod tests {
     use amcl::bls381::bls381::utils::{subgroup_check_g1, serialize_uncompressed_g1};
     use rand::thread_rng;
     use rand::seq::SliceRandom;
+    use rand::RngCore;
 
     fn get_random_g1_point(rnd: &mut RAND) -> ECP {
         let r: Big = Big::random(rnd);
@@ -83,6 +84,25 @@ mod tests {
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
+    fn get_g1_multiexp_many_points(points: &Vec<(u8, ECP)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
+            if points[i].0 == 0 {
+                buffer.push(vec![vec![1], vec![0; 31]].concat());
+            } else {
+                buffer.push(hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000").unwrap());
+            }
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -329,6 +349,49 @@ mod tests {
 
             assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
         }
+
+        for _ in 0 .. 10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+            let mut points: Vec<(u8, ECP)> = vec![];
+            for _ in 0 .. n {
+                points.push((rnd.getbyte() % 2, get_random_g1_point(&mut rnd)));
+            }
+
+            let res1 = get_g1_sum_many_points(&points);
+            let sum = deserialize_g1(&res1).unwrap();
+
+            assert!(subgroup_check_g1(&sum));
+        }
     }
 
+    #[test]
+    #[ignore]
+    fn test_bls12381_g1_crosscheck_sum_and_multiexp() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 676;
+
+        for n in 0 .. MAX_N {
+            let mut points: Vec<(u8, ECP)> = vec![];
+            for _ in 0 .. n {
+                points.push((rnd.getbyte() % 2, get_random_curve_point(&mut rnd)));
+            }
+
+            let res1 = get_g1_sum_many_points(&points);
+            let res2 = get_g1_multiexp_many_points(&points);
+            assert_eq!(res1, res2);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_g1_sum_incorrect_length() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 96];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+    }
 }
