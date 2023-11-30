@@ -46,8 +46,17 @@ impl ValidatorMandatesConfig {
 pub struct ValidatorMandates {
     /// The configuration applied to the mandates.
     config: ValidatorMandatesConfig,
+    /// Each element represents a validator mandate held by the validator with the given id.
+    ///
     /// The id of a validator who holds `n >= 0` mandates occurs `n` times in the vector.
     mandates: Vec<ValidatorId>,
+    /// Each element represents a partial validator mandate held by the validator with the given id.
+    /// For example, an element `(1, 42)` represents the partial mandate of the validator with id 1
+    /// which has a weight of 42.
+    ///
+    /// Validators whose stake can be distributed across mandates without remainder are not
+    /// represented in this vector.
+    partials: Vec<(ValidatorId, Balance)>,
 }
 
 impl ValidatorMandates {
@@ -81,55 +90,118 @@ impl ValidatorMandates {
             );
         }
 
-        Self { config, mandates }
+        // Not counting partials towards `required_mandates` as the weight of partials and its
+        // distribution across shards may vary widely.
+        //
+        // Construct vector with capacity as most likely some validators' stake will not be evenly
+        // divided by `config.stake_per_mandate`, i.e. some validators will have partials.
+        let mut partials = Vec::with_capacity(validators.len());
+        for i in 0..validators.len() {
+            let partial_weight = validators[i].partial_mandate_weight(config.stake_per_mandate);
+            if partial_weight > 0 {
+                partials.push((i as ValidatorId, partial_weight));
+            }
+        }
+
+        Self { config, mandates, partials }
     }
 
     /// Returns a validator assignment obtained by shuffling mandates.
     ///
     /// It clones mandates since [`ValidatorMandates`] is supposed to be valid for an epoch, while a
     /// new assignment is calculated at every height.
-    ///
-    /// # Interpretation of the return value
-    ///
-    /// The returned vector contains one map per shard, with the position in the vector
-    /// corresponding to `shard_id` in `0..num_shards`.
-    ///
-    /// Each `HashMap` maps `ValidatorId`s to the number of mandates they have in the corresponding
-    /// shards. A validator whose id is not in a map has not been assigned to the shard.
-    ///
-    /// ## Example
-    ///
-    /// Let `res` be the return value of this function, then `res[0][1]` maps to the number of
-    /// mandates validator with `ValidatorId` 1 holds in shard with id 0.
-    pub fn sample<R>(&self, rng: &mut R) -> Vec<HashMap<ValidatorId, u16>>
+    pub fn sample<R>(&self, rng: &mut R) -> ValidatorMandatesAssignment
     where
         R: Rng + ?Sized,
     {
-        let shuffled_mandates = self.shuffled(rng);
+        let shuffled_mandates = self.shuffled_mandates(rng);
+        let shuffled_partials = self.shuffled_partials(rng);
 
-        // Assign shuffled seat at position `i` to the shard with id `i % num_shards`.
-        let mut assignments_per_shard = Vec::with_capacity(self.config.num_shards);
+        // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
+        // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
+        // num_shards == shard_id`
+        //
+        // Assume, for example, there are 10 mandates and 4 shards. Then the shard with id 1 gets
+        // assigned the mandates with indices 1, 5, and 9.
+        //
+        // TODO(#10014) shuffle shard ids to avoid a bias towards smaller shard ids
+        let mut mandates_per_shard = Vec::with_capacity(self.config.num_shards);
         for shard_id in 0..self.config.num_shards {
-            let mut assignments = HashMap::new();
+            let mut assignments: HashMap<ValidatorId, AssignmentWeight> = HashMap::new();
+
+            // For the current `shard_id`, collect mandates with index `i` such that
+            // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                 let id = shuffled_mandates[idx];
-                assignments.entry(id).and_modify(|counter| *counter += 1).or_insert(1);
+                assignments
+                    .entry(id)
+                    .and_modify(|assignment_weight| {
+                        assignment_weight.num_mandates += 1;
+                    })
+                    .or_insert(AssignmentWeight::new(1, 0));
             }
-            assignments_per_shard.push(assignments)
+
+            // For the current `shard_id`, collect partials with index `i` such that
+            // `i % num_shards == shard_id`.
+            for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
+                let (id, partial_weight) = shuffled_partials[idx];
+                assignments
+                    .entry(id)
+                    .and_modify(|assignment_weight| {
+                        assignment_weight.partial_weight += partial_weight;
+                    })
+                    .or_insert(AssignmentWeight::new(0, partial_weight));
+            }
+
+            mandates_per_shard.push(assignments)
         }
 
-        assignments_per_shard
+        mandates_per_shard
     }
 
     /// Clones the contained mandates and shuffles them. Cloning is required as a shuffle happens at
     /// every height while the `ValidatorMandates` are to be valid for an epoch.
-    fn shuffled<R>(&self, rng: &mut R) -> Vec<ValidatorId>
+    fn shuffled_mandates<R>(&self, rng: &mut R) -> Vec<ValidatorId>
     where
         R: Rng + ?Sized,
     {
         let mut shuffled_mandates = self.mandates.clone();
         shuffled_mandates.shuffle(rng);
         shuffled_mandates
+    }
+
+    /// Clones the contained partials and shuffles them. Cloning is required as a shuffle happens at
+    /// every height while the `ValidatorMandates` are to be valid for an epoch.
+    fn shuffled_partials<R>(&self, rng: &mut R) -> Vec<(ValidatorId, Balance)>
+    where
+        R: Rng + ?Sized,
+    {
+        let mut shuffled_partials = self.partials.clone();
+        shuffled_partials.shuffle(rng);
+        shuffled_partials
+    }
+}
+
+/// Represents an assignment of [`ValidatorMandates`] for a specific height.
+///
+/// Contains one map per shard, with the position in the vector corresponding to `shard_id` in
+/// `0..num_shards`. Each `HashMap` maps `ValidatorId`s to the number of mandates they have in the
+/// corresponding shards. A validator whose id is not in a map has not been assigned to the shard.
+///
+/// For example, `mandates_per_shard[0][1]` maps to the [`AssignmentWeights`] validator with
+/// `ValidatorId` 1 holds in shard with id 0.
+pub type ValidatorMandatesAssignment = Vec<HashMap<ValidatorId, AssignmentWeight>>;
+
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct AssignmentWeight {
+    pub num_mandates: u16,
+    /// Stake assigned to this partial mandate.
+    pub partial_weight: Balance,
+}
+
+impl AssignmentWeight {
+    pub fn new(num_mandates: u16, partial_weight: Balance) -> Self {
+        Self { num_mandates, partial_weight }
     }
 }
 
@@ -147,7 +219,7 @@ mod tests {
         validator_mandates::ValidatorMandatesConfig,
     };
 
-    use super::ValidatorMandates;
+    use super::{AssignmentWeight, ValidatorMandates, ValidatorMandatesAssignment};
 
     /// Returns a new, fixed RNG to be used only in tests. Using a fixed RNG facilitates testing as
     /// it makes outcomes based on that RNG deterministic.
@@ -174,8 +246,15 @@ mod tests {
     /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
     ///
     /// The shuffling based on `new_fixed_rng` is (verified in
-    /// [`test_validator_mandates_shuffled`]):
+    /// [`test_validator_mandates_shuffled_mandates`]):
     /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
+    ///
+    /// The partials are (verified in [`test_validator_mandates_new`]):
+    /// `vec![(1, 7), (2, 9), (3, 2), (4, 5), (5, 4), (6, 6)]`
+    ///
+    /// The shuffled partials used in tests are (verified in
+    /// [`test_validator_mandates_shuffled_partials`]):
+    /// `vec![(1, 7), (4, 5), (2, 9), (3, 2), (6, 6), (5, 4)]`
     fn new_validator_stakes() -> Vec<ValidatorStake> {
         let new_vs = |account_id: &str, balance: Balance| -> ValidatorStake {
             ValidatorStake::new(
@@ -191,6 +270,8 @@ mod tests {
             new_vs("account_2", 9),
             new_vs("account_3", 12),
             new_vs("account_4", 35),
+            new_vs("account_5", 4),
+            new_vs("account_6", 6),
         ]
     }
 
@@ -204,53 +285,116 @@ mod tests {
         // Note that "account_2" holds no mandate as its stake is below the threshold.
         let expected_mandates: Vec<ValidatorId> = vec![0, 0, 0, 1, 1, 3, 4, 4, 4];
         assert_eq!(mandates.mandates, expected_mandates);
+
+        // At 10 stake per mandate, the first validator holds no partial mandate, the second
+        // validator holds a partial mandate with weight 7, and so on.
+        let expected_partials: Vec<(ValidatorId, Balance)> =
+            vec![(1, 7), (2, 9), (3, 2), (4, 5), (5, 4), (6, 6)];
+        assert_eq!(mandates.partials, expected_partials);
     }
 
     #[test]
-    fn test_validator_mandates_shuffled() {
+    fn test_validator_mandates_shuffled_mandates() {
         let validators = new_validator_stakes();
         let config = ValidatorMandatesConfig::new(10, 1, 4);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
-        let assignment = mandates.shuffled(&mut rng);
+        let assignment = mandates.shuffled_mandates(&mut rng);
         let expected_assignment: Vec<ValidatorId> = vec![0, 1, 1, 4, 4, 4, 0, 3, 0];
         assert_eq!(assignment, expected_assignment);
     }
 
-    /// Test mandates per shard are collected correctly if `num_mandates % num_shards == 0`.
     #[test]
-    fn test_assigned_validator_mandates_get_mandates_for_shard_even() {
-        // Choosing `num_shards` such that mandates are distributed evenly.
-        let config = ValidatorMandatesConfig::new(10, 1, 3);
-        let expected_mandates_per_shards: Vec<HashMap<ValidatorId, u16>> = vec![
-            HashMap::from([(0, 2), (4, 1)]),
-            HashMap::from([(1, 1), (3, 1), (4, 1)]),
-            HashMap::from([(0, 1), (1, 1), (4, 1)]),
-        ];
-        assert_validator_mandates_sample(config, expected_mandates_per_shards);
+    fn test_validator_mandates_shuffled_partials() {
+        let validators = new_validator_stakes();
+        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let mandates = ValidatorMandates::new(config, &validators);
+        let mut rng = new_fixed_rng();
+
+        // Call `shuffled_mandates` before calling `shuffled_partials` using the same `rng` to
+        // emulate what happens in [`ValidatorMandates::sample`]. Then `expected_assignment` below
+        // equals the shuffled partial mandates assigned to shards in
+        // `test_validator_mandates_sample_*`.
+        let _ = mandates.shuffled_mandates(&mut rng);
+        let assignment = mandates.shuffled_partials(&mut rng);
+        let expected_assignment: Vec<(ValidatorId, Balance)> =
+            vec![(1, 7), (4, 5), (2, 9), (3, 2), (6, 6), (5, 4)];
+        assert_eq!(assignment, expected_assignment);
     }
 
-    /// Test mandates per shard are collected correctly if `num_mandates % num_shards != 0`.
+    /// Test mandates per shard are collected correctly for `num_mandates % num_shards == 0` and
+    /// `num_partials % num_shards == 0`.
+    #[test]
+    fn test_validator_mandates_sample_even() {
+        // Choosing `num_shards` such that mandates and partials are distributed evenly.
+        // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
+        // `expected_assignment` below.
+        let config = ValidatorMandatesConfig::new(10, 1, 3);
+        let expected_assignment: ValidatorMandatesAssignment = vec![
+            HashMap::from([
+                (0, AssignmentWeight::new(2, 0)),
+                (4, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(0, 7)),
+                (3, AssignmentWeight::new(0, 2)),
+            ]),
+            HashMap::from([
+                (1, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 5)),
+                (3, AssignmentWeight::new(1, 0)),
+                (6, AssignmentWeight::new(0, 6)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 0)),
+                (2, AssignmentWeight::new(0, 9)),
+                (5, AssignmentWeight::new(0, 4)),
+            ]),
+        ];
+        assert_validator_mandates_sample(config, expected_assignment);
+    }
+
+    /// Test mandates per shard are collected correctly for `num_mandates % num_shards != 0` and
+    /// `num_partials % num_shards != 0`.
     #[test]
     fn test_assigned_validator_mandates_get_mandates_for_shard_uneven() {
-        // Choosing `num_shards` such that mandates are distributed unevenly.
-        let config = ValidatorMandatesConfig::new(10, 1, 2);
-        let expected_mandates_per_shards: Vec<HashMap<ValidatorId, u16>> =
-            vec![HashMap::from([(0, 3), (1, 1), (4, 1)]), HashMap::from([(1, 1), (4, 2), (3, 1)])];
+        // Choosing `num_shards` such that mandates and partials are distributed unevenly.
+        // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
+        // `expected_assignment` below.
+        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let expected_mandates_per_shards: ValidatorMandatesAssignment = vec![
+            HashMap::from([
+                (0, AssignmentWeight::new(2, 0)),
+                (4, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(0, 7)),
+                (6, AssignmentWeight::new(0, 6)),
+            ]),
+            HashMap::from([
+                (1, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 5)),
+                (5, AssignmentWeight::new(0, 4)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (2, AssignmentWeight::new(0, 9)),
+            ]),
+            HashMap::from([(4, AssignmentWeight::new(1, 0)), (3, AssignmentWeight::new(1, 2))]),
+        ];
         assert_validator_mandates_sample(config, expected_mandates_per_shards);
     }
 
     /// Asserts mandates per shard are collected correctly.
     fn assert_validator_mandates_sample(
         config: ValidatorMandatesConfig,
-        expected_mandates_per_shards: Vec<HashMap<ValidatorId, u16>>,
+        expected_assignment: ValidatorMandatesAssignment,
     ) {
         let validators = new_validator_stakes();
         let mandates = ValidatorMandates::new(config, &validators);
 
         let mut rng = new_fixed_rng();
-        let mandates_per_shards = mandates.sample(&mut rng);
+        let assignment = mandates.sample(&mut rng);
 
-        assert_eq!(mandates_per_shards, expected_mandates_per_shards);
+        assert_eq!(assignment, expected_assignment);
     }
 }

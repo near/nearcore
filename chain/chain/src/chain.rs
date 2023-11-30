@@ -131,9 +131,6 @@ const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
 #[cfg(not(feature = "sandbox"))]
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
 
-/// Over this block height delta in advance if we are not chunk producer - route tx to upcoming validators.
-pub const TX_ROUTING_HEIGHT_HORIZON: BlockHeightDelta = 4;
-
 /// Private constant for 1 NEAR (copy from near/config.rs) used for reporting.
 const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
@@ -1376,7 +1373,7 @@ impl Chain {
             }
         }
 
-        if header.chunk_mask().len() as u64 != self.epoch_manager.num_shards(header.epoch_id())? {
+        if header.chunk_mask().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
             return Err(Error::InvalidChunkMask);
         }
 
@@ -2456,7 +2453,7 @@ impl Chain {
             return Err(Error::EpochOutOfBounds(header.epoch_id().clone()));
         }
 
-        if block.chunks().len() != self.epoch_manager.num_shards(header.epoch_id())? as usize {
+        if block.chunks().len() != self.epoch_manager.shard_ids(header.epoch_id())?.len() {
             return Err(Error::IncorrectNumberOfChunkHeaders);
         }
 
@@ -3776,25 +3773,6 @@ impl Chain {
         Ok(FinalExecutionOutcomeWithReceiptView { final_outcome, receipts })
     }
 
-    /// Find a validator to forward transactions to
-    pub fn find_chunk_producer_for_forwarding(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        horizon: BlockHeight,
-    ) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let target_height = head.height + horizon - 1;
-        Ok(self.epoch_manager.get_chunk_producer(epoch_id, target_height, shard_id)?)
-    }
-
-    /// Find a validator that is responsible for a given shard to forward requests to
-    pub fn find_validator_for_forwarding(&self, shard_id: ShardId) -> Result<AccountId, Error> {
-        let head = self.head()?;
-        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&head.last_block_hash)?;
-        self.find_chunk_producer_for_forwarding(&epoch_id, shard_id, TX_ROUTING_HEIGHT_HORIZON)
-    }
-
     pub fn check_blocks_final_and_canonical(
         &self,
         block_headers: &[BlockHeader],
@@ -4735,9 +4713,8 @@ impl Chain {
         prev_block: &Block,
     ) -> Result<Vec<ShardChunkHeader>, Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
-        let num_shards = epoch_manager.num_shards(&epoch_id)?;
-        let prev_shard_ids =
-            epoch_manager.get_prev_shard_ids(prev_block.hash(), (0..num_shards).collect())?;
+        let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
+        let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
         let chunks = prev_block.chunks();
         Ok(prev_shard_ids
             .into_iter()
@@ -4758,7 +4735,7 @@ impl Chain {
         receipts: Vec<Receipt>,
         shard_layout: &ShardLayout,
     ) -> HashMap<ShardId, Vec<Receipt>> {
-        let mut result = HashMap::with_capacity(shard_layout.num_shards() as usize);
+        let mut result = HashMap::new();
         for receipt in receipts {
             let shard_id = account_id_to_shard_id(&receipt.receiver_id, shard_layout);
             let entry = result.entry(shard_id).or_insert_with(Vec::new);
@@ -4771,17 +4748,13 @@ impl Chain {
         receipts: &[Receipt],
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
-        let shard_ids: Vec<_> = shard_layout.shard_ids().collect();
-        if shard_ids.len() == 1 {
-            return vec![CryptoHash::hash_borsh(ReceiptList(0, receipts))];
-        }
         // Using a BTreeMap instead of HashMap to enable in order iteration
         // below.
         //
         // Pre-populating because even if there are no receipts for a shard, we
         // need an empty vector for it.
         let mut result: BTreeMap<_, _> =
-            shard_ids.into_iter().map(|shard_id| (shard_id, vec![])).collect();
+            shard_layout.shard_ids().map(|shard_id| (shard_id, vec![])).collect();
         let mut cache = HashMap::new();
         for receipt in receipts {
             let &mut shard_id = cache
@@ -4978,7 +4951,7 @@ impl<'a> ChainUpdate<'a> {
     /// Note that this function should be called after `save_block` is called on
     /// this block because it requires that the block info is available in
     /// EpochManager, otherwise it will return an error.
-    pub fn save_receipt_id_to_shard_id_for_block(
+    fn save_receipt_id_to_shard_id_for_block(
         &mut self,
         me: &Option<AccountId>,
         hash: &CryptoHash,
@@ -5386,7 +5359,7 @@ impl<'a> ChainUpdate<'a> {
 
             let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(prev.hash())?;
             SHARD_LAYOUT_VERSION.set(shard_layout.version() as i64);
-            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.num_shards() as i64);
+            SHARD_LAYOUT_NUM_SHARDS.set(shard_layout.shard_ids().count() as i64);
         }
         Ok(res)
     }

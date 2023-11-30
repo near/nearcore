@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
-use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -251,7 +250,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             // scan. For the time being, with only 4 shards, this is perfectly fine.
             let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
-                if boundary_account.cmp(account_id) == Greater {
+                if account_id < boundary_account {
                     break;
                 }
                 shard_id += 1;

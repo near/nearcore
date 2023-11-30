@@ -526,7 +526,14 @@ impl ViewClientActor {
                     .epoch_manager
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
                     .map_err(|err| TxStatusError::InternalError(err.to_string()))?;
-                let validator = self.chain.find_validator_for_forwarding(target_shard_id)?;
+                let validator = self
+                    .epoch_manager
+                    .get_chunk_producer(
+                        &head.epoch_id,
+                        head.height + self.config.tx_routing_height_horizon - 1,
+                        target_shard_id,
+                    )
+                    .map_err(|err| TxStatusError::ChainError(err.into()))?;
 
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::TxStatus(validator, signer_account_id, tx_hash),
