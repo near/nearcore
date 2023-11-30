@@ -390,7 +390,7 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    #[cfg(feature = "protocol_feature_chunk_validation")]
+    #[cfg(feature = "nightly")]
     use near_primitives::validator_mandates::{AssignmentWeight, ValidatorMandatesAssignment};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
