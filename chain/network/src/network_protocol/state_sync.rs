@@ -1,9 +1,9 @@
+use super::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::network_protocol::Arc;
 use near_crypto::SecretKey;
 use near_crypto::Signature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::MAX_SHARDS_PER_HOST;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 
@@ -58,7 +58,7 @@ impl SnapshotHostInfo {
     pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
         // Number of shards must be limited, otherwise it'd be possible to create malicious
         // messages with millions of shard ids.
-        if self.shards.len() > MAX_SHARDS_PER_HOST {
+        if self.shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
             return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
         }
 
@@ -84,8 +84,8 @@ pub enum SnapshotHostInfoVerificationError {
     #[error("SnapshotHostInfo is signed with an invalid signature")]
     InvalidSignature,
     #[error(
-        "SnapshotHostInfo contains more shards than allowed: {0} > {} (MAX_SHARDS_PER_HOST)",
-        MAX_SHARDS_PER_HOST
+        "SnapshotHostInfo contains more shards than allowed: {0} > {} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)",
+        MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
     )]
     TooManyShards(usize),
 }

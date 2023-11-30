@@ -1,6 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
+use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -15,7 +16,6 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::MAX_SHARDS_PER_HOST;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use peer_manager::testonly::FDS_PER_PEER;
@@ -229,7 +229,8 @@ async fn too_many_shards_not_broadcast() {
     assert_eq!(empty_sync_msg.hosts, vec![]);
 
     tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has more shard ids than allowed.");
-    let too_many_shards: Vec<ShardId> = (0..(MAX_SHARDS_PER_HOST as u64 + 1)).collect();
+    let too_many_shards: Vec<ShardId> =
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
     let invalid_info = Arc::new(SnapshotHostInfo::new(
         peer1_config.node_id(),
         CryptoHash::hash_borsh(rng.gen::<u64>()),

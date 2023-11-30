@@ -1,4 +1,6 @@
-use crate::network_protocol::{testonly as data, SnapshotHostInfoVerificationError};
+use crate::network_protocol::{
+    testonly as data, SnapshotHostInfoVerificationError, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+};
 use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache};
 use crate::testonly::assert_is_superset;
 use crate::testonly::{make_rng, AsSet as _};
@@ -7,7 +9,6 @@ use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::MAX_SHARDS_PER_HOST;
 use near_primitives::types::EpochHeight;
 use near_primitives::types::ShardId;
 use std::collections::HashSet;
@@ -120,12 +121,14 @@ async fn too_many_shards() {
     // info0 is valid
     let info0 = Arc::new(make_snapshot_host_info(&peer0, 1, vec![0, 1, 2, 3], &key0));
 
-    // info1 is invalid - it has more shard ids than MAX_SHARDS_PER_HOST
-    let too_many_shards: Vec<ShardId> = (0..(MAX_SHARDS_PER_HOST as u64 + 1)).collect();
+    // info1 is invalid - it has more shard ids than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+    let too_many_shards: Vec<ShardId> =
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, too_many_shards, &key1));
 
     // info1.verify() should fail
-    let expected_error = SnapshotHostInfoVerificationError::TooManyShards(MAX_SHARDS_PER_HOST + 1);
+    let expected_error =
+        SnapshotHostInfoVerificationError::TooManyShards(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO + 1);
     assert_eq!(info1.verify(), Err(expected_error.clone()));
 
     // Inserting should return the expected error (TooManyShards)
