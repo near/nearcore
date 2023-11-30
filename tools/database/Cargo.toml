@@ -24,6 +24,7 @@ tempfile.workspace = true
 
 nearcore.workspace = true
 near-epoch-manager.workspace = true
+near-chain.workspace = true
 near-chain-configs.workspace = true
 near-store.workspace = true
 near-primitives.workspace = true
@@ -32,6 +33,7 @@ near-primitives.workspace = true
 nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",
+  "near-chain/nightly",
   "near-epoch-manager/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
@@ -39,6 +41,7 @@ nightly = [
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",

@@ -3722,6 +3722,7 @@ dependencies = [
  "borsh 1.0.0",
  "clap",
  "indicatif",
+ "near-chain",
  "near-chain-configs",
  "near-epoch-manager",
  "near-primitives",
