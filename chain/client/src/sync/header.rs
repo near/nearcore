@@ -162,7 +162,7 @@ impl HeaderSync {
     /// Returns whether a new batch of headers needs to be requested.
     // Checks whether the batch of headers is completely downloaded, or if the peer failed to satisfy our expectations for long enough.
     // If yes, then returns true to request a new batch of headers. Maybe bans a peer.
-    // Otherwise, returns false to indicate that we're expecting more heaeders from the same requested batch.
+    // Otherwise, returns false to indicate that we're expecting more headers from the same requested batch.
     // TODO: This function should check the difference between the current header_head height and the highest height of the peers.
     // TODO: Triggering header sync to get 1 header (or even 0 headers) makes little sense.
     pub(crate) fn header_sync_due(
