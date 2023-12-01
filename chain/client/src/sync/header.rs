@@ -298,7 +298,11 @@ impl HeaderSync {
         now: DateTime<Utc>,
         timeout: DateTime<Utc>,
     ) -> bool {
-        self.compute_expected_height(current_height, timeout - now) >= expected_height
+        if now <= timeout {
+            self.compute_expected_height(current_height, timeout - now) >= expected_height
+        } else {
+            current_height >= expected_height
+        }
     }
 
     /// Request headers from a given peer to advance the chain.
