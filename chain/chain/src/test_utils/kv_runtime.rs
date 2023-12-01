@@ -48,6 +48,7 @@ use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// Simple key value runtime for tests.
 ///
@@ -1020,11 +1021,21 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
+        time_limit: Option<Duration>,
     ) -> Result<Vec<SignedTransaction>, Error> {
+        let start_time = std::time::Instant::now();
+        let time_limit_reached = || match time_limit {
+            Some(limit_duration) => start_time.elapsed() >= limit_duration,
+            None => false,
+        };
         let mut res = vec![];
-        while let Some(iter) = transactions.next() {
-            res.push(iter.next().unwrap());
+        while !time_limit_reached() {
+            match transactions.next() {
+                Some(iter) => res.push(iter.next().unwrap()),
+                None => break,
+            }
         }
+
         Ok(res)
     }
 

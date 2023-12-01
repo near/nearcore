@@ -977,6 +977,7 @@ impl Client {
                         .is_ok()
                 },
                 protocol_version,
+                Some(std::time::Duration::from_millis(200)),
             )?
         } else {
             vec![]
