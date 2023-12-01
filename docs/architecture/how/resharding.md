@@ -87,7 +87,6 @@ That is why we cannot move this trie entry type in the same way as others where 
 
 The state sync of the parent shard, the resharing and the catchup of the children shards must all complete within a single epoch. 
 
-
 ## Rollout
 
 ### Flow
@@ -110,11 +109,17 @@ Resharding exposes a number of metrics and logs that allow for monitoring the re
   * 1 - Building - resharding is running. Only one shard at a time can be in that state while the rest will be either finished or waiting in the Scheduled state. 
   * 2 - Finished - resharding is finished. 
   * -1 - Failed - resharding failed and manual recovery action is required. The node will operate as usual until the end of the epoch but will then stop being able to process blocks. 
-* near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both should be gradually increasing while the near_resharding_status. 
+* near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both metrics should progress with the near_resharding_status as follows. 
   * While in the Scheduled state both metrics should remain 0. 
   * While in the Building state both metrics should be gradually increasing. 
   * While in the Finished state both metrics should remain at the same value. 
 * near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks. 
+
+Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the duration is not representative as the sample data below is captured in a testing environment with different configuration. 
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 20" src="https://github.com/near/nearcore/assets/1555986/42824d5a-af16-4a06-9727-a04b1b9d7c03">
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
+
 
 
 ### Throttling
