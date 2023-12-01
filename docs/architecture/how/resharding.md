@@ -1,37 +1,56 @@
-# Resharding - current state.
+# Resharding
+
+## Resharding
+
+Resharding is the process in which the shard layout changes. The primary purpose
+of resharding is to keep the shards small so that a node meeting minimum hardware
+requirements can safely keep up with the network while tracking some set minimum 
+number of shards. 
+
+## Specification
+
+The resharding is described in more detail in the following NEPs:
+* [NEP-0040](https://github.com/near/NEPs/blob/master/specs/Proposals/0040-split-states.md)
+* [NEP-0508](https://github.com/near/NEPs/pull/508) - TODO - once merged use the master link
 
 ## Shard layout
 
 The shard layout determines the number of shards and the assignment of accounts
  to shards (as single account cannot be split between shards). 
 
+There are two versions of the ShardLayout enum. 
+* v0 - maps the account to a shard taking hash of the account id modulo number of shards
+* v1 - maps the account to a shard by looking at a set of predefined boundary accounts
+and selecting the shard where the accounts fits by using alphabetical order
 
-There is a v0 version (that was taking a hash of account to assign account to
- shard), and the v1 version that supports 2 options:
-* fixed-shards - where you set a top-domain, and all the subaccounts from this
- domain automatically belong to this shard
-* boundary accounts - where accounts are assigned to shards in alphabetical
- order and these account determine the boundaries.
+At the time of writing there are three pre-defined shard layouts but more can
+be added in the future. 
 
-**IMPORTANT**: this applies to full account name, so ``a.near`` could belong to
+* v0 - The first shard layout that contains only a single shard encompassing all the accounts. 
+* simple nightshade - Splits the accounts into 4 shards. 
+* simple nightshade v2 - Splits the accounts into 5 shards. 
+
+**IMPORTANT**: Using alphabetical order applies to the full account name, so ``a.near`` could belong to
  shard 0, while ``z.a.near`` to shard 3.
 
-Currently in mainnet & testnet, we use the fixed shard split (you can look at
- ``get_simple_nightshade_layout``):
+Currently in mainnet & testnet, we use the fixed shard split 
+(which is defined in ``get_simple_nightshade_layout``):
 
 ``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]``
 
+In the near future we are planning on switching to simple nightshade v2
+(which is defined in ``get_simple_nightshade_layout_v2``)
+
+``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]``
 
 
 ## Shard layout changes
 
-Theoretically shard layout can change on epoch boundary. But currently we don't
-support this in code (the shard_layout is read from the genesis file, and
-simply applied to all the epochs).
+Shard Layout is determined at epoch level in the AllEpochConfig based on the protocol version of the epoch. 
 
-**Discussion point**: how should we decide (and propagate) shard layout
-changes? Dynamic config? some separate message? how do validators vote? can we
-do it more often than on new releases?
+The shard layout can change at the epoch boundary. Currently in order to change the 
+shard layout it is necessary to manually determine the new shard layout and setting it
+for the desired protocol version in the ``AllEpochConfig``.
 
 
 ### Deeper technical details
@@ -47,61 +66,90 @@ StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobsAc
 
 We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
 
-Currently we re-use some of the code that we have for state sync (for example to figure out the number of parts) - and the we take all the items for a given part, which a list of trie **items** (key-value pairs that are stored in the trie - NOT trie nodes) - and for each one, we try to extract the account id that this key belongs to.
-
-**TODO**: It seems that the code was written with the idea of persisting the "progress" (that's why have parts etc) - but AFAIK currently we never persist the progress of the resharding - so if the node restarts, we're starting from scratch.
-
+In order to split a trie into children tries we use a snapshot of the flat storage. We iterate over all of the entries in the flat storage and we build the children tries by inserting the parent entry into either of the children tries. 
 
 Extracting of the account from the key happens in ``parse_account_id_from_raw_key`` - and we do it for all types of data that we store in the trie (contract code, keys, account info etc) EXCEPT for Delayed receipts. Then, we figure out the shard that this account is going to belong to, and we add this key/value to that new trie.
 
 This way, after going over all the key/values from the original trie, we end up with X new tries (one for each new shard).
 
-
 IMPORTANT: in the current code, we only support such 'splitting' (so a new shard can have just one parent).
-
-**Discussion point**: When should we start supporting the 'merge' operation ? And when the combination (split & merge)?
 
 
 ### Why delayed receipts are special?
 For all the other columns, there is no dependency between entries, but in case of delayed receipts - we are forming a 'queue'. We store the information about the first index and the last index (in DelayedReceiptIndices struct).
 
-Then, we receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).
+Then, when receipt arrives, we add it as the 'DELAYED_RECEIPT + last_index' key (and increment last_index by 1).
 
-That's why we cannot move it column 'in trie parts' (like we did for others), but we do it by 'iterating' over this queue.
-
-
-
-## What should we improve to achieve 'stressless' resharding?
-
-Currently trie is split sequentially (shard by shard), and also sequentially within a shard - by iterating over all the elements. 
-
-This process must finish within a single epoch - which is might be challenging (especially for larger archival nodes).
-
-### Each shard should be handled independently
-This is a low-hanging fruit - but each shard's splitting should be done in a separate thread.
+That is why we cannot move this trie entry type in the same way as others where account id is part of the key. Instead we do it by iterating over this queue and inserting entries to the queue of the relevant child shard. 
 
 
-### Do trie splitting on the level of accounts, not key/values
+## Constraints
 
-Most of the keys in our tries, are in the form of ``${some short prefix}${account_id}${long suffix}``, we could use this fact, and move the whole 'trie subtrees' around.
+The state sync of the parent shard, the resharing and the catchup of the children shards must all complete within a single epoch. 
 
-In theory, this should be super-fast - as the hash of such tree doesn't change (so all the trie nodes below have the same hashes etc).
+## Rollout
 
-Unfortunately we add the ShardUid prefix to the trie keys, when storing them in database - which means, that we'd have to iterate over all of them to copy the values to a new row (with a new sharduid) - which kills all the benefits.
+### Flow
 
-#### should we remove the sharduid prefix?
+The resharding will be initiated by having it included in a dedicated protocol version together with neard . Here is the expected flow of events:
 
-one advantage of sharduid, is that it allows us to quickly remove the contents of the shard (which we do when we're about to do statesync - as we want to start with a clear slate).
-
-#### Or should we replace it with 'account' sharduid? 
-
-Another alternative, is to use the account hash as a prefix for the trie nodes instead. This allow relatively quick shard-level data removal (assuming couple million accounts per shard), and it means that we could do the resharding a lot more efficiently.
-
-We could also do something special for the 'simple' (zero-cost) accounts - the ones that just have a few keys added and don't have any other state (if we assume that we're going to get a lot of them).
+* A new neard release is published and protocol version upgrade date is set to D, roughly a week from the release. 
+* All node operatores upgrade their binaries to the newly released version within the given timeframe, ideally as soon as possible but no later than D. 
+* The protocol version upgrade voting takes place at D in an epoch E and nodes vote in favour of switching to the new protocol version in epoch E+2. 
+* The resharding begins at the beginning of epoch E+1. 
+* The network switches to the new shard layout in the first block of epoch E+2. 
 
 
-### Add support for (somehow) allowing to change resharding on each epoch boundary
-Add an option in the config (maybe + some simple voting??) - so that we can easily change the shard layout.
+### Monitoring
 
-### Allow shard merging (and merging/splitting)
-Currently shards can only be split. We should allow also merges - so that we can achieve more flexibility.
+Resharding exposes a number of metrics and logs that allow for monitoring the resharding process as it is happening. Resharding requires manual recovery in case anything goes wrong and should be monitored in order to ensure smooth node operation. 
+
+* near_resharding_status is the primary metric that should be used for tracking the progress of resharding. It's tagged with a shard_uid label of the parent shard. It's set to corresponding ReshardingStatus enum and can take one of the following values
+  * 0 - Scheduled - resharding is scheduled and waiting to be executed. 
+  * 1 - Building - resharding is running. Only one shard at a time can be in that state while the rest will be either finished or waiting in the Scheduled state. 
+  * 2 - Finished - resharding is finished. 
+  * -1 - Failed - resharding failed and manual recovery action is required. The node will operate as usual until the end of the epoch but will then stop being able to process blocks. 
+* near_resharding_batch_size and near_resharding_batch_count - those two metrics show how much data has been resharded. Both metrics should progress with the near_resharding_status as follows. 
+  * While in the Scheduled state both metrics should remain 0. 
+  * While in the Building state both metrics should be gradually increasing. 
+  * While in the Finished state both metrics should remain at the same value. 
+* near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks. 
+
+Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the duration is not representative as the sample data below is captured in a testing environment with different configuration. 
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 20" src="https://github.com/near/nearcore/assets/1555986/42824d5a-af16-4a06-9727-a04b1b9d7c03">
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
+
+
+
+### Throttling
+
+The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the state_split_config in the node config file. 
+
+* batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.
+* batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. 
+
+The remainig fields in the StateSplitConfig are only intended for testing purposes and should remain set to their default values. 
+
+The default configuration for StateSplitConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. 
+
+A node needs to be restarted for the new config to take effect. This should be done only when absolutely necessary as restarting during resharding will interrupt it and resharding will need to start from beginning. 
+
+## Future possibilities
+
+### Localize resharding to a single shard
+
+Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version. 
+
+This can be improved by changing how ShardUId works e.g. removing the version and instead using globally unique shard ids. 
+
+### Dynamic resharding
+
+The current implementation relies on having the shard layout determined offline and manually added to the node implementation. 
+
+The dynamic resharding would mean that the network itself can automatically determine that resharding is needed, what should be the new shard layout and schedule the resharding.  
+
+
+### Support different changes to shard layout
+
+The current implementation only supports splitting a shard. In the future we can consider adding support of other operations such as merging two shards or moving an existing boundary account. 
