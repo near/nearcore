@@ -20,7 +20,6 @@ use near_primitives::types::{
     ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::utils::get_num_seats_per_shard;
-#[cfg(feature = "protocol_feature_chunk_validation")]
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -107,7 +106,6 @@ pub fn epoch_info_with_num_seats(
             .collect()
     };
     let all_validators = account_to_validators(accounts);
-    #[cfg(feature = "protocol_feature_chunk_validation")]
     let validator_mandates = {
         // TODO(#10014) determine required stake per mandate instead of reusing seat price.
         // TODO(#10014) determine `min_mandates_per_shard`
@@ -132,7 +130,6 @@ pub fn epoch_info_with_num_seats(
         seat_price,
         PROTOCOL_VERSION,
         TEST_SEED,
-        #[cfg(feature = "protocol_feature_chunk_validation")]
         validator_mandates,
     )
 }

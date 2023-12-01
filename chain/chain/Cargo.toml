@@ -59,13 +59,9 @@ new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync",
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
-protocol_feature_chunk_validation = [
-  "near-primitives/protocol_feature_chunk_validation",
-]
 
 nightly = [
   "nightly_protocol",
-  "protocol_feature_chunk_validation",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-async/nightly",
   "near-chain-configs/nightly",
