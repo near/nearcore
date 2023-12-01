@@ -537,8 +537,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
                     .into_iter()
                     .map(|shard_id| {
                         shard_layout.get_parent_shard_id(shard_id).map(|parent_shard_id|{
-                            assert!(!prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
-                                    "invalid shard layout {:?}: parent shard {} does not exist in last shard layout",
+                            assert!(prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
+                                    "invalid shard layout.  parent_shard_id: {}\nshard_layout: {:?}\nprev_shard_layout: {:?}",
+                                    parent_shard_id,
                                     shard_layout,
                                     parent_shard_id
                             );
