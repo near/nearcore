@@ -225,7 +225,7 @@ pub struct ClientConfig {
     pub header_sync_progress_timeout: Duration,
     /// How much time to wait before banning a peer in header sync if sync is too slow
     pub header_sync_stall_ban_timeout: Duration,
-    /// Expected increase of header head weight per second during header sync
+    /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a response during state sync
     pub state_sync_timeout: Duration,
