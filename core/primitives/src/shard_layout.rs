@@ -216,8 +216,7 @@ impl ShardLayout {
         }
     }
 
-    #[inline]
-    pub fn num_shards(&self) -> NumShards {
+    fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
