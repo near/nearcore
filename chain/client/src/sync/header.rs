@@ -98,11 +98,16 @@ impl HeaderSync {
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
         let header_head = chain.header_head()?;
+
+        // Check if we need to start a new request for a batch of header.
         if !self.header_sync_due(sync_status, &header_head, highest_height) {
-            // A request was already made and more progress is expected.
+            // Either
+            // * header sync is not needed, or
+            // * a request is already in-flight and more progress is expected.
             return Ok(());
         }
 
+        // TODO: Why call `header_sync_due()` if that decision can be overridden here?
         let enable_header_sync = match sync_status {
             SyncStatus::HeaderSync { .. }
             | SyncStatus::BodySync { .. }
@@ -120,30 +125,33 @@ impl HeaderSync {
             SyncStatus::StateSync { .. } => false,
         };
 
-        if enable_header_sync {
-            // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
-            // This number has no other functional value.
-            let start_height = match &sync_status {
-                SyncStatus::HeaderSync { start_height, .. } => *start_height,
-                SyncStatus::BodySync { start_height, .. } => *start_height,
-                _ => chain.head()?.height,
-            };
-
-            sync_status.update(SyncStatus::HeaderSync {
-                start_height,
-                current_height: header_head.height,
-                highest_height,
-            });
-            self.syncing_peer = None;
-            // Pick a new random peer to request the next batch of headers.
-            if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
-                // TODO: This condition should always be true, otherwise we can already complete header sync.
-                if peer.highest_block_height > header_head.height {
-                    self.syncing_peer = self.request_headers(chain, peer);
-                }
-            }
+        if !enable_header_sync {
+            // Header sync is blocked for whatever reason.
+            return Ok(());
         }
 
+        // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
+        // This number has no other functional value.
+        let start_height = match &sync_status {
+            SyncStatus::HeaderSync { start_height, .. } => *start_height,
+            SyncStatus::BodySync { start_height, .. } => *start_height,
+            _ => chain.head()?.height,
+        };
+
+        sync_status.update(SyncStatus::HeaderSync {
+            start_height,
+            current_height: header_head.height,
+            highest_height,
+        });
+
+        self.syncing_peer = None;
+        // Pick a new random peer to request the next batch of headers.
+        if let Some(peer) = highest_height_peers.choose(&mut thread_rng()).cloned() {
+            // TODO: This condition should always be true, otherwise we can already complete header sync.
+            if peer.highest_block_height > header_head.height {
+                self.syncing_peer = self.request_headers(chain, peer);
+            }
+        }
         Ok(())
     }
 
