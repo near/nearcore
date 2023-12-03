@@ -56,9 +56,8 @@ impl TryFrom<u8> for KeyType {
 }
 
 fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::ParseKeyTypeError> {
-    if let Some(idx) = value.find(':') {
-        let (prefix, key_data) = value.split_at(idx);
-        Ok((KeyType::from_str(prefix)?, &key_data[1..]))
+    if let Some((prefix, key_data)) = value.split_once(':') {
+        Ok((KeyType::from_str(prefix)?, key_data))
     } else {
         // If there is no prefix then we Default to ED25519.
         Ok((KeyType::ED25519, value))
