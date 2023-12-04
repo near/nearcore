@@ -6,6 +6,7 @@
 
 use crate::concurrency;
 use crate::network_protocol::SnapshotHostInfo;
+use crate::network_protocol::SnapshotHostInfoVerificationError;
 use lru::LruCache;
 use near_primitives::network::PeerId;
 use parking_lot::Mutex;
@@ -16,12 +17,12 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
-#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
 pub(crate) enum SnapshotHostInfoError {
-    #[error("found an invalid signature")]
-    InvalidSignature,
     #[error("found multiple entries for the same peer_id")]
     DuplicatePeerId,
+    #[error(transparent)]
+    VerificationError(#[from] SnapshotHostInfoVerificationError),
 }
 
 #[derive(Clone)]
@@ -93,17 +94,19 @@ impl SnapshotHostsCache {
 
         // Verify the signatures in parallel.
         // Verification will stop at the first encountered error.
-        let (data, ok) = concurrency::rayon::run(move || {
-            concurrency::rayon::try_map(new_data.into_values().par_bridge(), |d| match d.verify() {
-                true => Some(d),
-                false => None,
+        let (data, verification_result) = concurrency::rayon::run(move || {
+            concurrency::rayon::try_map_result(new_data.into_values().par_bridge(), |d| {
+                match d.verify() {
+                    Ok(()) => Ok(d),
+                    Err(err) => Err(err),
+                }
             })
         })
         .await;
-        if !ok {
-            return (data, Some(SnapshotHostInfoError::InvalidSignature));
+        match verification_result {
+            Ok(()) => (data, None),
+            Err(err) => (data, Some(SnapshotHostInfoError::VerificationError(err))),
         }
-        (data, None)
     }
 
     /// Verifies the signatures and inserts verified data to the cache.

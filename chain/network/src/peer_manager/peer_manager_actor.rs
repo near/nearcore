@@ -1,4 +1,3 @@
-use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
 use crate::network_protocol::SyncSnapshotHosts;
@@ -18,6 +17,7 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
+use crate::{client, network_protocol};
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
@@ -31,7 +31,8 @@ use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
     RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
-use rand::seq::IteratorRandom;
+use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
@@ -784,7 +785,24 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, shards } => {
+            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, mut shards } => {
+                if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+                    tracing::warn!("PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
+                                    this is more than the allowed limit. The list of shards will be truncated. \
+                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})", shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+
+                    // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would
+                    // ban us for abusive behavior. Let's truncate the shards vector by choosing a random subset of
+                    // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shard ids. Choosing a random subset slightly increases the chances
+                    // that other nodes will have snapshot sync information about all shards from some node.
+                    shards = shards
+                        .choose_multiple(&mut rand::thread_rng(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)
+                        .copied()
+                        .collect();
+                }
+                // Sort the shards to keep things tidy
+                shards.sort();
+
                 // Sign the information about the locally created snapshot using the keys in the
                 // network config before broadcasting it
                 let snapshot_host_info = SnapshotHostInfo::new(
