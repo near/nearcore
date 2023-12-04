@@ -30,7 +30,7 @@ use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
-use near_chain_configs::StateSplitConfig;
+use near_chain_configs::{MutableConfigValue, StateSplitConfig};
 #[cfg(feature = "new_epoch_sync")]
 use near_chain_primitives::error::epoch_sync::EpochSyncInfoError;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -502,7 +502,7 @@ pub struct Chain {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
+    pub(crate) state_split_config: MutableConfigValue<near_chain_configs::StateSplitConfig>,
 }
 
 impl Drop for Chain {
@@ -595,7 +595,10 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
-            state_split_config: StateSplitConfig::default(),
+            state_split_config: MutableConfigValue::new(
+                StateSplitConfig::default(),
+                "state_split_config",
+            ),
         })
     }
 

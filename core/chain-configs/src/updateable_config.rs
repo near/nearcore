@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+use crate::StateSplitConfig;
+
 /// A wrapper for a config value that can be updated while the node is running.
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
 /// pass this wrapper instead of passing a value from a single moment in time.
@@ -88,4 +90,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
 pub struct UpdateableClientConfig {
     /// Graceful shutdown at expected block height.
     pub expected_shutdown: Option<BlockHeight>,
+
+    // Configuration for resharding.
+    pub state_split_config: StateSplitConfig,
 }
