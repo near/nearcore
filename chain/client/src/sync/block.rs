@@ -106,7 +106,7 @@ impl BlockSync {
             return false;
         }
 
-        assert!(head.height <= header_head.height);
+        log_assert!(head.height <= header_head.height);
 
         // Only if the header head is more than one epoch ahead, then consider State Sync.
         // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
