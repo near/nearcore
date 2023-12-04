@@ -1744,7 +1744,7 @@ impl ClientActor {
                         StateSyncResult::InProgress => (),
                         StateSyncResult::Completed => {
                             if !have_block {
-                                info!(target: "sync", "Sync done. Waiting for sync block.");
+                                trace!(target: "sync", "Sync done. Waiting for sync block.");
                                 return;
                             }
                             info!(target: "sync", "State sync: all shards are done");
@@ -1781,15 +1781,16 @@ impl ClientActor {
         now: DateTime<Utc>,
     ) -> Result<(bool, bool), near_chain::Error> {
         let (request_block, have_block) = if !self.client.chain.block_exists(prev_hash)? {
-            let timeout = self.client.config.state_sync_timeout.as_secs() as i64;
+            let timeout =
+                chrono::Duration::from_std(self.client.config.state_sync_timeout).unwrap();
             match self.client.last_time_sync_block_requested {
                 None => (true, false),
                 Some(last_time) => {
-                    if (now - last_time).num_seconds() >= timeout {
+                    if (now - last_time) >= timeout {
                         tracing::error!(
                             target: "sync",
                             %prev_hash,
-                            timeout_sec = timeout,
+                            ?timeout,
                             "State sync: block request timed out");
                         (true, false)
                     } else {
