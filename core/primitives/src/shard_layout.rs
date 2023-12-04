@@ -229,7 +229,9 @@ impl ShardLayout {
 
     /// Returns shard uids for all shards in the shard layout
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
+        self.shard_ids()
+            .map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+            .collect()
     }
 }
 
@@ -302,7 +304,7 @@ impl ShardUId {
 
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
-        assert!(shard_id < shard_layout.num_shards());
+        assert!(shard_layout.shard_ids().any(|i| i == shard_id));
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
@@ -483,7 +485,7 @@ mod tests {
         let num_shards = 4;
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
-            (0..num_shards).map(|x| (x, 0)).into_iter().collect();
+            shard_layout.shard_ids().map(|shard_id| (shard_id, 0)).collect();
         let mut rng = StdRng::from_seed([0; 32]);
         for _i in 0..1000 {
             let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
