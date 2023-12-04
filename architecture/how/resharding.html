@@ -170,11 +170,9 @@ be added in the future. </p>
 </ul>
 <p><strong>IMPORTANT</strong>: Using alphabetical order applies to the full account name, so <code>a.near</code> could belong to
 shard 0, while <code>z.a.near</code> to shard 3.</p>
-<p>Currently in mainnet &amp; testnet, we use the fixed shard split 
-(which is defined in <code>get_simple_nightshade_layout</code>):</p>
+<p>Currently in mainnet &amp; testnet, we use the fixed shard split (which is defined in <code>get_simple_nightshade_layout</code>):</p>
 <p><code>vec![&quot;aurora&quot;, &quot;aurora-0&quot;, &quot;kkuuue2akv_1630967379.near&quot;]</code></p>
-<p>In the near future we are planning on switching to simple nightshade v2
-(which is defined in <code>get_simple_nightshade_layout_v2</code>)</p>
+<p>In the near future we are planning on switching to simple nightshade v2 (which is defined in <code>get_simple_nightshade_layout_v2</code>)</p>
 <p><code>vec![&quot;aurora&quot;, &quot;aurora-0&quot;, &quot;kkuuue2akv_1630967379.near&quot;, &quot;tge-lockup.sweat&quot;]</code></p>
 <h2 id="shard-layout-changes"><a class="header" href="#shard-layout-changes">Shard layout changes</a></h2>
 <p>Shard Layout is determined at epoch level in the AllEpochConfig based on the protocol version of the epoch. </p>
@@ -229,10 +227,26 @@ be needed in next epoch (X+2).</p>
 </li>
 <li>near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks. </li>
 </ul>
-<p>Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the duration is not representative as the sample data below is captured in a testing environment with different configuration. 
+<p>Here are some example metric values when finished for different shards and networks. The duration column reflects the duration of the building phase. Those were captured in production like environment in November 2023 and actual times at the time of resharding in production may be slightly higher. </p>
+<div class="table-wrapper"><table><thead><tr><th>mainnet</th><th>duration</th><th>batch count</th><th>batch size</th></tr></thead><tbody>
+<tr><td>total</td><td>2h23min</td><td></td><td></td></tr>
+<tr><td>shard 0</td><td>32min</td><td>12,510</td><td>6.6GB</td></tr>
+<tr><td>shard 1</td><td>30min</td><td>12,203</td><td>6.1GB</td></tr>
+<tr><td>shard 2</td><td>26min</td><td>10,619</td><td>6.0GB</td></tr>
+<tr><td>shard 3</td><td>55min</td><td>21,070</td><td>11.5GB</td></tr>
+</tbody></table>
+</div><div class="table-wrapper"><table><thead><tr><th>testnet</th><th>duration</th><th>batch count</th><th>batch size</th></tr></thead><tbody>
+<tr><td>total</td><td>5h32min</td><td></td><td></td></tr>
+<tr><td>shard 0</td><td>21min</td><td>10,259</td><td>10.9GB</td></tr>
+<tr><td>shard 1</td><td>18min</td><td>7,034</td><td>3.5GB</td></tr>
+<tr><td>shard 2</td><td>2h31min</td><td>75,529</td><td>75.6GB</td></tr>
+<tr><td>shard 3</td><td>2h22min</td><td>63,621</td><td>49.2GB</td></tr>
+</tbody></table>
+</div>
+<p>Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the values and duration is not representative as the sample data below is captured in a testing environment with different configuration.</p>
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 20" src="https://github.com/near/nearcore/assets/1555986/42824d5a-af16-4a06-9727-a04b1b9d7c03">
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
-<img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849"></p>
+<img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
 <h3 id="throttling"><a class="header" href="#throttling">Throttling</a></h3>
 <p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the state_split_config in the node config file. </p>
 <ul>
