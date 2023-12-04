@@ -58,7 +58,7 @@ impl StorageMutator {
 
     pub(crate) fn commit(self) -> anyhow::Result<Vec<StateRoot>> {
         let shard_layout = self.epoch_manager.get_shard_layout(&self.epoch_id)?;
-        let all_shard_uids = shard_layout.get_shard_uids();
+        let all_shard_uids = shard_layout.shard_uids();
         let mut state_roots = vec![];
         for (mutator, shard_uid) in self.mutators.into_iter().zip(all_shard_uids.into_iter()) {
             let state_root = mutator.commit(&shard_uid, 0)?;

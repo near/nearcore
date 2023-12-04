@@ -193,9 +193,7 @@ impl TestEnv {
         // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
         // and use a mock chain, so we need to initialize flat storage manually.
         let flat_storage_manager = runtime.get_flat_storage_manager();
-        for shard_uid in
-            epoch_manager.get_shard_layout(&EpochId::default()).unwrap().get_shard_uids()
-        {
+        for shard_uid in epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids() {
             let mut store_update = store.store_update();
             flat_storage_manager.set_flat_storage_for_genesis(
                 &mut store_update,

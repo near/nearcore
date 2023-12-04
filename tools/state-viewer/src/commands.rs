@@ -1082,7 +1082,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    for shard_uid in shard_layout.get_shard_uids() {
+    for shard_uid in shard_layout.shard_uids() {
         print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
     }
 }
