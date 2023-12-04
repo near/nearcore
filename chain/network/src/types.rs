@@ -67,6 +67,7 @@ pub enum ReasonForBan {
     InvalidEdge = 10,
     InvalidDistanceVector = 11,
     Blacklisted = 14,
+    ProvidedNotEnoughHeaders = 15,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
