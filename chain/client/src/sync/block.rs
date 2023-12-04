@@ -5,6 +5,7 @@ use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
@@ -20,9 +21,9 @@ const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
 
 #[derive(Clone)]
 pub struct BlockSyncRequest {
-    // Head of the chain at the time of the request
+    // Head of the chain at the time of the last requests.
     head: CryptoHash,
-    // When the block was requested
+    // When the last requests were made.
     when: DateTime<Utc>,
 }
 
@@ -30,7 +31,7 @@ pub struct BlockSyncRequest {
 pub struct BlockSync {
     network_adapter: PeerManagerAdapter,
 
-    // Last block request and when it was requested.
+    // When the last block requests were made.
     last_request: Option<BlockSyncRequest>,
 
     /// How far to fetch blocks vs fetch state.
@@ -136,7 +137,7 @@ impl BlockSync {
         // The current chain head may not be on the canonical chain.
         // Now we find the most recent block we know on the canonical chain.
         // In practice the forks from the last final block are very short, so it is
-        // acceptable to perform this on each request
+        // acceptable to perform this on each request.
 
         let mut header = chain.get_block_header(&last_block_hash)?;
         // First go back until we find the common block
@@ -179,7 +180,8 @@ impl BlockSync {
         header_head: &Tip,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
-        // Update last request now because we want to update it whether or not the rest of the logic succeeds.
+        // Update last request now because we want to update it whether or not
+        // the rest of the logic succeeds.
         // TODO: If this code fails we should retry ASAP. Shouldn't we?
         self.last_request =
             Some(BlockSyncRequest { head: chain_head.last_block_hash, when: StaticClock::utc() });
@@ -187,7 +189,8 @@ impl BlockSync {
         // The last block on the canonical chain that is processed (is in store).
         let reference_hash = self.get_last_processed_block(chain, &chain_head.last_block_hash)?;
 
-        // Look ahead for MAX_BLOCK_REQUESTS block headers and add requests for blocks that we don't have yet.
+        // Look ahead for MAX_BLOCK_REQUESTS block headers and add requests for
+        // blocks that we don't have yet.
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
@@ -290,6 +293,7 @@ impl BlockSync {
     }
 }
 
+/// Whether a new set of blocks needs to be requested.
 enum BlockSyncDue {
     /// Request the next block.
     RequestBlock,
