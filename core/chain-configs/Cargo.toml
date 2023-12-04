@@ -3,7 +3,6 @@ name = "near-chain-configs"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate provides typed interfaces to the NEAR Genesis and Chain Configs"
 repository.workspace = true
 license.workspace = true

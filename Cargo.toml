@@ -7,7 +7,11 @@ repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
 [workspace.metadata.workspaces]
-# shared version of all public crates in the workspace
+# Shared version of all public crates in the workspace.
+# This is only used for crates that are not stable.
+# Most crates are not stable on purpose, as maintaining API compatibility is a
+# significant developer time expense. Please think thoroughly before adding
+# anything to the list of stable crates.
 version = "0.17.0"
 exclude = ["neard"]
 
