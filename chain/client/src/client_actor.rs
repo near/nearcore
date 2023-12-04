@@ -1762,7 +1762,7 @@ impl ClientActor {
 
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
-                            self.client.sync_status.update(SyncStatus::BodySync {
+                            self.client.sync_status.update(SyncStatus::BlockSync {
                                 start_height: 0,
                                 current_height: 0,
                                 highest_height: 0,

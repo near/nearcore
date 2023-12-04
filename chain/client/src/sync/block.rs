@@ -5,6 +5,7 @@ use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter};
+use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
@@ -14,24 +15,30 @@ use tracing::{debug, warn};
 /// Maximum number of block requested at once in BlockSync
 const MAX_BLOCK_REQUESTS: usize = 5;
 
-const BLOCK_REQUEST_TIMEOUT: i64 = 2;
+/// Expect to receive the requested block in this time.
+const BLOCK_REQUEST_TIMEOUT_MS: i64 = 2_000;
 
 #[derive(Clone)]
 pub struct BlockSyncRequest {
-    // head of the chain at the time of the request
+    // Head of the chain at the time of the request
     head: CryptoHash,
-    // when the block was requested
+    // When the block was requested
     when: DateTime<Utc>,
 }
 
 /// Helper to track block syncing.
 pub struct BlockSync {
     network_adapter: PeerManagerAdapter,
+
+    // Last block request and when it was requested.
     last_request: Option<BlockSyncRequest>,
+
     /// How far to fetch blocks vs fetch state.
     block_fetch_horizon: BlockHeightDelta,
-    /// Whether to enforce block sync
+
+    /// Archival nodes are not allowed to do State Sync, as they need all state from all blocks.
     archive: bool,
+
     /// Whether State Sync should be enabled when a node falls far enough behind.
     state_sync_enabled: bool,
 }
@@ -52,8 +59,8 @@ impl BlockSync {
         }
     }
 
-    /// Runs check if block sync is needed, if it's needed and it's too far - sync state is started instead (returning true).
-    /// Otherwise requests recent blocks from peers.
+    /// Returns true if State Sync is needed.
+    /// Returns false is Block Sync is needed. Maybe requests recent blocks from peers.
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
@@ -62,20 +69,30 @@ impl BlockSync {
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "BlockSync").entered();
-        if self.block_sync_due(chain)? {
-            if self.block_sync(chain, highest_height_peers)? {
+        let head = chain.head()?;
+        let header_head = chain.header_head()?;
+
+        match self.block_sync_due(&head, &header_head) {
+            BlockSyncDue::StateSync => {
                 debug!(target: "sync", "Sync: transition to State Sync.");
                 return Ok(true);
             }
+            BlockSyncDue::RequestBlock => {
+                self.block_sync(chain, &head, &header_head, highest_height_peers)?;
+            }
+            BlockSyncDue::WaitForBlock => {
+                // Do nothing.
+            }
         }
 
-        let head = chain.head()?;
+        // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
+        // This number has no other functional value.
         let start_height = match sync_status.start_height() {
             Some(height) => height,
             None => head.height,
         };
 
-        sync_status.update(SyncStatus::BodySync {
+        sync_status.update(SyncStatus::BlockSync {
             start_height,
             current_height: head.height,
             highest_height,
@@ -84,54 +101,40 @@ impl BlockSync {
     }
 
     /// Check if state download is required
-    fn check_state_needed(&self, chain: &Chain) -> Result<bool, near_chain::Error> {
-        let head = chain.head()?;
-        let header_head = chain.header_head()?;
-
-        // If latest block is up to date return early.
-        // No state download is required, neither any blocks need to be fetched.
-        if head.height >= header_head.height {
-            return Ok(false);
+    fn check_state_needed(&self, head: &Tip, header_head: &Tip) -> bool {
+        if self.archive || !self.state_sync_enabled {
+            return false;
         }
 
-        // Don't run State Sync if header head is not more than one epoch ahead.
-        if head.epoch_id != header_head.epoch_id && head.next_epoch_id != header_head.epoch_id {
-            if head.height < header_head.height.saturating_sub(self.block_fetch_horizon)
-                && !self.archive
-                && self.state_sync_enabled
-            {
-                tracing::debug!(
-                    target: "sync",
-                    head_epoch_id = ?head.epoch_id,
-                    header_head_epoch_id = ?header_head.epoch_id,
-                    head_next_epoch_id = ?head.next_epoch_id,
-                    head_height = head.height,
-                    header_head_height = header_head.height,
-                    header_head_height_sub = header_head.height.saturating_sub(self.block_fetch_horizon),
-                    archive = self.archive,
-                    state_sync_enabled = self.state_sync_enabled,
-                    block_fetch_horizon = self.block_fetch_horizon,
-                    "Switched from block sync to state sync");
-                // Epochs are different and we are too far from horizon, State Sync is needed
-                return Ok(true);
-            }
-        }
+        assert!(head.height < header_head.height);
 
-        Ok(false)
+        // Only if the header head is more than one epoch ahead, then consider State Sync.
+        // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
+        let prefer_state_sync = head.epoch_id != header_head.epoch_id
+            && head.next_epoch_id != header_head.epoch_id
+            && head.height.saturating_add(self.block_fetch_horizon) < header_head.height;
+        if prefer_state_sync {
+            debug!(
+                target: "sync",
+                head_epoch_id = ?head.epoch_id,
+                header_head_epoch_id = ?header_head.epoch_id,
+                head_next_epoch_id = ?head.next_epoch_id,
+                head_height = head.height,
+                header_head_height = header_head.height,
+                block_fetch_horizon = self.block_fetch_horizon,
+                "Switched from block sync to state sync");
+        }
+        prefer_state_sync
     }
 
-    /// Returns true if state download is required (last known block is too far).
-    /// Otherwise request recent blocks from peers round robin.
+    /// Request recent blocks from peers round robin.
     fn block_sync(
         &mut self,
         chain: &Chain,
+        chain_head: &Tip,
+        header_head: &Tip,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<bool, near_chain::Error> {
-        if self.check_state_needed(chain)? {
-            return Ok(true);
-        }
-
-        let chain_head = chain.head()?;
         // update last request now because we want to update it whether or not the rest of the logic
         // succeeds
         self.last_request =
@@ -198,8 +201,6 @@ impl BlockSync {
             }
         }
 
-        let header_head = chain.header_head()?;
-
         let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
         for request in requests {
@@ -228,16 +229,43 @@ impl BlockSync {
         Ok(false)
     }
 
-    /// Check if we should run block body sync and ask for more full blocks.
+    /// Checks if we should run block sync and ask for more full blocks.
     /// Block sync is due either if the chain head has changed since the last request
-    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT
-    fn block_sync_due(&mut self, chain: &Chain) -> Result<bool, near_chain::Error> {
+    /// or if time since the last request is > BLOCK_REQUEST_TIMEOUT_MS
+    fn block_sync_due(&mut self, head: &Tip, header_head: &Tip) -> BlockSyncDue {
+        if self.check_state_needed(head, header_head) {
+            return BlockSyncDue::StateSync;
+        }
         match &self.last_request {
-            None => Ok(true),
-            Some(request) => Ok(chain.head()?.last_block_hash != request.head
-                || StaticClock::utc() - request.when > Duration::seconds(BLOCK_REQUEST_TIMEOUT)),
+            None => {
+                // Request the next block.
+                BlockSyncDue::RequestBlock
+            }
+            Some(request) => {
+                // Head got updated, no need to continue waiting for the requested block.
+                let head_got_updated = head.last_block_hash != request.head;
+                // Timeout elapsed
+                let timeout = StaticClock::utc() - request.when
+                    > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
+                if head_got_updated || timeout {
+                    // Request the next block.
+                    BlockSyncDue::RequestBlock
+                } else {
+                    // Continue waiting for the currently requested block.
+                    BlockSyncDue::WaitForBlock
+                }
+            }
         }
     }
+}
+
+enum BlockSyncDue {
+    /// Request the next block.
+    RequestBlock,
+    /// The block is already requested, wait for it.
+    WaitForBlock,
+    /// Too far behind, drop BlockSync and do StateSync instead.
+    StateSync,
 }
 
 #[cfg(test)]
@@ -325,7 +353,11 @@ mod test {
 
         // fetch three blocks at a time
         for i in 0..3 {
-            let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+            let head = env.clients[1].chain.head().unwrap();
+            let header_head = env.clients[1].chain.header_head().unwrap();
+            let is_state_sync = block_sync
+                .block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos)
+                .unwrap();
             assert!(!is_state_sync);
 
             let expected_blocks: Vec<_> =
@@ -340,9 +372,12 @@ mod test {
             }
         }
 
+        let head = env.clients[1].chain.head().unwrap();
+        let header_head = env.clients[1].chain.header_head().unwrap();
         // Now test when the node receives the block out of order
         // fetch the next three blocks
-        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync =
+            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
             &network_adapter,
@@ -353,8 +388,12 @@ mod test {
             MaybeValidated::from(blocks[4 * MAX_BLOCK_REQUESTS - 1].clone()),
             Provenance::NONE,
         );
+
+        let head = env.clients[1].chain.head().unwrap();
+        let header_head = env.clients[1].chain.header_head().unwrap();
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
-        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+        let is_state_sync =
+            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         assert!(!is_state_sync);
         check_hashes_from_network_adapter(
             &network_adapter,
@@ -370,7 +409,10 @@ mod test {
             let _ = env.clients[1]
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
-        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+
+        let head = env.clients[1].chain.head().unwrap();
+        let header_head = env.clients[1].chain.header_head().unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
@@ -402,7 +444,11 @@ mod test {
         let mut challenges = vec![];
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
-        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+
+        let head = env.clients[1].chain.head().unwrap();
+        let header_head = env.clients[1].chain.header_head().unwrap();
+        let is_state_sync =
+            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         // We don't have archival peers, and thus cannot request any blocks
@@ -412,7 +458,11 @@ mod test {
         for peer in peer_infos.iter_mut() {
             peer.archival = true;
         }
-        let is_state_sync = block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
+
+        let head = env.clients[1].chain.head().unwrap();
+        let header_head = env.clients[1].chain.header_head().unwrap();
+        let is_state_sync =
+            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(

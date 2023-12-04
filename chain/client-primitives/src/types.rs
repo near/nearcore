@@ -288,8 +288,12 @@ pub enum SyncStatus {
     StateSync(StateSyncStatus),
     /// Sync state across all shards is done.
     StateSyncDone,
-    /// Catch up on blocks.
-    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+    /// Download and process blocks until the head reaches the head of the network.
+    BlockSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
 }
 
 impl SyncStatus {
@@ -315,14 +319,14 @@ impl SyncStatus {
             SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
             SyncStatus::StateSync(_) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+            SyncStatus::BlockSync { start_height: _, current_height: _, highest_height: _ } => 6,
         }
     }
 
     pub fn start_height(&self) -> Option<BlockHeight> {
         match self {
             SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
-            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            SyncStatus::BlockSync { start_height, .. } => Some(*start_height),
             _ => None,
         }
     }
@@ -353,8 +357,8 @@ impl From<SyncStatus> for SyncStatusView {
                     .collect(),
             ),
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
-            SyncStatus::BodySync { start_height, current_height, highest_height } => {
-                SyncStatusView::BodySync { start_height, current_height, highest_height }
+            SyncStatus::BlockSync { start_height, current_height, highest_height } => {
+                SyncStatusView::BlockSync { start_height, current_height, highest_height }
             }
         }
     }
