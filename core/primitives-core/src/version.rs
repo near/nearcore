@@ -126,7 +126,6 @@ pub enum ProtocolFeature {
     TestnetFewerBlockProducers,
     /// Enables chunk validation which is introduced with stateless validation.
     /// NEP: https://github.com/near/NEPs/pull/509
-    #[cfg(feature = "protocol_feature_chunk_validation")]
     ChunkValidation,
     EthImplicitAccounts,
 }
@@ -182,7 +181,6 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             ProtocolFeature::SimpleNightshadeV2 => 135,
-            #[cfg(feature = "protocol_feature_chunk_validation")]
             ProtocolFeature::ChunkValidation => 137,
             ProtocolFeature::EthImplicitAccounts => 138,
         }

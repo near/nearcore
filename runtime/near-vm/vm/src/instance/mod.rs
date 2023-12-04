@@ -11,7 +11,7 @@ mod allocator;
 mod r#ref;
 
 pub use allocator::InstanceAllocator;
-pub use r#ref::{InstanceRef, WeakInstanceRef, WeakOrStrongInstanceRef};
+pub use r#ref::{InstanceRef, WeakOrStrongInstanceRef};
 
 use crate::func_data_registry::VMFuncRef;
 use crate::global::Global;

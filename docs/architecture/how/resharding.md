@@ -33,13 +33,11 @@ be added in the future.
 **IMPORTANT**: Using alphabetical order applies to the full account name, so ``a.near`` could belong to
  shard 0, while ``z.a.near`` to shard 3.
 
-Currently in mainnet & testnet, we use the fixed shard split 
-(which is defined in ``get_simple_nightshade_layout``):
+Currently in mainnet & testnet, we use the fixed shard split (which is defined in ``get_simple_nightshade_layout``):
 
 ``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near"]``
 
-In the near future we are planning on switching to simple nightshade v2
-(which is defined in ``get_simple_nightshade_layout_v2``)
+In the near future we are planning on switching to simple nightshade v2 (which is defined in ``get_simple_nightshade_layout_v2``)
 
 ``vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]``
 
@@ -115,9 +113,32 @@ Resharding exposes a number of metrics and logs that allow for monitoring the re
   * While in the Finished state both metrics should remain at the same value. 
 * near_resharding_batch_prepare_time_bucket, near_resharding_batch_apply_time_bucket and near_resharding_batch_commit_time_bucket - those three metrics can be used to track the performance of resharding and fine tune throttling if needed. As a rule of thumb the combined time of prepare, apply and commit for a batch should remain at the 100ms-200ms level on average. Higher batch processing time may lead to disruptions in block processing, missing chunks and blocks. 
 
-Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the duration is not representative as the sample data below is captured in a testing environment with different configuration. 
+Here are some example metric values when finished for different shards and networks. The duration column reflects the duration of the building phase. Those were captured in production like environment in November 2023 and actual times at the time of resharding in production may be slightly higher. 
+
+| mainnet | duration | batch count | batch size |
+| ------- | -------- | ----------- | ---------- |
+| total   | 2h23min  |             |
+| shard 0 | 32min    | 12,510      |  6.6GB     |
+| shard 1 | 30min    | 12,203      |  6.1GB     |
+| shard 2 | 26min    | 10,619      |  6.0GB     |
+| shard 3 | 55min    | 21,070      | 11.5GB     |
+
+| testnet | duration | batch count | batch size |
+| ------- | -------- | ----------- | ---------- |
+| total   | 5h32min  |             |
+| shard 0 | 21min    | 10,259      | 10.9GB     |
+| shard 1 | 18min    |  7,034      |  3.5GB     |
+| shard 2 | 2h31min  | 75,529      | 75.6GB     |
+| shard 3 | 2h22min  | 63,621      | 49.2GB     |
+
+
+Here is an example of what that may look like in a grafana dashboard. Please keep in mind that the values and duration is not representative as the sample data below is captured in a testing environment with different configuration.
+
+
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 20" src="https://github.com/near/nearcore/assets/1555986/42824d5a-af16-4a06-9727-a04b1b9d7c03">
+
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
+
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
 
 

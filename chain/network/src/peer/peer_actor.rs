@@ -2,6 +2,7 @@ use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
+use crate::network_protocol::SnapshotHostInfoVerificationError;
 use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
@@ -1285,10 +1286,13 @@ impl PeerActor {
                 ctx.spawn(wrap_future(async move {
                     if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
                         conn.stop(Some(match err {
-                            SnapshotHostInfoError::InvalidSignature => {
-                                ReasonForBan::InvalidSignature
-                            }
-                            SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
+                            SnapshotHostInfoError::VerificationError(
+                                SnapshotHostInfoVerificationError::InvalidSignature,
+                            ) => ReasonForBan::InvalidSignature,
+                            SnapshotHostInfoError::VerificationError(
+                                SnapshotHostInfoVerificationError::TooManyShards(_),
+                            )
+                            | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
                         }));
                     }
                     message_processed_event();

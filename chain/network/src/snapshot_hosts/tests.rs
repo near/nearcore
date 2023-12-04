@@ -1,4 +1,6 @@
-use crate::network_protocol::testonly as data;
+use crate::network_protocol::{
+    testonly as data, SnapshotHostInfoVerificationError, MAX_SHARDS_PER_SNAPSHOT_HOST_INFO,
+};
 use crate::snapshot_hosts::{Config, SnapshotHostInfoError, SnapshotHostsCache};
 use crate::testonly::assert_is_superset;
 use crate::testonly::{make_rng, AsSet as _};
@@ -87,11 +89,55 @@ async fn invalid_signature() {
     let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, vec![0, 1, 2, 3], &key1));
     let res = cache.insert(vec![info0_invalid_sig.clone(), info1.clone()]).await;
     // invalid signature => InvalidSignature
-    assert_eq!(Some(SnapshotHostInfoError::InvalidSignature), res.1);
+    assert_eq!(
+        Some(SnapshotHostInfoError::VerificationError(
+            SnapshotHostInfoVerificationError::InvalidSignature
+        )),
+        res.1
+    );
     // Partial update is allowed in case an error is encountered.
     // The valid info1 may or may not be processed before the invalid info0 is detected
     // due to parallelization, so we check for superset rather than strict equality.
     assert_is_superset(&[&info1].as_set(), &res.0.as_set());
+    // Partial update should match the state.
+    assert_eq!(res.0.as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
+}
+
+#[tokio::test]
+async fn too_many_shards() {
+    init_test_logger();
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+
+    let key0 = data::make_secret_key(rng);
+    let key1 = data::make_secret_key(rng);
+
+    let peer0 = PeerId::new(key0.public_key());
+    let peer1 = PeerId::new(key1.public_key());
+
+    let config = Config { snapshot_hosts_cache_size: 100 };
+    let cache = SnapshotHostsCache::new(config);
+
+    // info0 is valid
+    let info0 = Arc::new(make_snapshot_host_info(&peer0, 1, vec![0, 1, 2, 3], &key0));
+
+    // info1 is invalid - it has more shard ids than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+    let too_many_shards: Vec<ShardId> =
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
+    let info1 = Arc::new(make_snapshot_host_info(&peer1, 1, too_many_shards, &key1));
+
+    // info1.verify() should fail
+    let expected_error =
+        SnapshotHostInfoVerificationError::TooManyShards(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO + 1);
+    assert_eq!(info1.verify(), Err(expected_error.clone()));
+
+    // Inserting should return the expected error (TooManyShards)
+    let res = cache.insert(vec![info0.clone(), info1.clone()]).await;
+    assert_eq!(Some(SnapshotHostInfoError::VerificationError(expected_error)), res.1);
+    // Partial update is allowed in case an error is encountered.
+    // The valid info0 may or may not be processed before the invalid info1 is detected
+    // due to parallelization, so we check for superset rather than strict equality.
+    assert_is_superset(&[&info0].as_set(), &res.0.as_set());
     // Partial update should match the state.
     assert_eq!(res.0.as_set(), cache.get_hosts().iter().collect::<HashSet<_>>());
 }

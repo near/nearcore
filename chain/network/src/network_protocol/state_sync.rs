@@ -1,3 +1,4 @@
+use super::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::network_protocol::Arc;
 use near_crypto::SecretKey;
 use near_crypto::Signature;
@@ -21,7 +22,7 @@ pub struct SnapshotHostInfo {
     pub sync_hash: CryptoHash,
     /// Ordinal of the epoch of the state root
     pub epoch_height: EpochHeight,
-    /// List of shards included in the snapshot
+    /// List of shards included in the snapshot.
     pub shards: Vec<ShardId>,
     /// Signature on (sync_hash, epoch_height, shards)
     pub signature: Signature,
@@ -54,8 +55,18 @@ impl SnapshotHostInfo {
         Self::build_hash(&self.sync_hash, &self.epoch_height, &self.shards)
     }
 
-    pub(crate) fn verify(&self) -> bool {
-        self.signature.verify(self.hash().as_ref(), self.peer_id.public_key())
+    pub(crate) fn verify(&self) -> Result<(), SnapshotHostInfoVerificationError> {
+        // Number of shards must be limited, otherwise it'd be possible to create malicious
+        // messages with millions of shard ids.
+        if self.shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+            return Err(SnapshotHostInfoVerificationError::TooManyShards(self.shards.len()));
+        }
+
+        if !self.signature.verify(self.hash().as_ref(), self.peer_id.public_key()) {
+            return Err(SnapshotHostInfoVerificationError::InvalidSignature);
+        }
+
+        Ok(())
     }
 }
 
@@ -66,4 +77,15 @@ impl SnapshotHostInfo {
 #[derive(Clone, Debug, Eq, PartialEq, Hash, borsh::BorshSerialize, borsh::BorshDeserialize)]
 pub struct SyncSnapshotHosts {
     pub hosts: Vec<Arc<SnapshotHostInfo>>,
+}
+
+#[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
+pub enum SnapshotHostInfoVerificationError {
+    #[error("SnapshotHostInfo is signed with an invalid signature")]
+    InvalidSignature,
+    #[error(
+        "SnapshotHostInfo contains more shards than allowed: {0} > {} (MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)",
+        MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+    )]
+    TooManyShards(usize),
 }

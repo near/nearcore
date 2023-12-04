@@ -276,8 +276,12 @@ pub enum SyncStatus {
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync {
+        /// Header head height at the beginning.
+        /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
+        /// Current header head height.
         current_height: BlockHeight,
+        /// Highest height of our peers.
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
@@ -327,7 +331,7 @@ impl SyncStatus {
         let _span =
             debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
                 .entered();
-        *self = new_value
+        *self = new_value;
     }
 }
 
