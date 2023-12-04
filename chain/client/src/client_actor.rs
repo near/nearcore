@@ -1371,7 +1371,7 @@ impl ClientActor {
             info!(target: "client", "Received no block headers");
             return true;
         }
-        // Sort headers by heights if they are out of order.
+        // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
         info!(
             target: "client",

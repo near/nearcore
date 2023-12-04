@@ -1893,7 +1893,7 @@ impl Chain {
         mut headers: Vec<BlockHeader>,
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
-        // Sort headers by heights if they are out of order.
+        // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
         if let Some(header) = headers.first() {
