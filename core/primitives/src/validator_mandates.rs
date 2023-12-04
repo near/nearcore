@@ -205,6 +205,50 @@ impl AssignmentWeight {
     }
 }
 
+/// When assigning mandates first to shards with lower ids, the shards with higher ids might end up
+/// with fewer assigned mandates.
+///
+/// Assumes shard ids are in `[0, num_shards)`.
+///
+/// # Example
+///
+/// Assume there are 3 shards and 5 mandates. Assigning to shards with lower ids first, the first
+/// two shards get 2 mandates each. For the third shard only 1 mandate remains.
+///
+/// # Shuffling to avoid bias
+///
+/// When mandates cannot be distributed evenly across shards, some shards will be assigned one
+/// mandata less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
+/// no longer predictable which shard(s) will be assigned one mandate less.
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+struct ShuffledShardIds {
+    /// Contains the shard ids `[0, num_shards)` in shuffled order.
+    shuffled_ids: Vec<usize>,
+}
+
+impl ShuffledShardIds {
+    fn new<R>(rng: &mut R, num_shards: usize) -> Self
+    where
+        R: Rng + ?Sized,
+    {
+        let mut shuffled_ids = Vec::with_capacity(num_shards);
+        for shard_id in 0..num_shards {
+            shuffled_ids.push(shard_id);
+        }
+        shuffled_ids.shuffle(rng);
+        Self { shuffled_ids }
+    }
+
+    /// Gets the alias of `shard_id` corresponding to the current shuffling.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shard_id >= num_shards`.
+    fn get_alias(&self, shard_id: usize) -> usize {
+        self.shuffled_ids[shard_id]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -219,7 +263,9 @@ mod tests {
         validator_mandates::ValidatorMandatesConfig,
     };
 
-    use super::{AssignmentWeight, ValidatorMandates, ValidatorMandatesAssignment};
+    use super::{
+        AssignmentWeight, ShuffledShardIds, ValidatorMandates, ValidatorMandatesAssignment,
+    };
 
     /// Returns a new, fixed RNG to be used only in tests. Using a fixed RNG facilitates testing as
     /// it makes outcomes based on that RNG deterministic.
@@ -396,5 +442,29 @@ mod tests {
         let assignment = mandates.sample(&mut rng);
 
         assert_eq!(assignment, expected_assignment);
+    }
+
+    /// Testing with `num_shards = 4` to know the shard id shufflings for tests above.
+    #[test]
+    fn test_shuffled_shard_ids_new_4_shards() {
+        let mut rng = new_fixed_rng();
+        let shuffled_shard_ids = ShuffledShardIds::new(&mut rng, 4);
+        assert_eq!(shuffled_shard_ids, ShuffledShardIds { shuffled_ids: vec![0, 2, 1, 3] });
+    }
+
+    /// Testing with `num_shards = 3` to know the shard id shufflings for tests above.
+    #[test]
+    fn test_shuffled_shard_ids_new_3_shards() {
+        let mut rng = new_fixed_rng();
+        let shuffled_ids_full_mandates = ShuffledShardIds::new(&mut rng, 3);
+        assert_eq!(shuffled_ids_full_mandates, ShuffledShardIds { shuffled_ids: vec![2, 1, 0] });
+    }
+
+    #[test]
+    fn test_shuffled_shard_ids_get_alias() {
+        let mut rng = new_fixed_rng();
+        let shuffled_ids = ShuffledShardIds::new(&mut rng, 4);
+        // See [`test_shuffled_shard_ids_new_4_shards`] for the result of this shuffling.
+        assert_eq!(shuffled_ids.get_alias(1), 2);
     }
 }
