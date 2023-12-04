@@ -444,20 +444,22 @@ mod tests {
         assert_eq!(assignment, expected_assignment);
     }
 
-    /// Testing with `num_shards = 4` to know the shard id shufflings for tests above.
     #[test]
-    fn test_shuffled_shard_ids_new_4_shards() {
-        let mut rng = new_fixed_rng();
-        let shuffled_shard_ids = ShuffledShardIds::new(&mut rng, 4);
-        assert_eq!(shuffled_shard_ids, ShuffledShardIds { shuffled_ids: vec![0, 2, 1, 3] });
+    fn test_shuffled_shards_new() {
+        // Testing with different `num_shards` values to verify the shufflings used in other tests.
+        assert_shuffled_shard_ids(4, vec![0, 2, 1, 3]);
+        assert_shuffled_shard_ids(3, vec![2, 1, 0]);
     }
 
-    /// Testing with `num_shards = 3` to know the shard id shufflings for tests above.
-    #[test]
-    fn test_shuffled_shard_ids_new_3_shards() {
+    /// Testing with `num_shards = 3` to know the shuffling for tests with that config.
+    fn assert_shuffled_shard_ids(num_shards: usize, expected_shuffling: Vec<usize>) {
         let mut rng = new_fixed_rng();
-        let shuffled_ids_full_mandates = ShuffledShardIds::new(&mut rng, 3);
-        assert_eq!(shuffled_ids_full_mandates, ShuffledShardIds { shuffled_ids: vec![2, 1, 0] });
+        let shuffled_ids_full_mandates = ShuffledShardIds::new(&mut rng, num_shards);
+        assert_eq!(
+            shuffled_ids_full_mandates,
+            ShuffledShardIds { shuffled_ids: expected_shuffling },
+            "Unexpected shuffling for num_shards = {num_shards}"
+        );
     }
 
     #[test]
