@@ -127,64 +127,67 @@ impl BlockSync {
         prefer_state_sync
     }
 
-    /// Request recent blocks from peers round robin.
+    // Finds the last block on the canonical chain that is in store (processed).
+    fn get_last_processed_block(
+        &self,
+        chain: &Chain,
+        last_block_hash: &CryptoHash,
+    ) -> Result<CryptoHash, near_chain::Error> {
+        // The current chain head may not be on the canonical chain.
+        // Now we find the most recent block we know on the canonical chain.
+        // In practice the forks from the last final block are very short, so it is
+        // acceptable to perform this on each request
+
+        let mut header = chain.get_block_header(&last_block_hash)?;
+        // First go back until we find the common block
+        while match chain.get_block_header_by_height(header.height()) {
+            Ok(got_header) => got_header.hash() != header.hash(),
+            Err(e) => match e {
+                near_chain::Error::DBNotFoundErr(_) => true,
+                _ => return Err(e),
+            },
+        } {
+            header = chain.get_block_header(header.prev_hash())?;
+        }
+
+        // Then go forward for as long as we know the next block
+        let mut hash = *header.hash();
+        loop {
+            match chain.store().get_next_block_hash(&hash) {
+                Ok(got_hash) => {
+                    if chain.block_exists(&got_hash)? {
+                        hash = got_hash;
+                    } else {
+                        break;
+                    }
+                }
+                Err(e) => match e {
+                    near_chain::Error::DBNotFoundErr(_) => break,
+                    _ => return Err(e),
+                },
+            }
+        }
+
+        Ok(hash)
+    }
+
+    /// Request recent blocks from a randomly chosen peer.
     fn block_sync(
         &mut self,
         chain: &Chain,
         chain_head: &Tip,
         header_head: &Tip,
         highest_height_peers: &[HighestHeightPeerInfo],
-    ) -> Result<bool, near_chain::Error> {
-        // update last request now because we want to update it whether or not the rest of the logic
-        // succeeds
+    ) -> Result<(), near_chain::Error> {
+        // Update last request now because we want to update it whether or not the rest of the logic succeeds.
+        // TODO: If this code fails we should retry ASAP. Shouldn't we?
         self.last_request =
             Some(BlockSyncRequest { head: chain_head.last_block_hash, when: StaticClock::utc() });
 
-        // reference_hash is the last block on the canonical chain that is in store (processed)
-        let reference_hash = {
-            let reference_hash = chain_head.last_block_hash;
+        // The last block on the canonical chain that is processed (is in store).
+        let reference_hash = self.get_last_processed_block(chain, &chain_head.last_block_hash)?;
 
-            // The current chain head may not be on the canonical chain.
-            // Now we find the most recent block we know on the canonical chain.
-            // In practice the forks from the last final block are very short, so it is
-            // acceptable to perform this on each request
-            let header = chain.get_block_header(&reference_hash)?;
-            let mut candidate = (header.height(), *header.hash(), *header.prev_hash());
-
-            // First go back until we find the common block
-            while match chain.get_block_header_by_height(candidate.0) {
-                Ok(header) => header.hash() != &candidate.1,
-                Err(e) => match e {
-                    near_chain::Error::DBNotFoundErr(_) => true,
-                    _ => return Err(e),
-                },
-            } {
-                let prev_header = chain.get_block_header(&candidate.2)?;
-                candidate = (prev_header.height(), *prev_header.hash(), *prev_header.prev_hash());
-            }
-
-            // Then go forward for as long as we know the next block
-            let mut ret_hash = candidate.1;
-            loop {
-                match chain.store().get_next_block_hash(&ret_hash) {
-                    Ok(hash) => {
-                        if chain.block_exists(&hash)? {
-                            ret_hash = hash;
-                        } else {
-                            break;
-                        }
-                    }
-                    Err(e) => match e {
-                        near_chain::Error::DBNotFoundErr(_) => break,
-                        _ => return Err(e),
-                    },
-                }
-            }
-
-            ret_hash
-        };
-
-        // Look ahead for MAX_BLOCK_REQUESTS blocks and add the ones we don't have yet
+        // Look ahead for MAX_BLOCK_REQUESTS block headers and add requests for blocks that we don't have yet.
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
@@ -195,38 +198,64 @@ impl BlockSync {
                     _ => return Err(e),
                 },
             }
-            if let Ok(()) = check_known(chain, &next_hash)? {
+            if let Ok(_) = check_known(chain, &next_hash)? {
                 let next_height = chain.get_block_header(&next_hash)?.height();
                 requests.push((next_height, next_hash));
             }
         }
 
+        // Assume that peers are configured to keep as many epochs does this
+        // node and expect peers to have blocks in the range
+        // [gc_stop_height, header_head.last_block_hash].
         let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
-        for request in requests {
-            let (height, hash) = request;
+        let mut num_requests = 0;
+        for (height, hash) in requests {
             let request_from_archival = self.archive && height < gc_stop_height;
+            // Assume that heads of `highest_height_peers` are are ahead of the blocks we're requesting.
             let peer = if request_from_archival {
+                // Normal peers are unlikely to have old blocks, request from an archival node.
                 let archival_peer_iter = highest_height_peers.iter().filter(|p| p.archival);
                 archival_peer_iter.choose(&mut rand::thread_rng())
             } else {
+                // All peers are likely to have this block.
                 let peer_iter = highest_height_peers.iter();
                 peer_iter.choose(&mut rand::thread_rng())
             };
 
             if let Some(peer) = peer {
-                debug!(target: "sync", "Block sync: {}/{} requesting block {} at height {} from {} (out of {} peers)",
-                       chain_head.height, header_head.height, hash, height, peer.peer_info.id, highest_height_peers.len());
+                debug!(
+                    target: "sync",
+                    head_height = chain_head.height,
+                    header_head_height = header_head.height,
+                    block_hash = ?hash,
+                    block_height = height,
+                    request_from_archival,
+                    peer = ?peer.peer_info.id,
+                    num_peers = highest_height_peers.len(),
+                    "Block sync: requested block");
                 self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::BlockRequest { hash, peer_id: peer.peer_info.id.clone() },
                 ));
+                num_requests += 1;
             } else {
-                warn!(target: "sync", "Block sync: {}/{} No available {}peers to request block {} from",
-                      chain_head.height, header_head.height, if request_from_archival { "archival " } else { "" }, hash);
+                warn!(
+                    target: "sync",
+                    head_height = chain_head.height,
+                    header_head_height = header_head.height,
+                    block_hash = ?hash,
+                    block_height = height,
+                    request_from_archival,
+                    "Block sync: No available peers to request a block from");
             }
         }
-
-        Ok(false)
+        debug!(
+            target: "sync",
+            head_height = chain_head.height,
+            header_head_height = header_head.height,
+            num_requests,
+            "Block sync: requested blocks");
+        Ok(())
     }
 
     /// Checks if we should run block sync and ask for more full blocks.
@@ -355,10 +384,7 @@ mod test {
         for i in 0..3 {
             let head = env.clients[1].chain.head().unwrap();
             let header_head = env.clients[1].chain.header_head().unwrap();
-            let is_state_sync = block_sync
-                .block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos)
-                .unwrap();
-            assert!(!is_state_sync);
+            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
 
             let expected_blocks: Vec<_> =
                 blocks[i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS].to_vec();
@@ -376,9 +402,7 @@ mod test {
         let header_head = env.clients[1].chain.header_head().unwrap();
         // Now test when the node receives the block out of order
         // fetch the next three blocks
-        let is_state_sync =
-            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
-        assert!(!is_state_sync);
+        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
@@ -392,9 +416,7 @@ mod test {
         let head = env.clients[1].chain.head().unwrap();
         let header_head = env.clients[1].chain.header_head().unwrap();
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
-        let is_state_sync =
-            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
-        assert!(!is_state_sync);
+        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS - 1)
@@ -447,9 +469,7 @@ mod test {
 
         let head = env.clients[1].chain.head().unwrap();
         let header_head = env.clients[1].chain.header_head().unwrap();
-        let is_state_sync =
-            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
-        assert!(!is_state_sync);
+        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         // We don't have archival peers, and thus cannot request any blocks
         assert_eq!(requested_block_hashes, HashSet::new());
@@ -461,9 +481,6 @@ mod test {
 
         let head = env.clients[1].chain.head().unwrap();
         let header_head = env.clients[1].chain.header_head().unwrap();
-        let is_state_sync =
-            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
-        assert!(!is_state_sync);
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(
             requested_block_hashes,
