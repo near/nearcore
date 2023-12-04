@@ -9,7 +9,7 @@ use crate::StateSplitConfig;
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
 /// pass this wrapper instead of passing a value from a single moment in time.
 /// See `expected_shutdown` for an example how to use it.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MutableConfigValue<T> {
     value: Arc<Mutex<T>>,
     // For metrics.
