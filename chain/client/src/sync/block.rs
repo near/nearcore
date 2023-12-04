@@ -272,6 +272,8 @@ impl BlockSync {
             }
             Some(request) => {
                 // Head got updated, no need to continue waiting for the requested block.
+                // TODO: This doesn't work nicely with a node requesting MAX_BLOCK_REQUESTS blocks at a time.
+                // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
                 let head_got_updated = head.last_block_hash != request.head;
                 // Timeout elapsed
                 let timeout = StaticClock::utc() - request.when
