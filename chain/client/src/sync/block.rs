@@ -60,7 +60,7 @@ impl BlockSync {
     }
 
     /// Returns true if State Sync is needed.
-    /// Returns false is Block Sync is needed. Maybe requests recent blocks from peers.
+    /// Returns false is Block Sync is needed. Maybe requests a few blocks from peers.
     pub fn run(
         &mut self,
         sync_status: &mut SyncStatus,
@@ -106,7 +106,7 @@ impl BlockSync {
             return false;
         }
 
-        assert!(head.height < header_head.height);
+        assert!(head.height <= header_head.height);
 
         // Only if the header head is more than one epoch ahead, then consider State Sync.
         // block_fetch_horizon is used for testing to prevent test nodes from switching to State Sync too eagerly.
