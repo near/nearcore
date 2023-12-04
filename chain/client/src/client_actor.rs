@@ -1792,15 +1792,14 @@ impl ClientActor {
         match self.client.sync_status {
             SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) => {
                 if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
+                    let block: MaybeValidated<Block> = (*block).clone().into();
                     // Notice that two blocks are saved differently: save_block() for one block and save_orphan() for another block.
                     if block.hash() == header.prev_hash() {
-                        let block = (*block).clone().into();
                         // The last block of the previous epoch.
                         if let Err(err) = self.client.chain.save_block(block) {
                             error!(target: "client", ?err, "Failed to save a block during state sync");
                         }
                     } else if block.hash() == &sync_hash {
-                        let block = (*block).clone().into();
                         // The first block of the new epoch.
                         if let Err(err) = self.client.chain.save_orphan(block, false) {
                             error!(target: "client", ?err, "Received an invalid block during state sync");

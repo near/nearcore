@@ -481,6 +481,7 @@ mod test {
 
         let head = env.clients[1].chain.head().unwrap();
         let header_head = env.clients[1].chain.header_head().unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(
             requested_block_hashes,
