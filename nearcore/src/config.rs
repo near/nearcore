@@ -723,7 +723,10 @@ impl NearConfig {
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
-                state_split_config: config.state_split_config,
+                state_split_config: MutableConfigValue::new(
+                    config.state_split_config,
+                    "state_split_config",
+                ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
             },
             network_config: NetworkConfig::new(

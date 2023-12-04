@@ -148,7 +148,7 @@ impl SyncConfig {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct StateSplitConfig {
     /// The soft limit on the size of a single batch. The batch size can be
@@ -301,7 +301,7 @@ pub struct ClientConfig {
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
-    pub state_split_config: StateSplitConfig,
+    pub state_split_config: MutableConfigValue<StateSplitConfig>,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -379,7 +379,10 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
-            state_split_config: StateSplitConfig::default(),
+            state_split_config: MutableConfigValue::new(
+                StateSplitConfig::default(),
+                "state_split_config",
+            ),
             tx_routing_height_horizon: 4,
         }
     }
