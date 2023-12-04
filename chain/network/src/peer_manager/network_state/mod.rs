@@ -437,7 +437,7 @@ impl NetworkState {
             let succeeded = !result.is_err();
 
             if let Err(ref err) = result {
-                tracing::info!(target:"network", err = %err, "Failed to connect to {peer_info}");
+                tracing::info!(target:"network", err = format!("{:#}", err), "Failed to connect to {peer_info}");
             }
 
             if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
