@@ -937,6 +937,8 @@ impl<'a> VMLogic<'a> {
                 unsafe {
                     blst::blst_p1_cneg(&mut pk, true);
                 }
+            } else if sign != 0 {
+                return Ok(1);
             }
 
             unsafe {

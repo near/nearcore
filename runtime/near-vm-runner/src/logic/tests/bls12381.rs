@@ -107,6 +107,30 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn check_multipoint_g1_sum(n: usize, rnd: &mut RAND) {
+        let mut res3 = ECP::new();
+
+        let mut points: Vec<(u8, ECP)> = vec![];
+        for i in 0 .. n {
+            points.push((rnd.getbyte() % 2, get_random_curve_point(rnd)));
+
+            let mut current_point = points[i].1.clone();
+            if points[i].0 == 1 {
+                current_point.neg();
+            }
+
+            res3.add(&current_point);
+        }
+
+        let res1 = get_g1_sum_many_points(&points);
+
+        points.shuffle(&mut thread_rng());
+        let res2 = get_g1_sum_many_points(&points);
+        assert_eq!(res1, res2);
+
+        assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
+    }
+
     #[test]
     fn test_bls12381_g1_sum_edge_cases() {
         let mut logic_builder = VMLogicBuilder::default();
@@ -147,7 +171,7 @@ mod tests {
         }
 
 
-        // P + P
+        // P + P&mut
         for _ in 0..10 {
             let p = get_random_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
@@ -326,29 +350,12 @@ mod tests {
 
         const MAX_N: usize = 676;
 
-        for n in 0 .. MAX_N {
-            let mut res3 = ECP::new();
-
-            let mut points: Vec<(u8, ECP)> = vec![];
-            for i in 0 .. n {
-                points.push((rnd.getbyte() % 2, get_random_curve_point(&mut rnd)));
-
-                let mut current_point = points[i].1.clone();
-                if points[i].0 == 1 {
-                    current_point.neg();
-                }
-
-                res3.add(&current_point);
-            }
-
-            let res1 = get_g1_sum_many_points(&points);
-
-            points.shuffle(&mut thread_rng());
-            let res2 = get_g1_sum_many_points(&points);
-            assert_eq!(res1, res2);
-
-            assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
+        for _ in 0 .. 100 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+            check_multipoint_g1_sum(n, &mut rnd);
         }
+
+        check_multipoint_g1_sum(MAX_N - 1, &mut rnd);
 
         for _ in 0 .. 10 {
             let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
@@ -393,5 +400,18 @@ mod tests {
 
         let input = logic.internal_mem_write(buffer.as_slice());
         logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    fn test_bls12381_g1_sum_incorrect_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer = vec![0u8; 97];
+        buffer[0] = 2;
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
     }
 }
