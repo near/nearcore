@@ -475,7 +475,6 @@ impl Handler<WithSpanContext<BlockHeadersResponse>> for ClientActor {
                 Ok(())
             } else {
                 warn!(target: "client", "Banning node for sending invalid block headers");
-                // FIXME: I don't understand how this actually bans the peer.
                 Err(ReasonForBan::BadBlockHeader)
             }
         })
