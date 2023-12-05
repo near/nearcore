@@ -123,7 +123,7 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "8f4e49d65c702a2f9858ed3c217b1cb52ce91243", features = ["arbitrary"] }
+bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "56da8e6d1d018519a30b36d85d3a53fe35a42eaf", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
