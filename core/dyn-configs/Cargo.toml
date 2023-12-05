@@ -3,7 +3,6 @@ name = "near-dyn-configs"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Dynamic configure helpers for the near codebase"
 repository.workspace = true
 license.workspace = true

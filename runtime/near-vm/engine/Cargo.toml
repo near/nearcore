@@ -10,7 +10,6 @@ license = "MIT OR Apache-2.0 WITH LLVM-exception "
 readme = "README.md"
 edition = "2021"
 publish = true
-rust-version.workspace = true
 
 [lints]
 workspace = true
