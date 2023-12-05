@@ -95,9 +95,7 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
         logger.info(f"corrupted state snapshot\n{output}")
 
         # Update the initial delay to start resharding as soon as possible.
-        client_config_changes = {
-            "state_split_config": self.__get_state_split_config(initial_delay=0)
-        }
+        client_config_changes = resharding_lib.get_client_config_changes(1, 0)[0]
         node0.change_config(client_config_changes)
         node1.change_config(client_config_changes)
 
