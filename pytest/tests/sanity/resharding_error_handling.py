@@ -17,10 +17,9 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from cluster import corrupt_state_snapshot, get_binary_protocol_version, init_cluster, load_config, spin_up_node
 from utils import MetricsTracker, poll_blocks, wait_for_blocks
-from resharding_lib import append_shard_layout_config_changes, get_genesis_num_shards, get_genesis_shard_layout_version, get_target_num_shards, get_target_shard_layout_version
+from resharding_lib import get_genesis_shard_layout_version, get_target_shard_layout_version, get_genesis_num_shards, get_target_num_shards, get_genesis_config_changes, get_client_config_changes
 
 
-# TODO(resharding): refactor the resharding tests to re-use the common logic
 class ReshardingErrorHandlingTest(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -39,47 +38,6 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
         self.target_num_shards = get_target_num_shards(
             self.binary_protocol_version)
 
-    def __get_genesis_config_changes(self):
-        genesis_config_changes = [
-            ["epoch_length", self.epoch_length],
-        ]
-
-        append_shard_layout_config_changes(
-            genesis_config_changes,
-            self.binary_protocol_version,
-            logger,
-        )
-
-        return genesis_config_changes
-
-    def __get_client_config_changes(self, num_nodes):
-        single = {
-            "tracked_shards": [0],
-            # arbitrary long initial delay to not trigger resharding
-            # will get overwritten before restarting the node
-            "state_split_config": self.__get_state_split_config(10)
-        }
-        return {i: single for i in range(num_nodes)}
-
-    def __get_state_split_config(self, initial_delay):
-        return {
-            "batch_size": 1000000,
-            # don't throttle resharding
-            "batch_delay": {
-                "secs": 0,
-                "nanos": 0,
-            },
-            # retry often to start resharding as fast as possible
-            "retry_delay": {
-                "secs": 0,
-                "nanos": 100_000_000
-            },
-            "initial_delay": {
-                "secs": initial_delay,
-                "nanos": 0
-            },
-        }
-
     # timeline by block number
     # epoch_length + 2 - snapshot is requested
     # epoch_length + 3 - snapshot is finished
@@ -91,8 +49,9 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
         logger.info("The resharding test is starting.")
         num_nodes = 2
 
-        genesis_config_changes = self.__get_genesis_config_changes()
-        client_config_changes = self.__get_client_config_changes(num_nodes)
+        genesis_config_changes = get_genesis_config_changes(
+            self.epoch_length, self.binary_protocol_version, logger)
+        client_config_changes = get_client_config_changes(num_nodes, 10)
 
         near_root, [node0_dir, node1_dir] = init_cluster(
             num_nodes=num_nodes,
@@ -134,9 +93,7 @@ class ReshardingErrorHandlingTest(unittest.TestCase):
         logger.info(f"corrupted state snapshot\n{output}")
 
         # Update the initial delay to start resharding as soon as possible.
-        client_config_changes = {
-            "state_split_config": self.__get_state_split_config(initial_delay=0)
-        }
+        client_config_changes = get_client_config_changes(1, 0)[0]
         node0.change_config(client_config_changes)
         node1.change_config(client_config_changes)
 
