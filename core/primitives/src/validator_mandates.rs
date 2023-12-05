@@ -134,7 +134,10 @@ impl ValidatorMandates {
         let mut mandates_per_shard: ValidatorMandatesAssignment =
             vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
-            let mut assignments: HashMap<ValidatorId, AssignmentWeight> = HashMap::new();
+            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
+            // The unwrap is safe as above we constructed the vector with `num_shards` elements.
+            let assignments =
+                mandates_per_shard.get_mut(shuffled_shard_ids.get_alias(shard_id)).unwrap();
 
             // For the current `shard_id`, collect mandates with index `i` such that
             // `i % num_shards == shard_id`.
@@ -159,9 +162,6 @@ impl ValidatorMandates {
                     })
                     .or_insert(AssignmentWeight::new(0, partial_weight));
             }
-
-            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
-            mandates_per_shard[shuffled_shard_ids.get_alias(shard_id)] = assignments;
         }
 
         mandates_per_shard
