@@ -13,7 +13,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import cluster
-import resharding_lib
+from resharding_lib import get_target_shard_layout_version, get_target_num_shards, get_genesis_config_changes, get_client_config_changes
 import transaction
 from utils import MetricsTracker, poll_blocks
 import key
@@ -21,7 +21,7 @@ import key
 STARTING_AMOUNT = 123 * (10**24)
 
 
-class ReshardingTest2(unittest.TestCase):
+class ReshardingRpcTx(unittest.TestCase):
 
     def setUp(self) -> None:
         self.epoch_length = 5
@@ -30,12 +30,13 @@ class ReshardingTest2(unittest.TestCase):
             self.config)
         assert self.binary_protocol_version is not None
 
-        self.target_shard_layout_version = resharding_lib.get_target_shard_layout_version(
+        self.target_shard_layout_version = get_target_shard_layout_version(
             self.binary_protocol_version)
-        self.target_num_shards = resharding_lib.get_target_num_shards(
+        self.target_num_shards = get_target_num_shards(
             self.binary_protocol_version)
 
     def __setup_account(self, account_id, nonce):
+        """ Create an account with full access key and balance. """
         encoded_block_hash = self.node.get_latest_block().hash_bytes
         account = key.Key.from_random(account_id)
         account_tx = transaction.sign_create_account_with_full_access_key_and_balance_tx(
@@ -47,6 +48,7 @@ class ReshardingTest2(unittest.TestCase):
         return account
 
     def __submit_transfer_tx(self, from_key, to_account_id, nonce):
+        """ Submit a transfer transaction and wait for the response. """
         encoded_block_hash = self.node.get_latest_block().hash_bytes
         payment_tx = transaction.sign_payment_tx(from_key, to_account_id, 100,
                                                  nonce, encoded_block_hash)
@@ -61,12 +63,11 @@ class ReshardingTest2(unittest.TestCase):
         assert response == transfer_response, response
         pass
 
-    def test_rcp_tx_resharding(self):
+    def test_resharding_rpc_tx(self):
         num_nodes = 2
-        genesis_config_changes = resharding_lib.get_genesis_config_changes(
+        genesis_config_changes = get_genesis_config_changes(
             self.epoch_length, self.binary_protocol_version, logger)
-        client_config_changes = resharding_lib.get_client_config_changes(
-            num_nodes)
+        client_config_changes = get_client_config_changes(num_nodes)
         nodes = cluster.start_cluster(
             num_nodes=num_nodes,
             num_observers=0,
@@ -76,10 +77,10 @@ class ReshardingTest2(unittest.TestCase):
             client_config_changes=client_config_changes)
         self.node = nodes[0]
 
-        # The shard boundries are at "kkuuue2akv_1630967379.near" and "tge-lockup.sweat" for shard 4 and 5
+        # The shard boundaries are at "kkuuue2akv_1630967379.near" and "tge-lockup.sweat" for shard 3 and 4
         # We would like to create accounts that are in different shards
-        # The first account before and after resharding is in shard 4
-        # The second account after resharding is in shard 5
+        # The first account before and after resharding is in shard 3
+        # The second account after resharding is in shard 4
         account0 = self.__setup_account('setup_test_account.test0', 1)
         account1 = self.__setup_account('z_setup_test_account.test0', 2)
 

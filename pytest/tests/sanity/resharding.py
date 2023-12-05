@@ -15,7 +15,7 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 from configured_logger import logger
 from cluster import get_binary_protocol_version, init_cluster, load_config, spin_up_node
 from utils import MetricsTracker, poll_blocks
-import resharding_lib
+from resharding_lib import get_genesis_shard_layout_version, get_target_shard_layout_version, get_genesis_num_shards, get_target_num_shards, get_epoch_offset, get_genesis_config_changes, get_client_config_changes
 
 
 class ReshardingTest(unittest.TestCase):
@@ -26,27 +26,25 @@ class ReshardingTest(unittest.TestCase):
         self.binary_protocol_version = get_binary_protocol_version(self.config)
         assert self.binary_protocol_version is not None
 
-        self.genesis_shard_layout_version = resharding_lib.get_genesis_shard_layout_version(
+        self.genesis_shard_layout_version = get_genesis_shard_layout_version(
             self.binary_protocol_version)
-        self.target_shard_layout_version = resharding_lib.get_target_shard_layout_version(
-            self.binary_protocol_version)
-
-        self.genesis_num_shards = resharding_lib.get_genesis_num_shards(
-            self.binary_protocol_version)
-        self.target_num_shards = resharding_lib.get_target_num_shards(
+        self.target_shard_layout_version = get_target_shard_layout_version(
             self.binary_protocol_version)
 
-        self.epoch_offset = resharding_lib.get_epoch_offset(
+        self.genesis_num_shards = get_genesis_num_shards(
             self.binary_protocol_version)
+        self.target_num_shards = get_target_num_shards(
+            self.binary_protocol_version)
+
+        self.epoch_offset = get_epoch_offset(self.binary_protocol_version)
 
     def test_resharding(self):
         logger.info("The resharding test is starting.")
         num_nodes = 2
 
-        genesis_config_changes = resharding_lib.get_genesis_config_changes(
+        genesis_config_changes = get_genesis_config_changes(
             self.epoch_length, self.binary_protocol_version, logger)
-        client_config_changes = resharding_lib.get_client_config_changes(
-            num_nodes)
+        client_config_changes = get_client_config_changes(num_nodes)
 
         near_root, [node0_dir, node1_dir] = init_cluster(
             num_nodes=num_nodes,
