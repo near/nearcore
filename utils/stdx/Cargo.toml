@@ -3,7 +3,6 @@ name = "near-stdx"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate contains polyfills which should really be in std, but currently aren't for one reason or another."
 repository.workspace = true
 license.workspace = true

@@ -3,7 +3,6 @@ name = "near-rpc-error-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate generates schema for Rust structs which can be used by TypeScript."
 repository.workspace = true
 license.workspace = true

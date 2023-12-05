@@ -25,11 +25,15 @@ fn build_chain() {
 
     mock_clock_guard.add_utc(timestamp(0, 0, 3, 444));
     mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
+    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
+    // this step may fail when adding a new dynamic config
+    // the dynamic config uses the static clock to update metrics
+    // for every new field one extra utc timestamp should be added
     let (mut chain, _, _, signer) = setup();
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 2);
+    assert_eq!(mock_clock_guard.utc_call_count(), 3);
     assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
@@ -72,7 +76,7 @@ fn build_chain() {
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 10);
+    assert_eq!(mock_clock_guard.utc_call_count(), 11);
     assert_eq!(mock_clock_guard.instant_call_count(), 17);
     assert_eq!(chain.head().unwrap().height, 4);
 

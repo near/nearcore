@@ -3,7 +3,6 @@ name = "near-o11y"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Observability helpers for the near codebase"
 repository.workspace = true
 license.workspace = true

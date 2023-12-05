@@ -25,21 +25,24 @@ pub fn has_publish_spec(workspace: &Workspace) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Ensure all crates specify a MSRV if they are publishable
+/// Ensure all publishable crates do not both specify version and rust-version as being workspace-wide
 pub fn has_rust_version(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers: Vec<_> = workspace
         .members
         .iter()
         .filter(|pkg| {
-            pkg.parsed.rust_version.is_none()
-                && pkg.manifest.read(&["package", "publish"]) != Some(&toml::Value::Boolean(false))
+            pkg.manifest.read(&["package", "publish"]) == Some(&toml::Value::Boolean(true))
+                && pkg.manifest.read(&["package", "version", "workspace"])
+                    == Some(&toml::Value::Boolean(true))
+                && pkg.manifest.read(&["package", "rust-version", "workspace"])
+                    == Some(&toml::Value::Boolean(true))
         })
         .map(|pkg| Outlier { path: pkg.parsed.manifest_path.clone(), found: None, extra: None })
         .collect();
 
     if !outliers.is_empty() {
         bail!(ComplianceError {
-            msg: "These packages should specify a Minimum Supported Rust Version (MSRV)"
+            msg: "These publishable packages have Minimum Supported Rust Version (MSRV) and version both set from workspace"
                 .to_string(),
             expected: None,
             outliers,
