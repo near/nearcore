@@ -195,7 +195,7 @@ history and cannot have any gaps.</p>
 <p><img src="https://user-images.githubusercontent.com/1711539/195892354-cf2befed-98e9-40a2-9b81-b5cf738406e0.png" alt="image" /></p>
 <p>In this case, we can skip processing transactions that are in the blocks 124 - 128, and start from 129 (after sync state finishes)</p>
 <p>See <a href="../../misc/state_sync_from_external_storage.html">how-to</a> to learn how to configure your node to state sync.</p>
-<h3 id="step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks"><a class="header" href="#step-3-block-sync-aka-body-sync-archival-node-normal-node-downloading-blocks">Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)</a></h3>
+<h3 id="step-3-block-sync-archival-node-normal-node-downloading-blocks"><a class="header" href="#step-3-block-sync-archival-node-normal-node-downloading-blocks">Step 3: Block sync [archival node, normal node] (“downloading blocks”)</a></h3>
 <p>The final step is to start requesting and processing blocks as soon as possible,
 hoping to catch up with the chain.</p>
 <p>Block sync will request up to 5  (<code>MAX_BLOCK_REQUESTS</code>) blocks at a time - sending
