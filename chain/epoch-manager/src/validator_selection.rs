@@ -698,27 +698,26 @@ mod tests {
         let height = 42;
         let expected_assignments: ValidatorMandatesAssignment = vec![
             HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
-                (1, AssignmentWeight::new(4, 0)),
+                (0, AssignmentWeight::new(6, 0)),
                 (2, AssignmentWeight::new(2, 0)),
-                (3, AssignmentWeight::new(1, 60)),
                 (4, AssignmentWeight::new(1, 0)),
             ]),
             HashMap::from([
                 (0, AssignmentWeight::new(4, 0)),
-                (1, AssignmentWeight::new(2, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (2, AssignmentWeight::new(3, 0)),
+                (3, AssignmentWeight::new(2, 60)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(2, 0)),
+                (1, AssignmentWeight::new(4, 0)),
                 (2, AssignmentWeight::new(4, 0)),
                 (4, AssignmentWeight::new(0, 40)),
             ]),
             HashMap::from([
-                (0, AssignmentWeight::new(7, 0)),
-                (1, AssignmentWeight::new(1, 0)),
-                (3, AssignmentWeight::new(1, 0)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
-                (1, AssignmentWeight::new(3, 0)),
-                (2, AssignmentWeight::new(4, 0)),
+                (0, AssignmentWeight::new(3, 0)),
+                (1, AssignmentWeight::new(5, 0)),
+                (2, AssignmentWeight::new(1, 0)),
             ]),
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
