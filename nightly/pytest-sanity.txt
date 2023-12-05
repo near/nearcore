@@ -144,13 +144,13 @@ pytest sanity/recompress_storage.py --features nightly
 pytest sanity/meta_tx.py --features nightly
 
 # Tests for split storage and split storage migration
-pytest --timeout=600 sanity/split_storage.py
+pFytest --timeout=600 sanity/split_storage.py
 pytest --timeout=600 sanity/split_storage.py --features nightly
 
 # Test for resharding
 pytest --timeout=120 sanity/resharding.py
 pytest --timeout=120 sanity/resharding.py --features nightly
-
-# Test for resharding error handling
 pytest --timeout=120 sanity/resharding_error_handling.py
 pytest --timeout=120 sanity/resharding_error_handling.py --features nightly
+pytest --timeout=120 sanity/rpc_tx_resharding.py
+pytest --timeout=120 sanity/rpc_tx_resharding.py --features nightly
