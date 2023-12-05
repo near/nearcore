@@ -356,6 +356,7 @@ mod tests {
         }
 
         check_multipoint_g1_sum(MAX_N - 1, &mut rnd);
+        check_multipoint_g1_sum(1, &mut rnd);
 
         for _ in 0 .. 10 {
             let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
@@ -413,5 +414,15 @@ mod tests {
         let input = logic.internal_mem_write(buffer.as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
+
+        let mut zero = vec![0u8; 96];
+        zero[0] = 64;
+        zero[95] = 1;
+
+        let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+
     }
 }

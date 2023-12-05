@@ -21,6 +21,7 @@ use near_primitives_core::types::{
 };
 use std::mem::size_of;
 use std::ptr::null;
+use blst::BLST_ERROR::BLST_SUCCESS;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
@@ -924,8 +925,12 @@ impl<'a> VMLogic<'a> {
             let sign = data[i * 97].clone();
 
             let mut pk_aff = blst::blst_p1_affine::default();
-            unsafe {
-                blst::blst_p1_deserialize(&mut pk_aff, data[i*97 + 1..(i + 1)*97].as_ptr());
+            let error_code = unsafe {
+                blst::blst_p1_deserialize(&mut pk_aff, data[i*97 + 1..(i + 1)*97].as_ptr())
+            };
+
+            if error_code != BLST_SUCCESS {
+                return Ok(1);
             }
 
             let mut pk = blst::blst_p1::default();
