@@ -79,7 +79,7 @@ impl BlockSync {
                 return Ok(true);
             }
             BlockSyncDue::RequestBlock => {
-                self.block_sync(chain, &head, &header_head, highest_height_peers)?;
+                self.block_sync(chain, highest_height_peers)?;
             }
             BlockSyncDue::WaitForBlock => {
                 // Do nothing.
@@ -129,17 +129,15 @@ impl BlockSync {
     }
 
     // Finds the last block on the canonical chain that is in store (processed).
-    fn get_last_processed_block(
-        &self,
-        chain: &Chain,
-        last_block_hash: &CryptoHash,
-    ) -> Result<CryptoHash, near_chain::Error> {
+    fn get_last_processed_block(&self, chain: &Chain) -> Result<CryptoHash, near_chain::Error> {
+        // TODO: Can this function be replaced with `Chain::get_latest_known()`?
         // The current chain head may not be on the canonical chain.
         // Now we find the most recent block we know on the canonical chain.
         // In practice the forks from the last final block are very short, so it is
         // acceptable to perform this on each request.
 
-        let mut header = chain.get_block_header(&last_block_hash)?;
+        let head = chain.head()?;
+        let mut header = chain.get_block_header(&head.last_block_hash)?;
         // First go back until we find the common block
         while match chain.get_block_header_by_height(header.height()) {
             Ok(got_header) => got_header.hash() != header.hash(),
@@ -176,18 +174,17 @@ impl BlockSync {
     fn block_sync(
         &mut self,
         chain: &Chain,
-        chain_head: &Tip,
-        header_head: &Tip,
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
         // Update last request now because we want to update it whether or not
         // the rest of the logic succeeds.
         // TODO: If this code fails we should retry ASAP. Shouldn't we?
+        let chain_head = chain.head()?;
         self.last_request =
             Some(BlockSyncRequest { head: chain_head.last_block_hash, when: StaticClock::utc() });
 
         // The last block on the canonical chain that is processed (is in store).
-        let reference_hash = self.get_last_processed_block(chain, &chain_head.last_block_hash)?;
+        let reference_hash = self.get_last_processed_block(chain)?;
 
         // Look ahead for MAX_BLOCK_REQUESTS block headers and add requests for
         // blocks that we don't have yet.
@@ -207,6 +204,7 @@ impl BlockSync {
             }
         }
 
+        let header_head = chain.header_head()?;
         // Assume that peers are configured to keep as many epochs does this
         // node and expect peers to have blocks in the range
         // [gc_stop_height, header_head.last_block_hash].
@@ -388,9 +386,7 @@ mod test {
 
         // fetch three blocks at a time
         for i in 0..3 {
-            let head = env.clients[1].chain.head().unwrap();
-            let header_head = env.clients[1].chain.header_head().unwrap();
-            block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+            block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
 
             let expected_blocks: Vec<_> =
                 blocks[i * MAX_BLOCK_REQUESTS..(i + 1) * MAX_BLOCK_REQUESTS].to_vec();
@@ -404,11 +400,9 @@ mod test {
             }
         }
 
-        let head = env.clients[1].chain.head().unwrap();
-        let header_head = env.clients[1].chain.header_head().unwrap();
         // Now test when the node receives the block out of order
         // fetch the next three blocks
-        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS).map(|h| *blocks[h].hash()).collect(),
@@ -419,10 +413,8 @@ mod test {
             Provenance::NONE,
         );
 
-        let head = env.clients[1].chain.head().unwrap();
-        let header_head = env.clients[1].chain.header_head().unwrap();
         // the next block sync should not request block[4*MAX_BLOCK_REQUESTS-1] again
-        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         check_hashes_from_network_adapter(
             &network_adapter,
             (3 * MAX_BLOCK_REQUESTS..4 * MAX_BLOCK_REQUESTS - 1)
@@ -438,9 +430,7 @@ mod test {
                 .process_block_test(MaybeValidated::from(blocks[i].clone()), Provenance::NONE);
         }
 
-        let head = env.clients[1].chain.head().unwrap();
-        let header_head = env.clients[1].chain.header_head().unwrap();
-        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert!(requested_block_hashes.is_empty(), "{:?}", requested_block_hashes);
 
@@ -473,9 +463,7 @@ mod test {
         env.clients[1].chain.sync_block_headers(block_headers, &mut challenges).unwrap();
         assert!(challenges.is_empty());
 
-        let head = env.clients[1].chain.head().unwrap();
-        let header_head = env.clients[1].chain.header_head().unwrap();
-        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         // We don't have archival peers, and thus cannot request any blocks
         assert_eq!(requested_block_hashes, HashSet::new());
@@ -485,9 +473,7 @@ mod test {
             peer.archival = true;
         }
 
-        let head = env.clients[1].chain.head().unwrap();
-        let header_head = env.clients[1].chain.header_head().unwrap();
-        block_sync.block_sync(&env.clients[1].chain, &head, &header_head, &peer_infos).unwrap();
+        block_sync.block_sync(&env.clients[1].chain, &peer_infos).unwrap();
         let requested_block_hashes = collect_hashes_from_network_adapter(&network_adapter);
         assert_eq!(
             requested_block_hashes,

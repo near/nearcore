@@ -394,7 +394,7 @@ pub fn check_header_known(
     chain: &Chain,
     header: &BlockHeader,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownError, Error>.
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     let header_head = chain.store().header_head()?;
     if header.hash() == &header_head.last_block_hash
         || header.hash() == &header_head.prev_block_hash
@@ -412,7 +412,7 @@ fn check_known_store(
     chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownError, Error>.
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     if chain.store().block_exists(block_hash)? {
         Ok(Err(BlockKnownError::KnownInStore))
     } else {
@@ -429,7 +429,7 @@ pub fn check_known(
     chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
-    // TODO: Change the return type to Result<BlockKnownError, Error>.
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     let head = chain.store().head()?;
     // Quick in-memory check for fast-reject any block handled recently.
     if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
@@ -1896,12 +1896,14 @@ impl Chain {
         // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
-        if let Some(header) = headers.first() {
-            debug!(
+        if let (Some(first_header), Some(last_header)) = (headers.first(), headers.last()) {
+            info!(
                 target: "chain",
                 num_headers = headers.len(),
-                first_hash = ?header.hash(),
-                first_hash = header.height(),
+                first_hash = ?first_header.hash(),
+                first_height = first_header.height(),
+                last_hash = ?last_header.hash(),
+                last_height = ?last_header.height(),
                 "Sync block headers");
         } else {
             // No headers.

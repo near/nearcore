@@ -1362,21 +1362,14 @@ impl ClientActor {
         })
     }
 
-    fn receive_headers(&mut self, mut headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
+    fn receive_headers(&mut self, headers: Vec<BlockHeader>, peer_id: PeerId) -> bool {
         let _span =
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
         if headers.is_empty() {
-            info!(target: "client", "Received no block headers");
+            info!(target: "client", "Received an empty set of block headers");
             return true;
         }
-        // Sort headers by heights.
-        headers.sort_by_key(|left| left.height());
-        info!(
-            target: "client",
-            height_from = headers.first().unwrap().height(),
-            height_last = headers.last().unwrap().height(),
-            "Received block headers");
         match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {
@@ -1788,29 +1781,29 @@ impl ClientActor {
     /// * The last block of the prev epoch
     /// Returns whether the node is syncing its state.
     fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
-        match self.client.sync_status {
-            SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) => {
-                if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
-                    let block: MaybeValidated<Block> = (*block).clone().into();
-                    // Notice that two blocks are saved differently:
-                    // * save_block() for one block.
-                    // * save_orphan() for another block.
-                    if block.hash() == header.prev_hash() {
-                        // The last block of the previous epoch.
-                        if let Err(err) = self.client.chain.save_block(block) {
-                            error!(target: "client", ?err, "Failed to save a block during state sync");
-                        }
-                    } else if block.hash() == &sync_hash {
-                        // The first block of the new epoch.
-                        if let Err(err) = self.client.chain.save_orphan(block, false) {
-                            error!(target: "client", ?err, "Received an invalid block during state sync");
-                        }
-                    }
+        let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) = self.client.sync_status
+        else {
+            return false;
+        };
+        if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
+            let block: MaybeValidated<Block> = (*block).clone().into();
+            let block_hash = *block.hash();
+            // Notice that two blocks are saved differently:
+            // * save_block() for one block.
+            // * save_orphan() for another block.
+            if &block_hash == header.prev_hash() {
+                // The last block of the previous epoch.
+                if let Err(err) = self.client.chain.save_block(block) {
+                    error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
                 }
-                true
+            } else if block_hash == sync_hash {
+                // The first block of the new epoch.
+                if let Err(err) = self.client.chain.save_orphan(block, false) {
+                    error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+                }
             }
-            _ => false,
         }
+        true
     }
 }
 

@@ -315,11 +315,11 @@ impl SyncStatus {
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
-            SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
+            SyncStatus::EpochSync { .. } => 2,
+            SyncStatus::HeaderSync { .. } => 3,
             SyncStatus::StateSync(_) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BlockSync { start_height: _, current_height: _, highest_height: _ } => 6,
+            SyncStatus::BlockSync { .. } => 6,
         }
     }
 
