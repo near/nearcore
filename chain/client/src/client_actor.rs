@@ -428,21 +428,11 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
                 .store()
                 .get_all_block_hashes_by_height(block.header().height());
             if was_requested || blocks_at_height.is_err() || blocks_at_height.as_ref().unwrap().is_empty() {
-                if let SyncStatus::StateSync(StateSyncStatus{ sync_hash, .. }) = &mut this.client.sync_status {
-                    if let Ok(header) = this.client.chain.get_block_header(sync_hash) {
-                        if block.hash() == header.prev_hash() {
-                            if let Err(e) = this.client.chain.save_block(block.into()) {
-                                error!(target: "client", "Failed to save a block during state sync: {}", e);
-                            }
-                        } else if block.hash() == sync_hash {
-                            // This is the immediate block after a state sync
-                            // We can afford to delay requesting missing chunks for this one block
-                            if let Err(e) = this.client.chain.save_orphan(block.into(), false) {
-                                error!(target: "client", "Received an invalid block during state sync: {}", e);
-                            }
-                        }
-                        return;
-                    }
+                // This is a very sneaky piece of logic.
+                if this.maybe_receive_state_sync_blocks(&block) {
+                    // A node is syncing its state. Don't consider receiving
+                    // blocks other than the few special ones that State Sync expects.
+                    return;
                 }
                 this.client.receive_block(
                     block,
@@ -1377,17 +1367,17 @@ impl ClientActor {
             debug_span!(target: "client", "receive_headers", num_headers = headers.len(), ?peer_id)
                 .entered();
         if headers.is_empty() {
+            info!(target: "client", "Received an empty set of block headers");
             return true;
         }
-        info!(target: "client", "Received block headers from height {} to {}", headers.first().unwrap().height(), headers.last().unwrap().height());
         match self.client.sync_block_headers(headers) {
             Ok(_) => true,
             Err(err) => {
                 if err.is_bad_data() {
-                    error!(target: "client", "Error processing sync blocks: {}", err);
+                    error!(target: "client", ?err, "Error processing sync blocks");
                     false
                 } else {
-                    debug!(target: "client", "Block headers refused by chain: {}", err);
+                    debug!(target: "client", ?err, "Block headers refused by chain");
                     true
                 }
             }
@@ -1762,7 +1752,7 @@ impl ClientActor {
 
                             self.client
                                 .process_block_processing_artifact(block_processing_artifacts);
-                            self.client.sync_status.update(SyncStatus::BodySync {
+                            self.client.sync_status.update(SyncStatus::BlockSync {
                                 start_height: 0,
                                 current_height: 0,
                                 highest_height: 0,
@@ -1783,6 +1773,37 @@ impl ClientActor {
             &self.network_info,
             &self.config_updater,
         )
+    }
+
+    /// Checks if the node is syncing its State and applies special logic in that case.
+    /// A node usually ignores blocks that are too far ahead, but in case of a node syncing its state it is looking for 2 specific blocks:
+    /// * The first block of the new epoch
+    /// * The last block of the prev epoch
+    /// Returns whether the node is syncing its state.
+    fn maybe_receive_state_sync_blocks(&mut self, block: &Block) -> bool {
+        let SyncStatus::StateSync(StateSyncStatus { sync_hash, .. }) = self.client.sync_status
+        else {
+            return false;
+        };
+        if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
+            let block: MaybeValidated<Block> = (*block).clone().into();
+            let block_hash = *block.hash();
+            // Notice that two blocks are saved differently:
+            // * save_block() for one block.
+            // * save_orphan() for another block.
+            if &block_hash == header.prev_hash() {
+                // The last block of the previous epoch.
+                if let Err(err) = self.client.chain.save_block(block) {
+                    error!(target: "client", ?err, ?block_hash, "Failed to save a block during state sync");
+                }
+            } else if block_hash == sync_hash {
+                // The first block of the new epoch.
+                if let Err(err) = self.client.chain.save_orphan(block, false) {
+                    error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+                }
+            }
+        }
+        true
     }
 }
 

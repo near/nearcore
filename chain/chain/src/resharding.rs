@@ -291,9 +291,7 @@ impl Chain {
             config,
             ..
         } = state_split_request;
-        let config = config.get();
-
-        tracing::debug!(target: "resharding", ?config, ?shard_uid, "build_state_for_split_shards_impl starting");
+        tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
@@ -361,7 +359,7 @@ impl Chain {
             let batch = {
                 let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);
                 let _timer = histogram.start_timer();
-                let batch = get_trie_update_batch(&config, &mut iter);
+                let batch = get_trie_update_batch(&config.get(), &mut iter);
                 let batch = batch.map_err(Into::<StorageError>::into)?;
                 let Some(batch) = batch else { break };
                 batch
@@ -395,11 +393,11 @@ impl Chain {
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
-            std::thread::sleep(config.batch_delay);
+            std::thread::sleep(config.get().batch_delay);
         }
 
         state_roots = apply_delayed_receipts(
-            &config,
+            &config.get(),
             &tries,
             shard_uid,
             state_root,

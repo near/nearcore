@@ -619,7 +619,7 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::BodySync { start_height, current_height, highest_height } => {
+        SyncStatus::BlockSync { start_height, current_height, highest_height } => {
             let percent = if highest_height <= start_height {
                 0.0
             } else {

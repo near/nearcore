@@ -638,12 +638,15 @@ pub(crate) enum SyncStage {
     HeaderSync,
     StateSync,
     StateSyncDone,
+    BlockSync,
+    // DEPRECATED. Keeping for backwards compatibility.
+    // TODO: Delete in 1.38.
     BodySync,
 }
 
 /// SyncStatus is used to provide additional context about an implementation's
 /// sync status. It is often used to indicate that an implementation is healthy
-/// when it cannot be queried  until some sync phase occurs. If an
+/// when it cannot be queried until some sync phase occurs. If an
 /// implementation is immediately queryable, this model is often not populated.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Apiv2Schema)]
 pub(crate) struct SyncStatus {
