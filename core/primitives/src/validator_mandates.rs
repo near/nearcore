@@ -450,7 +450,7 @@ mod tests {
         let expected_mandates_per_shards: ValidatorMandatesAssignment = vec![
             HashMap::from([
                 (0, AssignmentWeight::new(2, 0)),
-                (4, AssignmentWeight::new(1,0 )),
+                (4, AssignmentWeight::new(1, 0)),
                 (1, AssignmentWeight::new(0, 7)),
             ]),
             HashMap::from([
