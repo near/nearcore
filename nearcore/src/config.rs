@@ -3,7 +3,7 @@ use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain_configs::{
     get_initial_supply, ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode,
-    LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
+    LogSummaryStyle, MutableConfigValue, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -120,6 +120,10 @@ pub const CONFIG_FILENAME: &str = "config.json";
 pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
+
+pub const MAINNET: &str = "mainnet";
+pub const TESTNET: &str = "testnet";
+pub const BETANET: &str = "betanet";
 
 pub const MAINNET_TELEMETRY_URL: &str = "https://explorer.mainnet.near.org/api/nodes";
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
@@ -306,15 +310,19 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    #[serde(default = "default_log_summary_period")]
     pub log_summary_period: Duration,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
     /// Garbage collection configuration.
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     pub gc: GCConfig,
+    #[serde(default = "default_view_client_threads")]
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
+    #[serde(default = "default_view_client_throttle_period")]
     pub view_client_throttle_period: Duration,
+    #[serde(default = "default_trie_viewer_state_size_limit")]
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,14 +331,14 @@ pub struct Config {
     pub store: near_store::StoreConfig,
     /// Different parameters to configure underlying cold storage.
     /// This feature is under development, do not use in production.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold_store: Option<near_store::StoreConfig>,
     /// Configuration for the split storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub split_storage: Option<SplitStorageConfig>,
     /// The node will stop after the head exceeds this height.
     /// The node usually stops within several seconds after reaching the target height.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_shutdown: Option<BlockHeight>,
     /// Whether to use state sync (unreliable and corrupts the DB if fails) or do a block sync instead.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -344,9 +352,10 @@ pub struct Config {
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
     /// chunks and underutilizing the capacity of the network.
+    #[serde(default = "default_transaction_pool_size_limit")]
     pub transaction_pool_size_limit: Option<u64>,
-    // Configuration for resharding.
-    pub state_split_config: StateSplitConfig,
+    /// If a node needs to upload state parts to S3
+    pub s3_credentials_file: Option<String>,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -389,8 +398,8 @@ impl Default for Config {
             state_sync: None,
             state_sync_enabled: None,
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
+            s3_credentials_file: None,
             enable_multiline_logging: None,
-            state_split_config: StateSplitConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
         }
     }
@@ -502,6 +511,7 @@ impl Config {
         None
     }
 
+    #[allow(unused_variables)]
     pub fn set_rpc_addr(&mut self, addr: tcp::ListenerAddr) {
         #[cfg(feature = "json_rpc")]
         {
@@ -686,9 +696,9 @@ impl NearConfig {
                 flat_storage_creation_period: config.store.flat_storage_creation_period,
                 state_sync_enabled: config.state_sync_enabled.unwrap_or(false),
                 state_sync: config.state_sync.unwrap_or_default(),
+                state_snapshot_every_n_blocks: None,
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
-                state_split_config: config.state_split_config,
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
             },
             network_config: NetworkConfig::new(
@@ -897,9 +907,7 @@ fn generate_or_load_keys(
 ) -> anyhow::Result<()> {
     generate_or_load_key(dir, &config.node_key_file, Some("node".parse().unwrap()), None)?;
     match chain_id {
-        near_primitives::chains::MAINNET
-        | near_primitives::chains::TESTNET
-        | near_primitives::chains::BETANET => {
+        MAINNET | TESTNET | BETANET => {
             generate_or_load_key(dir, &config.validator_key_file, account_id, None)?;
         }
         _ => {
@@ -984,7 +992,7 @@ pub fn init_configs(
     // Before finalizing the Config and Genesis, make sure the node and validator keys exist.
     generate_or_load_keys(dir, &config, &chain_id, account_id, test_seed)?;
     match chain_id.as_ref() {
-        near_primitives::chains::MAINNET => {
+        MAINNET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1003,7 +1011,7 @@ pub fn init_configs(
             genesis.to_file(dir.join(config.genesis_file));
             info!(target: "near", "Generated mainnet genesis file in {}", dir.display());
         }
-        near_primitives::chains::TESTNET | near_primitives::chains::BETANET => {
+        TESTNET | BETANET => {
             if test_seed.is_some() {
                 bail!("Test seed is not supported for {chain_id}");
             }
@@ -1078,11 +1086,6 @@ pub fn init_configs(
         _ => {
             // Create new configuration, key files and genesis for one validator.
             config.network.skip_sync_wait = true;
-
-            // Make sure node tracks all shards, see
-            // https://github.com/near/nearcore/issues/7388
-            config.tracked_shards = vec![0];
-
             if fast {
                 config.consensus.min_block_production_delay =
                     Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
@@ -1437,12 +1440,7 @@ pub fn load_config(
                 validation_errors.push_errors(e)
             };
             if validator_signer.is_some()
-                && matches!(
-                    genesis.config.chain_id.as_ref(),
-                    near_primitives::chains::MAINNET
-                        | near_primitives::chains::TESTNET
-                        | near_primitives::chains::BETANET
-                )
+                && matches!(genesis.config.chain_id.as_ref(), MAINNET | TESTNET | BETANET)
                 && config.tracked_shards.is_empty()
             {
                 // Make sure validators tracks all shards, see

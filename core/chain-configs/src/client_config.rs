@@ -30,17 +30,19 @@ pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
-#[serde(default)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
+    #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
 
     /// Maximum number of height to go through at each garbage collection step
     /// when cleaning forks during garbage collection.
+    #[serde(default = "default_gc_fork_clean_step")]
     pub gc_fork_clean_step: u64,
 
     /// Number of epochs for which we keep store data.
+    #[serde(default = "default_gc_num_epochs_to_keep")]
     pub gc_num_epochs_to_keep: u64,
 }
 
@@ -52,6 +54,18 @@ impl Default for GCConfig {
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
         }
     }
+}
+
+fn default_gc_blocks_limit() -> NumBlocks {
+    GCConfig::default().gc_blocks_limit
+}
+
+fn default_gc_fork_clean_step() -> u64 {
+    GCConfig::default().gc_fork_clean_step
+}
+
+fn default_gc_num_epochs_to_keep() -> u64 {
+    GCConfig::default().gc_num_epochs_to_keep()
 }
 
 impl GCConfig {
@@ -111,9 +125,6 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_delay: Option<Duration>,
-    /// Location of a json file with credentials allowing write access to the bucket.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credentials_file: Option<PathBuf>,
 }
 
 /// Configures how to fetch state parts during state sync.
@@ -145,50 +156,6 @@ impl SyncConfig {
     /// Checks whether the object equals its default value.
     fn is_default(&self) -> bool {
         matches!(self, Self::Peers)
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
-#[serde(default)]
-pub struct StateSplitConfig {
-    /// The soft limit on the size of a single batch. The batch size can be
-    /// decreased if resharding is consuming too many resources and interfering
-    /// with regular node operation.
-    pub batch_size: bytesize::ByteSize,
-
-    /// The delay between writing batches to the db. The batch delay can be
-    /// increased if resharding is consuming too many resources and interfering
-    /// with regular node operation.
-    pub batch_delay: Duration,
-
-    /// The delay between attempts to start resharding while waiting for the
-    /// state snapshot to become available.
-    pub retry_delay: Duration,
-
-    /// The delay between the resharding request is received and when the actor
-    /// actually starts working on it. This delay should only be used in tests.
-    pub initial_delay: Duration,
-
-    /// The maximum time that the actor will wait for the snapshot to be ready,
-    /// before starting resharding. Do not wait indefinitely since we want to
-    /// report error early enough for the node maintainer to have time to recover.
-    pub max_poll_time: Duration,
-}
-
-impl Default for StateSplitConfig {
-    fn default() -> Self {
-        // Conservative default for a slower resharding that puts as little
-        // extra load on the node as possible.
-        Self {
-            batch_size: bytesize::ByteSize::kb(500),
-            batch_delay: Duration::from_millis(100),
-            retry_delay: Duration::from_secs(10),
-            initial_delay: Duration::from_secs(0),
-            // The snapshot typically is available within a minute from the
-            // epoch start. Set the default higher in case we need to wait for
-            // state sync.
-            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
-        }
     }
 }
 
@@ -295,13 +262,13 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
+    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
+    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
-    // Configuration for resharding.
-    pub state_split_config: StateSplitConfig,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -377,9 +344,9 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
+            state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
-            state_split_config: StateSplitConfig::default(),
             tx_routing_height_horizon: 4,
         }
     }
