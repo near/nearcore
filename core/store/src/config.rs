@@ -221,15 +221,18 @@ impl Default for StoreConfig {
             // max_open_files led to performance improvement of ~11%.
             max_open_files: 10_000,
 
-            // We used to have the same cache size for all columns, 32 MiB.
+            // We used to have the same cache size for all columns, 32 MiB.
             // When some RocksDB inefficiencies were found [`DBCol::State`]
-            // cache size was increased up to 512 MiB.  This was done on 13th of
+            // cache size was increased up to 512 MiB.  This was done on 13th of
             // Nov 2021 and we consider increasing the value.  Tests have shown
-            // that increase to 25 GiB (we've used this big value to estimate
+            // that increase to 25 GiB (we've used this big value to estimate
             // performance improvement headroom) having `max_open_files` at 10k
             // improved performance of state viewer by 60%.
             col_state_cache_size: bytesize::ByteSize::mib(512),
 
+            // This value was tuned in after we removed filter and index block from block cache
+            // and slightly improved read speed for FlatState and reduced memory footprint in
+            // #9389.
             col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
             // This value was taken from the Openethereum default parameter and
