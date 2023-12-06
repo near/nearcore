@@ -110,6 +110,8 @@ pub enum ProtocolFeature {
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
     BlockHeaderV4,
+    /// Resharding V2. A new implementation for resharding and a new shard
+    /// layout for the production networks.
     SimpleNightshadeV2,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
@@ -171,8 +173,9 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla | ProtocolFeature::TestnetFewerBlockProducers => 64,
-            ProtocolFeature::SimpleNightshadeV2 => 64,
+            ProtocolFeature::RestrictTla
+            | ProtocolFeature::TestnetFewerBlockProducers
+            | ProtocolFeature::SimpleNightshadeV2 => 64,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
