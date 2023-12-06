@@ -18,9 +18,10 @@ use crate::Client;
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
 /// validators selected to validate the chunk) verify that the chunk's state
-/// witness is correct, and then sends chunk endorsements to the block producer
+/// witness is correct, and then send chunk endorsements to the block producer
 /// so that the chunk can be included in the block.
 pub struct ChunkValidator {
+    /// The signer for our own node, if we are a validator. If not, this is None.
     my_signer: Option<Arc<dyn ValidatorSigner>>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
@@ -41,9 +42,9 @@ impl ChunkValidator {
     /// endorsement message to the block producer. The actual validation logic
     /// happens in a separate thread.
     pub fn start_validating_chunk(&self, state_witness: ChunkStateWitness) -> Result<(), Error> {
-        if self.my_signer.is_none() {
+        let Some(my_signer) = self.my_signer.as_ref() else {
             return Err(Error::NotAValidator);
-        }
+        };
         let chunk_header = state_witness.chunk_header.clone();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
@@ -55,7 +56,7 @@ impl ChunkValidator {
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validators.contains_key(self.my_signer.as_ref().unwrap().validator_id()) {
+        if !chunk_validators.contains_key(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
         let block_producer =
@@ -64,18 +65,18 @@ impl ChunkValidator {
         let network_sender = self.network_sender.clone();
         let signer = self.my_signer.clone().unwrap();
         let runtime_adapter = self.runtime_adapter.clone();
-        rayon::spawn(move || match validate_chunk(&state_witness, &*runtime_adapter) {
+        rayon::spawn(move || match validate_chunk(&state_witness, runtime_adapter.as_ref()) {
             Ok(()) => {
                 tracing::debug!(
                     target: "chunk_validation",
-                    "Chunk {:?} validated successfully, sending approval to {:?}",
-                    chunk_header.chunk_hash(),
-                    block_producer,
+                    chunk_hash=?chunk_header.chunk_hash(),
+                    block_producer=%block_producer,
+                    "Chunk validated successfully, sending endorsement",
                 );
                 let endorsement_to_sign = ChunkEndorsementInner::new(chunk_header.chunk_hash());
                 network_sender.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::ChunkEndorsement(ChunkEndorsementMessage {
-                        approval: ChunkEndorsement {
+                        endorsement: ChunkEndorsement {
                             account_id: signer.validator_id().clone(),
                             signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
                             inner: endorsement_to_sign,

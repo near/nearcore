@@ -46,6 +46,6 @@ impl ChunkEndorsementInner {
 /// It just includes an additional target account ID to send it to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkEndorsementMessage {
-    pub approval: ChunkEndorsement,
+    pub endorsement: ChunkEndorsement,
     pub target: AccountId,
 }

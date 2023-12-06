@@ -954,7 +954,7 @@ impl PeerManagerActor {
                 self.state.send_message_to_account(
                     &self.clock,
                     &approval.target,
-                    RoutedMessageBody::ChunkEndorsement(approval.approval),
+                    RoutedMessageBody::ChunkEndorsement(approval.endorsement),
                 );
                 NetworkResponses::NoResponse
             }
