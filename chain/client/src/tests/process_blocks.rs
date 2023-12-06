@@ -3,6 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::{test_utils, ChainGenesis, Provenance};
 use near_crypto::vrf::Value;
 use near_crypto::{KeyType, PublicKey, Signature};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::block::Block;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::ShardChunkHeader;
@@ -41,7 +42,12 @@ fn test_not_process_height_twice() {
     // check that the second block is not being processed
     assert!(!test_utils::is_block_in_processing(&env.clients[0].chain, &dup_block_hash));
     // check that we didn't rebroadcast the second block
-    assert!(env.network_adapters[0].pop().is_none());
+    while let Some(msg) = env.network_adapters[0].pop() {
+        assert!(!matches!(
+            msg,
+            PeerManagerMessageRequest::NetworkRequests(NetworkRequests::Block { .. })
+        ));
+    }
 }
 
 /// Test that if a block contains chunks with invalid shard_ids, the client will return error.
