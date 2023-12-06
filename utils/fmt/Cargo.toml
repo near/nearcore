@@ -3,7 +3,6 @@ name = "near-fmt"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Helpers for pretty formatting."
 repository.workspace = true
 license.workspace = true

@@ -3,7 +3,6 @@ name = "near-primitives"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate provides the base set of primitives used by other nearcore crates"
 repository.workspace = true
 license.workspace = true

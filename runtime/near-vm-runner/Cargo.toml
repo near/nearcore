@@ -3,7 +3,6 @@ name = "near-vm-runner"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate implements the specification of the interface that Near blockchain exposes to the smart contracts."
 repository.workspace = true
 license.workspace = true

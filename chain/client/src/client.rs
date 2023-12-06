@@ -187,6 +187,7 @@ pub struct Client {
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        self.config.state_split_config.update(update_client_config.state_split_config);
     }
 }
 
@@ -237,7 +238,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_split_config: config.state_split_config,
+            state_split_config: config.state_split_config.clone(),
         };
         let chain = Chain::new(
             epoch_manager.clone(),

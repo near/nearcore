@@ -3,7 +3,6 @@ name = "near-cache"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "do not use this, new versions can stop being published at literally any time"
 repository.workspace = true
 license.workspace = true

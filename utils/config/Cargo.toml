@@ -3,7 +3,6 @@ name = "near-config-utils"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This is an internal crate to provide utils for reading config files"
 repository.workspace = true
 license.workspace = true

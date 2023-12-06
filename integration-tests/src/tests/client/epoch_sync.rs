@@ -315,7 +315,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
 ///
 /// The test simulates two clients, one of which is
 /// - stopped after one epoch
-/// - synced through epoch sync, header sync, state sync, and body sync
+/// - synced through epoch sync, header sync, state sync, and block sync
 /// - in sync with other client for two more epochs
 #[test]
 #[ignore]
@@ -472,7 +472,7 @@ fn test_node_after_simulated_sync() {
     tracing::debug!("Client 0 Head: {:?}", env.clients[0].chain.head());
     tracing::debug!("Client 1 Head: {:?}", env.clients[1].chain.head());
 
-    // Do "body sync" for the last epoch
+    // Do "block sync" for the last epoch
 
     for block in &blocks {
         if *block.header().epoch_id() == epoch_id0 {
