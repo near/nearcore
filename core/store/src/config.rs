@@ -6,14 +6,6 @@ use near_primitives::shard_layout::ShardUId;
 use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
-/// Cache size for DBCol::FlatState column
-/// Default value: 128MiB
-/// This value was tuned in after we removed filter and index block from block cache
-/// and slightly improved read speed for FlatState and reduced memory footprint in
-/// #9389
-/// This is purposefully hardcoded to avoid additional config.json parameters.
-const FLAT_COLUMN_BLOCK_CACHE_SIZE: bytesize::ByteSize = bytesize::ByteSize::mib(128);
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct StoreConfig {
@@ -39,11 +31,13 @@ pub struct StoreConfig {
     pub max_open_files: u32,
 
     /// Cache size for DBCol::State column.
-    /// Default value: 512MiB.
     /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
     pub col_state_cache_size: bytesize::ByteSize,
+
+    /// Cache size for DBCol::FlatState column.
+    pub col_flat_state_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
@@ -206,7 +200,7 @@ impl StoreConfig {
     pub const fn col_cache_size(&self, col: DBCol) -> bytesize::ByteSize {
         match col {
             DBCol::State => self.col_state_cache_size,
-            DBCol::FlatState => FLAT_COLUMN_BLOCK_CACHE_SIZE,
+            DBCol::FlatState => self.col_flat_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -235,6 +229,8 @@ impl Default for StoreConfig {
             // performance improvement headroom) having `max_open_files` at 10k
             // improved performance of state viewer by 60%.
             col_state_cache_size: bytesize::ByteSize::mib(512),
+
+            col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
