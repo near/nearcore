@@ -234,6 +234,10 @@ fn default_enable_multiline_logging() -> Option<bool> {
     Some(true)
 }
 
+fn default_produce_chunk_add_transactions_time_limit() -> Duration {
+    Duration::from_millis(200)
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Consensus {
     /// Minimum number of peers to start syncing.
@@ -385,6 +389,11 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// Limit the time of adding transactions to a chunk.
+    /// A node produces a chunk by adding transactions from the transaction pool until
+    /// some limit is reached. This time limit ensures that adding transactions won't take
+    /// longer than the specified duration, which helps to produce the chunk quickly.
+    pub produce_chunk_add_transactions_time_limit: Duration,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -427,6 +436,8 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             state_split_config: StateSplitConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            produce_chunk_add_transactions_time_limit:
+                default_produce_chunk_add_transactions_time_limit(),
         }
     }
 }
@@ -728,6 +739,8 @@ impl NearConfig {
                     "state_split_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                produce_chunk_add_transactions_time_limit: config
+                    .produce_chunk_add_transactions_time_limit,
             },
             network_config: NetworkConfig::new(
                 config.network,

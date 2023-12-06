@@ -305,6 +305,11 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// Limit the time of adding transactions to a chunk.
+    /// A node produces a chunk by adding transactions from the transaction pool until
+    /// some limit is reached. This time limit ensures that adding transactions won't take
+    /// longer than the specified duration, which helps to produce the chunk quickly.
+    pub produce_chunk_add_transactions_time_limit: Duration,
 }
 
 impl ClientConfig {
@@ -384,6 +389,7 @@ impl ClientConfig {
                 "state_split_config",
             ),
             tx_routing_height_horizon: 4,
+            produce_chunk_add_transactions_time_limit: Duration::from_millis(200),
         }
     }
 }
