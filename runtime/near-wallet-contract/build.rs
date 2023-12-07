@@ -10,12 +10,8 @@ fn main() {
 }
 
 fn try_main() -> Result<(), Error> {
-    build_contract("./wallet-contract", &["--features", "latest_protocol"], "wallet_contract")?;
-    build_contract(
-        "./wallet-contract",
-        &["--features", "latest_protocol,nightly"],
-        "nightly_wallet_contract",
-    )?;
+    build_contract("./wallet-contract", &[], "wallet_contract")?;
+    build_contract("./wallet-contract", &["--features", "nightly"], "nightly_wallet_contract")?;
     Ok(())
 }
 

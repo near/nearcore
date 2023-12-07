@@ -6,7 +6,6 @@ Must not use in production!
 
 To use the contract you need to make sure that this crate was compiled.
 The contract is built via `build.rs` and WASM file is generated to the `./res` directory.
-You might want to `touch build.rs` before `cargo build` to force cargo to generate the WASM file.
 
 If you want to use the contract from rust core, add
 

@@ -759,7 +759,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
 /// Validate access key which was used for signing DelegateAction:
 ///
-/// - Checks whether the access key is present fo given public_key and sender_id.
+/// - Checks whether the access key is present for given public_key and sender_id.
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
 fn validate_delegate_action_key(

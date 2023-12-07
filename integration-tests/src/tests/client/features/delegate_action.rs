@@ -8,15 +8,15 @@ use crate::tests::standard_cases::fee_helper;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{KeyType, PublicKey, Signer};
+use near_crypto::{KeyType, PublicKey, SecretKey, Signer};
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
 use near_primitives::checked_feature;
 use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
-    ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
-    TxExecutionError,
+    ActionError, ActionErrorKind, ActionsValidationError, FunctionCallError, InvalidAccessKeyError,
+    InvalidTxError, TxExecutionError,
 };
 use near_primitives::test_utils::{
     create_user_test_signer, eth_implicit_test_account, near_implicit_test_account,
@@ -26,6 +26,7 @@ use near_primitives::transaction::{
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::utils::derive_eth_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
@@ -34,6 +35,7 @@ use near_test_contracts::{ft_contract, smallest_rs_contract};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
+use rlp::RlpStream;
 use testlib::runtime_utils::{
     add_account_with_access_key, add_contract, add_test_contract, alice_account, bob_account,
     carol_account, eve_dot_alice_account,
@@ -944,4 +946,75 @@ fn meta_tx_create_eth_implicit_account() {
         return;
     }
     meta_tx_create_implicit_account(eth_implicit_test_account());
+}
+
+fn meta_tx_call_wallet_contract(authorized: bool) {
+    let genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
+    let relayer = alice_account();
+    let node = RuntimeNode::new_from_genesis(&relayer, genesis);
+    let sender = bob_account();
+
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    let public_key = secret_key.public_key();
+    let eth_implicit_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
+    let other_public_key = SecretKey::from_seed(KeyType::SECP256K1, "test2").public_key();
+
+    let initial_amount = 50 * NEAR_BASE;
+    let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
+    node.user()
+        .meta_tx(sender.clone(), eth_implicit_account.clone(), relayer.clone(), actions)
+        .unwrap()
+        .assert_success();
+
+    let target = carol_account();
+    let transfer_amount = NEAR_BASE;
+    let initial_balance = node.view_balance(&target).expect("failed looking up balance");
+
+    let mut stream = RlpStream::new_list(3);
+    stream.append(&target.as_str());
+    // The RLP trait `Encodable` is not implemented for `u128`.
+    stream.append(&transfer_amount.to_be_bytes().as_slice());
+    if authorized {
+        stream.append(&public_key.key_data());
+    } else {
+        stream.append(&other_public_key.key_data());
+    }
+    let rlp_encoded_data = stream.out().to_vec();
+
+    let args = serde_json::json!({
+        "target": target.to_string(),
+        "rlp_transaction": rlp_encoded_data,
+    })
+    .to_string()
+    .into_bytes();
+
+    let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
+        method_name: "execute_rlp".to_owned(),
+        args,
+        gas: 30_000_000_000_000,
+        deposit: 0,
+    }))];
+    let tx_result = node.user().meta_tx(sender, eth_implicit_account, relayer, actions).unwrap();
+    let wallet_contract_call_result = &tx_result.receipts_outcome[1].outcome.status;
+
+    if authorized {
+        tx_result.assert_success();
+        let final_balance = node.view_balance(&target).expect("failed looking up balance");
+        assert_eq!(final_balance, initial_balance + transfer_amount);
+    } else {
+        let expected_error = near_primitives::views::ExecutionStatusView::Failure(TxExecutionError::ActionError(
+            ActionError { index: Some(0), kind: ActionErrorKind::FunctionCallError { 0: FunctionCallError::ExecutionError("Smart contract panicked: Public key does not match the Wallet Contract address.".to_string()) }}
+        ));
+        assert_eq!(wallet_contract_call_result, &expected_error);
+    }
+}
+
+#[test]
+fn meta_tx_call_wallet_contract_authorized() {
+    meta_tx_call_wallet_contract(true);
+}
+
+#[test]
+fn meta_tx_call_wallet_contract_unauthorized() {
+    meta_tx_call_wallet_contract(false);
 }

@@ -59,6 +59,8 @@ members = [
     "runtime/near-vm/compiler-test-derive",
     "runtime/near-vm-runner",
     "runtime/near-vm-runner/fuzz",
+    "runtime/near-wallet-contract",
+    "runtime/near-wallet-contract/wallet-contract",
     "runtime/runtime",
     "runtime/runtime-params-estimator",
     "runtime/runtime-params-estimator/estimator-warehouse",
@@ -227,6 +229,7 @@ near-primitives-core = { path = "core/primitives-core" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
+near-sdk = "4.1.1"
 near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
@@ -288,6 +291,7 @@ reqwest = { version = "0.11.14", features = ["blocking"] }
 ripemd = "0.1.1"
 rkyv = "0.7.31"
 rlimit = "0.7"
+rlp = "0.4.6"
 rocksdb = { version = "0.21.0", default-features = false, features = ["snappy", "lz4", "zstd", "zlib", "jemalloc"] }
 runtime-tester = { path = "test-utils/runtime-tester" }
 rusqlite = { version = "0.29.0", features = ["bundled", "chrono", "functions"] }

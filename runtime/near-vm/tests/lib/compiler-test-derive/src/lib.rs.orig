@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 #[cfg(not(test))]
 extern crate proc_macro;
->>>>>>> 27e96cad2 (compiler-test-derive: Switch to proc_macro exclusively)
 use proc_macro::TokenStream;
 use quote::quote;
 use std::path::PathBuf;
