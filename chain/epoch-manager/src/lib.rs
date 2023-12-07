@@ -6,7 +6,8 @@ use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, ShardConfig, SlashState, AGGREGATOR_KEY,
+    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, ShardConfig, SlashState,
+    AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -152,8 +153,17 @@ impl EpochManager {
         store: Store,
         genesis_config: &GenesisConfig,
     ) -> Result<Self, EpochError> {
+        Self::new_from_genesis_config_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_from_genesis_config_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Result<Self, EpochError> {
         let reward_calculator = RewardCalculator::new(genesis_config);
-        let all_epoch_config = AllEpochConfig::from(genesis_config);
+        let all_epoch_config =
+            Self::new_all_epoch_config_with_test_overrides(genesis_config, test_overrides);
         Self::new(
             store,
             all_epoch_config,
@@ -164,7 +174,37 @@ impl EpochManager {
     }
 
     pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
-        Arc::new(Self::new_from_genesis_config(store, genesis_config).unwrap().into_handle())
+        Self::new_arc_handle_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_arc_handle_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Arc<EpochManagerHandle> {
+        Arc::new(
+            Self::new_from_genesis_config_with_test_overrides(
+                store,
+                genesis_config,
+                test_overrides,
+            )
+            .unwrap()
+            .into_handle(),
+        )
+    }
+
+    fn new_all_epoch_config_with_test_overrides(
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> AllEpochConfig {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = AllEpochConfig::new_with_test_overrides(
+            genesis_config.use_production_config(),
+            initial_epoch_config,
+            &genesis_config.chain_id,
+            test_overrides,
+        );
+        epoch_config
     }
 
     pub fn new(
@@ -1046,6 +1086,20 @@ impl EpochManager {
         self.is_next_block_in_next_epoch(&block_info)
     }
 
+    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
+    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
+    }
+
     pub fn get_epoch_id_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1802,5 +1856,63 @@ impl EpochManager {
         } else {
             Ok(None)
         }
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    pub fn get_all_epoch_hashes_from_db(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_db", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let first_epoch_block_height =
+            self.get_block_info(last_block_info.epoch_first_block())?.height();
+        let mut current_block_info = last_block_info.clone();
+        while current_block_info.hash() != last_block_info.epoch_first_block() {
+            // Check that we didn't reach previous epoch.
+            // This only should happen if BlockInfo data is incorrect.
+            // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
+            assert!(
+                current_block_info.height() > first_epoch_block_height,
+                "Reached {:?} from {:?} when first epoch height is {:?}",
+                current_block_info,
+                last_block_info,
+                first_epoch_block_height
+            );
+
+            result.push(*current_block_info.hash());
+            current_block_info = (*self.get_block_info(current_block_info.prev_hash())?).clone();
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(*current_block_info.hash());
+
+        Ok(result)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes_from_cache(
+        &self,
+        last_block_info: &BlockInfo,
+        hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_cache", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let mut current_hash = *last_block_info.hash();
+        while current_hash != *last_block_info.epoch_first_block() {
+            result.push(current_hash);
+            current_hash = *hash_to_prev_hash
+                .get(&current_hash)
+                .ok_or(EpochError::MissingBlock(current_hash))?;
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(current_hash);
+
+        Ok(result)
     }
 }

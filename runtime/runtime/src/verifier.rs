@@ -240,7 +240,7 @@ pub fn verify_and_charge_transaction(
                 )
                 .into());
             }
-            if transaction.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if transaction.receiver_id != function_call_permission.receiver_id {
                 return Err(InvalidTxError::InvalidAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: transaction.receiver_id.clone(),
@@ -523,7 +523,7 @@ fn validate_add_key_action(
 ///
 /// Checks that the `beneficiary_id` is a valid account ID.
 fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsValidationError> {
-    if AccountId::validate(&action.beneficiary_id).is_err() {
+    if AccountId::validate(action.beneficiary_id.as_str()).is_err() {
         return Err(ActionsValidationError::InvalidAccountId {
             account_id: action.beneficiary_id.to_string(),
         });
@@ -560,7 +560,6 @@ fn truncate_string(s: &str, limit: usize) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use crate::near_primitives::borsh::BorshSerialize;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
     use near_primitives::account::{AccessKey, FunctionCallPermission};
     use near_primitives::action::delegate::{DelegateAction, NonDelegateAction};
@@ -571,7 +570,7 @@ mod tests {
     };
     use near_primitives::types::{AccountId, Balance, MerkleHash, StateChangeCause};
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use testlib::runtime_utils::{alice_account, bob_account, eve_dot_alice_account};
 
     use crate::near_primitives::shard_layout::ShardUId;
@@ -613,7 +612,7 @@ mod tests {
         // account has data
         accounts: Vec<(AccountId, Balance, Balance, Vec<AccessKey>, bool, bool)>,
     ) -> (Arc<InMemorySigner>, TrieUpdate, Balance) {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
 
         let account_id = alice_account();
@@ -646,8 +645,8 @@ mod tests {
                     initial_account
                         .storage_usage()
                         .checked_add(
-                            public_key.try_to_vec().unwrap().len() as u64
-                                + access_key.try_to_vec().unwrap().len() as u64
+                            borsh::object_length(&public_key).unwrap() as u64
+                                + borsh::object_length(&access_key).unwrap() as u64
                                 + 40, // storage_config.num_extra_bytes_record,
                         )
                         .unwrap(),

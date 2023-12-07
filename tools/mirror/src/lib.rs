@@ -26,6 +26,7 @@ use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, QueryRequest, QueryResponseKind,
     SignedTransactionView,
 };
+use near_primitives_core::account::id::AccountType;
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use near_primitives_core::types::{Nonce, ShardId};
 use nearcore::config::NearConfig;
@@ -41,11 +42,11 @@ use tokio::sync::mpsc;
 mod chain_tracker;
 pub mod cli;
 mod genesis;
-mod key_mapping;
+pub mod key_mapping;
 mod metrics;
 mod offline;
 mod online;
-mod secret;
+pub mod secret;
 
 pub use cli::MirrorCommand;
 
@@ -112,7 +113,7 @@ enum NonceUpdater {
 
 // returns bytes that serve as the key corresponding to this pair in the Nonces column
 fn nonce_col_key(account_id: &AccountId, public_key: &PublicKey) -> Vec<u8> {
-    (account_id.clone(), public_key.clone()).try_to_vec().unwrap()
+    borsh::to_vec(&(account_id.clone(), public_key.clone())).unwrap()
 }
 
 // this serves a similar purpose to `LatestTargetNonce`. The difference is
@@ -163,7 +164,11 @@ fn put_target_nonce(
 ) -> anyhow::Result<()> {
     tracing::debug!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
     let db_key = nonce_col_key(account_id, public_key);
-    db.put_cf(db.cf_handle(DBCol::Nonces.name()).unwrap(), &db_key, &nonce.try_to_vec().unwrap())?;
+    db.put_cf(
+        db.cf_handle(DBCol::Nonces.name()).unwrap(),
+        &db_key,
+        &borsh::to_vec(&nonce).unwrap(),
+    )?;
     Ok(())
 }
 
@@ -179,7 +184,10 @@ fn read_pending_outcome(
     id: &CryptoHash,
 ) -> anyhow::Result<Option<HashSet<(AccountId, PublicKey)>>> {
     Ok(db
-        .get_cf(db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(), &id.try_to_vec().unwrap())?
+        .get_cf(
+            db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
+            &borsh::to_vec(&id).unwrap(),
+        )?
         .map(|v| HashSet::try_from_slice(&v).unwrap()))
 }
 
@@ -191,8 +199,8 @@ fn put_pending_outcome(
     tracing::debug!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
     Ok(db.put_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
-        &id.try_to_vec().unwrap(),
-        &access_keys.try_to_vec().unwrap(),
+        &borsh::to_vec(&id).unwrap(),
+        &borsh::to_vec(&access_keys).unwrap(),
     )?)
 }
 
@@ -200,7 +208,7 @@ fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
     tracing::debug!(target: "mirror", "deleting {:?} from DB", &id);
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
-        &id.try_to_vec().unwrap(),
+        &borsh::to_vec(&id).unwrap(),
     )?)
 }
 
@@ -215,7 +223,7 @@ fn set_last_source_height(db: &DB, height: BlockHeight) -> anyhow::Result<()> {
     db.put_cf(
         db.cf_handle(DBCol::Misc.name()).unwrap(),
         "last_source_height",
-        height.try_to_vec().unwrap(),
+        borsh::to_vec(&height).unwrap(),
     )?;
     Ok(())
 }
@@ -982,7 +990,10 @@ impl<T: ChainAccess> TxMirror<T> {
                     actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
                 }
                 Action::Transfer(_) => {
-                    if tx.receiver_id().is_implicit() && source_actions.len() == 1 {
+                    // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
+                    if tx.receiver_id().get_account_type() == AccountType::NearImplicitAccount
+                        && source_actions.len() == 1
+                    {
                         let target_account =
                             crate::key_mapping::map_account(tx.receiver_id(), self.secret.as_ref());
                         if !account_exists(&self.target_view_client, &target_account)
@@ -994,9 +1005,13 @@ impl<T: ChainAccess> TxMirror<T> {
                                 )
                             })?
                         {
-                            let public_key = PublicKey::from_implicit_account(&target_account)
-                                .expect("must be implicit");
-                            nonce_updates.insert((target_account, public_key));
+                            if target_account.get_account_type() == AccountType::NearImplicitAccount
+                            {
+                                let public_key =
+                                    PublicKey::from_near_implicit_account(&target_account)
+                                        .expect("must be near-implicit");
+                                nonce_updates.insert((target_account, public_key));
+                            }
                         }
                     }
                     actions.push(action.clone());

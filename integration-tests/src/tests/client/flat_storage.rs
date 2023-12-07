@@ -20,11 +20,10 @@ use near_store::test_utils::create_test_store;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
 use near_vm_runner::logic::TrieNodesCount;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-
-use super::utils::TestEnvNightshadeSetupExt;
 
 /// Height on which we start flat storage background creation.
 const START_HEIGHT: BlockHeight = 7;
@@ -178,7 +177,11 @@ fn test_flat_storage_creation_sanity() {
             );
         }
 
-        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uid).unwrap();
+        let mut store_update = store.store_update();
+        get_flat_storage_manager(&env)
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update)
+            .unwrap();
+        store_update.commit().unwrap();
     }
 
     // Create new chain and runtime using the same store. It should produce next blocks normally, but now it should
@@ -275,7 +278,11 @@ fn test_flat_storage_creation_two_shards() {
             );
         }
 
-        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uids[0]).unwrap();
+        let mut store_update = store.store_update();
+        get_flat_storage_manager(&env)
+            .remove_flat_storage_for_shard(shard_uids[0], &mut store_update)
+            .unwrap();
+        store_update.commit().unwrap();
     }
 
     // Check that flat storage is not ready for shard 0 but ready for shard 1.
@@ -391,7 +398,10 @@ fn test_flat_storage_creation_start_from_state_part() {
             .unwrap();
         for part_trie_keys in trie_keys.iter() {
             for trie_key in part_trie_keys.iter() {
-                assert_matches!(trie.get_ref(&trie_key, KeyLookupMode::FlatStorage), Ok(Some(_)));
+                assert_matches!(
+                    trie.get_optimized_ref(&trie_key, KeyLookupMode::FlatStorage),
+                    Ok(Some(_))
+                );
             }
         }
         assert_eq!(trie.get_trie_nodes_count(), TrieNodesCount { db_reads: 0, mem_reads: 0 });
@@ -414,7 +424,11 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
             env.produce_block(0, height);
         }
         // Remove flat storage.
-        get_flat_storage_manager(&env).remove_flat_storage_for_shard(shard_uid).unwrap();
+        let mut store_update = store.store_update();
+        get_flat_storage_manager(&env)
+            .remove_flat_storage_for_shard(shard_uid, &mut store_update)
+            .unwrap();
+        store_update.commit().unwrap();
     }
     let mut env = setup_env(&genesis, store.clone());
     assert!(get_flat_storage_manager(&env).get_flat_storage_for_shard(shard_uid).is_none());
@@ -543,7 +557,7 @@ fn test_not_supported_block() {
         if height == flat_head_height {
             env.produce_block(0, START_HEIGHT);
         }
-        get_ref_results.push(trie.get_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
+        get_ref_results.push(trie.get_optimized_ref(&trie_key_bytes, KeyLookupMode::FlatStorage));
     }
 
     // The first result should be FlatStorageError, because we can't read from first chunk view anymore.

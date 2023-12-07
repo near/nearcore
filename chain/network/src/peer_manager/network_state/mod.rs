@@ -6,7 +6,7 @@ use crate::concurrency::runtime::Runtime;
 use crate::config;
 use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
-    RoutedMessageBody, RoutedMessageV2, SignedAccountData,
+    RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
@@ -18,6 +18,7 @@ use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::{SnapshotHostInfoError, SnapshotHostsCache};
 use crate::stats::metrics;
 use crate::store;
 use crate::tcp;
@@ -113,6 +114,8 @@ pub(crate) struct NetworkState {
     pub inbound_handshake_permits: Arc<tokio::sync::Semaphore>,
     /// Peer store that provides read/write access to peers.
     pub peer_store: peer_store::PeerStore,
+    /// Information about state snapshots hosted by network peers.
+    pub snapshot_hosts: Arc<SnapshotHostsCache>,
     /// Connection store that provides read/write access to stored connections.
     pub connection_store: connection_store::ConnectionStore,
     /// List of peers to which we should re-establish a connection
@@ -189,6 +192,7 @@ impl NetworkState {
             tier1: connection::Pool::new(config.node_id()),
             inbound_handshake_permits: Arc::new(tokio::sync::Semaphore::new(LIMIT_PENDING_PEERS)),
             peer_store,
+            snapshot_hosts: Arc::new(SnapshotHostsCache::new(config.snapshot_hosts.clone())),
             connection_store: connection_store::ConnectionStore::new(store.clone()).unwrap(),
             pending_reconnect: Mutex::new(Vec::<PeerInfo>::new()),
             accounts_data: Arc::new(AccountDataCache::new()),
@@ -432,8 +436,8 @@ impl NetworkState {
 
             let succeeded = !result.is_err();
 
-            if result.is_err() {
-                tracing::info!(target:"network", ?result, "Failed to connect to {peer_info}");
+            if let Err(ref err) = result {
+                tracing::info!(target:"network", err = format!("{:#}", err), "Failed to connect to {peer_info}");
             }
 
             if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
@@ -646,6 +650,33 @@ impl NetworkState {
                     .ready
                     .values()
                     .map(|p| this.spawn(p.send_accounts_data(new_data.clone())))
+                    .collect();
+                for t in tasks {
+                    t.await.unwrap();
+                }
+            }
+            err
+        })
+        .await
+        .unwrap()
+    }
+
+    pub async fn add_snapshot_hosts(
+        self: &Arc<Self>,
+        hosts: Vec<Arc<SnapshotHostInfo>>,
+    ) -> Option<SnapshotHostInfoError> {
+        let this = self.clone();
+        self.spawn(async move {
+            // Verify and add the new data to the internal state.
+            let (new_data, err) = this.snapshot_hosts.clone().insert(hosts).await;
+            // Broadcast any valid new data, even if an err was returned.
+            // The presence of one invalid entry doesn't invalidate the remaining ones.
+            if !new_data.is_empty() {
+                let tier2 = this.tier2.load();
+                let tasks: Vec<_> = tier2
+                    .ready
+                    .values()
+                    .map(|p| this.spawn(p.send_snapshot_hosts(new_data.clone())))
                     .collect();
                 for t in tasks {
                     t.await.unwrap();

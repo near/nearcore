@@ -244,7 +244,7 @@ pub(crate) static HAS_STATE_SNAPSHOT: Lazy<IntGauge> = Lazy::new(|| {
         .unwrap()
 });
 
-pub(crate) static MAKE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
+pub(crate) static CREATE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
         "near_make_state_snapshot_elapsed_sec",
         "Latency of making a state snapshot, in seconds",

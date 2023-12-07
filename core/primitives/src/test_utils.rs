@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
@@ -280,9 +281,6 @@ impl BlockHeader {
                 panic!("old header should not appear in tests")
             }
             BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
-            BlockHeader::BlockHeaderV5(_) => {
-                panic!("post-state-root header should not appear in tests yet")
-            }
         }
     }
 
@@ -301,10 +299,6 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
-                header.inner_rest.latest_protocol_version = latest_protocol_version;
-            }
-            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -334,11 +328,6 @@ impl BlockHeader {
                 header.signature = signature;
             }
             BlockHeader::BlockHeaderV4(header) => {
-                let header = Arc::make_mut(header);
-                header.hash = hash;
-                header.signature = signature;
-            }
-            BlockHeader::BlockHeaderV5(header) => {
                 let header = Arc::make_mut(header);
                 header.hash = hash;
                 header.signature = signature;
@@ -553,23 +542,28 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 /// This also works for predefined implicit accounts, where the signer will use the implicit key.
 ///
 /// Should be used only in tests.
-pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
-    let account_id = account_name.parse().unwrap();
-    if account_id == implicit_test_account() {
-        InMemorySigner::from_secret_key(account_id, implicit_test_account_secret())
+pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
+    let account_id = account_name.to_owned();
+    if account_id == near_implicit_test_account() {
+        InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret())
     } else {
-        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
     }
 }
 
-/// A fixed implicit account for which tests can know the private key.
-pub fn implicit_test_account() -> AccountId {
+/// A fixed NEAR-implicit account for which tests can know the private key.
+pub fn near_implicit_test_account() -> AccountId {
     "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse().unwrap()
 }
 
-/// Private key for the fixed implicit test account.
-pub fn implicit_test_account_secret() -> SecretKey {
+/// Private key for the fixed NEAR-implicit test account.
+pub fn near_implicit_test_account_secret() -> SecretKey {
     "ed25519:5roj6k68kvZu3UEJFyXSfjdKGrodgZUfFLZFpzYXWtESNsLWhYrq3JGi4YpqeVKuw1m9R2TEHjfgWT1fjUqB1DNy".parse().unwrap()
+}
+
+/// A fixed ETH-implicit account.
+pub fn eth_implicit_test_account() -> AccountId {
+    "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
 }
 
 impl FinalExecutionOutcomeView {

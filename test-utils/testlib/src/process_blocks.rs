@@ -23,7 +23,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
             header.inner_lite.prev_outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply += balance_burnt;
         }
         BlockHeader::BlockHeaderV2(header) => {
@@ -36,7 +36,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
             header.inner_lite.prev_outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply += balance_burnt;
         }
         BlockHeader::BlockHeaderV3(header) => {
@@ -49,7 +49,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
             header.inner_lite.prev_outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply += balance_burnt;
         }
         BlockHeader::BlockHeaderV4(header) => {
@@ -62,21 +62,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
             header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
             header.inner_lite.prev_outcome_root = Block::compute_outcome_root(&chunk_headers);
             header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.gas_price = prev_block.header().gas_price();
-            header.inner_rest.total_supply += balance_burnt;
-            header.inner_rest.block_body_hash = block_body_hash.unwrap();
-        }
-        BlockHeader::BlockHeaderV5(header) => {
-            let header = Arc::make_mut(header);
-            header.inner_rest.chunk_headers_root =
-                Block::compute_chunk_headers_root(&chunk_headers).0;
-            header.inner_rest.chunk_tx_root = Block::compute_chunk_tx_root(&chunk_headers);
-            header.inner_rest.prev_chunk_outgoing_receipts_root =
-                Block::compute_chunk_prev_outgoing_receipts_root(&chunk_headers);
-            header.inner_lite.prev_state_root = Block::compute_state_root(&chunk_headers);
-            header.inner_lite.prev_outcome_root = Block::compute_outcome_root(&chunk_headers);
-            header.inner_rest.chunk_mask = vec![false];
-            header.inner_rest.gas_price = prev_block.header().gas_price();
+            header.inner_rest.next_gas_price = prev_block.header().next_gas_price();
             header.inner_rest.total_supply += balance_burnt;
             header.inner_rest.block_body_hash = block_body_hash.unwrap();
         }

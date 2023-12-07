@@ -476,12 +476,11 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes`
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.current_account_id.as_ref().as_bytes(),
+            self.context.current_account_id.as_bytes(),
         )
     }
 
@@ -511,7 +510,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.signer_account_id.as_ref().as_bytes(),
+            self.context.signer_account_id.as_bytes(),
         )
     }
 
@@ -569,7 +568,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.predecessor_account_id.as_ref().as_bytes(),
+            self.context.predecessor_account_id.as_bytes(),
         )
     }
 
@@ -1153,28 +1152,32 @@ impl<'a> VMLogic<'a> {
 
         let signature: ed25519_dalek::Signature = {
             let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
-            if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid signature length".to_string(),
-                }));
+                })
+            })?;
+            // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
+            // but was removed with version 2. It is not actually any good a check, but we need
+            // it to avoid costs changing.
+            if b[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
+                return Ok(false as u64);
             }
-            match ed25519_dalek::Signature::from_bytes(&vec) {
-                Ok(signature) => signature,
-                Err(_) => return Ok(false as u64),
-            }
+            ed25519_dalek::Signature::from_bytes(b)
         };
 
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
         self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
-        let public_key: ed25519_dalek::PublicKey = {
+        let public_key: ed25519_dalek::VerifyingKey = {
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
-            if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                    msg: "invalid public key length".to_string(),
-                }));
-            }
-            match ed25519_dalek::PublicKey::from_bytes(&vec) {
+            let b =
+                <&[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                    VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                        msg: "invalid public key length".to_string(),
+                    })
+                })?;
+            match ed25519_dalek::VerifyingKey::from_bytes(b) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
             }
@@ -1773,10 +1776,19 @@ impl<'a> VMLogic<'a> {
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
-        let is_receiver_implicit =
-            self.config.implicit_account_creation && receiver_id.is_implicit();
-        let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);
-        let exec_fee = transfer_exec_fee(self.fees_config, is_receiver_implicit);
+        let send_fee = transfer_send_fee(
+            self.fees_config,
+            sir,
+            self.config.implicit_account_creation,
+            self.config.eth_implicit_accounts,
+            receiver_id.get_account_type(),
+        );
+        let exec_fee = transfer_exec_fee(
+            self.fees_config,
+            self.config.implicit_account_creation,
+            self.config.eth_implicit_accounts,
+            receiver_id.get_account_type(),
+        );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;

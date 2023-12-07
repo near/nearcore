@@ -172,7 +172,7 @@ expression: config_view
     },
     "grow_mem_cost": 1,
     "regular_op_cost": 822756,
-    "vm_kind": "Wasmer2",
+    "vm_kind": "<REDACTED>",
     "disable_9393_fix": false,
     "storage_get_mode": "Trie",
     "fix_contract_loading_cost": false,
@@ -181,6 +181,7 @@ expression: config_view
     "ed25519_verify": true,
     "alt_bn128": true,
     "function_call_weight": true,
+    "eth_implicit_accounts": false,
     "limit_config": {
       "max_gas_burnt": 300000000000000,
       "max_stack_height": 16384,

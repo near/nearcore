@@ -6,11 +6,14 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
-use ansi_term::Color::Red;
+use bytesize::ByteSize;
+use itertools::GroupBy;
+use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
 use near_chain::types::RuntimeAdapter;
+use near_chain::types::RuntimeStorageConfig;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -22,21 +25,29 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::state::FlatStateValue;
+use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
+use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
+use near_store::flat::FlatStorageChunkView;
+use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
+use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use yansi::Color::Red;
 
 pub(crate) fn apply_block(
     block_hash: CryptoHash,
@@ -78,7 +89,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_transactions(
                 shard_id,
-                chunk_inner.prev_state_root(),
+                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
                 height,
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -86,14 +97,12 @@ pub(crate) fn apply_block(
                 &receipts,
                 chunk.transactions(),
                 chunk_inner.prev_validator_proposals(),
-                prev_block.header().gas_price(),
+                prev_block.header().next_gas_price(),
                 chunk_inner.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 true,
                 is_first_block_with_chunk_of_version,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     } else {
@@ -103,7 +112,7 @@ pub(crate) fn apply_block(
         runtime
             .apply_transactions(
                 shard_id,
-                chunk_extra.state_root(),
+                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
                 block.header().height(),
                 block.header().raw_timestamp(),
                 block.header().prev_hash(),
@@ -111,14 +120,12 @@ pub(crate) fn apply_block(
                 &[],
                 &[],
                 chunk_extra.validator_proposals(),
-                block.header().gas_price(),
+                block.header().next_gas_price(),
                 chunk_extra.gas_limit(),
                 block.header().challenges_result(),
                 *block.header().random_value(),
                 false,
                 false,
-                Default::default(),
-                use_flat_storage,
             )
             .unwrap()
     };
@@ -518,7 +525,7 @@ pub(crate) fn check_apply_block_result(
     block: &Block,
     apply_result: &ApplyTransactionResult,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
     shard_id: ShardId,
 ) -> anyhow::Result<()> {
     let height = block.header().height();
@@ -664,9 +671,14 @@ pub(crate) fn print_chain(
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
                 .unwrap_or("error".to_owned());
-            println!("{: >3} {} | {: >10}", height, Red.bold().paint("MISSING"), block_producer);
+            println!(
+                "{: >3} {} | {: >10}",
+                height,
+                Red.style().bold().paint("MISSING"),
+                block_producer
+            );
         } else {
-            println!("{: >3} {}", height, Red.bold().paint("MISSING"));
+            println!("{: >3} {}", height, Red.style().bold().paint("MISSING"));
         }
     }
 }
@@ -869,9 +881,21 @@ pub(crate) fn view_trie(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, hash, shard_id, shard_version);
-    trie.print_recursive(&mut std::io::stdout().lock(), &hash, max_depth);
+    trie.print_recursive(
+        &mut std::io::stdout().lock(),
+        &hash,
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 
@@ -881,9 +905,20 @@ pub(crate) fn view_trie_leaves(
     shard_id: u32,
     shard_version: u32,
     max_depth: u32,
+    limit: Option<u32>,
+    record_type: Option<u8>,
+    from: Option<AccountId>,
+    to: Option<AccountId>,
 ) -> anyhow::Result<()> {
     let trie = get_trie(store, state_root_hash, shard_id, shard_version);
-    trie.print_recursive_leaves(&mut std::io::stdout().lock(), max_depth);
+    trie.print_recursive_leaves(
+        &mut std::io::stdout().lock(),
+        max_depth,
+        limit,
+        record_type,
+        &from.as_ref(),
+        &to.as_ref(),
+    );
     Ok(())
 }
 
@@ -1035,6 +1070,251 @@ pub(crate) fn clear_cache(store: Store) {
     let mut store_update = store.store_update();
     store_update.delete_all(DBCol::CachedContractCode);
     store_update.commit().unwrap();
+}
+
+/// Prints the state statistics for all shards. Please note that it relies on
+/// the live flat storage and may break if the node is not stopped.
+pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: NearConfig) {
+    let (epoch_manager, runtime, _, block_header) =
+        load_trie(store.clone(), home_dir, &near_config);
+
+    let block_hash = *block_header.hash();
+    let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
+
+    let flat_storage_manager = runtime.get_flat_storage_manager();
+    for shard_uid in shard_layout.get_shard_uids() {
+        print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
+    }
+}
+
+/// Prints the state statistics for a single shard.
+fn print_state_stats_for_shard_uid(
+    store: &Store,
+    flat_storage_manager: &FlatStorageManager,
+    block_hash: CryptoHash,
+    shard_uid: ShardUId,
+) {
+    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+    let trie_storage = TrieDBStorage::new(store.clone(), shard_uid);
+    let chunk_view = flat_storage_manager.chunk_view(shard_uid, block_hash).unwrap();
+
+    let mut state_stats = StateStats::default();
+
+    // iteratate for the first time to get the size statistics
+    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
+    let iter = get_state_stats_account_iter(&group_by);
+    for state_stats_account in iter {
+        state_stats.push(state_stats_account);
+    }
+
+    // iterate for the second time to find the middle account
+    let group_by = get_state_stats_group_by(&chunk_view, &trie_storage);
+    let iter = get_state_stats_account_iter(&group_by);
+    let mut current_size = ByteSize::default();
+    for state_stats_account in iter {
+        let new_size = current_size + state_stats_account.size;
+        if 2 * new_size.as_u64() > state_stats.total_size.as_u64() {
+            state_stats.middle_account = Some(state_stats_account);
+            state_stats.middle_account_leading_size = Some(current_size);
+            break;
+        }
+        current_size = new_size;
+    }
+
+    tracing::info!(target: "state_viewer", "{shard_uid:?}");
+    tracing::info!(target: "state_viewer", "{state_stats:#?}");
+}
+
+/// Gets the flat state iterator from the chunk view, rearranges it to be sorted
+/// by the account id, rather than type, account id and finally groups the
+/// records by account id while collecting aggregate statistics.
+fn get_state_stats_group_by<'a>(
+    chunk_view: &'a FlatStorageChunkView,
+    trie_storage: &'a TrieDBStorage,
+) -> GroupBy<
+    AccountId,
+    impl Iterator<Item = StateStatsStateRecord> + 'a,
+    impl FnMut(&StateStatsStateRecord) -> AccountId,
+> {
+    // The flat state iterator is sorted by type, account id. In order to
+    // rearrange it we get the iterators for each type and later merge them by
+    // the account id.
+    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
+        .iter()
+        .map(|(type_byte, _)| {
+            chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
+        })
+        .into_iter();
+
+    // Filter out any errors.
+    let type_iters = type_iters.map(|type_iter| type_iter.filter_map(|item| item.ok())).into_iter();
+
+    // Read the values from and convert items to StateStatsStateRecord.
+    let type_iters = type_iters
+        .map(move |type_iter| {
+            type_iter.filter_map(move |(key, value)| {
+                let value = read_flat_state_value(&trie_storage, value);
+                let key_size = key.len() as u64;
+                let value_size = value.len() as u64;
+                let size = ByteSize::b(key_size + value_size);
+                let state_record = StateRecord::from_raw_key_value(key, value);
+                state_record.map(|state_record| StateStatsStateRecord {
+                    account_id: state_record_to_account_id(&state_record).clone(),
+                    state_record,
+                    size,
+                })
+            })
+        })
+        .into_iter();
+
+    // Merge the iterators for different types. The StateStatsStateRecord
+    // implements the Ord and PartialOrd traits that compare items by their
+    // account ids.
+    let iter = type_iters.kmerge().into_iter();
+
+    // Finally, group by the account id.
+    iter.group_by(|state_record| state_record.account_id.clone())
+}
+
+/// Given the StateStatsStateRecords grouped by the account id returns an
+/// iterator of StateStatsAccount.
+fn get_state_stats_account_iter<'a>(
+    group_by: &'a GroupBy<
+        AccountId,
+        impl Iterator<Item = StateStatsStateRecord> + 'a,
+        impl FnMut(&StateStatsStateRecord) -> AccountId,
+    >,
+) -> impl Iterator<Item = StateStatsAccount> + 'a {
+    // aggregate size for each account id group
+    group_by
+        .into_iter()
+        .map(|(account_id, group)| {
+            let mut size = ByteSize::b(0);
+            for state_stats_state_record in group {
+                size += state_stats_state_record.size;
+            }
+            StateStatsAccount { account_id, size }
+        })
+        .into_iter()
+}
+
+/// Helper function to read the value from flat storage.
+/// It either returns the inlined value or reads ref value from the storage.
+fn read_flat_state_value(
+    trie_storage: &TrieDBStorage,
+    flat_state_value: FlatStateValue,
+) -> Vec<u8> {
+    match flat_state_value {
+        FlatStateValue::Ref(val) => trie_storage.retrieve_raw_bytes(&val.hash).unwrap().to_vec(),
+        FlatStateValue::Inlined(val) => val,
+    }
+}
+
+/// StateStats is used for storing the state statistics of a single trie.
+#[derive(Default)]
+pub struct StateStats {
+    pub total_size: ByteSize,
+    pub total_count: usize,
+
+    // The account that is in the middle of the state in respect to storage.
+    pub middle_account: Option<StateStatsAccount>,
+    // The total size of all accounts leading to the middle account.
+    // Can be used to determin how does the middle account split the state.
+    pub middle_account_leading_size: Option<ByteSize>,
+
+    pub top_accounts: BinaryHeap<StateStatsAccount>,
+}
+
+impl core::fmt::Debug for StateStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let average_size = self
+            .total_size
+            .as_u64()
+            .checked_div(self.total_count as u64)
+            .map(ByteSize::b)
+            .unwrap_or_default();
+
+        let left_size = self.middle_account_leading_size.unwrap_or_default();
+        let middle_size = self.middle_account.as_ref().map(|a| a.size).unwrap_or_default();
+        let right_size = self.total_size.as_u64() - left_size.as_u64() - middle_size.as_u64();
+        let right_size = ByteSize::b(right_size);
+
+        let left_percent = 100 * left_size.as_u64() / self.total_size.as_u64();
+        let middle_percent = 100 * middle_size.as_u64() / self.total_size.as_u64();
+        let right_percent = 100 * right_size.as_u64() / self.total_size.as_u64();
+
+        f.debug_struct("StateStats")
+            .field("total_size", &self.total_size)
+            .field("total_count", &self.total_count)
+            .field("average_size", &average_size)
+            .field("middle_account", &self.middle_account.as_ref().unwrap())
+            .field("split_size", &format!("{left_size:?} : {middle_size:?} : {right_size:?}"))
+            .field("split_percent", &format!("{left_percent}:{middle_percent}:{right_percent}"))
+            .field("top_accounts", &self.top_accounts)
+            .finish()
+    }
+}
+
+impl StateStats {
+    pub fn push(&mut self, state_stats_account: StateStatsAccount) {
+        self.total_size += state_stats_account.size;
+        self.total_count += 1;
+
+        self.top_accounts.push(state_stats_account);
+        if self.top_accounts.len() > 5 {
+            self.top_accounts.pop();
+        }
+    }
+}
+
+/// StateStatsStateRecord stores the state record and associated information.
+/// It's used as a helper struct for merging state records from different record types.
+#[derive(Eq, PartialEq)]
+struct StateStatsStateRecord {
+    state_record: StateRecord,
+    account_id: AccountId,
+    size: ByteSize,
+}
+
+impl Ord for StateStatsStateRecord {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.account_id.cmp(&other.account_id)
+    }
+}
+
+impl PartialOrd for StateStatsStateRecord {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// StateStatsAccount stores aggregated information about an account.
+/// It is the result of the grouping of state records belonging to the same account.
+#[derive(PartialEq, Eq)]
+pub struct StateStatsAccount {
+    pub account_id: AccountId,
+    pub size: ByteSize,
+}
+
+impl Ord for StateStatsAccount {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.size.cmp(&other.size).reverse()
+    }
+}
+
+impl PartialOrd for StateStatsAccount {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::fmt::Debug for StateStatsAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateStatsAccount")
+            .field("account_id", &self.account_id.as_str())
+            .field("size", &self.size)
+            .finish()
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io;
+use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -9,7 +9,6 @@ use near_cache::CellLruCache;
 use near_chain_primitives::error::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Tip;
-#[cfg(feature = "protocol_feature_simple_nightshade_v2")]
 use near_primitives::checked_feature;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
@@ -23,9 +22,9 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReceiptProof, ShardChunk, ShardChunkHeader,
     StateSyncInfo,
 };
-use near_primitives::syncing::{
-    get_num_state_parts, ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey,
-    StatePartKey, StateSyncDumpProgress,
+use near_primitives::state_sync::{
+    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
+    StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -52,7 +51,7 @@ use near_store::{
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
-use crate::types::{Block, BlockHeader, LatestKnown};
+use crate::types::{Block, BlockHeader, LatestKnown, RuntimeAdapter};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use near_store::flat::store_helper;
 use std::sync::Arc;
@@ -73,6 +72,16 @@ pub enum GCMode {
     Fork(ShardTries),
     Canonical(ShardTries),
     StateSync { clear_block_info: bool },
+}
+
+impl fmt::Debug for GCMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            GCMode::Fork(_) => write!(f, "GCMode::Fork"),
+            GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
+            GCMode::StateSync { .. } => write!(f, "GCMode::StateSync"),
+        }
+    }
 }
 
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
@@ -614,7 +623,6 @@ impl ChainStore {
     ) -> Result<(), Error> {
         tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
-        #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
@@ -648,7 +656,6 @@ impl ChainStore {
     /// 3' will get all outgoing receipts from its parent 3
     /// 4' will get no outgoing receipts from its parent 3
     /// All receipts are distributed to children, each exactly once.
-    #[cfg(feature = "protocol_feature_simple_nightshade_v2")]
     fn reassign_outgoing_receipts_for_resharding_v2(
         receipts: &mut Vec<Receipt>,
         shard_layout: &ShardLayout,
@@ -881,7 +888,7 @@ impl ChainStore {
         shard_id: ShardId,
         block_hash: CryptoHash,
     ) -> Result<ShardStateSyncResponseHeader, Error> {
-        let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+        let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
         match self.store.get_ser(DBCol::StateHeaders, &key) {
             Ok(Some(header)) => Ok(header),
             _ => Err(Error::Other("Cannot get shard_state_header".into())),
@@ -2320,6 +2327,59 @@ impl<'a> ChainStoreUpdate<'a> {
         shard_uids_to_gc
     }
 
+    /// GC trie state and flat state data after a resharding event
+    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
+    /// During GC, when we detect a change in shard layout, we can clear off all entries from
+    /// the parent shards
+    /// TODO(resharding): Need to clean remaining columns after resharding
+    pub fn clear_resharding_data(
+        &mut self,
+        runtime: &dyn RuntimeAdapter,
+        epoch_manager: &dyn EpochManagerAdapter,
+        block_hash: CryptoHash,
+    ) -> Result<(), Error> {
+        // Need to check if this is the last block of the epoch where resharding is completed
+        // which means shard layout changed in the previous epoch
+        if !epoch_manager.is_last_block_in_finished_epoch(&block_hash)? {
+            return Ok(());
+        }
+
+        // Since this code is related to GC, we need to be careful about accessing block_infos. Note
+        // that the BlockInfo exists for the current block_hash as it's not been GC'd yet.
+        // However, we need to use the block header to get the epoch_id and shard_layout for
+        // first_block_epoch_header and last_block_prev_epoch_hash as BlockInfo for these blocks is
+        // already GC'd while BlockHeader isn't GC'd.
+        let block_info = epoch_manager.get_block_info(&block_hash)?;
+        let first_block_epoch_hash = block_info.epoch_first_block();
+        if first_block_epoch_hash == &CryptoHash::default() {
+            return Ok(());
+        }
+        let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
+        let last_block_prev_epoch_header =
+            self.get_block_header(first_block_epoch_header.prev_hash())?;
+
+        let epoch_id = first_block_epoch_header.epoch_id();
+        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
+        let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
+        let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
+        if shard_layout == prev_shard_layout {
+            return Ok(());
+        }
+
+        // Now we can proceed to removing the trie state and flat state
+        let mut store_update = self.store().store_update();
+        for shard_uid in prev_shard_layout.get_shard_uids() {
+            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
+            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
+            runtime
+                .get_flat_storage_manager()
+                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
+        }
+
+        self.merge(store_update);
+        Ok(())
+    }
+
     // Clearing block data of `block_hash`, if on a fork.
     // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
     pub fn clear_block_data(
@@ -2329,6 +2389,8 @@ impl<'a> ChainStoreUpdate<'a> {
         gc_mode: GCMode,
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
+
+        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {
@@ -2397,10 +2459,9 @@ impl<'a> ChainStoreUpdate<'a> {
             // We need to make sure all State Parts are removed.
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &key);
             }
         }
@@ -2497,10 +2558,9 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete state parts and state headers
             if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
             {
-                let state_num_parts =
-                    get_num_state_parts(shard_state_header.state_root_node().memory_usage);
+                let state_num_parts = shard_state_header.num_state_parts();
                 self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = StateHeaderKey(shard_id, block_hash).try_to_vec()?;
+                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
                 self.gc_col(DBCol::StateHeaders, &state_header_key);
             }
 
@@ -2610,7 +2670,7 @@ impl<'a> ChainStoreUpdate<'a> {
         num_parts: u64,
     ) -> Result<(), Error> {
         for part_id in 0..num_parts {
-            let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
             self.gc_col(DBCol::StateParts, &key);
         }
         Ok(())
@@ -3036,7 +3096,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // Increase transaction refcounts for all included txs
             for tx in chunk.transactions().iter() {
-                let bytes = tx.try_to_vec().expect("Borsh cannot fail");
+                let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Transactions,
                     tx.get_hash().as_ref(),
@@ -3046,7 +3106,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
             // Increase receipt refcounts for all included receipts
             for receipt in chunk.prev_outgoing_receipts().iter() {
-                let bytes = receipt.try_to_vec().expect("Borsh cannot fail");
+                let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
                 store_update.increment_refcount(
                     DBCol::Receipts,
                     receipt.get_hash().as_ref(),
@@ -3116,7 +3176,7 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
-            let data = shard_id.try_to_vec()?;
+            let data = borsh::to_vec(&shard_id)?;
             store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
         }
         for (block_hash, refcount) in self.chain_store_cache_update.block_refcounts.iter() {
@@ -3142,6 +3202,7 @@ impl<'a> ChainStoreUpdate<'a> {
         // from the store.
         let mut deletions_store_update = self.store().store_update();
         for mut wrapped_trie_changes in self.trie_changes.drain(..) {
+            wrapped_trie_changes.apply_mem_changes();
             wrapped_trie_changes.insertions_into(&mut store_update);
             wrapped_trie_changes.deletions_into(&mut deletions_store_update);
             wrapped_trie_changes.state_changes_into(&mut store_update);

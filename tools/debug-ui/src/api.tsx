@@ -330,6 +330,23 @@ export interface RoutingTableResponse {
     };
 }
 
+export interface SnapshotHostInfoView {
+    peer_id: string,
+    sync_hash: string,
+    epoch_height: number,
+    shards: number[],
+}
+
+export interface SnapshotHostsView {
+    hosts: SnapshotHostInfoView[],
+}
+
+export interface SnapshotHostsResponse {
+    status_response: {
+        SnapshotHosts: SnapshotHostsView;
+    };
+}
+
 export type DroppedReason = 'HeightProcessed' | 'TooManyProcessingBlocks';
 
 export type BlockProcessingStatus =
@@ -438,6 +455,13 @@ export async function fetchRoutingTable(
     addr: string
 ): Promise<RoutingTableResponse> {
     const response = await fetch(`http://${addr}/debug/api/network_routes`);
+    return await response.json();
+}
+
+export async function fetchSnapshotHosts(
+    addr: string
+): Promise<SnapshotHostsResponse> {
+    const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
     return await response.json();
 }
 

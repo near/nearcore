@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
-use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -160,10 +159,7 @@ impl ShardLayout {
     /// This is work in progress and the exact way of splitting is yet to be determined.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
         ShardLayout::v1(
-            // TODO(resharding) - find the right boundary to split shards in
-            // place of just "sweat". Likely somewhere in between near.social
-            // and sweatcoin.
-            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "sweat"]
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
                 .into_iter()
                 .map(|s| s.parse().unwrap())
                 .collect(),
@@ -197,7 +193,7 @@ impl ShardLayout {
     /// Returns error if `shard_id` is an invalid shard id in the current layout
     /// Panics if `self` has no parent shard layout
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
-        if shard_id > self.num_shards() {
+        if !self.shard_ids().any(|id| id == shard_id) {
             return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
         let parent_shard_id = match self {
@@ -220,17 +216,22 @@ impl ShardLayout {
         }
     }
 
-    #[inline]
-    pub fn num_shards(&self) -> NumShards {
+    fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
         }
     }
 
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
+        0..self.num_shards()
+    }
+
     /// Returns shard uids for all shards in the shard layout
     pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
+        self.shard_ids()
+            .map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
+            .collect()
     }
 }
 
@@ -240,7 +241,7 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let hash = CryptoHash::hash_bytes(account_id.as_ref().as_bytes());
+            let hash = CryptoHash::hash_bytes(account_id.as_bytes());
             let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
             u64::from_le_bytes(*bytes) % num_shards
         }
@@ -250,7 +251,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             // scan. For the time being, with only 4 shards, this is perfectly fine.
             let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
-                if boundary_account.cmp(account_id) == Greater {
+                if account_id < boundary_account {
                     break;
                 }
                 shard_id += 1;
@@ -303,7 +304,7 @@ impl ShardUId {
 
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
-        assert!(shard_id < shard_layout.num_shards());
+        assert!(shard_layout.shard_ids().any(|i| i == shard_id));
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
@@ -484,7 +485,7 @@ mod tests {
         let num_shards = 4;
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
-            (0..num_shards).map(|x| (x, 0)).into_iter().collect();
+            shard_layout.shard_ids().map(|shard_id| (shard_id, 0)).collect();
         let mut rng = StdRng::from_seed([0; 32]);
         for _i in 0..1000 {
             let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
@@ -611,7 +612,7 @@ mod tests {
               "aurora",
               "aurora-0",
               "kkuuue2akv_1630967379.near",
-              "sweat"
+              "tge-lockup.sweat"
             ],
             "shards_split_map": [
               [

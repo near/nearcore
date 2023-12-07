@@ -2,8 +2,10 @@
 """
 
 """
-import argparse
+from argparse import ArgumentParser, BooleanOptionalAction
+import cmd_utils
 import pathlib
+import json
 import random
 from rc import pmap, run
 import requests
@@ -41,28 +43,6 @@ def get_nodes(args):
     return traffic_generator, nodes
 
 
-def run_cmd(node, cmd):
-    r = node.machine.run(cmd)
-    if r.exitcode != 0:
-        sys.exit(
-            f'failed running {cmd} on {node.instance_name}:\nstdout: {r.stdout}\nstderr: {r.stderr}'
-        )
-    return r
-
-
-LOG_DIR = '/home/ubuntu/logs'
-STATUS_DIR = '/home/ubuntu/logs/status'
-
-
-def run_in_background(node, cmd, log_filename, env=''):
-    setup_cmd = f'truncate --size 0 {STATUS_DIR}/{log_filename} '
-    setup_cmd += f'&& for i in {{8..0}}; do if [ -f {LOG_DIR}/{log_filename}.$i ]; then mv {LOG_DIR}/{log_filename}.$i {LOG_DIR}/{log_filename}.$((i+1)); fi done'
-    run_cmd(
-        node,
-        f'( {setup_cmd} && {env} nohup {cmd} > {LOG_DIR}/{log_filename}.0 2>&1; nohup echo "$?" ) > {STATUS_DIR}/{log_filename} 2>&1 &'
-    )
-
-
 def wait_node_up(node):
     while True:
         try:
@@ -78,11 +58,12 @@ def wait_node_up(node):
 
 
 def prompt_setup_flags(args):
-    print(
-        'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
-    )
-    if sys.stdin.readline().strip() != 'yes':
-        sys.exit()
+    if not args.yes:
+        print(
+            'this will reset all nodes\' home dirs and initialize them with new state. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
 
     if args.epoch_length is None:
         print('epoch length for the initialized genesis file?: ')
@@ -102,7 +83,7 @@ def prompt_setup_flags(args):
 
 
 def start_neard_runner(node):
-    run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
+    cmd_utils.run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
         '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
         '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
 
@@ -118,16 +99,19 @@ def upload_neard_runner(node):
 
 def init_neard_runner(node, config, remove_home_dir=False):
     stop_neard_runner(node)
-    rm_cmd = 'rm -rf /home/ubuntu/neard-runner && ' if remove_home_dir else ''
-    run_cmd(
-        node,
-        f'{rm_cmd}mkdir -p {LOG_DIR} && mkdir -p {STATUS_DIR} && mkdir -p /home/ubuntu/neard-runner'
-    )
+    cmd_utils.init_node(node)
+    if remove_home_dir:
+        cmd_utils.run_cmd(
+            node,
+            'rm -rf /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-runner'
+        )
+    else:
+        cmd_utils.run_cmd(node, 'mkdir -p /home/ubuntu/neard-runner')
     upload_neard_runner(node)
     mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
     cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
     ' && ./venv/bin/pip install -r requirements.txt'
-    run_cmd(node, cmd)
+    cmd_utils.run_cmd(node, cmd)
     start_neard_runner(node)
 
 
@@ -306,11 +290,12 @@ def status_cmd(args, traffic_generator, nodes):
 
 
 def reset_cmd(args, traffic_generator, nodes):
-    print(
-        'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
-    )
-    if sys.stdin.readline().strip() != 'yes':
-        sys.exit()
+    if not args.yes:
+        print(
+            'this will reset all nodes\' home dirs to their initial states right after test initialization finished. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
     all_nodes = nodes + [traffic_generator]
     pmap(neard_runner_reset, all_nodes)
     logger.info(
@@ -327,14 +312,25 @@ def stop_traffic_cmd(args, traffic_generator, nodes):
 
 
 def neard_runner_jsonrpc(node, method, params=[]):
-    j = {'method': method, 'params': params, 'id': 'dontcare', 'jsonrpc': '2.0'}
-    r = requests.post(f'http://{node.machine.ip}:3000', json=j, timeout=30)
-    if r.status_code != 200:
-        logger.warning(
-            f'bad response {r.status_code} trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{r.content}'
+    body = {
+        'method': method,
+        'params': params,
+        'id': 'dontcare',
+        'jsonrpc': '2.0'
+    }
+    body = json.dumps(body)
+    # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
+    # followed by a new quote started with ' and the rest of the string, to get any single quotes
+    # in method or params into the command correctly
+    body = body.replace("'", "'\"'\"'")
+    r = cmd_utils.run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
+    response = json.loads(r.stdout)
+    if 'error' in response:
+        # TODO: errors should be handled better here in general but just exit for now
+        sys.exit(
+            f'bad response trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{response}'
         )
-    r.raise_for_status()
-    return r.json()['result']
+    return response['result']
 
 
 def neard_runner_start(node):
@@ -362,18 +358,25 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                 })
 
 
-def neard_update_config(node, state_cache_size_mb):
-    return neard_runner_jsonrpc(node,
-                                'update_config',
-                                params={
-                                    'state_cache_size_mb': state_cache_size_mb,
-                                })
+def neard_update_config(node, key_value):
+    return neard_runner_jsonrpc(
+        node,
+        'update_config',
+        params={
+            "key_value": key_value,
+        },
+    )
 
 
 def update_config_cmd(args, traffic_generator, nodes):
     nodes = nodes + [traffic_generator]
     results = pmap(
-        lambda node: neard_update_config(node, args.state_cache_size_mb), nodes)
+        lambda node: neard_update_config(
+            node,
+            args.set,
+        ),
+        nodes,
+    )
     if not all(results):
         logger.warn('failed to update configs for some nodes')
         return
@@ -415,8 +418,16 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     )
 
 
+def neard_runner_update_binaries(node):
+    neard_runner_jsonrpc(node, 'update_binaries')
+
+
+def update_binaries_cmd(args, traffic_generator, nodes):
+    pmap(neard_runner_update_binaries, nodes + [traffic_generator])
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run a load test')
+    parser = ArgumentParser(description='Run a load test')
     parser.add_argument('--chain-id', type=str, required=True)
     parser.add_argument('--start-height', type=int, required=True)
     parser.add_argument('--unique-id', type=str, required=True)
@@ -434,24 +445,31 @@ if __name__ == '__main__':
     init_parser.add_argument('--neard-upgrade-binary-url', type=str)
     init_parser.set_defaults(func=init_cmd)
 
-    update_config_parser = subparsers.add_parser('update-config',
-                                                 help='''
-        Update config.json with given flags for all nodes.
-        ''')
-    update_config_parser.add_argument('--state-cache-size-mb', type=int)
+    update_config_parser = subparsers.add_parser(
+        'update-config',
+        help='''Update config.json with given flags for all nodes.''')
+    update_config_parser.add_argument(
+        '--set',
+        help='''
+        A key value pair to set in the config. The key will be interpreted as a
+        json path to the config to be updated. The value will be parsed as json.   
+        e.g.
+        --set 'aaa.bbb.ccc=5'
+        --set 'aaa.bbb.ccc="5"'
+        --set 'aaa.bbb.ddd={"eee":6,"fff":"7"}' # no spaces!
+        ''',
+    )
     update_config_parser.set_defaults(func=update_config_cmd)
 
-    restart_parser = subparsers.add_parser('restart-neard-runner',
-                                           help='''
-    Restarts the neard runner on all nodes.
-    ''')
+    restart_parser = subparsers.add_parser(
+        'restart-neard-runner',
+        help='''Restarts the neard runner on all nodes.''')
     restart_parser.add_argument('--upload-program', action='store_true')
     restart_parser.set_defaults(func=restart_cmd, upload_program=False)
 
-    hard_reset_parser = subparsers.add_parser('hard-reset',
-                                              help='''
-    Stops neard and clears all test state on all nodes.
-    ''')
+    hard_reset_parser = subparsers.add_parser(
+        'hard-reset',
+        help='''Stops neard and clears all test state on all nodes.''')
     hard_reset_parser.add_argument('--neard-binary-url', type=str)
     hard_reset_parser.add_argument('--neard-upgrade-binary-url', type=str)
     hard_reset_parser.set_defaults(func=hard_reset_cmd)
@@ -467,12 +485,12 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--num-validators', type=int)
     new_test_parser.add_argument('--num-seats', type=int)
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
+    new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
 
-    status_parser = subparsers.add_parser('status',
-                                          help='''
-    Checks the status of test initialization on each node
-    ''')
+    status_parser = subparsers.add_parser(
+        'status',
+        help='''Checks the status of test initialization on each node''')
     status_parser.set_defaults(func=status_cmd)
 
     start_traffic_parser = subparsers.add_parser(
@@ -502,7 +520,19 @@ if __name__ == '__main__':
     the test can be reset from the start without having to do that again. This command resets all nodes'
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
+    reset_parser.add_argument('--yes', action='store_true')
     reset_parser.set_defaults(func=reset_cmd)
+
+    # It re-uses the same binary urls because it's quite easy to do it with the
+    # nearcore-release buildkite and urls in the following format without commit
+    # but only with the branch name:
+    # https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux/<branch-name>/neard"
+    update_binaries_parser = subparsers.add_parser(
+        'update-binaries',
+        help=
+        'Update the neard binaries by re-downloading them. The same urls are used.'
+    )
+    update_binaries_parser.set_defaults(func=update_binaries_cmd)
 
     args = parser.parse_args()
 

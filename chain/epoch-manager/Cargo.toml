@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 borsh.workspace = true
 chrono = { workspace = true, optional = true }
@@ -40,7 +43,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
 ]
-mock_node = []
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-primitives/nightly_protocol",

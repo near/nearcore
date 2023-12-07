@@ -1,4 +1,3 @@
-use crate::borsh::maybestd::collections::HashMap;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
@@ -9,6 +8,7 @@ use near_fmt::AbbrBytes;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::fmt;
 
 pub use near_vm_runner::logic::DataReceiver;

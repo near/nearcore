@@ -24,9 +24,8 @@ use near_primitives::transaction::{
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::config::RuntimeConfig;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
@@ -213,7 +212,7 @@ fn assert_compute_limit_reached(
         let signer = InMemorySigner::from_seed(
             contract_account.clone(),
             KeyType::ED25519,
-            &contract_account,
+            contract_account.as_ref(),
         );
         let tx = env.tx_from_actions(actions, &signer, signer.account_id.clone());
         env.execute_tx(tx).unwrap().assert_success();
@@ -301,7 +300,8 @@ fn produce_saturated_chunk(
         gas,
         deposit: 0,
     }))];
-    let signer = InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account);
+    let signer =
+        InMemorySigner::from_seed(user_account.clone(), KeyType::ED25519, user_account.as_ref());
 
     let tip = env.clients[0].chain.head().unwrap();
     let mut tx_factory = || {
@@ -407,10 +407,7 @@ fn produce_saturated_chunk(
 }
 
 /// fetch chunk for shard 0 and specified block height
-fn chunk_info(
-    env: &mut TestEnv,
-    height: u64,
-) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
+fn chunk_info(env: &TestEnv, height: u64) -> std::sync::Arc<near_primitives::sharding::ShardChunk> {
     let block = &env.clients[0].chain.get_block_by_height(height).unwrap();
     let chunks = &block.chunks();
     assert_eq!(chunks.len(), 1, "test assumes single shard");

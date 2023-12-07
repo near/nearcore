@@ -1,9 +1,11 @@
 use crate::network_protocol;
 use crate::network_protocol::AdvertisedPeerDistance;
+use crate::peer_manager::network_state::PRUNE_EDGES_AFTER;
 use crate::routing::{GraphConfigV2, GraphV2, NetworkTopologyChange};
 use crate::test_utils::expected_routing_tables;
 use crate::test_utils::random_peer_id;
 use crate::types::Edge;
+use near_async::time;
 use near_primitives::network::PeerId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -610,4 +612,109 @@ async fn inconsistent_peers() {
     // There is no set of edges which produces a tree exactly consistent with `expected_routes`,
     // but we should be able to construct a valid DistanceVector anyway
     graph.verify_own_distance_vector(expected_routes, &distance_vector_update);
+}
+
+#[tokio::test]
+async fn test_distance_vector_nonce_expiration() {
+    let clock = time::FakeClock::default();
+
+    let node0 = random_peer_id();
+    let graph = Arc::new(GraphV2::new(GraphConfigV2 {
+        node_id: node0.clone(),
+        prune_edges_after: Some(PRUNE_EDGES_AFTER),
+    }));
+
+    let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
+
+    // Add a peer node1 which advertises node2 behind it; 0--1--2
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), initial_nonce);
+    let edge12 = Edge::make_fake_edge(node1.clone(), node2.clone(), initial_nonce);
+    assert!(graph.update_distance_vector(
+        node1.clone(),
+        vec![
+            AdvertisedPeerDistance { destination: node1.clone(), distance: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), distance: 1 },
+            AdvertisedPeerDistance { destination: node2, distance: 1 },
+        ],
+        vec![edge01, edge12]
+    ));
+
+    assert!(graph.has_distance_vector(&node1));
+
+    // Advance the clock until the edges in the original DistanceVector shared by node1 expire
+    clock.advance(PRUNE_EDGES_AFTER + time::Duration::seconds(1));
+
+    // Recompute routes
+    graph.recompute_routes(&clock.clock()).await;
+
+    // Check that the expired distance vector was removed
+    assert!(!graph.has_distance_vector(&node1));
+}
+
+#[tokio::test]
+async fn test_distance_vector_nonce_refresh() {
+    let clock = time::FakeClock::default();
+
+    let node0 = random_peer_id();
+    let graph = Arc::new(GraphV2::new(GraphConfigV2 {
+        node_id: node0.clone(),
+        prune_edges_after: Some(PRUNE_EDGES_AFTER),
+    }));
+
+    let initial_nonce = Edge::create_fresh_nonce(&clock.clock());
+
+    // Add a peer node1 which advertises node2 behind it; 0--1--2
+    let node1 = random_peer_id();
+    let node2 = random_peer_id();
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), initial_nonce);
+    let edge12 = Edge::make_fake_edge(node1.clone(), node2.clone(), initial_nonce);
+    assert!(graph.update_distance_vector(
+        node1.clone(),
+        vec![
+            AdvertisedPeerDistance { destination: node1.clone(), distance: 0 },
+            AdvertisedPeerDistance { destination: node0.clone(), distance: 1 },
+            AdvertisedPeerDistance { destination: node2.clone(), distance: 1 },
+        ],
+        vec![edge01, edge12]
+    ));
+
+    assert!(graph.has_distance_vector(&node1));
+
+    // Advance the clock, then refresh the nonces on the stored edges;
+    clock.advance(PRUNE_EDGES_AFTER / 2);
+    let refreshed_nonce = Edge::create_fresh_nonce(&clock.clock());
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), refreshed_nonce);
+    let edge12 = Edge::make_fake_edge(node1.clone(), node2, refreshed_nonce);
+
+    graph
+        .process_network_event(NetworkTopologyChange::EdgeNonceRefresh(vec![
+            edge01,
+            edge12.clone(),
+        ]))
+        .await;
+
+    // Further advance the clock until the edges in the original DistanceVector shared by node1 expire
+    clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
+
+    // Recompute routes and check that the distance vector did not expire
+    graph.recompute_routes(&clock.clock()).await;
+    assert!(graph.has_distance_vector(&node1));
+
+    // Advance the clock again, then refresh only edge01
+    clock.advance(PRUNE_EDGES_AFTER / 2);
+    let refreshed_nonce = Edge::create_fresh_nonce(&clock.clock());
+    let edge01 = Edge::make_fake_edge(node0.clone(), node1.clone(), refreshed_nonce);
+
+    graph
+        .process_network_event(NetworkTopologyChange::EdgeNonceRefresh(vec![edge01, edge12]))
+        .await;
+
+    // Further advance the clock so that edge12 expires
+    clock.advance(PRUNE_EDGES_AFTER / 2 + time::Duration::seconds(1));
+
+    // Recompute routes and check that the distance vector expires
+    graph.recompute_routes(&clock.clock()).await;
+    assert!(!graph.has_distance_vector(&node1));
 }

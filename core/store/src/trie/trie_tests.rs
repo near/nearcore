@@ -1,8 +1,9 @@
-use crate::test_utils::{create_tries_complex, gen_changes, simplify_changes, test_populate_trie};
+use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
 use crate::{PartialStorage, Trie, TrieUpdate};
+use assert_matches::assert_matches;
 use near_primitives::challenge::PartialState;
-use near_primitives::errors::StorageError;
+use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::TrieNodesCount;
@@ -44,7 +45,10 @@ impl TrieStorage for IncompletePartialStorage {
         self.visited_nodes.borrow_mut().insert(*hash);
 
         if self.visited_nodes.borrow().len() > self.node_count_to_fail_after {
-            Err(StorageError::MissingTrieValue)
+            Err(StorageError::MissingTrieValue(
+                MissingTrieValueContext::TrieMemoryPartialStorage,
+                *hash,
+            ))
         } else {
             Ok(result)
         }
@@ -77,9 +81,18 @@ where
     for i in 0..(size + 1) {
         let storage = IncompletePartialStorage::new(storage.clone(), i);
         let new_trie = Trie::new(Rc::new(storage), *trie.get_root(), None);
-        let expected_result =
-            if i < size { Err(&StorageError::MissingTrieValue) } else { Ok(&expected) };
-        assert_eq!(test(new_trie).map(|v| v.1).as_ref(), expected_result);
+        let result = test(new_trie).map(|v| v.1);
+        if i < size {
+            assert_matches!(
+                result,
+                Err(StorageError::MissingTrieValue(
+                    MissingTrieValueContext::TrieMemoryPartialStorage,
+                    _
+                ))
+            );
+        } else {
+            assert_eq!(result.as_ref(), Ok(&expected));
+        }
     }
     println!("Success");
 }
@@ -88,7 +101,7 @@ where
 fn test_reads_with_incomplete_storage() {
     let mut rng = rand::thread_rng();
     for _ in 0..50 {
-        let tries = create_tries_complex(1, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(1, 2).build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = gen_changes(&mut rng, 20);
         let trie_changes = simplify_changes(&trie_changes);
@@ -131,7 +144,6 @@ fn test_reads_with_incomplete_storage() {
 #[cfg(test)]
 mod nodes_counter_tests {
     use super::*;
-    use crate::test_utils::create_tries;
     use crate::trie::nibble_slice::NibbleSlice;
 
     fn create_trie_key(nibbles: &[u8]) -> Vec<u8> {
@@ -139,7 +151,7 @@ mod nodes_counter_tests {
     }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Rc<Trie> {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
@@ -192,20 +204,20 @@ mod nodes_counter_tests {
 #[cfg(test)]
 mod trie_storage_tests {
     use super::*;
-    use crate::test_utils::{create_test_store, create_tries};
+    use crate::test_utils::create_test_store;
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
-    use crate::trie::TrieRefcountChange;
+    use crate::trie::TrieRefcountAddition;
     use crate::{Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
     use near_primitives::hash::hash;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut trie_changes = TrieChanges::empty(Trie::EMPTY_ROOT);
         trie_changes.insertions = values
             .iter()
-            .map(|value| TrieRefcountChange {
+            .map(|value| TrieRefcountAddition {
                 trie_node_or_value_hash: hash(value),
                 trie_node_or_value: value.clone(),
                 rc: std::num::NonZeroU32::new(1).unwrap(),
@@ -274,7 +286,7 @@ mod trie_storage_tests {
         let key = hash(&value);
 
         let result = trie_caching_storage.retrieve_raw_bytes(&key);
-        assert_matches!(result, Err(StorageError::MissingTrieValue));
+        assert_matches!(result, Err(StorageError::MissingTrieValue(_, _)));
     }
 
     /// Check that large values does not fall into shard cache, but fall into accounting cache.

@@ -75,7 +75,7 @@ What happens afterwards will be covered in future episodes/articles.
 
 ### Transaction being added multiple times
 
-But such a approach means, that we’re forwarding the same transaction to multiple
+But such an approach means, that we’re forwarding the same transaction to multiple
 validators (currently 4) - so can it be added multiple times?
 
 No. Remember that a transaction has a concrete hash which is used as a global

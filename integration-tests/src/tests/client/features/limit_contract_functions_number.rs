@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::deploy_test_contract;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
@@ -11,6 +10,7 @@ use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn verify_contract_limits_upgrade(
     feature: ProtocolFeature,

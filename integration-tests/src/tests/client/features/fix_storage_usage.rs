@@ -7,9 +7,9 @@ use near_primitives::version::ProtocolFeature;
 use near_primitives::{trie_key::TrieKey, types::AccountId};
 use near_store::{ShardUId, TrieUpdate};
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 fn process_blocks_with_storage_usage_fix(
     chain_id: String,
@@ -67,9 +67,9 @@ fn process_blocks_with_storage_usage_fix(
 fn test_fix_storage_usage_migration() {
     init_test_logger();
     process_blocks_with_storage_usage_fix(
-        "mainnet".to_string(),
+        near_primitives::chains::MAINNET.to_string(),
         |account_id: AccountId, block_height: u64, storage_usage: u64| {
-            if account_id.as_ref() == "near" && block_height >= 11 {
+            if account_id == "near" && block_height >= 11 {
                 assert_eq!(storage_usage, 4378);
             } else {
                 assert_eq!(storage_usage, 182);
@@ -77,7 +77,7 @@ fn test_fix_storage_usage_migration() {
         },
     );
     process_blocks_with_storage_usage_fix(
-        "testnet".to_string(),
+        near_primitives::chains::TESTNET.to_string(),
         |_: AccountId, _: u64, storage_usage: u64| {
             assert_eq!(storage_usage, 182);
         },

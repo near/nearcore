@@ -230,7 +230,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
     if let Some(ref smart_contract) = row.smart_contract {
         let args = match smart_contract.as_str() {
             "lockup.wasm" => {
-                let lockup = row.lockup.unwrap().timestamp_nanos();
+                let lockup = row.lockup.unwrap().timestamp_nanos_opt().unwrap();
                 lockup.to_le_bytes().to_vec()
             }
             "lockup_and_vesting.wasm" => {
@@ -238,7 +238,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
                 // Encode four dates as timestamps as i64 with LE encoding.
                 for date in &[&row.lockup, &row.vesting_start, &row.vesting_end, &row.vesting_cliff]
                 {
-                    let date = date.unwrap().timestamp_nanos();
+                    let date = date.unwrap().timestamp_nanos_opt().unwrap();
                     res.extend_from_slice(&date.to_le_bytes());
                 }
                 res
@@ -249,7 +249,7 @@ fn account_records(row: &Row, gas_price: Balance) -> Vec<StateRecord> {
             predecessor_id: row.account_id.clone(),
             receiver_id: row.account_id.clone(),
             // `receipt_id` can be anything as long as it is unique.
-            receipt_id: hash(row.account_id.as_ref().as_bytes()),
+            receipt_id: hash(row.account_id.as_bytes()),
             receipt: ReceiptEnum::Action(ActionReceipt {
                 signer_id: row.account_id.clone(),
                 // `signer_public_key` can be anything because the key checks are not applied when

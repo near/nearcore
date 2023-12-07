@@ -9,7 +9,7 @@ relatively little attention to the various shortcuts we have.
 Start with the following command:
 
 ```console
-$ cargo run --profile quick-release -p neard -- --help
+$ cargo run --profile dev-release -p neard -- --help
 ```
 
 This command builds `neard` and asks it to show `--help`. Building `neard` takes
@@ -20,13 +20,13 @@ Let's dissect the command:
 
 - `cargo run` asks `Cargo`, the package manager/build tool, to run our
   application. If you don't have `cargo`, install it via <https://rustup.rs>
-- `--profile quick-release` is our
+- `--profile dev-release` is our
   [custom profile](https://doc.rust-lang.org/cargo/reference/profiles.html#custom-profiles)
   to build a somewhat optimized version of the code. The default debug
   profile is faster to compile, but produces a node that is too slow to
   participate in a real network. The `--release` profile produces a fully
-  optimized node, but that's very slow to compile. So `--quick-release`
-  is a sweet spot for us!
+  optimized node, but that's very slow to compile. So `--dev-release`
+  is a sweet spot for us! However, never use it for actual production nodes.
 - `-p neard` asks to build the `neard` package. We use
   [cargo workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html)
   to organize our code. The `neard` package in the top-level `/neard` directory
@@ -49,7 +49,7 @@ The first step there is creating the required configuration. Run the `init`
 command to create config files:
 
 ```console
-$ cargo run --profile quick-release -p neard -- init
+$ cargo run --profile dev-release -p neard -- init
 INFO neard: version="trunk" build="1.1.0-3091-ga8964d200-modified" latest_protocol=57
 INFO near: Using key ed25519:B41GMfqE2jWHVwrPLbD7YmjZxxeQE9WA9Ua2jffP5dVQ for test.near
 INFO near: Using key ed25519:34d4aFJEmc2A96UXMa9kQCF8g2EfzZG9gCkBAPcsVZaz for node
@@ -193,7 +193,7 @@ is rejected.
 Finally,
 
 ```console
-$ cargo run --profile quick-release -p neard -- run
+$ cargo run --profile dev-release -p neard -- run
 INFO neard: version="trunk" build="1.1.0-3091-ga8964d200-modified" latest_protocol=57
 INFO near: Creating a new RocksDB database path=/home/matklad/.near/data
 INFO db: Created a new RocksDB instance. num_instances=1
@@ -246,7 +246,7 @@ here. The important bit here is that the node remembers the state of the network
 so, when we restart it, it continues from around the last block:
 
 ```console
-$ cargo run --profile quick-release -p neard -- run
+$ cargo run --profile dev-release -p neard -- run
 INFO neard: version="trunk" build="1.1.0-3091-ga8964d200-modified" latest_protocol=57
 INFO db: Created a new RocksDB instance. num_instances=1
 INFO db: Dropped a RocksDB instance. num_instances=0
@@ -467,8 +467,8 @@ some amount of tokens was deducted to account for transaction fees.
 Great! So we've learned how to run our very own single-node NEAR network using a
 binary we've built from source. The steps are:
 
-- Create configs with `cargo run --profile quick-release -p neard -- init`
-- Run the node with `cargo run --profile quick-release -p neard -- run`
+- Create configs with `cargo run --profile dev-release -p neard -- init`
+- Run the node with `cargo run --profile dev-release -p neard -- run`
 - Poke the node with `httpie` or
 - Install `near-cli` via `npm install -g near-cli`
 - Submit transactions via `NEAR_ENV=local near create-account ...`

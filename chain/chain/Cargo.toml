@@ -5,9 +5,11 @@ authors.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 assert_matches.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
@@ -25,13 +27,16 @@ rayon.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
+near-async.workspace = true
 near-cache.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-client-primitives.workspace = true
 near-crypto.workspace = true
 near-epoch-manager.workspace = true
+near-network.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-performance-metrics-macros.workspace = true
@@ -49,35 +54,34 @@ byzantine_asserts = []
 expensive_tests = []
 test_features = []
 no_cache = ["near-store/no_cache"]
-new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync"]
+new_epoch_sync = ["near-store/new_epoch_sync", "near-primitives/new_epoch_sync", "near-epoch-manager/new_epoch_sync", "near-chain-primitives/new_epoch_sync"]
 
 protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
-]
-protocol_feature_simple_nightshade_v2 = [
-  "near-primitives/protocol_feature_simple_nightshade_v2",
 ]
 
 nightly = [
   "nightly_protocol",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "protocol_feature_simple_nightshade_v2",
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-epoch-manager/nightly",
+  "near-network/nightly",
   "near-o11y/nightly",
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-epoch-manager/nightly_protocol",
+  "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-pool/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
 ]
-mock_node = []
 sandbox = ["near-primitives/sandbox"]

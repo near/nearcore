@@ -5,6 +5,7 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::transaction::TransferAction;
 use validated_operations::ValidatedOperation;
 
+pub(crate) mod nep141;
 mod transactions;
 mod validated_operations;
 
@@ -115,6 +116,7 @@ async fn convert_genesis_records_to_transaction(
 pub(crate) async fn convert_block_to_transactions(
     view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
+    currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     let state_changes = view_client_addr
         .send(
@@ -167,8 +169,12 @@ pub(crate) async fn convert_block_to_transactions(
     let runtime_config = crate::utils::query_protocol_config(block.header.hash, view_client_addr)
         .await?
         .runtime_config;
-    let exec_to_rx =
-        transactions::ExecutionToReceipts::for_block(view_client_addr, block.header.hash).await?;
+    let exec_to_rx = transactions::ExecutionToReceipts::for_block(
+        &view_client_addr,
+        block.header.hash,
+        currencies,
+    )
+    .await?;
     transactions::convert_block_changes_to_transactions(
         view_client_addr,
         &runtime_config,
@@ -185,11 +191,12 @@ pub(crate) async fn collect_transactions(
     genesis: &Genesis,
     view_client_addr: &Addr<ViewClientActor>,
     block: &near_primitives::views::BlockView,
+    currencies: &Option<Vec<crate::models::Currency>>,
 ) -> crate::errors::Result<Vec<crate::models::Transaction>> {
     if block.header.prev_hash == Default::default() {
         Ok(vec![convert_genesis_records_to_transaction(genesis, view_client_addr, block).await?])
     } else {
-        convert_block_to_transactions(view_client_addr, block).await
+        convert_block_to_transactions(view_client_addr, block, currencies).await
     }
 }
 

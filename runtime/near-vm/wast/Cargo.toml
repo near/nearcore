@@ -11,6 +11,9 @@ readme = "README.md"
 edition = "2021"
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 near-vm-test-api.workspace = true

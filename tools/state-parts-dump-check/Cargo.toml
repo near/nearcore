@@ -1,0 +1,51 @@
+[package]
+name = "near-state-parts-dump-check"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+actix-web.workspace = true
+actix.workspace = true
+anyhow.workspace = true
+borsh.workspace = true
+clap.workspace = true
+cloud-storage.workspace = true
+near-primitives.workspace = true
+nearcore.workspace = true
+near-store.workspace = true
+near-client.workspace = true
+near-jsonrpc.workspace = true
+near-primitives-core.workspace = true
+near-o11y.workspace = true
+once_cell.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-client/nightly",
+  "near-jsonrpc/nightly",
+  "near-o11y/nightly",
+  "near-primitives-core/nightly",
+  "near-primitives/nightly",
+  "near-store/nightly",
+  "nearcore/nightly",
+]
+nightly_protocol = [
+  "near-client/nightly_protocol",
+  "near-jsonrpc/nightly_protocol",
+  "near-o11y/nightly_protocol",
+  "near-primitives-core/nightly_protocol",
+  "near-primitives/nightly_protocol",
+  "near-store/nightly_protocol",
+  "nearcore/nightly_protocol",
+]

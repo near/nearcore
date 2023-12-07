@@ -422,6 +422,24 @@ pub(crate) static STATE_SYNC_RETRY_PART: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static STATE_SYNC_HEADER_ERROR: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_header_error_total",
+        "Number of state sync header requests resulting in an error",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_HEADER_TIMEOUT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_state_sync_header_timeout_total",
+        "Number of state sync header requests timing out",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_PARTS_DONE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_parts_done",

@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix-cors.workspace = true
 actix-web.workspace = true

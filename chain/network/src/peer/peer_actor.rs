@@ -2,10 +2,12 @@ use crate::accounts_data::AccountDataError;
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
 use crate::config::PEERS_RESPONSE_MAX_PEERS;
+use crate::network_protocol::SnapshotHostInfoVerificationError;
 use crate::network_protocol::{
     DistanceVector, Edge, EdgeState, Encoding, OwnedAccount, ParsePeerMessageError,
     PartialEdgeInfo, PeerChainInfoV2, PeerIdOrHash, PeerInfo, PeersRequest, PeersResponse,
     RawRoutedMessage, RoutedMessageBody, RoutingTableUpdate, StateResponseInfo, SyncAccountsData,
+    SyncSnapshotHosts,
 };
 use crate::peer::stream;
 use crate::peer::tracker::Tracker;
@@ -17,6 +19,7 @@ use crate::private_actix::{RegisterPeerError, SendMessage};
 use crate::routing::edge::verify_nonce;
 use crate::routing::NetworkTopologyChange;
 use crate::shards_manager::ShardsManagerRequestFromNetwork;
+use crate::snapshot_hosts::SnapshotHostInfoError;
 use crate::stats::metrics;
 use crate::tcp;
 use crate::types::{
@@ -399,6 +402,9 @@ impl PeerActor {
                     metrics::bool_to_str(d.requesting_full_sync),
                 ])
                 .inc(),
+            PeerMessage::SyncSnapshotHosts(_) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
+            }
             _ => (),
         };
 
@@ -635,6 +641,9 @@ impl PeerActor {
             send_accounts_data_demux: demux::Demux::new(
                 self.network_state.config.accounts_data_broadcast_rate_limit,
             ),
+            send_snapshot_hosts_demux: demux::Demux::new(
+                self.network_state.config.snapshot_hosts_broadcast_rate_limit,
+            ),
         });
 
         let tracker = self.tracker.clone();
@@ -778,6 +787,8 @@ impl PeerActor {
                             }
                             // Sync the RoutingTable.
                             act.sync_routing_table();
+                            // Sync snapshot hosts
+                            act.sync_snapshot_hosts();
                         }
 
                         act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
@@ -808,6 +819,12 @@ impl PeerActor {
             known_edges,
             known_accounts,
         )));
+    }
+
+    // Send all known snapshot hosts.
+    fn sync_snapshot_hosts(&self) {
+        let hosts = self.network_state.snapshot_hosts.get_hosts();
+        self.send_message_or_log(&PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts }));
     }
 
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
@@ -906,7 +923,12 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        let _span = tracing::trace_span!(target: "network", "receive_routed_message").entered();
+        let _span = tracing::trace_span!(
+            target: "network",
+            "receive_routed_message",
+            "type" = <&RoutedMessageBody as Into<&'static str>>::into(&body)
+        )
+        .entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -1083,7 +1105,9 @@ impl PeerActor {
     ) {
         let _span = tracing::trace_span!(
             target: "network",
-            "handle_msg_ready")
+            "handle_msg_ready",
+            "type" = <&PeerMessage as Into<&'static str>>::into(&peer_msg)
+        )
         .entered();
 
         // Clones message iff someone is listening on the sink. Should be in tests only.
@@ -1251,6 +1275,29 @@ impl PeerActor {
                     message_processed_event();
                 }));
             }
+            PeerMessage::SyncSnapshotHosts(msg) => {
+                metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["received"]).inc();
+                // Early exit, if there is no data in the message.
+                if msg.hosts.is_empty() {
+                    message_processed_event();
+                    return;
+                }
+                let network_state = self.network_state.clone();
+                ctx.spawn(wrap_future(async move {
+                    if let Some(err) = network_state.add_snapshot_hosts(msg.hosts).await {
+                        conn.stop(Some(match err {
+                            SnapshotHostInfoError::VerificationError(
+                                SnapshotHostInfoVerificationError::InvalidSignature,
+                            ) => ReasonForBan::InvalidSignature,
+                            SnapshotHostInfoError::VerificationError(
+                                SnapshotHostInfoVerificationError::TooManyShards(_),
+                            )
+                            | SnapshotHostInfoError::DuplicatePeerId => ReasonForBan::Abusive,
+                        }));
+                    }
+                    message_processed_event();
+                }));
+            }
             PeerMessage::Routed(mut msg) => {
                 tracing::trace!(
                     target: "network",
@@ -1348,9 +1395,18 @@ impl PeerActor {
         rtu: RoutingTableUpdate,
     ) {
         let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
-        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges).await {
+        if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
             conn.stop(Some(ban_reason));
         }
+
+        // Also pass the edges to the V2 routing table
+        if let Err(ban_reason) = network_state
+            .update_routes(&clock, NetworkTopologyChange::EdgeNonceRefresh(rtu.edges))
+            .await
+        {
+            conn.stop(Some(ban_reason));
+        }
+
         // For every announce we received, we fetch the last announce with the same account_id
         // that we already broadcasted. Client actor will both verify signatures of the received announces
         // as well as filter out those which are older than the fetched ones (to avoid overriding

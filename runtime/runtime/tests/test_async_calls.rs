@@ -1,5 +1,5 @@
 use crate::runtime_group_tools::RuntimeGroup;
-use borsh::ser::BorshSerialize;
+
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
 use near_primitives::hash::CryptoHash;
@@ -614,7 +614,7 @@ fn test_create_account_with_transfer_and_full_key() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
         }, "id": 0 }
     ]);
@@ -687,7 +687,7 @@ fn test_account_factory() {
         }, "id": 0 },
         {"action_add_key_with_function_call": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
             "allowance": (TESTING_INIT_BALANCE / 2).to_string(),
             "receiver_id": "near_1",
@@ -766,7 +766,7 @@ fn test_account_factory() {
                      ReceiptEnum::Action(ActionReceipt{actions, output_data_receivers, ..}), {
                         assert_eq!(output_data_receivers.len(), 1);
                         data_id = output_data_receivers[0].data_id;
-                        assert_eq!(output_data_receivers[0].receiver_id.as_ref(), "near_2");
+                        assert_eq!(output_data_receivers[0].receiver_id, "near_2");
                      },
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},
@@ -844,7 +844,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_add_key_with_full_access": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 1,
         }, "id": 0 },
         {"action_deploy_contract": {
@@ -868,7 +868,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
         }, "id": 0 },
         {"action_delete_key": {
             "promise_index": 0,
-            "public_key": to_base64(&signer_new_account.public_key.try_to_vec().unwrap()),
+            "public_key": to_base64(&borsh::to_vec(&signer_new_account.public_key).unwrap()),
             "nonce": 0,
         }, "id": 0 },
         {"action_delete_account": {
@@ -929,7 +929,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
                         assert_eq!(delete_key_action.public_key, signer_new_account.public_key);
                      },
                      a6, Action::DeleteAccount(DeleteAccountAction{beneficiary_id}), {
-                        assert_eq!(beneficiary_id.as_ref(), "near_2");
+                        assert_eq!(beneficiary_id, "near_2");
                      }
                      => [r2, r3, ref1] );
 
@@ -1000,7 +1000,7 @@ fn test_transfer_64len_hex() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::Transfer(TransferAction{deposit}), {
@@ -1066,7 +1066,7 @@ fn test_create_transfer_64len_hex_fail() {
                         assert_eq!(function_call_action.deposit, 0);
                      }
                      => [r1, ref0] );
-    assert_receipts!(group, "near_1" => r1 @ account_id.as_ref(),
+    assert_receipts!(group, "near_1" => r1 @ account_id.as_str(),
                      ReceiptEnum::Action(ActionReceipt{actions, ..}), {},
                      actions,
                      a0, Action::CreateAccount(CreateAccountAction{}), {},

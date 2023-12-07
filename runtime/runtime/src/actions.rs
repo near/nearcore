@@ -5,7 +5,7 @@ use crate::config::{
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
-use borsh::BorshSerialize;
+
 use near_crypto::PublicKey;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
@@ -18,16 +18,19 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction,
+    FunctionCallAction, StakeAction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
 };
-use near_primitives::utils::create_random_seed;
+use near_primitives::utils::{
+    account_is_implicit, create_random_seed, wallet_contract_placeholder,
+};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
+use near_primitives_core::account::id::AccountType;
 use near_primitives_core::config::ActionCosts;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
@@ -83,9 +86,7 @@ pub(crate) fn execute_function_call(
     let context = VMContext {
         current_account_id: runtime_ext.account_id().clone(),
         signer_account_id: action_receipt.signer_id.clone(),
-        signer_account_pk: action_receipt
-            .signer_public_key
-            .try_to_vec()
+        signer_account_pk: borsh::to_vec(&action_receipt.signer_public_key)
             .expect("Failed to serialize"),
         predecessor_account_id: predecessor_id.clone(),
         input: function_call.args.clone(),
@@ -446,12 +447,15 @@ pub(crate) fn action_create_account(
     ));
 }
 
+/// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
+    transfer: &TransferAction,
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
@@ -459,42 +463,82 @@ pub(crate) fn action_implicit_account_creation_transfer(
 ) {
     *actor_id = account_id.clone();
 
-    let mut access_key = AccessKey::full_access();
-    // Set default nonce for newly created access key to avoid transaction hash collision.
-    // See <https://github.com/near/nearcore/issues/3779>.
-    if checked_feature!("stable", AccessKeyNonceForImplicitAccounts, current_protocol_version) {
-        access_key.nonce = (block_height - 1)
-            * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+    match account_id.get_account_type() {
+        AccountType::NearImplicitAccount => {
+            let mut access_key = AccessKey::full_access();
+            // Set default nonce for newly created access key to avoid transaction hash collision.
+            // See <https://github.com/near/nearcore/issues/3779>.
+            if checked_feature!(
+                "stable",
+                AccessKeyNonceForImplicitAccounts,
+                current_protocol_version
+            ) {
+                access_key.nonce = (block_height - 1)
+                    * near_primitives::account::AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
+            }
+
+            // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
+            let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
+
+            // TODO(jakmeier): feature flag?
+            let refundable_balance;
+            let nonrefundable_balance;
+            if nonrefundable {
+                refundable_balance = 0;
+                nonrefundable_balance = deposit;
+            } else {
+                refundable_balance = deposit;
+                nonrefundable_balance = 0;
+            }
+
+            *account = Some(Account::new(
+                refundable_balance,
+                0,
+                nonrefundable_balance,
+                CryptoHash::default(),
+                fee_config.storage_usage_config.num_bytes_account
+                    + public_key.len() as u64
+                    + borsh::object_length(&access_key).unwrap() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record,
+            ));
+
+            set_access_key(state_update, account_id.clone(), public_key, &access_key);
+        }
+        // Invariant: The `account_id` is implicit.
+        // It holds because in the only calling site, we've checked the permissions before.
+        AccountType::EthImplicitAccount => {
+            if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
+                // TODO(eth-implicit) Use real Wallet Contract.
+                let wallet_contract = wallet_contract_placeholder();
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + fee_config.storage_usage_config.num_extra_bytes_record
+                    + wallet_contract.code().len() as u64;
+
+                *account =
+                    Some(Account::new(transfer.deposit, 0, 0, *wallet_contract.hash(), storage_usage));
+
+                // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
+                set_code(state_update, account_id.clone(), &wallet_contract);
+                // Precompile the contract and store result (compiled code or error) in the database.
+                // Note, that contract compilation costs are already accounted in deploy cost using
+                // special logic in estimator (see get_runtime_config() function).
+                precompile_contract(
+                    &wallet_contract,
+                    &apply_state.config.wasm_config,
+                    apply_state.cache.as_deref(),
+                )
+                .ok();
+            } else {
+                // This panic is unreachable as this is an implicit account creation transfer.
+                // `check_account_existence` would fail because in this protocol version `account_is_implicit`
+                // would return false for an account that is of the ETH-implicit type.
+                panic!("must be near-implicit");
+            }
+        }
+        // This panic is unreachable as this is an implicit account creation transfer.
+        // `check_account_existence` would fail because `account_is_implicit` would return false for a Named account.
+        AccountType::NamedAccount => panic!("must be implicit"),
     }
-
-    // Invariant: The account_id is hex like (implicit account id).
-    // It holds because in the only calling site, we've checked the permissions before.
-    // unwrap: Can only fail if `account_id` is not implicit.
-    let public_key = PublicKey::from_implicit_account(account_id).unwrap();
-
-    // TODO(jakmeier): feature flag?
-    let refundable_balance;
-    let nonrefundable_balance;
-    if nonrefundable {
-        refundable_balance = 0;
-        nonrefundable_balance = deposit;
-    } else {
-        refundable_balance = deposit;
-        nonrefundable_balance = 0;
-    }
-
-    *account = Some(Account::new(
-        refundable_balance,
-        0,
-        nonrefundable_balance,
-        CryptoHash::default(),
-        fee_config.storage_usage_config.num_bytes_account
-            + public_key.len() as u64
-            + access_key.try_to_vec().unwrap().len() as u64
-            + fee_config.storage_usage_config.num_extra_bytes_record,
-    ));
-
-    set_access_key(state_update, account_id.clone(), public_key, &access_key);
 }
 
 pub(crate) fn action_deploy_contract(
@@ -581,12 +625,12 @@ pub(crate) fn action_delete_key(
         let storage_usage_config = &fee_config.storage_usage_config;
         let storage_usage = if current_protocol_version >= DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION
         {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + access_key.try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&access_key).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         } else {
-            delete_key.public_key.try_to_vec().unwrap().len() as u64
-                + Some(access_key).try_to_vec().unwrap().len() as u64
+            borsh::object_length(&delete_key.public_key).unwrap() as u64
+                + borsh::object_length(&Some(access_key)).unwrap() as u64
                 + storage_usage_config.num_extra_bytes_record
         };
         // Remove access key
@@ -636,8 +680,8 @@ pub(crate) fn action_add_key(
         account
             .storage_usage()
             .checked_add(
-                add_key.public_key.try_to_vec().unwrap().len() as u64
-                    + add_key.access_key.try_to_vec().unwrap().len() as u64
+                borsh::object_length(&add_key.public_key).unwrap() as u64
+                    + borsh::object_length(&add_key.access_key).unwrap() as u64
                     + storage_config.num_extra_bytes_record,
             )
             .ok_or_else(|| {
@@ -815,7 +859,7 @@ fn validate_delegate_action_key(
                 )
                 .into());
             }
-            if delegate_action.receiver_id.as_ref() != function_call_permission.receiver_id {
+            if delegate_action.receiver_id != function_call_permission.receiver_id {
                 result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                     InvalidAccessKeyError::ReceiverMismatch {
                         tx_receiver: delegate_action.receiver_id.clone(),
@@ -901,7 +945,7 @@ pub(crate) fn check_actor_permissions(
 
 pub(crate) fn check_account_existence(
     action: &Action,
-    account: &mut Option<Account>,
+    account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
     is_the_only_action: bool,
@@ -921,14 +965,16 @@ pub(crate) fn check_account_existence(
                 .into());
             } else {
                 // TODO: this should be `config.implicit_account_creation`.
-                if config.wasm_config.implicit_account_creation && account_id.is_implicit() {
-                    // If the account doesn't exist and it's 64-length hex account ID, then you
+                if config.wasm_config.implicit_account_creation
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
+                {
+                    // If the account doesn't exist and it's implicit, then you
                     // should only be able to create it using single transfer action.
                     // Because you should not be able to add another access key to the account in
                     // the same transaction.
                     // Otherwise you can hijack an account without having the private key for the
                     // public key. We've decided to make it an invalid transaction to have any other
-                    // actions on the 64-length hex accounts.
+                    // actions on the implicit hex accounts.
                     // The easiest way is to reject the `CreateAccount` action.
                     // See https://github.com/nearprotocol/NEPs/pull/71
                     return Err(ActionErrorKind::OnlyImplicitAccountCreationAllowed {
@@ -940,12 +986,24 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return check_transfer_to_nonexisting_account(
-                    config,
-                    is_the_only_action,
-                    account_id,
-                    is_refund,
-                );
+                return if config.wasm_config.implicit_account_creation
+                    && is_the_only_action
+                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
+                    && !is_refund
+                {
+                    // OK. It's implicit account creation.
+                    // Notes:
+                    // - The transfer action has to be the only action in the transaction to avoid
+                    // abuse by hijacking this account with other public keys or contracts.
+                    // - Refunds don't automatically create accounts, because refunds are free and
+                    // we don't want some type of abuse.
+                    // - Account deletion with beneficiary creates a refund, so it'll not create a
+                    // new account.
+                    Ok(())
+                } else {
+                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
+                        .into())
+                };
             }
         }
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -1006,7 +1064,7 @@ fn check_transfer_to_nonexisting_account(
 ) -> Result<(), ActionError> {
     if config.wasm_config.implicit_account_creation
         && is_the_only_action
-        && account_id.is_implicit()
+        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts) 
         && !is_refund
     {
         // OK. It's implicit account creation.
@@ -1037,7 +1095,7 @@ mod tests {
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
     use near_store::set_account;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
 
     fn test_action_create_account(
@@ -1164,7 +1222,7 @@ mod tests {
 
     #[test]
     fn test_delete_account_too_large() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let action_result = test_delete_large_account(
@@ -1185,7 +1243,7 @@ mod tests {
     }
 
     fn test_delete_account_with_contract(storage_usage: u64) -> ActionResult {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account_id = "alice".parse::<AccountId>().unwrap();
@@ -1279,7 +1337,7 @@ mod tests {
         public_key: &PublicKey,
         access_key: &AccessKey,
     ) -> TrieUpdate {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
         let account = Account::new(100, 0, 0, CryptoHash::default(), 100);

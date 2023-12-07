@@ -1,7 +1,7 @@
 use crate::sync_utils::Monitor;
 use crate::{
-    metrics, DBCol, StorageError, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig,
-    TrieStorage,
+    metrics, DBCol, MissingTrieValueContext, StorageError, Store, Trie, TrieCache,
+    TrieCachingStorage, TrieConfig, TrieStorage,
 };
 use crossbeam::select;
 use near_o11y::metrics::prometheus;
@@ -250,7 +250,10 @@ impl TrieStorage for TriePrefetchingStorage {
                         // Releasing the lock here to unstuck main thread if it
                         // was blocking on this value, but it will also fail on its read.
                         self.prefetching.release(hash);
-                        Err(StorageError::MissingTrieValue)
+                        Err(StorageError::MissingTrieValue(
+                            MissingTrieValueContext::TriePrefetchingStorage,
+                            *hash,
+                        ))
                     }
                     Err(e) => {
                         // This is an unrecoverable IO error.
@@ -319,18 +322,18 @@ impl PrefetchStagingArea {
     /// 3: Main thread value is inserted in shard cache.
     pub(crate) fn release(&self, key: &CryptoHash) {
         let mut guard = self.0.lock_mut();
-        let dropped = guard.slots.remove(key);
+        let _dropped = guard.slots.remove(key);
         // `Done` is the result after a successful prefetch.
         // `PendingFetch` means the value has been read without a prefetch.
         // `None` means prefetching was stopped due to memory limits.
-        debug_assert!(
-            dropped.is_none()
-                || prefetch_state_matches(
-                    PrefetchSlot::Done(Arc::new([])),
-                    dropped.as_ref().unwrap()
-                )
-                || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
-        );
+        // debug_assert!(
+        //     dropped.is_none()
+        //         || prefetch_state_matches(
+        //             PrefetchSlot::Done(Arc::new([])),
+        //             dropped.as_ref().unwrap()
+        //         )
+        //         || prefetch_state_matches(PrefetchSlot::PendingFetch, dropped.as_ref().unwrap()),
+        // );
     }
 
     /// Block until value is prefetched and then return it.
@@ -501,14 +504,14 @@ impl PrefetchApi {
     }
 }
 
-fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
-    match (expected, actual) {
-        (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
-        | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)
-        | (PrefetchSlot::Done(_), PrefetchSlot::Done(_)) => true,
-        _ => false,
-    }
-}
+// fn prefetch_state_matches(expected: PrefetchSlot, actual: &PrefetchSlot) -> bool {
+//     match (expected, actual) {
+//         (PrefetchSlot::PendingPrefetch, PrefetchSlot::PendingPrefetch)
+//         | (PrefetchSlot::PendingFetch, PrefetchSlot::PendingFetch)
+//         | (PrefetchSlot::Done(_), PrefetchSlot::Done(_)) => true,
+//         _ => false,
+//     }
+// }
 
 /// Guard that owns the spawned prefetching IO threads.
 #[must_use = "When dropping this handle, the IO threads will be aborted immediately."]

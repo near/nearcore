@@ -20,6 +20,7 @@ use near_primitives::types::{
     ValidatorId, ValidatorKickoutReason,
 };
 use near_primitives::utils::get_num_seats_per_shard;
+use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 
@@ -104,9 +105,18 @@ pub fn epoch_info_with_num_seats(
             })
             .collect()
     };
+    let all_validators = account_to_validators(accounts);
+    let validator_mandates = {
+        // TODO(#10014) determine required stake per mandate instead of reusing seat price.
+        // TODO(#10014) determine `min_mandates_per_shard`
+        let num_shards = chunk_producers_settlement.len();
+        let min_mandates_per_shard = 0;
+        let config = ValidatorMandatesConfig::new(seat_price, min_mandates_per_shard, num_shards);
+        ValidatorMandates::new(config, &all_validators)
+    };
     EpochInfo::new(
         epoch_height,
-        account_to_validators(accounts),
+        all_validators,
         validator_to_index,
         block_producers_settlement,
         chunk_producers_settlement,
@@ -120,6 +130,7 @@ pub fn epoch_info_with_num_seats(
         seat_price,
         PROTOCOL_VERSION,
         TEST_SEED,
+        validator_mandates,
     )
 }
 
@@ -154,7 +165,7 @@ pub fn epoch_config_with_production_config(
         shard_layout: ShardLayout::v0(num_shards, 0),
         validator_max_kickout_stake_perc: 100,
     };
-    AllEpochConfig::new(use_production_config, epoch_config)
+    AllEpochConfig::new(use_production_config, epoch_config, "test-chain")
 }
 
 pub fn epoch_config(

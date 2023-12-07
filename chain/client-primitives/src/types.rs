@@ -1,6 +1,4 @@
 use actix::Message;
-use ansi_term::Color::Purple;
-use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
@@ -15,15 +13,17 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    SyncStatusView,
+    GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tracing::debug_span;
+use yansi::Color::Magenta;
+use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -46,13 +46,6 @@ impl From<near_primitives::errors::EpochError> for Error {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, PartialEq)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
@@ -61,7 +54,7 @@ pub struct DownloadStatus {
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
-    pub last_target: Option<AccountOrPeerIdOrHash>,
+    pub last_target: Option<PeerId>,
 }
 
 impl DownloadStatus {
@@ -224,7 +217,7 @@ pub fn format_shard_sync_phase(
     match &shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",
-            paint("HEADER", Purple.bold(), use_colour),
+            paint("HEADER", Magenta.style().bold(), use_colour),
             shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
             shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
         ),
@@ -283,8 +276,12 @@ pub enum SyncStatus {
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync {
+        /// Header head height at the beginning.
+        /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
+        /// Current header head height.
         current_height: BlockHeight,
+        /// Highest height of our peers.
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
@@ -328,6 +325,13 @@ impl SyncStatus {
             SyncStatus::BodySync { start_height, .. } => Some(*start_height),
             _ => None,
         }
+    }
+
+    pub fn update(&mut self, new_value: Self) {
+        let _span =
+            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+                .entered();
+        *self = new_value;
     }
 }
 
@@ -728,7 +732,7 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 }
 
 #[derive(Debug)]

@@ -48,6 +48,6 @@ impl From<ParseKeyTypeError> for ParseSignatureError {
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ImplicitPublicKeyError {
-    #[error("'{account_id}' is not an implicit account")]
-    AccountIsNotImplicit { account_id: AccountId },
+    #[error("'{account_id}' is not a NEAR-implicit account")]
+    AccountIsNotNearImplicit { account_id: AccountId },
 }

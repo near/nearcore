@@ -13,12 +13,11 @@ use paperclip::actix::{
 };
 use strum::IntoEnumIterator;
 
+pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
 use near_primitives::borsh::BorshDeserialize;
-
-pub use config::RosettaRpcConfig;
 
 mod adapters;
 mod config;
@@ -203,6 +202,7 @@ async fn block_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
+    currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockRequest>,
 ) -> Result<Json<models::BlockResponse>, models::Error> {
     let Json(models::BlockRequest { network_identifier, block_identifier }) = body;
@@ -233,9 +233,13 @@ async fn block_details(
         (&parent_block).into()
     };
 
-    let transactions =
-        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
-            .await?;
+    let transactions = crate::adapters::collect_transactions(
+        &genesis.genesis,
+        view_client_addr.get_ref(),
+        &block,
+        currencies.get_ref(),
+    )
+    .await?;
 
     Ok(Json(models::BlockResponse {
         block: Some(models::Block {
@@ -273,6 +277,7 @@ async fn block_transaction_details(
     genesis: web::Data<GenesisWithIdentifier>,
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
+    currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::BlockTransactionRequest>,
 ) -> Result<Json<models::BlockTransactionResponse>, models::Error> {
     let Json(models::BlockTransactionRequest {
@@ -289,12 +294,16 @@ async fn block_transaction_details(
         .await?
         .ok_or_else(|| errors::ErrorKind::NotFound("Block not found".into()))?;
 
-    let transaction =
-        crate::adapters::collect_transactions(&genesis.genesis, view_client_addr.get_ref(), &block)
-            .await?
-            .into_iter()
-            .find(|transaction| transaction.transaction_identifier == transaction_identifier)
-            .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
+    let transaction = crate::adapters::collect_transactions(
+        &genesis.genesis,
+        view_client_addr.get_ref(),
+        &block,
+        currencies.get_ref(),
+    )
+    .await?
+    .into_iter()
+    .find(|transaction| transaction.transaction_identifier == transaction_identifier)
+    .ok_or_else(|| errors::ErrorKind::NotFound("Transaction not found".into()))?;
 
     Ok(Json(models::BlockTransactionResponse { transaction }))
 }
@@ -319,12 +328,16 @@ async fn block_transaction_details(
 async fn account_balance(
     client_addr: web::Data<Addr<ClientActor>>,
     view_client_addr: web::Data<Addr<ViewClientActor>>,
+    currencies: web::Data<Option<Vec<models::Currency>>>,
     body: Json<models::AccountBalanceRequest>,
 ) -> Result<Json<models::AccountBalanceResponse>, models::Error> {
+    let config_currencies = currencies;
+
     let Json(models::AccountBalanceRequest {
         network_identifier,
         block_identifier,
         account_identifier,
+        currencies,
     }) = body;
 
     check_network_identifier(&client_addr, network_identifier).await?;
@@ -347,6 +360,7 @@ async fn account_balance(
             .runtime_config;
 
     let account_id_for_access_key = account_identifier.address.clone();
+    let account_identifier_for_ft = account_identifier.clone();
     let account_id = account_identifier.address.into();
     let (block_hash, block_height, account_info) =
         match crate::utils::query_account(block_id, account_id, &view_client_addr).await {
@@ -384,11 +398,53 @@ async fn account_balance(
     } else {
         None
     };
-    Ok(Json(models::AccountBalanceResponse {
-        block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
-        balances: vec![models::Amount::from_yoctonear(balance)],
-        metadata: nonces,
-    }))
+    if let Some(currencies) = currencies {
+        let mut balances: Vec<models::Amount> = Vec::default();
+        for currency in currencies {
+            let ft_balance = crate::adapters::nep141::get_fungible_token_balance_for_account(
+                &view_client_addr,
+                &block.header,
+                &currency
+                    .clone()
+                    .metadata
+                    .or_else(|| {
+                        // retrieve contract address from global config if not provided in query
+                        config_currencies.as_ref().clone().and_then(|currencies| {
+                            currencies.iter().find_map(|c| {
+                                if c.symbol == currency.symbol {
+                                    c.metadata.clone()
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                    })
+                    .ok_or_else(|| {
+                        errors::ErrorKind::NotFound(format!(
+                            "Unknown currency `{}`, try providing the contract address",
+                            currency.symbol
+                        ))
+                    })?
+                    .contract_address
+                    .clone(),
+                &account_identifier_for_ft,
+            )
+            .await?;
+            balances.push(models::Amount::from_fungible_token(ft_balance, currency))
+        }
+        balances.push(models::Amount::from_yoctonear(balance));
+        Ok(Json(models::AccountBalanceResponse {
+            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+            balances,
+            metadata: nonces,
+        }))
+    } else {
+        Ok(Json(models::AccountBalanceResponse {
+            block_identifier: models::BlockIdentifier::new(block_height, &block_hash),
+            balances: vec![models::Amount::from_yoctonear(balance)],
+            metadata: nonces,
+        }))
+    }
 }
 
 #[api_v2_operation]
@@ -789,7 +845,7 @@ pub fn start_rosetta_rpc(
     client_addr: Addr<ClientActor>,
     view_client_addr: Addr<ViewClientActor>,
 ) -> actix_web::dev::ServerHandle {
-    let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits } = config;
+    let crate::config::RosettaRpcConfig { addr, cors_allowed_origins, limits, currencies } = config;
     let block_id = models::BlockIdentifier::new(genesis.config.genesis_height, genesis_block_hash);
     let genesis = Arc::new(GenesisWithIdentifier { genesis, block_id });
     let server = HttpServer::new(move || {
@@ -811,6 +867,7 @@ pub fn start_rosetta_rpc(
             .app_data(web::Data::from(genesis.clone()))
             .app_data(web::Data::new(client_addr.clone()))
             .app_data(web::Data::new(view_client_addr.clone()))
+            .app_data(web::Data::new(currencies.clone()))
             .wrap(get_cors(&cors_allowed_origins))
             .wrap_api()
             .service(web::resource("/network/list").route(web::post().to(network_list)))

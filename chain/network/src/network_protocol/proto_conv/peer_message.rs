@@ -3,13 +3,14 @@ use super::*;
 
 use crate::network_protocol::proto::peer_message::Message_type as ProtoMT;
 use crate::network_protocol::proto::{self};
+use crate::network_protocol::state_sync::{SnapshotHostInfo, SyncSnapshotHosts};
 use crate::network_protocol::{
     AdvertisedPeerDistance, Disconnect, DistanceVector, PeerMessage, PeersRequest, PeersResponse,
     RoutingTableUpdate, SyncAccountsData,
 };
 use crate::network_protocol::{RoutedMessage, RoutedMessageV2};
 use crate::types::StateResponseInfo;
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_async::time::error::ComponentRange;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -113,11 +114,11 @@ impl TryFrom<&proto::DistanceVector> for DistanceVector {
 
 impl From<&BlockHeader> for proto::BlockHeader {
     fn from(x: &BlockHeader) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseBlockHeaderError = borsh::maybestd::io::Error;
+pub type ParseBlockHeaderError = std::io::Error;
 
 impl TryFrom<&proto::BlockHeader> for BlockHeader {
     type Error = ParseBlockHeaderError;
@@ -130,11 +131,11 @@ impl TryFrom<&proto::BlockHeader> for BlockHeader {
 
 impl From<&Block> for proto::Block {
     fn from(x: &Block) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseBlockError = borsh::maybestd::io::Error;
+pub type ParseBlockError = std::io::Error;
 
 impl TryFrom<&proto::Block> for Block {
     type Error = ParseBlockError;
@@ -147,16 +148,81 @@ impl TryFrom<&proto::Block> for Block {
 
 impl From<&StateResponseInfo> for proto::StateResponseInfo {
     fn from(x: &StateResponseInfo) -> Self {
-        Self { borsh: x.try_to_vec().unwrap(), ..Default::default() }
+        Self { borsh: borsh::to_vec(&x).unwrap(), ..Default::default() }
     }
 }
 
-pub type ParseStateInfoError = borsh::maybestd::io::Error;
+pub type ParseStateInfoError = std::io::Error;
 
 impl TryFrom<&proto::StateResponseInfo> for StateResponseInfo {
     type Error = ParseStateInfoError;
     fn try_from(x: &proto::StateResponseInfo) -> Result<Self, Self::Error> {
         Self::try_from_slice(&x.borsh)
+    }
+}
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseSnapshotHostInfoError {
+    #[error("peer_id {0}")]
+    PeerId(ParseRequiredError<ParsePublicKeyError>),
+    #[error("sync_hash {0}")]
+    SyncHash(ParseRequiredError<ParseCryptoHashError>),
+    #[error("signature {0}")]
+    Signature(ParseRequiredError<ParseSignatureError>),
+}
+
+impl From<&SnapshotHostInfo> for proto::SnapshotHostInfo {
+    fn from(x: &SnapshotHostInfo) -> Self {
+        Self {
+            peer_id: MF::some((&x.peer_id).into()),
+            sync_hash: MF::some((&x.sync_hash).into()),
+            epoch_height: x.epoch_height,
+            shards: x.shards.clone(),
+            signature: MF::some((&x.signature).into()),
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<&proto::SnapshotHostInfo> for SnapshotHostInfo {
+    type Error = ParseSnapshotHostInfoError;
+    fn try_from(x: &proto::SnapshotHostInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            peer_id: try_from_required(&x.peer_id).map_err(Self::Error::PeerId)?,
+            sync_hash: try_from_required(&x.sync_hash).map_err(Self::Error::SyncHash)?,
+            epoch_height: x.epoch_height,
+            shards: x.shards.clone(),
+            signature: try_from_required(&x.signature).map_err(Self::Error::Signature)?,
+        })
+    }
+}
+
+//////////////////////////////////////////
+
+#[derive(thiserror::Error, Debug)]
+pub enum ParseSyncSnapshotHostsError {
+    #[error("hosts {0}")]
+    Hosts(ParseVecError<ParseSnapshotHostInfoError>),
+}
+
+impl From<&SyncSnapshotHosts> for proto::SyncSnapshotHosts {
+    fn from(x: &SyncSnapshotHosts) -> Self {
+        Self { hosts: x.hosts.iter().map(|d| d.as_ref().into()).collect(), ..Default::default() }
+    }
+}
+
+impl TryFrom<&proto::SyncSnapshotHosts> for SyncSnapshotHosts {
+    type Error = ParseSyncSnapshotHostsError;
+    fn try_from(x: &proto::SyncSnapshotHosts) -> Result<Self, Self::Error> {
+        Ok(Self {
+            hosts: try_from_slice(&x.hosts)
+                .map_err(Self::Error::Hosts)?
+                .into_iter()
+                .map(Arc::new)
+                .collect(),
+        })
     }
 }
 
@@ -226,11 +292,11 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Transaction(t) => ProtoMT::Transaction(proto::SignedTransaction {
-                    borsh: t.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&t).unwrap(),
                     ..Default::default()
                 }),
                 PeerMessage::Routed(r) => ProtoMT::Routed(proto::RoutedMessage {
-                    borsh: r.msg.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r.msg).unwrap(),
                     created_at: MF::from_option(r.created_at.as_ref().map(utc_to_proto)),
                     num_hops: r.num_hops,
                     ..Default::default()
@@ -240,9 +306,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
                     ..Default::default()
                 }),
                 PeerMessage::Challenge(r) => ProtoMT::Challenge(proto::Challenge {
-                    borsh: r.try_to_vec().unwrap(),
+                    borsh: borsh::to_vec(&r).unwrap(),
                     ..Default::default()
                 }),
+                PeerMessage::SyncSnapshotHosts(ssh) => ProtoMT::SyncSnapshotHosts(ssh.into()),
                 PeerMessage::StateRequestHeader(shard_id, sync_hash) => {
                     ProtoMT::StateRequestHeader(proto::StateRequestHeader {
                         shard_id: *shard_id,
@@ -270,10 +337,10 @@ impl From<&PeerMessage> for proto::PeerMessage {
     }
 }
 
-pub type ParsePeersRequestError = borsh::maybestd::io::Error;
-pub type ParseTransactionError = borsh::maybestd::io::Error;
-pub type ParseRoutedError = borsh::maybestd::io::Error;
-pub type ParseChallengeError = borsh::maybestd::io::Error;
+pub type ParsePeersRequestError = std::io::Error;
+pub type ParseTransactionError = std::io::Error;
+pub type ParseRoutedError = std::io::Error;
+pub type ParseChallengeError = std::io::Error;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ParsePeerMessageError {
@@ -317,6 +384,8 @@ pub enum ParsePeerMessageError {
     SyncAccountsData(ParseVecError<ParseSignedAccountDataError>),
     #[error("state_response: {0}")]
     StateResponse(ParseRequiredError<ParseStateInfoError>),
+    #[error("sync_snapshot_hosts: {0}")]
+    SyncSnapshotHosts(ParseSyncSnapshotHostsError),
 }
 
 impl TryFrom<&proto::PeerMessage> for PeerMessage {
@@ -414,6 +483,9 @@ impl TryFrom<&proto::PeerMessage> for PeerMessage {
             ),
             ProtoMT::StateResponse(t) => PeerMessage::VersionedStateResponse(
                 try_from_required(&t.state_response_info).map_err(Self::Error::StateResponse)?,
+            ),
+            ProtoMT::SyncSnapshotHosts(srh) => PeerMessage::SyncSnapshotHosts(
+                srh.try_into().map_err(Self::Error::SyncSnapshotHosts)?,
             ),
         })
     }

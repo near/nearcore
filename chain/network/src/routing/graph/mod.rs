@@ -19,6 +19,7 @@ mod tests;
 // TODO: make it opaque, so that the key.0 < key.1 invariant is protected.
 type EdgeKey = (PeerId, PeerId);
 pub type NextHopTable = HashMap<PeerId, Vec<PeerId>>;
+pub type DistanceTable = HashMap<PeerId, u32>;
 
 #[derive(Clone)]
 pub struct GraphConfig {
@@ -32,6 +33,7 @@ pub struct GraphSnapshot {
     pub edges: im::HashMap<EdgeKey, Edge>,
     pub local_edges: HashMap<PeerId, Edge>,
     pub next_hops: Arc<NextHopTable>,
+    pub distances: Arc<DistanceTable>,
 }
 
 struct Inner {
@@ -246,7 +248,10 @@ impl Inner {
         if let Some(prune_edges_after) = self.config.prune_edges_after {
             self.prune_old_edges(clock.now_utc() - prune_edges_after);
         }
-        let next_hops = Arc::new(self.graph.calculate_distance(unreliable_peers));
+
+        let (next_hops, distances) = self.graph.calculate_next_hops_and_distance(unreliable_peers);
+        let next_hops = Arc::new(next_hops);
+        let distances = Arc::new(distances);
 
         // Update peer_reachable_at.
         let now = clock.now();
@@ -268,7 +273,7 @@ impl Inner {
         metrics::PEER_REACHABLE.set(next_hops.len() as i64);
         metrics::EDGE_ACTIVE.set(self.graph.total_active_edges() as i64);
         metrics::EDGE_TOTAL.set(self.edges.len() as i64);
-        GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops }
+        GraphSnapshot { edges: self.edges.clone(), local_edges, next_hops, distances }
     }
 }
 
@@ -345,7 +350,7 @@ impl Graph {
                 }
                 let snapshot = inner.update(&clock, &this.unreliable_peers.load());
                 let snapshot = Arc::new(snapshot);
-                this.routing_table.update(snapshot.next_hops.clone());
+                this.routing_table.update(snapshot.next_hops.clone(), snapshot.distances.clone());
                 this.snapshot.store(snapshot);
                 (new_edges, oks)
             })

@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -10,6 +9,7 @@ use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
 use nearcore::migrations::load_migration_data;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 
 const EPOCH_LENGTH: u64 = 5;
@@ -119,25 +119,25 @@ fn run_test(
 #[test]
 fn test_no_chunks_missing() {
     // If there are no chunks missing, all receipts should be applied
-    run_test("mainnet", 1, 0, true);
+    run_test(near_primitives::chains::MAINNET, 1, 0, true);
 }
 
 #[test]
 fn test_first_chunk_in_epoch_missing() {
     // If the first chunk in the first epoch with needed protocol version is missing,
     // all receipts should still be applied
-    run_test("mainnet", 8, 12, true);
+    run_test(near_primitives::chains::MAINNET, 8, 12, true);
 }
 
 #[test]
 fn test_all_chunks_in_epoch_missing() {
     // If all chunks are missing in the first epoch, no receipts should be applied
-    run_test("mainnet", 11, 11 + EPOCH_LENGTH, false);
+    run_test(near_primitives::chains::MAINNET, 11, 11 + EPOCH_LENGTH, false);
 }
 
 #[test]
 fn test_run_for_testnet() {
     // Run the same process for chain other than mainnet to ensure that blocks are produced
     // successfully during the protocol upgrade.
-    run_test("testnet", 1, 0, true);
+    run_test(near_primitives::chains::TESTNET, 1, 0, true);
 }

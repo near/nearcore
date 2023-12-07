@@ -10,8 +10,8 @@ deploy a contract. You might want to re-read [how to run a node](./run_a_node.md
 to understand what's going one here:
 
 ```console
-$ cargo run --profile quick-release -p neard -- init
-$ cargo run --profile quick-release -p neard -- run
+$ cargo run --profile dev-release -p neard -- init
+$ cargo run --profile dev-release -p neard -- run
 $ NEAR_ENV=local near create-account alice.test.near --masterAccount test.near
 ```
 

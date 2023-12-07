@@ -1,5 +1,6 @@
 use crate::config::TrieCacheConfig;
 use crate::StoreConfig;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
 use std::str::FromStr;
 use tracing::error;
@@ -20,7 +21,7 @@ pub(crate) const DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY: usize =
 const TRIE_LIMIT_CACHED_VALUE_SIZE: usize = 1000;
 
 /// Stores necessary configuration for the creation of tries.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct TrieConfig {
     pub shard_cache_config: TrieCacheConfig,
     pub view_shard_cache_config: TrieCacheConfig,
@@ -30,6 +31,9 @@ pub struct TrieConfig {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    /// List of shards we will load into memory.
+    pub load_mem_tries_for_shards: Vec<ShardUId>,
+    pub load_mem_tries_for_all_shards: bool,
 }
 
 impl TrieConfig {
@@ -53,6 +57,8 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
+        this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
+        this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
 
         this
     }

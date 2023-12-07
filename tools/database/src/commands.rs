@@ -1,7 +1,10 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
+use crate::analyse_gas_usage::AnalyseGasUsageCommand;
 use crate::compact::RunCompactionCommand;
+use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
+use crate::memtrie::LoadMemTrieCommand;
 use crate::run_migrations::RunMigrationsCommand;
 use crate::state_perf::StatePerfCommand;
 use clap::Parser;
@@ -19,11 +22,17 @@ enum SubCommand {
     /// Analyse data size distribution in RocksDB
     AnalyseDataSizeDistribution(AnalyseDataSizeDistributionCommand),
 
+    /// Analyse gas usage in a chosen sequnce of blocks
+    AnalyseGasUsage(AnalyseGasUsageCommand),
+
     /// Change DbKind of hot or cold db.
     ChangeDbKind(ChangeDbKindCommand),
 
     /// Run SST file compaction on database
     CompactDatabase(RunCompactionCommand),
+
+    /// Corrupt the state snapshot.
+    CorruptStateSnapshot(CorruptStateSnapshotCommand),
 
     /// Make snapshot of the database
     MakeSnapshot(MakeSnapshotCommand),
@@ -34,14 +43,19 @@ enum SubCommand {
     /// Run performance test for State column reads.
     /// Uses RocksDB data specified via --home argument.
     StatePerf(StatePerfCommand),
+
+    /// Loads an in-memory trie for research purposes.
+    LoadMemTrie(LoadMemTrieCommand),
 }
 
 impl DatabaseCommand {
     pub fn run(&self, home: &PathBuf) -> anyhow::Result<()> {
         match &self.subcmd {
             SubCommand::AnalyseDataSizeDistribution(cmd) => cmd.run(home),
+            SubCommand::AnalyseGasUsage(cmd) => cmd.run(home),
             SubCommand::ChangeDbKind(cmd) => cmd.run(home),
             SubCommand::CompactDatabase(cmd) => cmd.run(home),
+            SubCommand::CorruptStateSnapshot(cmd) => cmd.run(home),
             SubCommand::MakeSnapshot(cmd) => {
                 let near_config = nearcore::config::load_config(
                     &home,
@@ -52,6 +66,14 @@ impl DatabaseCommand {
             }
             SubCommand::RunMigrations(cmd) => cmd.run(home),
             SubCommand::StatePerf(cmd) => cmd.run(home),
+            SubCommand::LoadMemTrie(cmd) => {
+                let near_config = nearcore::config::load_config(
+                    &home,
+                    near_chain_configs::GenesisValidationMode::UnsafeFast,
+                )
+                .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
+                cmd.run(near_config, home)
+            }
         }
     }
 }

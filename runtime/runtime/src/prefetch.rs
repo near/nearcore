@@ -221,7 +221,7 @@ mod tests {
     use super::TriePrefetcher;
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::test_utils::{create_test_store, test_populate_trie};
-    use near_store::{ShardTries, ShardUId, Trie, TrieConfig};
+    use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
 
@@ -309,7 +309,13 @@ mod tests {
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new(store, trie_config, &shard_uids, flat_storage_manager);
+        let tries = ShardTries::new(
+            store,
+            trie_config,
+            &shard_uids,
+            flat_storage_manager,
+            StateSnapshotConfig::default(),
+        );
 
         let mut kvs = vec![];
 

@@ -10,6 +10,7 @@ mod delegate_action;
 mod fix_contract_loading_cost;
 mod fix_storage_usage;
 mod flat_storage;
+mod in_memory_tries;
 mod increase_deployment_cost;
 mod increase_storage_compute_cost;
 mod limit_contract_functions_number;
@@ -18,4 +19,5 @@ mod nearvm;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 mod nonrefundable_transfer;
 mod restore_receipts_after_fix_apply_chunks;
+mod restrict_tla;
 mod zero_balance_account;

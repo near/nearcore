@@ -8,13 +8,15 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "neard"
 
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
@@ -30,6 +32,7 @@ thiserror.workspace = true
 tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true
@@ -40,6 +43,7 @@ near-config-utils.workspace = true
 near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
+near-epoch-sync-tool = { workspace = true, optional = true }
 near-flat-storage.workspace = true
 near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
@@ -50,6 +54,7 @@ near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-state-parts.workspace = true
+near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
@@ -69,14 +74,12 @@ no_cache = ["nearcore/no_cache"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
-protocol_feature_simple_nightshade_v2 = ["nearcore/protocol_feature_simple_nightshade_v2"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
-new_epoch_sync = ["nearcore/new_epoch_sync"]
+new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
 
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
-  "protocol_feature_simple_nightshade_v2",
   "serialize_all_state_changes",
   "near-chain-configs/nightly",
   "near-client/nightly",
@@ -89,6 +92,7 @@ nightly = [
   "near-o11y/nightly",
   "near-ping/nightly",
   "near-primitives/nightly",
+  "near-state-parts-dump-check/nightly",
   "near-state-parts/nightly",
   "near-state-viewer/nightly",
   "near-store/nightly",
@@ -107,6 +111,7 @@ nightly_protocol = [
   "near-o11y/nightly_protocol",
   "near-ping/nightly_protocol",
   "near-primitives/nightly_protocol",
+  "near-state-parts-dump-check/nightly_protocol",
   "near-state-parts/nightly_protocol",
   "near-store/nightly_protocol",
   "near-undo-block/nightly_protocol",

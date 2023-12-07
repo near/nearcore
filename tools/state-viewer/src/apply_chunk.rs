@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{ApplyTransactionResult, RuntimeAdapter};
+use near_chain::types::{ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
@@ -10,7 +10,7 @@ use near_primitives::merkle::combine_hash;
 use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout;
 use near_primitives::sharding::{ChunkHash, ReceiptProof};
-use near_primitives::syncing::ReceiptProofResponse;
+use near_primitives::state_sync::ReceiptProofResponse;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives_core::hash::hash;
 use near_primitives_core::types::Gas;
@@ -101,7 +101,7 @@ pub(crate) fn apply_chunk(
         None => prev_height + 1,
     };
     let prev_timestamp = prev_block.header().raw_timestamp();
-    let gas_price = prev_block.header().gas_price();
+    let gas_price = prev_block.header().next_gas_price();
     let receipts = get_incoming_receipts(
         chain_store,
         epoch_manager,
@@ -130,7 +130,7 @@ pub(crate) fn apply_chunk(
     Ok((
         runtime.apply_transactions(
             shard_id,
-            &prev_state_root,
+            RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
             target_height,
             prev_timestamp + 1_000_000_000,
             prev_block_hash,
@@ -147,8 +147,6 @@ pub(crate) fn apply_chunk(
             hash("random seed".as_ref()),
             true,
             is_first_block_with_chunk_of_version,
-            Default::default(),
-            use_flat_storage,
         )?,
         chunk_header.gas_limit(),
     ))
@@ -163,7 +161,7 @@ fn find_tx_or_receipt(
     hash: &CryptoHash,
     block_hash: &CryptoHash,
     epoch_manager: &EpochManagerHandle,
-    chain_store: &mut ChainStore,
+    chain_store: &ChainStore,
 ) -> anyhow::Result<Option<(HashType, ShardId)>> {
     let block = chain_store.get_block(block_hash)?;
     let chunk_hashes = block.chunks().iter().map(|c| c.chunk_hash()).collect::<Vec<_>>();

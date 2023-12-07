@@ -1,9 +1,9 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
-use crate::trie::TrieRefcountChange;
+use crate::trie::TrieRefcountAddition;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
@@ -167,21 +167,21 @@ pub fn update_cold_head(
     // Write HEAD to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD_KEY to the cold db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         cold_db.write(transaction)?;
     }
 
     // Write COLD_HEAD to the hot db.
     {
         let mut transaction = DBTransaction::new();
-        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), tip.try_to_vec()?);
+        transaction.set(DBCol::BlockMisc, COLD_HEAD_KEY.to_vec(), borsh::to_vec(&tip)?);
         hot_store.storage.write(transaction)?;
 
         crate::metrics::COLD_HEAD_HEIGHT.set(*height as i64);
@@ -281,9 +281,10 @@ fn get_keys_from_store(
                 DBKeyType::PreviousBlockHash => {
                     vec![block.header().prev_hash().as_bytes().to_vec()]
                 }
-                DBKeyType::ShardId => {
-                    (0..shard_layout.num_shards()).map(|si| si.to_le_bytes().to_vec()).collect()
-                }
+                DBKeyType::ShardId => shard_layout
+                    .shard_ids()
+                    .map(|shard_id| shard_id.to_le_bytes().to_vec())
+                    .collect(),
                 DBKeyType::ShardUId => shard_layout
                     .get_shard_uids()
                     .iter()
@@ -345,7 +346,8 @@ fn get_keys_from_store(
                         DBCol::OutcomeIds.key_type(),
                         &[DBKeyType::BlockHash, DBKeyType::ShardId]
                     );
-                    (0..shard_layout.num_shards())
+                    shard_layout
+                        .shard_ids()
                         .map(|shard_id| {
                             store.get_ser(
                                 DBCol::OutcomeIds,
@@ -475,7 +477,11 @@ impl StoreWithCache<'_> {
         option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
     }
 
-    pub fn insert_state_to_cache_from_op(&mut self, op: &TrieRefcountChange, shard_uid_key: &[u8]) {
+    pub fn insert_state_to_cache_from_op(
+        &mut self,
+        op: &TrieRefcountAddition,
+        shard_uid_key: &[u8],
+    ) {
         debug_assert_eq!(
             DBCol::State.key_type(),
             &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]

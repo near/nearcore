@@ -1,4 +1,5 @@
 mod benchmarks;
+mod block_corruption;
 mod challenges;
 mod chunks_management;
 mod cold_storage;
@@ -7,10 +8,11 @@ mod epoch_sync;
 mod features;
 mod flat_storage;
 mod process_blocks;
+mod resharding;
 mod runtimes;
 #[cfg(feature = "sandbox")]
 mod sandbox;
-mod sharding_upgrade;
 mod state_dump;
+mod state_snapshot;
+mod sync_state_nodes;
 mod undo_block;
-mod utils;

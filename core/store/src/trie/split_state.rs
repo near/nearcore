@@ -319,12 +319,12 @@ pub fn get_delayed_receipts(
 mod tests {
     use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        create_tries, gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie,
+        gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie, TestTriesBuilder,
     };
 
     use crate::{set, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
-    use near_primitives::borsh::BorshSerialize;
+
     use near_primitives::hash::hash;
     use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
     use near_primitives::trie_key::TrieKey;
@@ -337,7 +337,7 @@ mod tests {
         let mut rng = rand::thread_rng();
 
         for _ in 0..20 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             // add 4 new shards for version 1
             let num_shards = 4;
             let mut state_root = Trie::EMPTY_ROOT;
@@ -385,7 +385,7 @@ mod tests {
             let all_receipts = gen_receipts(&mut rng, 200);
 
             // push receipt to trie
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
             let mut delayed_receipt_indices = DelayedReceiptIndices::default();
 
@@ -414,12 +414,14 @@ mod tests {
                 assert_eq!(receipts, all_receipts[start_index as usize..next_index as usize]);
                 start_index = next_index;
 
-                let total_memory_use = receipts
+                let total_memory_use: u64 = receipts
                     .iter()
-                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
-                let memory_use_without_last_receipt = receipts[..receipts.len() - 1]
+                    .map(|receipt| borsh::object_length(&receipt).unwrap() as u64)
+                    .sum();
+                let memory_use_without_last_receipt: u64 = receipts[..receipts.len() - 1]
                     .iter()
-                    .fold(0_u64, |sum, receipt| sum + receipt.try_to_vec().unwrap().len() as u64);
+                    .map(|receipt| borsh::object_length(&receipt).unwrap() as u64)
+                    .sum();
 
                 assert!(
                     total_memory_use >= memory_limit.as_u64()
@@ -473,7 +475,7 @@ mod tests {
     fn test_apply_delayed_receipts_to_new_states() {
         let mut rng = rand::thread_rng();
 
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let num_shards = 4;
 
         for _ in 0..10 {
@@ -494,8 +496,8 @@ mod tests {
                     &all_receipts[new_start_index..],
                     state_roots,
                     &|account_id| ShardUId {
-                        shard_id: (hash(account_id.as_ref().as_bytes()).0[0] as NumShards
-                            % num_shards) as u32,
+                        shard_id: (hash(account_id.as_bytes()).0[0] as NumShards % num_shards)
+                            as u32,
                         version: 1,
                     },
                 );

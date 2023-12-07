@@ -76,6 +76,19 @@ impl std::fmt::Display for RuntimeError {
 
 impl std::error::Error for RuntimeError {}
 
+/// Contexts in which `StorageError::MissingTrieValue` error might occur.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingTrieValueContext {
+    /// Missing trie value when reading from TrieIterator.
+    TrieIterator,
+    /// Missing trie value when reading from TriePrefetchingStorage.
+    TriePrefetchingStorage,
+    /// Missing trie value when reading from TrieMemoryPartialStorage.
+    TrieMemoryPartialStorage,
+    /// Missing trie value when reading from TrieStorage.
+    TrieStorage,
+}
+
 /// Errors which may occur during working with trie storages, storing
 /// trie values (trie nodes and state values) by their hashes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,8 +96,7 @@ pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
     /// Requested trie value by its hash which is missing in storage.
-    /// TODO (#8997): consider including hash of trie node.
-    MissingTrieValue,
+    MissingTrieValue(MissingTrieValueContext, CryptoHash),
     /// Found trie node which shouldn't be part of state. Raised during
     /// validation of state sync parts where incorrect node was passed.
     /// TODO (#8997): consider including hash of trie node.
@@ -99,6 +111,8 @@ pub enum StorageError {
     /// We guarantee that such block cannot become final, thus block processing
     /// must resume normally.
     FlatStorageBlockNotSupported(String),
+    /// In-memory trie could not be loaded for some reason.
+    MemTrieLoadingError(String),
 }
 
 impl std::fmt::Display for StorageError {
@@ -472,9 +486,9 @@ pub enum ActionErrorKind {
     /// Error occurs when a new `ActionReceipt` created by the `FunctionCall` action fails
     /// receipt validation.
     NewReceiptValidationError(ReceiptValidationError),
-    /// Error occurs when a `CreateAccount` action is called on hex-characters
-    /// account of length 64.  See implicit account creation NEP:
-    /// <https://github.com/nearprotocol/NEPs/pull/71>.
+    /// Error occurs when a `CreateAccount` action is called on a NEAR-implicit or ETH-implicit account.
+    /// See NEAR-implicit account creation NEP: <https://github.com/nearprotocol/NEPs/pull/71>.
+    /// Also, see ETH-implicit account creation NEP: <https://github.com/near/NEPs/issues/518>.
     ///
     /// TODO(#8598): This error is named very poorly. A better name would be
     /// `OnlyNamedAccountCreationAllowed`.
@@ -1194,5 +1208,30 @@ impl From<near_vm_runner::logic::errors::FunctionCallError> for FunctionCallErro
             FCE::LinkError { msg } => Self::ExecutionError(format!("Link Error: {}", msg)),
             FCE::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
         }
+    }
+}
+
+#[cfg(feature = "new_epoch_sync")]
+pub mod epoch_sync {
+    use near_primitives_core::hash::CryptoHash;
+    use near_primitives_core::types::EpochHeight;
+    use std::fmt::Debug;
+
+    #[derive(Eq, PartialEq, Clone, strum::Display, Debug)]
+    pub enum EpochSyncHashType {
+        LastEpochBlock,
+        LastFinalBlock,
+        FirstEpochBlock,
+        NextEpochFirstBlock,
+        Other,
+        BlockToSave,
+    }
+
+    #[derive(Eq, PartialEq, Clone, thiserror::Error, Debug)]
+    pub enum EpochSyncInfoError {
+        #[error("{hash_type} hash {hash:?} not a part of EpochSyncInfo for epoch {epoch_height}")]
+        HashNotFound { hash: CryptoHash, hash_type: EpochSyncHashType, epoch_height: EpochHeight },
+        #[error("all_block_hashes.len() < 2 for epoch {epoch_height}")]
+        ShortEpoch { epoch_height: EpochHeight },
     }
 }

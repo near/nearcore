@@ -497,8 +497,9 @@ mod tests {
     use near_primitives::types::AccountId;
     use near_store::test_utils::{
         create_test_store, test_populate_store, test_populate_store_rc, test_populate_trie,
+        TestTriesBuilder,
     };
-    use near_store::{DBCol, ShardTries, ShardUId, Store, Trie};
+    use near_store::{DBCol, ShardUId, Store, Trie};
     use std::fmt::Write;
 
     #[test]
@@ -639,7 +640,7 @@ mod tests {
         let store = create_test_store();
         test_populate_store(&store, store_data);
         test_populate_store_rc(&store, store_data_rc);
-        let tries = ShardTries::test_shard_version(store.clone(), 0, 1);
+        let tries = TestTriesBuilder::new().with_store(store.clone()).build();
         let root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_data);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
@@ -696,11 +697,7 @@ mod tests {
         key: &impl BorshSerialize,
         value: &impl BorshSerialize,
     ) -> (DBCol, Vec<u8>, Vec<u8>) {
-        (
-            col,
-            borsh::ser::BorshSerialize::try_to_vec(key).unwrap(),
-            borsh::ser::BorshSerialize::try_to_vec(value).unwrap(),
-        )
+        (col, borsh::to_vec(key).unwrap(), borsh::to_vec(value).unwrap())
     }
 
     /// A filter that collects all data.

@@ -64,7 +64,7 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_id`. The function also checks that
+    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
     /// the shard's flat storage state hasn't been set before, otherwise it panics.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
@@ -204,6 +204,11 @@ impl FlatStorageManager {
         Some(FlatStorageChunkView::new(self.0.store.clone(), block_hash, flat_storage))
     }
 
+    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
+        let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
+        flat_storages.keys().cloned().collect()
+    }
+
     // TODO (#7327): consider returning Result<FlatStorage, Error> when we expect flat storage to exist
     pub fn get_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Option<FlatStorage> {
         let flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
@@ -213,11 +218,15 @@ impl FlatStorageManager {
     /// Removes FlatStorage object from FlatStorageManager.
     /// If FlatStorageManager did have that object, then removes all information about Flat State and returns Ok(true).
     /// Otherwise does nothing and returns Ok(false).
-    pub fn remove_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<bool, StorageError> {
+    pub fn remove_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        store_update: &mut StoreUpdate,
+    ) -> Result<bool, StorageError> {
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-
         if let Some(flat_store) = flat_storages.remove(&shard_uid) {
-            flat_store.clear_state()?;
+            flat_store.clear_state(store_update)?;
+            tracing::info!(target: "store", ?shard_uid, "remove_flat_storage_for_shard successful");
             Ok(true)
         } else {
             Ok(false)

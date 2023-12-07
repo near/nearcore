@@ -1,5 +1,7 @@
 use crate::ClientActor;
-use borsh::BorshSerialize;
+use actix::AsyncContext;
+use std::time::Duration;
+
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse,
@@ -9,7 +11,7 @@ use near_chain::Chain;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::StatePartKey;
+use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
 
@@ -49,7 +51,7 @@ impl SyncJobsActor {
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
         for part_id in 0..msg.num_parts {
-            let key = StatePartKey(msg.sync_hash, shard_id, part_id).try_to_vec()?;
+            let key = borsh::to_vec(&StatePartKey(msg.sync_hash, shard_id, part_id))?;
             let part = store.get(DBCol::StateParts, &key)?.unwrap();
 
             msg.runtime_adapter.apply_state_part(
@@ -71,10 +73,13 @@ impl SyncJobsActor {
         msg: &ApplyStatePartsRequest,
     ) -> Result<bool, near_chain_primitives::error::Error> {
         let _span = tracing::debug_span!(target: "client", "clear_flat_state").entered();
-        Ok(msg
+        let mut store_update = msg.runtime_adapter.store().store_update();
+        let success = msg
             .runtime_adapter
             .get_flat_storage_manager()
-            .remove_flat_storage_for_shard(msg.shard_uid)?)
+            .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)?;
+        store_update.commit()?;
+        Ok(success)
     }
 }
 
@@ -149,11 +154,32 @@ impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
     fn handle(
         &mut self,
         msg: WithSpanContext<StateSplitRequest>,
-        _: &mut Self::Context,
+        context: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        tracing::debug!(target: "client", ?msg);
-        let response = Chain::build_state_for_split_shards(msg);
+        let (_span, mut state_split_request) = handler_debug_span!(target: "resharding", msg);
+        let config = state_split_request.config.get();
+
+        // Wait for the initial delay. It should only be used in tests.
+        let initial_delay = config.initial_delay;
+        if state_split_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
+            tracing::debug!(target: "resharding", ?state_split_request, ?initial_delay, "Waiting for the initial delay");
+            state_split_request.curr_poll_time += initial_delay;
+            context.notify_later(state_split_request.with_span_context(), initial_delay);
+            return;
+        }
+
+        if Chain::retry_build_state_for_split_shards(&state_split_request) {
+            // Actix implementation let's us send message to ourselves with a delay.
+            // In case snapshots are not ready yet, we will retry resharding later.
+            let retry_delay = config.retry_delay;
+            tracing::debug!(target: "resharding", ?state_split_request, ?retry_delay, "Snapshot missing, retrying resharding later");
+            state_split_request.curr_poll_time += retry_delay;
+            context.notify_later(state_split_request.with_span_context(), retry_delay);
+            return;
+        }
+
+        tracing::debug!(target: "resharding", ?state_split_request, "Starting resharding");
+        let response = Chain::build_state_for_split_shards(state_split_request);
         self.client_addr.do_send(response.with_span_context());
     }
 }

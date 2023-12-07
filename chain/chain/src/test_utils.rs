@@ -40,7 +40,7 @@ pub use self::validator_schedule::ValidatorSchedule;
 
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
-pub fn wait_for_all_blocks_in_processing(chain: &mut Chain) -> bool {
+pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
     chain.blocks_in_processing.wait_for_all_blocks()
 }
 
@@ -49,7 +49,7 @@ pub fn is_block_in_processing(chain: &Chain, block_hash: &CryptoHash) -> bool {
 }
 
 pub fn wait_for_block_in_processing(
-    chain: &mut Chain,
+    chain: &Chain,
     hash: &CryptoHash,
 ) -> Result<(), BlockNotInPoolError> {
     chain.blocks_in_processing.wait_for_block(hash)
@@ -86,7 +86,7 @@ pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMem
     setup_with_tx_validity_period(100)
 }
 
-pub fn setup_with_tx_validity_period(
+fn setup_with_tx_validity_period(
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
@@ -329,7 +329,7 @@ mod test {
         shard_layout: &ShardLayout,
     ) -> Vec<CryptoHash> {
         let mut receipts_hashes = vec![];
-        for shard_id in 0..shard_layout.num_shards() {
+        for shard_id in shard_layout.shard_ids() {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {

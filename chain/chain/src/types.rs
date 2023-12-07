@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_chain_configs::MutableConfigValue;
+use near_chain_configs::StateSplitConfig;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
+use near_store::StorageError;
 use num_rational::Rational32;
 
-use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
 use near_pool::types::PoolIterator;
@@ -210,7 +212,8 @@ pub struct ChainConfig {
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
-    pub state_snapshot_every_n_blocks: Option<u64>,
+    /// The resharding configuration.
+    pub state_split_config: MutableConfigValue<StateSplitConfig>,
 }
 
 impl ChainConfig {
@@ -218,7 +221,10 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            state_split_config: MutableConfigValue::new(
+                StateSplitConfig::default(),
+                "state_split_config",
+            ),
         }
     }
 }
@@ -236,6 +242,31 @@ impl ChainGenesis {
             transaction_validity_period: genesis.config.transaction_validity_period,
             epoch_length: genesis.config.epoch_length,
             protocol_version: genesis.config.protocol_version,
+        }
+    }
+}
+
+pub enum StorageDataSource {
+    Db,
+    Recorded(PartialStorage),
+}
+
+pub struct RuntimeStorageConfig {
+    pub state_root: StateRoot,
+    pub use_flat_storage: bool,
+    pub source: StorageDataSource,
+    pub state_patch: SandboxStatePatch,
+    pub record_storage: bool,
+}
+
+impl RuntimeStorageConfig {
+    pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
+        Self {
+            state_root,
+            use_flat_storage,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+            record_storage: false,
         }
     }
 }
@@ -320,7 +351,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_transactions(
         &self,
         shard_id: ShardId,
-        state_root: &StateRoot,
+        storage: RuntimeStorageConfig,
         height: BlockHeight,
         block_timestamp: u64,
         prev_block_hash: &CryptoHash,
@@ -332,73 +363,6 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         challenges_result: &ChallengesResult,
         random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let _timer =
-            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        self.apply_transactions_with_optional_storage_proof(
-            shard_id,
-            state_root,
-            height,
-            block_timestamp,
-            prev_block_hash,
-            block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges_result,
-            random_seed,
-            false,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-            state_patch,
-            use_flat_storage,
-        )
-    }
-
-    fn apply_transactions_with_optional_storage_proof(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        generate_storage_proof: bool,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error>;
-
-    fn check_state_transition(
-        &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_value: CryptoHash,
         is_new_chunk: bool,
         is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
@@ -434,6 +398,7 @@ pub trait RuntimeAdapter: Send + Sync {
     fn apply_update_to_split_states(
         &self,
         block_hash: &CryptoHash,
+        block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
         state_changes: StateChangesForSplitStates,
@@ -468,6 +433,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
+    /// but which exact shards to load depends on configuration. This may only be called when flat
+    /// storage is ready.
+    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -495,9 +465,9 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let num_shards = 32;
+        let shard_ids: Vec<_> = (0..32).collect();
         let genesis_chunks =
-            genesis_chunks(vec![Trie::EMPTY_ROOT], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+            genesis_chunks(vec![Trie::EMPTY_ROOT], &shard_ids, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,

@@ -2,7 +2,7 @@ use near_primitives::hash::CryptoHash;
 
 use crate::trie::nibble_slice::NibbleSlice;
 use crate::trie::{TrieNode, TrieNodeWithSize, ValueHandle};
-use crate::{StorageError, Trie};
+use crate::{MissingTrieValueContext, StorageError, Trie};
 
 /// Crumb is a piece of trie iteration state. It describes a node on the trail and processing status of that node.
 #[derive(Debug)]
@@ -206,7 +206,9 @@ impl<'a> TrieIterator<'a> {
     fn descend_into_node(&mut self, hash: &CryptoHash) -> Result<(), StorageError> {
         let (bytes, node) = self.trie.retrieve_node(hash)?;
         if let Some(ref mut visited) = self.visited_nodes {
-            visited.push(bytes.ok_or(StorageError::MissingTrieValue)?);
+            visited.push(bytes.ok_or_else(|| {
+                StorageError::MissingTrieValue(MissingTrieValueContext::TrieIterator, *hash)
+            })?);
         }
         self.trail.push(Crumb { status: CrumbStatus::Entering, node, prefix_boundary: false });
         Ok(())
@@ -430,9 +432,7 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::Rng;
 
-    use crate::test_utils::{
-        create_tries, create_tries_complex, gen_changes, simplify_changes, test_populate_trie,
-    };
+    use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
     use crate::trie::iterator::IterStep;
     use crate::trie::nibble_slice::NibbleSlice;
     use crate::Trie;
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn test_visit_interval() {
         let trie_changes = vec![(b"aa".to_vec(), Some(vec![1])), (b"abb".to_vec(), Some(vec![2]))];
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let state_root =
             test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), trie_changes);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), state_root);
@@ -568,7 +568,7 @@ mod tests {
         max_depth: usize,
     ) {
         let shard_uid = ShardUId::single_shard();
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let trie_changes = keys.iter().map(|key| (key.clone(), value())).collect();
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
         let trie = tries.get_trie_for_shard(shard_uid, state_root);
@@ -611,7 +611,7 @@ mod tests {
     fn gen_random_trie(
         rng: &mut rand::rngs::ThreadRng,
     ) -> (Vec<(Vec<u8>, Option<Vec<u8>>)>, BTreeMap<Vec<u8>, Vec<u8>>, Trie) {
-        let tries = create_tries_complex(1, 2);
+        let tries = TestTriesBuilder::new().with_shard_layout(1, 2).build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = gen_changes(rng, 10);
         let trie_changes = simplify_changes(&trie_changes);
@@ -652,7 +652,7 @@ mod tests {
     fn test_has_value() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let tries = create_tries();
+            let tries = TestTriesBuilder::new().build();
             let trie_changes = gen_changes(&mut rng, 10);
             let trie_changes = simplify_changes(&trie_changes);
             let state_root = test_populate_trie(

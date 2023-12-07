@@ -170,9 +170,10 @@ impl TryFrom<&ParameterValue> for VMKind {
 
     fn try_from(value: &ParameterValue) -> Result<Self, Self::Error> {
         match value {
-            ParameterValue::String(v) => {
-                v.parse().map_err(|e| ValueConversionError::ParseVmKind(e, value.to_string()))
-            }
+            ParameterValue::String(v) => v
+                .parse()
+                .map(|v: VMKind| v.replace_with_wasmtime_if_unsupported())
+                .map_err(|e| ValueConversionError::ParseVmKind(e, value.to_string())),
             _ => {
                 Err(ValueConversionError::ParseType(std::any::type_name::<VMKind>(), value.clone()))
             }
@@ -322,6 +323,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 ed25519_verify: params.get(Parameter::Ed25519Verify)?,
                 alt_bn128: params.get(Parameter::AltBn128)?,
                 function_call_weight: params.get(Parameter::FunctionCallWeight)?,
+                eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params

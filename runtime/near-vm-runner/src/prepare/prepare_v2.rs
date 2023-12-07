@@ -366,7 +366,7 @@ mod test {
     use crate::VMKind;
 
     #[test]
-    fn v2_preparation_wasmtime_generates_valid_contract() {
+    fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
         let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;
@@ -393,7 +393,7 @@ mod test {
     }
 
     #[test]
-    fn v2_preparation_near_vm_generates_valid_contract() {
+    fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
         let mut config = Config::test();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;

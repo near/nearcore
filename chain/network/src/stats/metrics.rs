@@ -200,6 +200,14 @@ pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub(crate) static SYNC_SNAPSHOT_HOSTS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_snapshot_hosts",
+        "Number of SyncSnapshotHost messages sent/received",
+        &["direction"],
+    )
+    .unwrap()
+});
 
 pub(crate) static REQUEST_COUNT_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
@@ -359,6 +367,18 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
         // lookups to be done via AccountData. For now AnnounceAccount is
         // used as a fallback.
         &["source"],
+    )
+    .unwrap()
+});
+
+pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_distances",
+        "compares routing distance by protocol (V1 vs V2)",
+        // Compares the routing distances for the V1 and V2 routing protocols.
+        // We are currently running both while validating performance of V2.
+        // Eventually we want to deprecate V1 and run only V2.
+        &["cmp"],
     )
     .unwrap()
 });

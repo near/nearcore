@@ -611,8 +611,17 @@ impl UniversalEngineInner {
             PrimaryMap::new();
 
         for (offset, _) in allocated_functions.drain(0..call_trampoline_count) {
-            // TODO: What in damnation have you done?! – Bannon
             let trampoline = unsafe {
+                // SAFETY: The executable code was written at the specified offset just above.
+                // TODO: Somewhat concerning is that the `VMTrampoline` does not ensure that the
+                // lifetime of the function pointer is a subset of the lifetime of the
+                // `code_memory`. Quite conversely, this `transmute` asserts that `VMTrampoline:
+                // 'static` and thus that this function pointer is callable even after
+                // `code_memory` is freed.
+                //
+                // As lifetime annotations in Rust cannot influence the codegen, this is not a
+                // source of undefined behaviour but we do lose static lifetime checks that Rust
+                // enforces.
                 std::mem::transmute::<_, VMTrampoline>(code_memory.executable_address(offset))
             };
             allocated_function_call_trampolines.push(trampoline);

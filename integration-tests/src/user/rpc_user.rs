@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use borsh::BorshSerialize;
 use futures::{Future, TryFutureExt};
 
 use near_client::StatusResponse;
@@ -10,18 +9,19 @@ use near_crypto::{PublicKey, Signer};
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_jsonrpc_client::ChunkId;
 use near_jsonrpc_primitives::errors::ServerError;
-use near_jsonrpc_primitives::types::query::{RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::query::{QueryResponseKind, RpcQueryRequest, RpcQueryResponse};
+use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, TransactionInfo};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
-    AccountId, BlockHeight, BlockId, BlockReference, MaybeBlockId, ShardId,
+    AccountId, BlockHeight, BlockId, BlockReference, EpochReference, ShardId,
 };
 use near_primitives::views::{
     AccessKeyView, AccountView, BlockView, CallResult, ChunkView, ContractCodeView,
     EpochValidatorInfo, ExecutionOutcomeView, FinalExecutionOutcomeView, QueryRequest,
-    ViewStateResult,
+    TxExecutionStatus, ViewStateResult,
 };
 
 use crate::user::User;
@@ -56,8 +56,13 @@ impl RpcUser {
         self.actix(move |client| client.query(request).map_err(|err| err.to_string()))
     }
 
-    pub fn validators(&self, block_id: MaybeBlockId) -> Result<EpochValidatorInfo, String> {
-        self.actix(move |client| client.validators(block_id).map_err(|err| err.to_string()))
+    pub fn validators(
+        &self,
+        epoch_id_or_block_id: Option<EpochReference>,
+    ) -> Result<EpochValidatorInfo, String> {
+        self.actix(move |client| {
+            client.validators(epoch_id_or_block_id).map_err(|err| err.to_string())
+        })
     }
 }
 
@@ -65,9 +70,7 @@ impl User for RpcUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountView, String> {
         let query = QueryRequest::ViewAccount { account_id: account_id.clone() };
         match self.query(query)?.kind {
-            near_jsonrpc_primitives::types::query::QueryResponseKind::ViewAccount(account_view) => {
-                Ok(account_view)
-            }
+            QueryResponseKind::ViewAccount(account_view) => Ok(account_view),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -79,9 +82,15 @@ impl User for RpcUser {
             include_proof: false,
         };
         match self.query(query)?.kind {
-            near_jsonrpc_primitives::types::query::QueryResponseKind::ViewState(
-                view_state_result,
-            ) => Ok(view_state_result),
+            QueryResponseKind::ViewState(view_state_result) => Ok(view_state_result),
+            _ => Err("Invalid type of response".into()),
+        }
+    }
+
+    fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
+        let query = QueryRequest::ViewAccessKeyList { account_id: account_id.clone() };
+        match self.query(query)?.kind {
+            QueryResponseKind::AccessKeyList(access_keys) => Ok(access_keys.keys.is_empty()),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -89,9 +98,7 @@ impl User for RpcUser {
     fn view_contract_code(&self, account_id: &AccountId) -> Result<ContractCodeView, String> {
         let query = QueryRequest::ViewCode { account_id: account_id.clone() };
         match self.query(query)?.kind {
-            near_jsonrpc_primitives::types::query::QueryResponseKind::ViewCode(
-                contract_code_view,
-            ) => Ok(contract_code_view),
+            QueryResponseKind::ViewCode(contract_code_view) => Ok(contract_code_view),
             _ => Err("Invalid type of response".into()),
         }
     }
@@ -108,15 +115,13 @@ impl User for RpcUser {
             args: args.to_vec().into(),
         };
         match self.query(query)?.kind {
-            near_jsonrpc_primitives::types::query::QueryResponseKind::CallResult(call_result) => {
-                Ok(call_result)
-            }
+            QueryResponseKind::CallResult(call_result) => Ok(call_result),
             _ => Err("Invalid type of response".into()),
         }
     }
 
     fn add_transaction(&self, transaction: SignedTransaction) -> Result<(), ServerError> {
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let _ = self.actix(move |client| client.broadcast_tx_async(to_base64(&bytes))).map_err(
             |err| {
                 serde_json::from_value::<ServerError>(
@@ -132,7 +137,7 @@ impl User for RpcUser {
         &self,
         transaction: SignedTransaction,
     ) -> Result<FinalExecutionOutcomeView, ServerError> {
-        let bytes = transaction.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&transaction).unwrap();
         let result = self.actix(move |client| client.broadcast_tx_commit(to_base64(&bytes)));
         // Wait for one more block, to make sure all nodes actually apply the state transition.
         let height = self.get_best_height().unwrap();
@@ -140,7 +145,7 @@ impl User for RpcUser {
             thread::sleep(Duration::from_millis(50));
         }
         match result {
-            Ok(outcome) => Ok(outcome),
+            Ok(outcome) => Ok(outcome.final_execution_outcome.unwrap().into_outcome()),
             Err(err) => Err(serde_json::from_value::<ServerError>(err.data.unwrap()).unwrap()),
         }
     }
@@ -184,9 +189,18 @@ impl User for RpcUser {
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
-        let account_id = self.account_id.clone();
-        let hash = hash.to_string();
-        self.actix(move |client| client.tx(hash, account_id)).unwrap()
+        let request = RpcTransactionStatusRequest {
+            transaction_info: TransactionInfo::TransactionId {
+                tx_hash: *hash,
+                sender_account_id: self.account_id.clone(),
+            },
+            wait_until: TxExecutionStatus::Final,
+        };
+        self.actix(move |client| client.tx(request))
+            .unwrap()
+            .final_execution_outcome
+            .unwrap()
+            .into_outcome()
     }
 
     fn get_state_root(&self) -> CryptoHash {
@@ -203,9 +217,7 @@ impl User for RpcUser {
             public_key: public_key.clone(),
         };
         match self.query(query)?.kind {
-            near_jsonrpc_primitives::types::query::QueryResponseKind::AccessKey(access_key) => {
-                Ok(access_key)
-            }
+            QueryResponseKind::AccessKey(access_key) => Ok(access_key),
             _ => Err("Invalid type of response".into()),
         }
     }
