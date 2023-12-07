@@ -382,7 +382,6 @@ impl Runtime {
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
-                        apply_state,
                         &apply_state.config.fees,
                         account,
                         actor_id,

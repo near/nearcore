@@ -1,17 +1,20 @@
 #![doc = include_str!("../README.md")]
 
 use near_vm_runner::ContractCode;
+use once_cell::sync::OnceCell;
 use std::path::Path;
 
 /// Temporary (placeholder) Wallet Contract.
-pub fn wallet_contract() -> ContractCode {
-    read_contract("wallet_contract.wasm")
+pub fn wallet_contract() -> &'static ContractCode {
+    static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("wallet_contract.wasm"))
 }
 
 /// Temporary (placeholder) Wallet Contract that has access to all host functions from
 /// the nightly protocol.
-pub fn nightly_wallet_contract() -> ContractCode {
-    read_contract("nightly_wallet_contract.wasm")
+pub fn nightly_wallet_contract() -> &'static ContractCode {
+    static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
+    CONTRACT.get_or_init(|| read_contract("nightly_wallet_contract.wasm"))
 }
 
 /// Read given wasm file or panic if unable to.

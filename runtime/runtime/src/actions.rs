@@ -41,6 +41,20 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::wallet_contract;
 
+fn get_contract_code(
+    runtime_ext: &RuntimeExt,
+    account: &Account,
+) -> Result<Option<ContractCode>, StorageError> {
+    let account_id = runtime_ext.account_id();
+    let code_hash = account.code_hash();
+    if account_id.get_account_type() == AccountType::EthImplicitAccount {
+        let contract = wallet_contract();
+        debug_assert!(code_hash == *contract.hash());
+        return Ok(Some(contract.clone()));
+    }
+    runtime_ext.get_code(code_hash)
+}
+
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
     apply_state: &ApplyState,
@@ -57,7 +71,7 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match runtime_ext.get_code(account.code_hash()) {
+    let code = match get_contract_code(&runtime_ext, account) {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -433,7 +447,6 @@ pub(crate) fn action_create_account(
 /// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
-    apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
@@ -477,26 +490,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
-                // TODO(eth-implicit) Use real Wallet Contract.
-                let wallet_contract = wallet_contract();
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + fee_config.storage_usage_config.num_extra_bytes_record
-                    + wallet_contract.code().len() as u64;
+                    + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                *account =
-                    Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
-
-                // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
-                set_code(state_update, account_id.clone(), &wallet_contract);
-                // Precompile the contract and store result (compiled code or error) in the database.
-                // Note, that contract compilation costs are already accounted in deploy cost using
-                // special logic in estimator (see get_runtime_config() function).
-                precompile_contract(
-                    &wallet_contract,
-                    &apply_state.config.wasm_config,
-                    apply_state.cache.as_deref(),
-                )
-                .ok();
+                *account = Some(Account::new(
+                    transfer.deposit,
+                    0,
+                    *wallet_contract().hash(),
+                    storage_usage,
+                ));
             } else {
                 // This panic is unreachable as this is an implicit account creation transfer.
                 // `check_account_existence` would fail because in this protocol version `account_is_implicit`

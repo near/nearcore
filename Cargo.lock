@@ -4983,6 +4983,7 @@ name = "near-wallet-contract"
 version = "0.0.0"
 dependencies = [
  "near-vm-runner",
+ "once_cell",
  "wasm-encoder 0.27.0",
  "wasm-smith",
  "wat",
