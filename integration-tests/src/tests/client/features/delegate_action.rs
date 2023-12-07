@@ -959,6 +959,9 @@ fn meta_tx_create_eth_implicit_account() {
 /// the transaction is either authorized or unauthorized.
 /// The parameter `authorized` controls which case will be tested.
 fn meta_tx_call_wallet_contract(authorized: bool) {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
     let genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
     let relayer = alice_account();
     let node = RuntimeNode::new_from_genesis(&relayer, genesis);
@@ -970,18 +973,18 @@ fn meta_tx_call_wallet_contract(authorized: bool) {
     let other_public_key = SecretKey::from_seed(KeyType::SECP256K1, "test2").public_key();
 
     // Although ETH-implicit account can be zero-balance, we pick 1 here in order to make transfer later from this account.
-    let initial_amount = 1u128;
-    let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
+    let transfer_amount = 1u128;
+    let actions = vec![Action::Transfer(TransferAction { deposit: transfer_amount })];
+    // Create ETH-implicit account by funding it.
     node.user()
         .meta_tx(sender.clone(), eth_implicit_account.clone(), relayer.clone(), actions)
         .unwrap()
         .assert_success();
 
     let target = carol_account();
-    let transfer_amount = 1u128;
     let initial_balance = node.view_balance(&target).expect("failed looking up balance");
 
-    // TODO(eth-implicit) When `Wallet Contract` is complete, append appropriate values to the RLP stream.
+    // TODO(eth-implicit) Append appropriate values to the RLP stream when proper `Wallet Contract` is implemented.
     let mut stream = RlpStream::new_list(3);
     stream.append(&target.as_str());
     // The RLP trait `Encodable` is not implemented for `u128`. We must encode it as bytes.

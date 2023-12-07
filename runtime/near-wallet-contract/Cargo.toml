@@ -4,7 +4,7 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Builds and exposes a temporary Wallet Contract wasm file."
+description = "Builds and exposes Wallet Contract code."
 repository.workspace = true
 license.workspace = true
 publish = false
@@ -20,4 +20,10 @@ wasm-encoder.workspace = true
 wasm-smith.workspace = true
 
 [features]
-nightly = []
+nightly_protocol = [
+  "near-vm-runner/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-vm-runner/nightly",
+]

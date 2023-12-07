@@ -41,16 +41,19 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::wallet_contract;
 
-/// Returns `ContractCode` for the given `account` (if exists) or returns `StorageError`.
+/// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
 /// For ETH-implicit accounts returns `Wallet Contract` implementation that it is a part
 /// of the protocol and it's cached in memory.
 fn get_contract_code(
     runtime_ext: &RuntimeExt,
     account: &Account,
+    protocol_version: ProtocolVersion,
 ) -> Result<Option<ContractCode>, StorageError> {
     let account_id = runtime_ext.account_id();
     let code_hash = account.code_hash();
-    if account_id.get_account_type() == AccountType::EthImplicitAccount {
+    if checked_feature!("stable", EthImplicitAccounts, protocol_version)
+        && account_id.get_account_type() == AccountType::EthImplicitAccount
+    {
         let contract = wallet_contract();
         debug_assert!(code_hash == *contract.hash());
         return Ok(Some(contract.clone()));
@@ -74,7 +77,8 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match get_contract_code(&runtime_ext, account) {
+    let code = match get_contract_code(&runtime_ext, account, apply_state.current_protocol_version)
+    {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -765,7 +769,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
 /// Validate access key which was used for signing DelegateAction:
 ///
-/// - Checks whether the access key is present for given public_key and sender_id.
+/// - Checks whether the access key is present fo given public_key and sender_id.
 /// - Validates nonce and updates it if it's ok.
 /// - Validates access key permissions.
 fn validate_delegate_action_key(
