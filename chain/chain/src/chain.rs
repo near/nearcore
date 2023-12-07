@@ -711,8 +711,7 @@ impl Chain {
                 let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
                 let genesis_epoch_id = genesis.header().epoch_id();
                 let mut tmp_store_update = store_update.store().store_update();
-                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
-                {
+                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
                     flat_storage_manager.set_flat_storage_for_genesis(
                         &mut tmp_store_update,
                         shard_uid,
@@ -737,7 +736,8 @@ impl Chain {
         // TODO(#9511): The calculation of shard UIDs is not precise in the case
         // of resharding. We need to revisit this.
         let tip = store.head()?;
-        let shard_uids = epoch_manager.get_shard_layout(&tip.epoch_id)?.get_shard_uids();
+        let shard_uids: Vec<_> =
+            epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
         runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
@@ -4097,7 +4097,8 @@ impl Chain {
                 let shard_uids = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                    .get_shard_uids();
+                    .shard_uids()
+                    .collect();
                 let last_block = self.get_block(&head.last_block_hash)?;
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);

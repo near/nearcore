@@ -123,8 +123,7 @@ impl ShardedTransactionPool {
 
         let mut transactions = vec![];
 
-        let old_shard_uids = old_shard_layout.get_shard_uids();
-        for old_shard_uid in old_shard_uids {
+        for old_shard_uid in old_shard_layout.shard_uids() {
             if let Some(mut iter) = self.get_pool_iterator(old_shard_uid) {
                 while let Some(group) = iter.next() {
                     while let Some(tx) = group.next() {
