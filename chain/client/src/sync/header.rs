@@ -110,9 +110,9 @@ impl HeaderSync {
         // TODO: Why call `header_sync_due()` if that decision can be overridden here?
         let enable_header_sync = match sync_status {
             SyncStatus::HeaderSync { .. }
-            | SyncStatus::BodySync { .. }
+            | SyncStatus::BlockSync { .. }
             | SyncStatus::StateSyncDone => {
-                // TODO: Transitioning from BodySync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
+                // TODO: Transitioning from BlockSync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
                 true
             }
             SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSync { .. } => {
@@ -134,7 +134,7 @@ impl HeaderSync {
         // This number has no other functional value.
         let start_height = match &sync_status {
             SyncStatus::HeaderSync { start_height, .. } => *start_height,
-            SyncStatus::BodySync { start_height, .. } => *start_height,
+            SyncStatus::BlockSync { start_height, .. } => *start_height,
             _ => chain.head()?.height,
         };
 

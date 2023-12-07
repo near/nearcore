@@ -3,7 +3,6 @@ name = "near-jsonrpc-primitives"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate hosts structures for the NEAR JSON RPC Requests, Responses and Error types"
 repository.workspace = true
 license.workspace = true

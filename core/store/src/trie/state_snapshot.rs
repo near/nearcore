@@ -344,7 +344,7 @@ impl ShardTries {
     /// we don't deal with multiple snapshots here because we will deal with it whenever a new snapshot is created and saved to file system
     pub fn maybe_open_state_snapshot(
         &self,
-        get_shard_uids_fn: impl Fn(CryptoHash) -> Result<Vec<ShardUId>, EpochError>,
+        get_shard_uids_fn: impl FnOnce(CryptoHash) -> Result<Vec<ShardUId>, EpochError>,
     ) -> Result<(), anyhow::Error> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "maybe_open_state_snapshot").entered();
