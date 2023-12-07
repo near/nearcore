@@ -4,14 +4,14 @@ use near_vm_runner::ContractCode;
 use once_cell::sync::OnceCell;
 use std::path::Path;
 
-/// Temporary (placeholder) Wallet Contract.
+/// Temporary (placeholder) Wallet Contract. Read from file once, then cache in memory.
 pub fn wallet_contract() -> &'static ContractCode {
     static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("wallet_contract.wasm"))
 }
 
 /// Temporary (placeholder) Wallet Contract that has access to all host functions from
-/// the nightly protocol.
+/// the nightly protocol. Read from file once, then cache in memory.
 pub fn nightly_wallet_contract() -> &'static ContractCode {
     static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
     CONTRACT.get_or_init(|| read_contract("nightly_wallet_contract.wasm"))

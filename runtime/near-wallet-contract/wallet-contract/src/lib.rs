@@ -14,6 +14,9 @@ pub struct WalletContract {}
 
 #[near_bindgen]
 impl WalletContract {
+    /// For the sake of this placeholder implementation, we assume simplified version of the `rlp_transaction`
+    /// that only has 3 values: `To`, `Value`, and `PublicKey`. We assume this is a transfer transaction.
+    /// The real implementation would obtain the public key from `Signature`.
     pub fn execute_rlp(&self, target: AccountId, rlp_transaction: Vec<u8>) {
         let rlp = Rlp::new(&rlp_transaction);
 
@@ -22,7 +25,7 @@ impl WalletContract {
             _ => env::panic_str("Missing `to` field in RLP-encoded transaction."),
         };
         if target.to_string() != to {
-            env::panic_str("`target` equals the transaction's `To` address.");
+            env::panic_str("`target` not equal to transaction's `To` address.");
         }
 
         let value_bytes: Vec<u8> = match rlp.val_at(1) {

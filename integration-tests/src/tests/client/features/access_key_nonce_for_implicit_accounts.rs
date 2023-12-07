@@ -250,7 +250,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let deposit_for_account_creation = 10 * nearcore::NEAR_BASE;
+    let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;
     let blocks_number = 5;
     let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");

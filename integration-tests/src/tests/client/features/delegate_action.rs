@@ -283,7 +283,7 @@ fn meta_tx_near_transfer() {
     let node = RuntimeNode::new(&relayer);
     let fee_helper = fee_helper(&node);
 
-    let amount = nearcore::NEAR_BASE;
+    let amount = NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
@@ -839,7 +839,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
 
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = NEAR_BASE;
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
         Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
@@ -889,7 +889,12 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     node.view_account(&new_account).expect_err("account already exists");
 
     let fee_helper = fee_helper(&node);
-    let initial_amount = 10 * nearcore::NEAR_BASE;
+    let initial_amount = match new_account.get_account_type() {
+        AccountType::NearImplicitAccount => NEAR_BASE,
+        // ETH-implicit accounts fit within zero-balance account limit.
+        AccountType::EthImplicitAccount => 0u128,
+        AccountType::NamedAccount => panic!("must be implicit"),
+    };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
 
     let tx_cost = match new_account.get_account_type() {
@@ -948,6 +953,11 @@ fn meta_tx_create_eth_implicit_account() {
     meta_tx_create_implicit_account(eth_implicit_test_account());
 }
 
+/// Creating an ETH-implicit account with meta-transaction, then attempting to use it with another meta-transaction.
+///
+/// Depending on `rlp_transaction` blob that is sent to the `Wallet Contract`
+/// the transaction is either authorized or unauthorized.
+/// The parameter `authorized` controls which case will be tested.
 fn meta_tx_call_wallet_contract(authorized: bool) {
     let genesis = Genesis::test(vec![alice_account(), bob_account(), carol_account()], 3);
     let relayer = alice_account();
@@ -959,7 +969,8 @@ fn meta_tx_call_wallet_contract(authorized: bool) {
     let eth_implicit_account = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
     let other_public_key = SecretKey::from_seed(KeyType::SECP256K1, "test2").public_key();
 
-    let initial_amount = 50 * NEAR_BASE;
+    // Although ETH-implicit account can be zero-balance, we pick 1 here in order to make transfer later from this account.
+    let initial_amount = 1u128;
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
     node.user()
         .meta_tx(sender.clone(), eth_implicit_account.clone(), relayer.clone(), actions)
@@ -967,12 +978,13 @@ fn meta_tx_call_wallet_contract(authorized: bool) {
         .assert_success();
 
     let target = carol_account();
-    let transfer_amount = NEAR_BASE;
+    let transfer_amount = 1u128;
     let initial_balance = node.view_balance(&target).expect("failed looking up balance");
 
+    // TODO(eth-implicit) When `Wallet Contract` is complete, append appropriate values to the RLP stream.
     let mut stream = RlpStream::new_list(3);
     stream.append(&target.as_str());
-    // The RLP trait `Encodable` is not implemented for `u128`.
+    // The RLP trait `Encodable` is not implemented for `u128`. We must encode it as bytes.
     stream.append(&transfer_amount.to_be_bytes().as_slice());
     if authorized {
         stream.append(&public_key.key_data());
@@ -994,17 +1006,32 @@ fn meta_tx_call_wallet_contract(authorized: bool) {
         gas: 30_000_000_000_000,
         deposit: 0,
     }))];
+    // Call Wallet Contract with JSON-encoded arguments: `target` and `rlp_transaction`. The `rlp_transaction`'s value is RLP-encoded.
     let tx_result = node.user().meta_tx(sender, eth_implicit_account, relayer, actions).unwrap();
     let wallet_contract_call_result = &tx_result.receipts_outcome[1].outcome.status;
 
     if authorized {
+        // If the public key recovered from the RLP transaction's signature is valid for this ETH-implicit account,
+        // the transaction will succeed. `target` balance will increase by `transfer_amount`.
         tx_result.assert_success();
         let final_balance = node.view_balance(&target).expect("failed looking up balance");
         assert_eq!(final_balance, initial_balance + transfer_amount);
     } else {
-        let expected_error = near_primitives::views::ExecutionStatusView::Failure(TxExecutionError::ActionError(
-            ActionError { index: Some(0), kind: ActionErrorKind::FunctionCallError { 0: FunctionCallError::ExecutionError("Smart contract panicked: Public key does not match the Wallet Contract address.".to_string()) }}
-        ));
+        // The public key recovered from the RLP transaction's signature isn't valid for this ETH-implicit account.
+        // The Wallet Contract will reject this transaction.
+        let expected_error = near_primitives::views::ExecutionStatusView::Failure(
+            TxExecutionError::ActionError(
+                ActionError {
+                    index: Some(0),
+                    kind: ActionErrorKind::FunctionCallError {
+                        0: FunctionCallError::ExecutionError(
+                            "Smart contract panicked: Public key does not match the Wallet Contract address."
+                            .to_string()
+                        )
+                    }
+                }
+            )
+        );
         assert_eq!(wallet_contract_call_result, &expected_error);
     }
 }

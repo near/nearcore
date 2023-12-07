@@ -41,6 +41,9 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::wallet_contract;
 
+/// Returns `ContractCode` for the given `account` (if exists) or returns `StorageError`.
+/// For ETH-implicit accounts returns `Wallet Contract` implementation that it is a part
+/// of the protocol and it's cached in memory.
 fn get_contract_code(
     runtime_ext: &RuntimeExt,
     account: &Account,
@@ -493,6 +496,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
+                // We do not literally deploy `Wallet Contract`, just store a reference to the contract.
                 *account = Some(Account::new(
                     transfer.deposit,
                     0,
