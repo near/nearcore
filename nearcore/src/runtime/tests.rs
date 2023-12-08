@@ -5,7 +5,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManager;
 use near_primitives::test_utils::create_test_signer;
-use near_primitives::types::validator_stake::ValidatorStake;
+use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
@@ -15,7 +15,7 @@ use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::challenge::SlashedValidator;
+use near_primitives::challenge::{ChallengesResult, SlashedValidator};
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::types::{
     BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
@@ -61,28 +61,32 @@ impl NightshadeRuntime {
         block_hash: &CryptoHash,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_proposals: ValidatorStakeIter,
+        last_validator_proposals: ValidatorStakeIter,
         gas_price: Balance,
         gas_limit: Gas,
-        challenges: &ChallengesResult,
+        challenges_result: &ChallengesResult,
     ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
         let mut result = self
             .apply_transactions(
-                shard_id,
                 RuntimeStorageConfig::new(*state_root, true),
-                height,
-                block_timestamp,
-                prev_block_hash,
-                block_hash,
+                ApplyTransactionsChunkContext {
+                    shard_id,
+                    last_validator_proposals,
+                    gas_limit,
+                    is_new_chunk: true,
+                    is_first_block_with_chunk_of_version: false,
+                },
+                ApplyTransactionsBlockContext {
+                    height,
+                    block_hash: *block_hash,
+                    prev_block_hash: *prev_block_hash,
+                    block_timestamp,
+                    gas_price,
+                    challenges_result: challenges_result.clone(),
+                    random_seed: CryptoHash::default(),
+                },
                 receipts,
                 transactions,
-                last_proposals,
-                gas_price,
-                gas_limit,
-                challenges,
-                CryptoHash::default(),
-                true,
-                false,
             )
             .unwrap();
         let mut store_update = self.store.store_update();
