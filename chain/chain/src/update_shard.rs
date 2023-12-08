@@ -111,6 +111,7 @@ pub(crate) struct ShardContext {
     pub need_to_split_states: bool,
 }
 
+/// Information about storage used for applying txs and receipts.
 pub(crate) struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
