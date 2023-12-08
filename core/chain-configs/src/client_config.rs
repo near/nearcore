@@ -273,8 +273,8 @@ pub fn default_enable_multiline_logging() -> Option<bool> {
     Some(true)
 }
 
-pub fn default_produce_chunk_add_transactions_time_limit() -> Duration {
-    Duration::from_millis(200)
+pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
+    Some(Duration::from_millis(200))
 }
 
 /// ClientConfig where some fields can be updated at runtime.
@@ -394,7 +394,7 @@ pub struct ClientConfig {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
-    pub produce_chunk_add_transactions_time_limit: Duration,
+    pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
 
 impl ClientConfig {

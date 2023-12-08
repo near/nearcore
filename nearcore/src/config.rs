@@ -315,7 +315,7 @@ pub struct Config {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
-    pub produce_chunk_add_transactions_time_limit: Duration,
+    pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
 
 fn is_false(value: &bool) -> bool {

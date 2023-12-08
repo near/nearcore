@@ -977,7 +977,7 @@ impl Client {
                         .is_ok()
                 },
                 protocol_version,
-                Some(self.config.produce_chunk_add_transactions_time_limit),
+                self.config.produce_chunk_add_transactions_time_limit,
             )?
         } else {
             vec![]
