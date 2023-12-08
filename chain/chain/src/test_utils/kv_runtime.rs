@@ -1021,19 +1021,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
-        time_limit: Option<Duration>,
+        _time_limit: Option<Duration>,
     ) -> Result<Vec<SignedTransaction>, Error> {
-        let start_time = std::time::Instant::now();
-        let time_limit_reached = || match time_limit {
-            Some(limit_duration) => start_time.elapsed() >= limit_duration,
-            None => false,
-        };
         let mut res = vec![];
-        while !time_limit_reached() {
-            match transactions.next() {
-                Some(iter) => res.push(iter.next().unwrap()),
-                None => break,
-            }
+        while let Some(iter) = transactions.next() {
+            res.push(iter.next().unwrap());
         }
 
         Ok(res)
