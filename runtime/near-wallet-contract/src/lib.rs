@@ -7,14 +7,12 @@ use std::path::Path;
 /// Temporary (placeholder) Wallet Contract. Read from file once, then cache in memory.
 pub fn wallet_contract() -> &'static ContractCode {
     static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("wallet_contract.wasm"))
-}
-
-/// Temporary (placeholder) Wallet Contract that has access to all host functions from
-/// the nightly protocol. Read from file once, then cache in memory.
-pub fn nightly_wallet_contract() -> &'static ContractCode {
-    static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("nightly_wallet_contract.wasm"))
+    let file_name = if cfg!(feature = "nightly") {
+        "nightly_wallet_contract.wasm"
+    } else {
+        "wallet_contract.wasm"
+    };
+    CONTRACT.get_or_init(|| read_contract(file_name))
 }
 
 /// Read given wasm file or panic if unable to.
@@ -31,5 +29,4 @@ fn read_contract(file_name: &str) -> ContractCode {
 #[test]
 fn smoke_test() {
     assert!(!wallet_contract().code().is_empty());
-    assert!(!nightly_wallet_contract().code().is_empty());
 }

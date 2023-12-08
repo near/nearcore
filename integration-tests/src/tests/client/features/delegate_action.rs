@@ -953,6 +953,7 @@ fn meta_tx_create_eth_implicit_account() {
     meta_tx_create_implicit_account(eth_implicit_test_account());
 }
 
+// TODO(eth-implicit) Remove this test and replace it with tests that directly call the `Wallet Contract` when it is ready.
 /// Creating an ETH-implicit account with meta-transaction, then attempting to use it with another meta-transaction.
 ///
 /// Depending on `rlp_transaction` blob that is sent to the `Wallet Contract`
