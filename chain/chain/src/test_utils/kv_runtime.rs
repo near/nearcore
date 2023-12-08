@@ -1027,7 +1027,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transactions.next() {
             res.push(iter.next().unwrap());
         }
-
         Ok(res)
     }
 
