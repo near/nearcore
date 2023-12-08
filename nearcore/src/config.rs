@@ -661,8 +661,10 @@ impl NearConfig {
                     "state_split_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
-                produce_chunk_add_transactions_time_limit: config
-                    .produce_chunk_add_transactions_time_limit,
+                produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                    config.produce_chunk_add_transactions_time_limit,
+                    "produce_chunk_add_transactions_time_limit",
+                ),
             },
             network_config: NetworkConfig::new(
                 config.network,

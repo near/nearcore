@@ -394,7 +394,7 @@ pub struct ClientConfig {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
-    pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
 }
 
 impl ClientConfig {
@@ -474,8 +474,10 @@ impl ClientConfig {
                 "state_split_config",
             ),
             tx_routing_height_horizon: 4,
-            produce_chunk_add_transactions_time_limit:
+            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                 default_produce_chunk_add_transactions_time_limit(),
+                "produce_chunk_add_transactions_time_limit",
+            ),
         }
     }
 }
