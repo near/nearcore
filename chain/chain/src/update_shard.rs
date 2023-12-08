@@ -109,8 +109,12 @@ pub(crate) struct ShardContext {
     pub should_apply_transactions: bool,
     /// See comment in `get_update_shard_job`.
     pub need_to_split_states: bool,
+}
+
+pub(crate) struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
+    pub state_patch: SandboxStatePatch,
 }
 
 /// Processes shard update with given block and shard.
@@ -122,7 +126,7 @@ pub(crate) fn process_shard_update(
     shard_update_reason: ShardUpdateReason,
     block_context: BlockContext,
     shard_context: ShardContext,
-    state_patch: SandboxStatePatch,
+    storage_context: StorageContext,
 ) -> Result<ShardBlockUpdateResult, Error> {
     match shard_update_reason {
         ShardUpdateReason::NewChunk(chunk, receipts, split_state_roots) => apply_new_chunk(
@@ -131,7 +135,7 @@ pub(crate) fn process_shard_update(
             chunk,
             shard_context,
             receipts,
-            state_patch,
+            storage_context,
             runtime,
             epoch_manager,
             split_state_roots,
@@ -141,7 +145,7 @@ pub(crate) fn process_shard_update(
             block_context,
             &prev_chunk_extra,
             shard_context,
-            state_patch,
+            storage_context,
             runtime,
             epoch_manager,
             split_state_roots,
@@ -166,7 +170,7 @@ fn apply_new_chunk(
     chunk: ShardChunk,
     shard_context: ShardContext,
     receipts: Vec<Receipt>,
-    state_patch: SandboxStatePatch,
+    storage_context: StorageContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     split_state_roots: Option<SplitStateRoots>,
@@ -184,9 +188,9 @@ fn apply_new_chunk(
     let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
     let storage_config = RuntimeStorageConfig {
         state_root: *chunk_inner.prev_state_root(),
-        use_flat_storage: shard_context.storage_data_source == StorageDataSource::Db,
-        source: shard_context.storage_data_source,
-        state_patch,
+        use_flat_storage: true,
+        source: storage_context.storage_data_source,
+        state_patch: storage_context.state_patch,
         record_storage: false,
     };
     match runtime.apply_transactions(
@@ -237,7 +241,7 @@ fn apply_old_chunk(
     block_context: BlockContext,
     prev_chunk_extra: &ChunkExtra,
     shard_context: ShardContext,
-    state_patch: SandboxStatePatch,
+    storage_context: StorageContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     split_state_roots: Option<SplitStateRoots>,
@@ -252,9 +256,9 @@ fn apply_old_chunk(
 
     let storage_config = RuntimeStorageConfig {
         state_root: *prev_chunk_extra.state_root(),
-        use_flat_storage: shard_context.storage_data_source == StorageDataSource::Db,
-        source: shard_context.storage_data_source,
-        state_patch,
+        use_flat_storage: true,
+        source: storage_context.storage_data_source,
+        state_patch: storage_context.state_patch,
         record_storage: false,
     };
     match runtime.apply_transactions(

@@ -17,7 +17,7 @@ use crate::types::{
 };
 use crate::update_shard::{
     process_shard_update, BlockContext, NewChunkResult, OldChunkResult, ShardBlockUpdateResult,
-    ShardContext, ShardUpdateReason, ShardUpdateResult, StateSplitResult,
+    ShardContext, ShardUpdateReason, ShardUpdateResult, StateSplitResult, StorageContext,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -4005,7 +4005,6 @@ impl Chain {
         block_header: &BlockHeader,
         shard_id: ShardId,
         mode: ApplyChunksMode,
-        storage_data_source: StorageDataSource,
     ) -> Result<ShardContext, Error> {
         let prev_hash = block_header.prev_hash();
         let epoch_id = block_header.epoch_id();
@@ -4027,7 +4026,6 @@ impl Chain {
             will_shard_layout_change,
             should_apply_transactions,
             need_to_split_states,
-            storage_data_source,
         })
     }
 
@@ -4045,8 +4043,7 @@ impl Chain {
         state_patch: SandboxStatePatch,
     ) -> Result<Option<UpdateShardJob>, Error> {
         let prev_hash = block.header().prev_hash();
-        let shard_context =
-            self.get_shard_context(me, block.header(), shard_id, mode, StorageDataSource::Db)?;
+        let shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
 
         // We can only split states when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
         // 1) if should_apply_transactions == true && split_state_roots.is_some(),
@@ -4160,7 +4157,7 @@ impl Chain {
                 shard_update_reason,
                 block_context,
                 shard_context,
-                state_patch,
+                StorageContext { storage_data_source: StorageDataSource::Db, state_patch },
             )?))
         })))
     }
@@ -4183,8 +4180,7 @@ impl Chain {
         shard_id: ShardId,
         mode: ApplyChunksMode,
     ) -> Result<Option<UpdateShardJob>, Error> {
-        let last_shard_context =
-            self.get_shard_context(me, block.header(), shard_id, mode, StorageDataSource::Db)?;
+        let last_shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
         let is_new_chunk = chunk_header.height_included() == block.header().height();
 
         // If we don't track a shard or there is no chunk, there is nothing to validate.
@@ -4271,13 +4267,7 @@ impl Chain {
         for block_hash in blocks_to_execute {
             let block_header = self.get_block_header(&block_hash)?;
             let prev_block_header = self.get_previous_header(&block_header)?;
-            let shard_context = self.get_shard_context(
-                me,
-                &block_header,
-                shard_id,
-                mode,
-                StorageDataSource::DbTrieOnly,
-            )?;
+            let shard_context = self.get_shard_context(me, &block_header, shard_id, mode)?;
             if shard_context.need_to_split_states {
                 return Ok(None);
             }
@@ -4324,7 +4314,10 @@ impl Chain {
                     ShardUpdateReason::OldChunk(current_chunk_extra.clone(), None),
                     block_context.clone(),
                     shard_context,
-                    SandboxStatePatch::default(),
+                    StorageContext {
+                        storage_data_source: StorageDataSource::DbTrieOnly,
+                        state_patch: Default::default(),
+                    },
                 )?;
                 if let ShardBlockUpdateResult::OldChunk(OldChunkResult {
                     shard_uid,
@@ -4345,7 +4338,10 @@ impl Chain {
                 ShardUpdateReason::NewChunk(prev_chunk, receipts, None),
                 last_block_context.clone(),
                 last_shard_context,
-                SandboxStatePatch::default(),
+                StorageContext {
+                    storage_data_source: StorageDataSource::DbTrieOnly,
+                    state_patch: Default::default(),
+                },
             )?;
             if let ShardBlockUpdateResult::NewChunk(NewChunkResult {
                 gas_limit,
