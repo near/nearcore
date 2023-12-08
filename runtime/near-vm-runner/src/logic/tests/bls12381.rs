@@ -405,9 +405,12 @@ mod tests {
 
     #[test]
     fn test_bls12381_g1_sum_incorrect_input() {
+        let mut rnd = get_rnd();
+
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
+        // Incorrect sign encoding
         let mut buffer = vec![0u8; 97];
         buffer[0] = 2;
 
@@ -415,6 +418,7 @@ mod tests {
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
+        // Incorrect encoding of the point at infinity
         let mut zero = vec![0u8; 96];
         zero[0] = 64;
         zero[95] = 1;
@@ -423,6 +427,62 @@ mod tests {
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
+        // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
+        let mut zero = vec![0u8; 96];
+        zero[0] = 192;
 
+        let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        let p = get_random_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[0] |= 0x80;
+
+        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        // Point not on the curve
+        let p = get_random_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[95] ^= 0x01;
+
+        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
+        let p = get_random_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[0] ^= 0x20;
+
+        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
+        let p = get_random_curve_point(&mut rnd);
+        let mut ybig = p.gety();
+        ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        ybig.to_byte_array(&mut p_ser[0..96], 48);
+
+        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+    }
+
+    // Input is beyond memory bounds.
+    #[test]
+    #[should_panic]
+    fn test_bls12381_g1_sum_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 97*676];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
     }
 }

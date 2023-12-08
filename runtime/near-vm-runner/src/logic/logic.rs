@@ -929,7 +929,7 @@ impl<'a> VMLogic<'a> {
                 blst::blst_p1_deserialize(&mut pk_aff, data[i*97 + 1..(i + 1)*97].as_ptr())
             };
 
-            if error_code != BLST_SUCCESS {
+            if (error_code != BLST_SUCCESS) || (data[i * 97 + 1] & 0x80 != 0) {
                 return Ok(1);
             }
 
