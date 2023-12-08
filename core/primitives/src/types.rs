@@ -687,6 +687,23 @@ pub mod validator_stake {
             u16::try_from(self.stake() / stake_per_mandate)
                 .expect("number of mandats should fit u16")
         }
+
+        /// Returns the weight attributed to the validator's partial mandate.
+        ///
+        /// A validator has a partial mandate if its stake cannot be divided evenly by
+        /// `stake_per_mandate`. The remainder of that division is the weight of the partial
+        /// mandate.
+        ///
+        /// Due to this definintion a validator has exactly one partial mandate with `0 <= weight <
+        /// stake_per_mandate`.
+        ///
+        /// # Example
+        ///
+        /// Let `V` be a validator with stake of 12. If `stake_per_mandate` equals 5 then the weight
+        /// of `V`'s partial mandate is `12 % 5 = 2`.
+        pub fn partial_mandate_weight(&self, stake_per_mandate: Balance) -> Balance {
+            self.stake() % stake_per_mandate
+        }
     }
 }
 
@@ -1028,4 +1045,34 @@ pub struct StateChangesForBlock {
 pub struct StateChangesForShard {
     pub shard_id: ShardId,
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
+}
+
+#[cfg(test)]
+mod tests {
+    use near_crypto::{KeyType, PublicKey};
+    use near_primitives_core::types::Balance;
+
+    use super::validator_stake::ValidatorStake;
+
+    fn new_validator_stake(stake: Balance) -> ValidatorStake {
+        ValidatorStake::new(
+            "test_account".parse().unwrap(),
+            PublicKey::empty(KeyType::ED25519),
+            stake,
+        )
+    }
+
+    #[test]
+    fn test_validator_stake_num_mandates() {
+        assert_eq!(new_validator_stake(0).num_mandates(5), 0);
+        assert_eq!(new_validator_stake(10).num_mandates(5), 2);
+        assert_eq!(new_validator_stake(12).num_mandates(5), 2);
+    }
+
+    #[test]
+    fn test_validator_partial_mandate_weight() {
+        assert_eq!(new_validator_stake(0).partial_mandate_weight(5), 0);
+        assert_eq!(new_validator_stake(10).partial_mandate_weight(5), 0);
+        assert_eq!(new_validator_stake(12).partial_mandate_weight(5), 2);
+    }
 }

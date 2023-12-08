@@ -45,7 +45,10 @@ pub fn read_updateable_configs(
 pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
     // All fields that can be updated while the node is running should be explicitly set here.
     // Keep this list in-sync with `core/dyn-configs/README.md`.
-    UpdateableClientConfig { expected_shutdown: config.expected_shutdown }
+    UpdateableClientConfig {
+        expected_shutdown: config.expected_shutdown,
+        state_split_config: config.state_split_config,
+    }
 }
 
 fn read_log_config(home_dir: &Path) -> Result<Option<LogConfig>, UpdateableConfigLoaderError> {

@@ -7,7 +7,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, NumShards, ProtocolVersion, ValidatorId, ValidatorKickoutReason,
 };
-#[cfg(feature = "protocol_feature_chunk_validation")]
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
 use std::cmp::{self, Ordering};
@@ -180,8 +179,7 @@ pub fn proposals_to_epoch_info(
             .collect()
     };
 
-    #[cfg(feature = "protocol_feature_chunk_validation")]
-    let validator_mandates = {
+    let validator_mandates = if checked_feature!("stable", ChunkValidation, next_version) {
         // TODO(#10014) determine required stake per mandate instead of reusing seat price.
         // TODO(#10014) determine `min_mandates_per_shard`
         let min_mandates_per_shard = 0;
@@ -190,6 +188,8 @@ pub fn proposals_to_epoch_info(
         // We can use `all_validators` to construct mandates Since a validator's position in
         // `all_validators` corresponds to its `ValidatorId`
         ValidatorMandates::new(validator_mandates_config, &all_validators)
+    } else {
+        ValidatorMandates::default()
     };
 
     let fishermen_to_index = fishermen
@@ -214,7 +214,6 @@ pub fn proposals_to_epoch_info(
         threshold,
         next_version,
         rng_seed,
-        #[cfg(feature = "protocol_feature_chunk_validation")]
         validator_mandates,
     ))
 }
@@ -391,6 +390,8 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
+    #[cfg(feature = "nightly")]
+    use near_primitives::validator_mandates::{AssignmentWeight, ValidatorMandatesAssignment};
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -647,8 +648,8 @@ mod tests {
     /// This test only verifies that chunk validator mandates are correctly wired up with
     /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
     /// [`ValidatorMandates`].
-    #[cfg(feature = "protocol_feature_chunk_validation")]
     #[test]
+    #[cfg(feature = "nightly")]
     fn test_chunk_validators_sampling() {
         let num_shards = 4;
         let epoch_config = create_epoch_config(
@@ -658,13 +659,27 @@ mod tests {
             ValidatorSelectionConfig {
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
-                minimum_stake_ratio: Ratio::new(160, 1_000_000),
+                // for example purposes, we choose a higher ratio than in production
+                minimum_stake_ratio: Ratio::new(1, 10),
             },
         );
         let prev_epoch_height = 7;
         let prev_epoch_info = create_prev_epoch_info(prev_epoch_height, &["test1", "test2"], &[]);
-        let proposals =
-            create_proposals(&[("test1", 15), ("test2", 9), ("test3", 5), ("test4", 3)]);
+
+        // Choosing proposals s.t. the `threshold` (i.e. seat price) calculated in
+        // `proposals_to_epoch_info` below will be 100. For now, this `threshold` is used as the
+        // stake required for a chunk validator mandate.
+        //
+        // Note that `proposals_to_epoch_info` will not include `test6` in the set of validators,
+        // hence it will not hold a (partial) mandate
+        let proposals = create_proposals(&[
+            ("test1", 1500),
+            ("test2", 1000),
+            ("test3", 1000),
+            ("test4", 260),
+            ("test5", 140),
+            ("test6", 50),
+        ]);
 
         let epoch_info = proposals_to_epoch_info(
             &epoch_config,
@@ -681,11 +696,30 @@ mod tests {
 
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
-        let expected_assignments: Vec<HashMap<ValidatorId, u16>> = vec![
-            HashMap::from([(0, 1), (1, 5), (2, 1), (3, 1)]),
-            HashMap::from([(0, 6), (1, 1), (2, 1)]),
-            HashMap::from([(0, 5), (1, 2), (2, 1)]),
-            HashMap::from([(0, 3), (1, 1), (2, 2), (3, 2)]),
+        let expected_assignments: ValidatorMandatesAssignment = vec![
+            HashMap::from([
+                (0, AssignmentWeight::new(2, 0)),
+                (1, AssignmentWeight::new(4, 0)),
+                (2, AssignmentWeight::new(2, 0)),
+                (3, AssignmentWeight::new(1, 60)),
+                (4, AssignmentWeight::new(1, 0)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(4, 0)),
+                (1, AssignmentWeight::new(2, 0)),
+                (2, AssignmentWeight::new(4, 0)),
+                (4, AssignmentWeight::new(0, 40)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(7, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (3, AssignmentWeight::new(1, 0)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(2, 0)),
+                (1, AssignmentWeight::new(3, 0)),
+                (2, AssignmentWeight::new(4, 0)),
+            ]),
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }

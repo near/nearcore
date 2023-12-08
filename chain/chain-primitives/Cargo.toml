@@ -3,7 +3,6 @@ name = "near-chain-primitives"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate hosts NEAR chain-related error types"
 repository.workspace = true
 license.workspace = true

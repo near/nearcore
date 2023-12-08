@@ -83,7 +83,7 @@ In this case, we can skip processing transactions that are in the blocks 124 - 1
 
 See [how-to](../../misc/state_sync_from_external_storage.md) to learn how to configure your node to state sync.
 
-### Step 3: Block sync (a.k.a Body sync) [archival node, normal node] (“downloading blocks”)
+### Step 3: Block sync [archival node, normal node] (“downloading blocks”)
 
 The final step is to start requesting and processing blocks as soon as possible,
 hoping to catch up with the chain.

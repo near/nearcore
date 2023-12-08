@@ -1,6 +1,7 @@
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
+use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
 use crate::peer;
 use crate::peer_manager;
 use crate::peer_manager::peer_manager_actor::Event as PME;
@@ -33,7 +34,8 @@ fn make_snapshot_host_info(
     let epoch_height: EpochHeight = rng.gen::<EpochHeight>();
     let max_shard_id: ShardId = 32;
     let shards_num: usize = rng.gen_range(1..16);
-    let shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
+    let mut shards: Vec<ShardId> = (0..max_shard_id).choose_multiple(rng, shards_num);
+    shards.sort();
     let sync_hash = CryptoHash::hash_borsh(epoch_height);
     Arc::new(SnapshotHostInfo::new(peer_id.clone(), sync_hash, epoch_height, shards, secret_key))
 }
@@ -190,6 +192,91 @@ async fn invalid_signature_not_broadcast() {
     assert_eq!(msg.hosts, vec![info2]);
 }
 
+/// Test that a SnapshotHostInfo message with more shards than allowed isn't broadcast by PeerManager.
+#[tokio::test]
+async fn too_many_shards_not_broadcast() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "Connect peers, expect initial sync to be empty.");
+    let peer1_config = chain.make_config(rng);
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), peer1_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let peer2_config = chain.make_config(rng);
+    let mut peer2 =
+        pm.start_inbound(chain.clone(), peer2_config.clone()).await.handshake(clock).await;
+    let empty_sync_msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    let mut peer3 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer3.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    tracing::info!(target:"test", "Send an invalid SyncSnapshotHosts message from from peer1. One of the host infos has more shard ids than allowed.");
+    let too_many_shards: Vec<ShardId> =
+        (0..(MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64 + 1)).collect();
+    let invalid_info = Arc::new(SnapshotHostInfo::new(
+        peer1_config.node_id(),
+        CryptoHash::hash_borsh(rng.gen::<u64>()),
+        rng.gen(),
+        too_many_shards,
+        &peer1_config.node_key,
+    ));
+
+    let ok_info_a = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
+    let ok_info_b = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
+
+    let invalid_message = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
+        hosts: vec![ok_info_a.clone(), invalid_info, ok_info_b.clone()],
+    });
+    peer1.send(invalid_message).await;
+
+    tracing::info!(target:"test", "Send a vaid message from peer2 (as peer1 got banned), it should reach peer3.");
+
+    let info2 = make_snapshot_host_info(&peer2_config.node_id(), &peer2_config.node_key, rng);
+
+    peer2
+        .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
+        .await;
+
+    tracing::info!(target:"test", "Make sure that only valid messages are broadcast.");
+
+    loop {
+        let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
+        for info in msg.hosts {
+            if info == info2 {
+                return; // Received the expected message - end the test
+            }
+
+            // Even though `ok_info_a` and `ok_info_b` were sent in an invalid message,
+            // they were themselevs valid so the PeerManager can optionally accept them
+            // and broadcast them to other peers. This is an expected behavior, let's filter them out here.
+            if info == ok_info_a || info == ok_info_b {
+                continue;
+            }
+
+            panic!("Unexpected host info received: {:#?}", info);
+        }
+    }
+}
+
 /// Test that SyncSnapshotHosts message is propagated between many PeerManager instances.
 /// Four peer managers are connected into a ring:
 /// [0] - [1]
@@ -293,4 +380,69 @@ async fn large_shard_id_in_cache() {
     tracing::info!(target:"test", "Make sure that the message is received and processed without any problems.");
     let want: HashSet<Arc<SnapshotHostInfo>> = std::iter::once(big_shard_info).collect();
     pm.wait_for_snapshot_hosts(&want).await;
+}
+
+// When PeerManager receives a request to share SnaphotHostInfo with more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO
+// shards it should truncate the list of shards to prevent being banned for abusive behavior by other peers.
+// Truncation is done by choosing a random subset from the original list of shards.
+#[tokio::test]
+async fn too_many_shards_truncate() {
+    init_test_logger();
+    let mut rng = make_rng(921853233);
+    let rng = &mut rng;
+    let mut clock = time::FakeClock::default();
+    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
+    let clock = clock.clock();
+    let clock = &clock;
+
+    tracing::info!(target:"test", "Create a single peer manager.");
+    let pm = peer_manager::testonly::start(
+        clock.clone(),
+        near_store::db::TestDB::new(),
+        chain.make_config(rng),
+        chain.clone(),
+    )
+    .await;
+
+    tracing::info!(target:"test", "Connect a peer, expect initial sync message to be empty.");
+    let mut peer1 =
+        pm.start_inbound(chain.clone(), chain.make_config(rng)).await.handshake(clock).await;
+    let empty_sync_msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(empty_sync_msg.hosts, vec![]);
+
+    tracing::info!(target:"test", "Ask peer manager to send out an invalid SyncSnapshotHosts message. The info has more shard ids than allowed.");
+    // Create a list of shards with twice as many shard ids as is allowed
+    let too_many_shards: Vec<ShardId> =
+        (0..(2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64)).collect();
+
+    let sync_hash = CryptoHash::hash_borsh(rng.gen::<u64>());
+    let epoch_height: EpochHeight = rng.gen();
+
+    let message = PeerManagerMessageRequest::NetworkRequests(NetworkRequests::SnapshotHostInfo {
+        sync_hash,
+        epoch_height,
+        shards: too_many_shards.clone(),
+    });
+
+    pm.actix.addr.send(message.with_span_context()).await.unwrap();
+
+    tracing::info!(target:"test", "Receive the truncated SnapshotHostInfo message on peer1, make sure that the contents are correct.");
+    let msg = peer1.events.recv_until(take_sync_snapshot_msg).await;
+    assert_eq!(msg.hosts.len(), 1);
+    let info: &SnapshotHostInfo = &msg.hosts[0];
+    assert_eq!(info.peer_id, pm.peer_info().id);
+    assert_eq!(info.epoch_height, epoch_height);
+    assert_eq!(info.sync_hash, sync_hash);
+
+    // The list of shards should contain MAX_SHARDS_PER_SNAPSHOT_HOST_INFO randomly sampled, unique shard ids taken from too_many_shards
+    assert_eq!(info.shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+    for shard_id in &info.shards {
+        // Shard ids are taken from the original vector
+        assert!(*shard_id < 2 * MAX_SHARDS_PER_SNAPSHOT_HOST_INFO as u64);
+    }
+    // The shard_ids are sorted and unique (no two elements are equal, hence the < condition instead of <=)
+    assert!(info.shards.windows(2).all(|twoelems| twoelems[0] < twoelems[1]));
+    // The list isn't truncated by choosing the first half of the shards vec, it should be chosen randomly.
+    // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO is at least 128, so the chance of this check failing due to randomness is extremely low.
+    assert_ne!(&info.shards, &too_many_shards[..MAX_SHARDS_PER_SNAPSHOT_HOST_INFO]);
 }

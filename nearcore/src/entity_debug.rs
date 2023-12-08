@@ -39,7 +39,7 @@ impl EntityDebugHandlerImpl {
         match query {
             EntityQuery::AllShardsByEpochId { epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                Ok(serialize_entity(&shard_layout.get_shard_uids()))
+                Ok(serialize_entity(&shard_layout.shard_uids().collect::<Vec<_>>()))
             }
             EntityQuery::BlockByHash { block_hash } => {
                 let block = self
@@ -183,9 +183,9 @@ impl EntityDebugHandlerImpl {
             }
             EntityQuery::ShardUIdByShardId { shard_id, epoch_id } => {
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
-                let shard_uid = *shard_layout
-                    .get_shard_uids()
-                    .get(shard_id as usize)
+                let shard_uid = shard_layout
+                    .shard_uids()
+                    .nth(shard_id as usize)
                     .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
                 Ok(serialize_entity(&shard_uid))
             }
@@ -324,9 +324,9 @@ impl EntityDebugHandlerImpl {
                 let shard_layout = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&chunk.cloned_header().prev_block_hash())?;
-                let shard_uid = *shard_layout
-                    .get_shard_uids()
-                    .get(chunk.shard_id() as usize)
+                let shard_uid = shard_layout
+                    .shard_uids()
+                    .nth(chunk.shard_id() as usize)
                     .ok_or_else(|| anyhow!("Shard {} not found", chunk.shard_id()))?;
                 let path =
                     TriePath { path: vec![], shard_uid, state_root: chunk.prev_state_root() };

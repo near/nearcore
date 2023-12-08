@@ -3,7 +3,6 @@ name = "near-indexer-primitives"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate hosts structures for the NEAR Indexer Framework types"
 repository.workspace = true
 license.workspace = true

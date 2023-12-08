@@ -13,6 +13,8 @@ use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use actix_rt::ArbiterHandle;
+use chrono::DateTime;
+use chrono::Utc;
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
@@ -178,11 +180,16 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
+
+    /// When the "sync block" was requested.
+    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
+    pub last_time_sync_block_requested: Option<DateTime<Utc>>,
 }
 
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
+        self.config.state_split_config.update(update_client_config.state_split_config);
     }
 }
 
@@ -233,7 +240,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_split_config: config.state_split_config,
+            state_split_config: config.state_split_config.clone(),
         };
         let chain = Chain::new(
             epoch_manager.clone(),
@@ -290,7 +297,7 @@ impl Client {
                 epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
             match state_sync_adapter.write() {
                 Ok(mut state_sync_adapter) => {
-                    for shard_uid in shard_layout.get_shard_uids() {
+                    for shard_uid in shard_layout.shard_uids() {
                         state_sync_adapter.start(shard_uid);
                     }
                 }
@@ -359,6 +366,7 @@ impl Client {
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
             flat_storage_creator,
+            last_time_sync_block_requested: None,
         })
     }
 
@@ -2325,12 +2333,6 @@ impl Client {
                 self.runtime_adapter.clone(),
             )? {
                 StateSyncResult::InProgress => {}
-                StateSyncResult::RequestBlock => {
-                    // here RequestBlock should not be returned, because the StateSyncInfos in
-                    // self.chain.store().iterate_state_sync_infos() should have been stored by
-                    // Chain::postprocess_block() on the block with hash sync_hash.
-                    panic!("catchup state sync indicates sync block isn't on our chain")
-                }
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(

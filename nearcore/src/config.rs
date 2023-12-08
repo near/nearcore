@@ -723,7 +723,10 @@ impl NearConfig {
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
-                state_split_config: config.state_split_config,
+                state_split_config: MutableConfigValue::new(
+                    config.state_split_config,
+                    "state_split_config",
+                ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
             },
             network_config: NetworkConfig::new(
@@ -1547,7 +1550,7 @@ fn test_init_config_localnet() {
         Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast)
             .unwrap();
     assert_eq!(genesis.config.chain_id, "localnet");
-    assert_eq!(genesis.config.shard_layout.num_shards(), 3);
+    assert_eq!(genesis.config.shard_layout.shard_ids().count(), 3);
     assert_eq!(
         account_id_to_shard_id(
             &AccountId::from_str("foobar.near").unwrap(),
@@ -1704,7 +1707,7 @@ fn test_create_testnet_configs() {
     }
 
     assert_eq!(genesis.config.validators.len(), num_shards as usize);
-    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
+    assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
 
     // Set all supported options to false and verify config and genesis.
 
@@ -1729,5 +1732,5 @@ fn test_create_testnet_configs() {
     }
 
     assert_eq!(genesis.config.validators.len() as u64, num_shards);
-    assert_eq!(genesis.config.shard_layout.num_shards(), num_shards);
+    assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
 }

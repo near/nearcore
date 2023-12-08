@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
-use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -217,8 +216,7 @@ impl ShardLayout {
         }
     }
 
-    #[inline]
-    pub fn num_shards(&self) -> NumShards {
+    fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
@@ -229,9 +227,10 @@ impl ShardLayout {
         0..self.num_shards()
     }
 
-    /// Returns shard uids for all shards in the shard layout
-    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
+    /// Returns an iterator that iterates over all the shard uids for all the
+    /// shards in the shard layout
+    pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
+        self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 }
 
@@ -251,7 +250,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             // scan. For the time being, with only 4 shards, this is perfectly fine.
             let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
-                if boundary_account.cmp(account_id) == Greater {
+                if account_id < boundary_account {
                     break;
                 }
                 shard_id += 1;
@@ -304,7 +303,7 @@ impl ShardUId {
 
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
-        assert!(shard_id < shard_layout.num_shards());
+        assert!(shard_layout.shard_ids().any(|i| i == shard_id));
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
@@ -485,7 +484,7 @@ mod tests {
         let num_shards = 4;
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
-            (0..num_shards).map(|x| (x, 0)).into_iter().collect();
+            shard_layout.shard_ids().map(|shard_id| (shard_id, 0)).collect();
         let mut rng = StdRng::from_seed([0; 32]);
         for _i in 0..1000 {
             let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();

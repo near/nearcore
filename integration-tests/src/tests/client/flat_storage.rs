@@ -126,7 +126,7 @@ fn wait_for_flat_storage_creation(
 fn test_flat_storage_creation_sanity() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
+    let shard_uid = genesis.config.shard_layout.shard_uids().next().unwrap();
     let store = create_test_store();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
@@ -249,7 +249,7 @@ fn test_flat_storage_creation_two_shards() {
     let num_shards = 2;
     let genesis =
         Genesis::test_sharded_new_version(vec!["test0".parse().unwrap()], 1, vec![1; num_shards]);
-    let shard_uids = genesis.config.shard_layout.get_shard_uids();
+    let shard_uids: Vec<_> = genesis.config.shard_layout.shard_uids().collect();
     let store = create_test_store();
 
     // Process some blocks with flat storages for two shards. Then remove flat storage data from disk for shard 0.
@@ -271,7 +271,7 @@ fn test_flat_storage_creation_two_shards() {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        for &shard_uid in &shard_uids {
+        for &shard_uid in shard_uids.iter() {
             assert_matches!(
                 store_helper::get_flat_storage_status(&store, shard_uid),
                 Ok(FlatStorageStatus::Ready(_))
@@ -310,7 +310,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let accounts =
         (0..4).map(|i| AccountId::from_str(&format!("test{}", i)).unwrap()).collect::<Vec<_>>();
     let genesis = Genesis::test(accounts, 1);
-    let shard_uid = genesis.config.shard_layout.get_shard_uids()[0];
+    let shard_uid = genesis.config.shard_layout.shard_uids().next().unwrap();
     let store = create_test_store();
 
     // Process some blocks with flat storage.
@@ -415,7 +415,7 @@ fn test_catchup_succeeds_even_if_no_new_blocks() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let store = create_test_store();
-    let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+    let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
 
     // Process some blocks with flat storage. Then remove flat storage data from disk.
     {
@@ -511,7 +511,7 @@ fn test_not_supported_block() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let shard_layout = ShardLayout::v0_single_shard();
-    let shard_uid = shard_layout.get_shard_uids()[0];
+    let shard_uid = shard_layout.shard_uids().next().unwrap();
     let store = create_test_store();
 
     let mut env = setup_env(&genesis, store);

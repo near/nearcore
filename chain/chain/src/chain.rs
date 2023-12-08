@@ -30,7 +30,7 @@ use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
-use near_chain_configs::StateSplitConfig;
+use near_chain_configs::{MutableConfigValue, StateSplitConfig};
 #[cfg(feature = "new_epoch_sync")]
 use near_chain_primitives::error::epoch_sync::EpochSyncInfoError;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -394,6 +394,7 @@ pub fn check_header_known(
     chain: &Chain,
     header: &BlockHeader,
 ) -> Result<Result<(), BlockKnownError>, Error> {
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     let header_head = chain.store().header_head()?;
     if header.hash() == &header_head.last_block_hash
         || header.hash() == &header_head.prev_block_hash
@@ -411,6 +412,7 @@ fn check_known_store(
     chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     if chain.store().block_exists(block_hash)? {
         Ok(Err(BlockKnownError::KnownInStore))
     } else {
@@ -427,6 +429,7 @@ pub fn check_known(
     chain: &Chain,
     block_hash: &CryptoHash,
 ) -> Result<Result<(), BlockKnownError>, Error> {
+    // TODO: Change the return type to Result<BlockKnownStatusEnum, Error>.
     let head = chain.store().head()?;
     // Quick in-memory check for fast-reject any block handled recently.
     if block_hash == &head.last_block_hash || block_hash == &head.prev_block_hash {
@@ -502,7 +505,7 @@ pub struct Chain {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
-    pub(crate) state_split_config: near_chain_configs::StateSplitConfig,
+    pub(crate) state_split_config: MutableConfigValue<near_chain_configs::StateSplitConfig>,
 }
 
 impl Drop for Chain {
@@ -595,7 +598,10 @@ impl Chain {
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks: None,
-            state_split_config: StateSplitConfig::default(),
+            state_split_config: MutableConfigValue::new(
+                StateSplitConfig::default(),
+                "state_split_config",
+            ),
         })
     }
 
@@ -705,8 +711,7 @@ impl Chain {
                 let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
                 let genesis_epoch_id = genesis.header().epoch_id();
                 let mut tmp_store_update = store_update.store().store_update();
-                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.get_shard_uids()
-                {
+                for shard_uid in epoch_manager.get_shard_layout(genesis_epoch_id)?.shard_uids() {
                     flat_storage_manager.set_flat_storage_for_genesis(
                         &mut tmp_store_update,
                         shard_uid,
@@ -731,7 +736,8 @@ impl Chain {
         // TODO(#9511): The calculation of shard UIDs is not precise in the case
         // of resharding. We need to revisit this.
         let tip = store.head()?;
-        let shard_uids = epoch_manager.get_shard_layout(&tip.epoch_id)?.get_shard_uids();
+        let shard_uids: Vec<_> =
+            epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
         runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
@@ -1887,59 +1893,70 @@ impl Chain {
         mut headers: Vec<BlockHeader>,
         challenges: &mut Vec<ChallengeBody>,
     ) -> Result<(), Error> {
-        // Sort headers by heights if they are out of order.
+        // Sort headers by heights.
         headers.sort_by_key(|left| left.height());
 
-        if let Some(header) = headers.first() {
-            debug!(target: "chain", "Sync block headers: {} headers from {} at {}", headers.len(), header.hash(), header.height());
+        if let (Some(first_header), Some(last_header)) = (headers.first(), headers.last()) {
+            info!(
+                target: "chain",
+                num_headers = headers.len(),
+                first_hash = ?first_header.hash(),
+                first_height = first_header.height(),
+                last_hash = ?last_header.hash(),
+                last_height = ?last_header.height(),
+                "Sync block headers");
         } else {
+            // No headers.
             return Ok(());
         };
 
+        // Performance optimization to skip looking up every header in the store.
         let all_known = if let Some(last_header) = headers.last() {
+            // If the last header is known, then the other headers are known too.
             self.store.get_block_header(last_header.hash()).is_ok()
         } else {
-            false
+            // Empty set of headers, therefore all received headers are known.
+            true
         };
 
-        if !all_known {
-            // Validate header and then add to the chain.
-            for header in headers.iter() {
-                match check_header_known(self, header)? {
-                    Ok(_) => {}
-                    Err(_) => continue,
-                }
+        if all_known {
+            return Ok(());
+        }
 
-                self.validate_header(header, &Provenance::SYNC, challenges)?;
+        // Validate header and then add to the chain.
+        for header in headers.iter() {
+            match check_header_known(self, header)? {
+                Ok(_) => {}
+                Err(_) => continue,
+            }
+
+            self.validate_header(header, &Provenance::SYNC, challenges)?;
+            let mut chain_update = self.chain_update();
+            chain_update.chain_store_update.save_block_header(header.clone())?;
+
+            // Add validator proposals for given header.
+            let last_finalized_height =
+                chain_update.chain_store_update.get_block_height(header.last_final_block())?;
+            let epoch_manager_update = chain_update
+                .epoch_manager
+                .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
+            chain_update.chain_store_update.merge(epoch_manager_update);
+            chain_update.commit()?;
+
+            #[cfg(feature = "new_epoch_sync")]
+            {
+                // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache because of `add_validator_proposals` call.
                 let mut chain_update = self.chain_update();
-                chain_update.chain_store_update.save_block_header(header.clone())?;
-
-                // Add validator proposals for given header.
-                let last_finalized_height =
-                    chain_update.chain_store_update.get_block_height(header.last_final_block())?;
-                let epoch_manager_update = chain_update
-                    .epoch_manager
-                    .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
-                chain_update.chain_store_update.merge(epoch_manager_update);
+                chain_update.save_epoch_sync_info_if_finalised(header)?;
                 chain_update.commit()?;
-
-                #[cfg(feature = "new_epoch_sync")]
-                {
-                    // At this point BlockInfo for this header should be in DB and in `epoch_manager`s cache because of `add_validator_proposals` call.
-                    let mut chain_update = self.chain_update();
-                    chain_update.save_epoch_sync_info_if_finalised(header)?;
-                    chain_update.commit()?;
-                }
             }
         }
 
         let mut chain_update = self.chain_update();
-
         if let Some(header) = headers.last() {
             // Update header_head if it's the new tip
             chain_update.update_header_head_if_not_challenged(header)?;
         }
-
         chain_update.commit()
     }
 
@@ -4384,7 +4401,8 @@ impl Chain {
                 let shard_uids = self
                     .epoch_manager
                     .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                    .get_shard_uids();
+                    .shard_uids()
+                    .collect();
                 let last_block = self.get_block(&head.last_block_hash)?;
                 let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
                 make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);

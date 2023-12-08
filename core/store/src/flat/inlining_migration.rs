@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn full_migration() {
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],
@@ -364,7 +364,7 @@ mod tests {
     fn block_migration() {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],
@@ -403,7 +403,7 @@ mod tests {
     fn interrupt_blocked_migration() {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],

@@ -156,11 +156,11 @@ impl AllEpochConfig {
     }
 
     fn config_nightshade_impl(config: &mut EpochConfig, shard_layout: ShardLayout) {
-        let num_shards = shard_layout.num_shards() as usize;
         let num_block_producer_seats = config.num_block_producer_seats;
+        config.num_block_producer_seats_per_shard =
+            shard_layout.shard_ids().map(|_| num_block_producer_seats).collect();
+        config.avg_hidden_validator_seats_per_shard = shard_layout.shard_ids().map(|_| 0).collect();
         config.shard_layout = shard_layout;
-        config.num_block_producer_seats_per_shard = vec![num_block_producer_seats; num_shards];
-        config.avg_hidden_validator_seats_per_shard = vec![0; num_shards];
     }
 
     fn config_chunk_only_producers(
@@ -169,13 +169,13 @@ impl AllEpochConfig {
         protocol_version: u32,
     ) {
         if checked_feature!("stable", ChunkOnlyProducers, protocol_version) {
-            let num_shards = config.shard_layout.num_shards() as usize;
             // On testnet, genesis config set num_block_producer_seats to 200
             // This is to bring it back to 100 to be the same as on mainnet
             config.num_block_producer_seats = 100;
             // Technically, after ChunkOnlyProducers is enabled, this field is no longer used
             // We still set it here just in case
-            config.num_block_producer_seats_per_shard = vec![100; num_shards];
+            config.num_block_producer_seats_per_shard =
+                config.shard_layout.shard_ids().map(|_| 100).collect();
             config.block_producer_kickout_threshold = 80;
             config.chunk_producer_kickout_threshold = 80;
             config.validator_selection_config.num_chunk_only_producer_seats = 200;
@@ -186,11 +186,11 @@ impl AllEpochConfig {
         if chain_id != crate::chains::MAINNET
             && checked_feature!("stable", TestnetFewerBlockProducers, protocol_version)
         {
-            let num_shards = config.shard_layout.num_shards() as usize;
+            let shard_ids = config.shard_layout.shard_ids();
             // Decrease the number of block producers from 100 to 20.
             config.num_block_producer_seats = 20;
             config.num_block_producer_seats_per_shard =
-                vec![config.num_block_producer_seats; num_shards];
+                shard_ids.map(|_| config.num_block_producer_seats).collect();
             // Decrease the number of chunk producers.
             config.validator_selection_config.num_chunk_only_producer_seats = 100;
         }
@@ -522,7 +522,7 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::ValidatorMandates;
+    use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesAssignment};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -689,7 +689,6 @@ pub mod epoch_info {
             seat_price: Balance,
             protocol_version: ProtocolVersion,
             rng_seed: RngSeed,
-            #[cfg(feature = "protocol_feature_chunk_validation")]
             validator_mandates: ValidatorMandates,
         ) -> Self {
             if checked_feature!("stable", AliasValidatorSelectionAlgorithm, protocol_version) {
@@ -704,17 +703,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!(
-                    "protocol_feature_chunk_validation",
-                    ChunkValidation,
-                    protocol_version
-                ) {
-                    // This block is entered only if feature `protocol_feature_chunk_validation` is
-                    // enabled. In that case `validator_mandates` is a parameter of the function and
-                    // the variable shadowing below is not included. Still, the following
-                    // declaration of `validator_mandates` is needed to satisfy the compiler.
-                    #[cfg(not(feature = "protocol_feature_chunk_validation"))]
-                    let validator_mandates = Default::default();
+                if checked_feature!("stable", ChunkValidation, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,
@@ -1101,10 +1090,7 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_validators(
-            &self,
-            height: BlockHeight,
-        ) -> Vec<HashMap<ValidatorId, u16>> {
+        pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
                 Self::V1(_) => Default::default(),

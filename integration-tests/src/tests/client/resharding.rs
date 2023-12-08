@@ -69,10 +69,11 @@ fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVer
 }
 
 fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
-    match resharding_type {
-        ReshardingType::V1 => ShardLayout::v0_single_shard().get_shard_uids(),
-        ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout().get_shard_uids(),
-    }
+    let shard_layout = match resharding_type {
+        ReshardingType::V1 => ShardLayout::v0_single_shard(),
+        ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout(),
+    };
+    shard_layout.shard_uids().collect()
 }
 
 // Return the expected number of shards.
@@ -348,12 +349,13 @@ impl TestReshardingEnv {
         }
 
         {
-            let num_shards = env.clients[0]
-                .epoch_manager
-                .get_shard_layout_from_prev_block(block.header().prev_hash())
-                .unwrap()
-                .num_shards();
             if let Some(expected_num_shards) = expected_num_shards {
+                let num_shards = env.clients[0]
+                    .epoch_manager
+                    .get_shard_layout_from_prev_block(block.header().prev_hash())
+                    .unwrap()
+                    .shard_ids()
+                    .count() as NumShards;
                 assert_eq!(num_shards, expected_num_shards);
             }
         }
