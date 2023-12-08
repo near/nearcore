@@ -246,7 +246,6 @@ impl ChainGenesis {
     }
 }
 
-#[derive(PartialEq, Eq)]
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
