@@ -474,7 +474,8 @@ impl ClientConfig {
                 "state_split_config",
             ),
             tx_routing_height_horizon: 4,
-            produce_chunk_add_transactions_time_limit: Duration::from_millis(200),
+            produce_chunk_add_transactions_time_limit:
+                default_produce_chunk_add_transactions_time_limit(),
         }
     }
 }
