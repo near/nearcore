@@ -3920,8 +3920,7 @@ impl Chain {
             }
 
             blocks.push(last_block_hash);
-            let prev_hash = header.prev_hash().clone();
-            last_block_hash = prev_hash;
+            last_block_hash = *header.prev_hash();
         }
         if include_with_height {
             blocks.push(last_block_hash);
@@ -3944,33 +3943,47 @@ impl Chain {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
-        Ok(block
-            .chunks()
-            .iter()
-            .zip(prev_chunk_headers.iter())
-            .enumerate()
-            .map(|(shard_id, (chunk_header, prev_chunk_header))| -> Result<Vec<_>, Error> {
-                // XXX: This is a bit questionable -- sandbox state patching works
-                // only for a single shard. This so far has been enough.
-                let state_patch = state_patch.take();
 
-                let mut jobs = vec![];
-                // Insert job into list of all jobs to run, if job is valid.
-                let mut insert_job = |job: Result<Option<UpdateShardJob>, Error>| {
-                    match job {
-                        Ok(Some(processor)) => jobs.push(processor),
-                        Ok(None) => {}
-                        Err(err) => {
-                            if err.is_bad_data() {
-                                invalid_chunks.push(chunk_header.clone());
-                            }
-                            return Err(err);
+        let mut jobs = vec![];
+        for (shard_id, (chunk_header, prev_chunk_header)) in
+            block.chunks().iter().zip(prev_chunk_headers.iter()).enumerate()
+        {
+            // XXX: This is a bit questionable -- sandbox state patching works
+            // only for a single shard. This so far has been enough.
+            let state_patch = state_patch.take();
+
+            // Insert job into list of all jobs to run, if job is valid.
+            let mut insert_job = |job: Result<Option<UpdateShardJob>, Error>| {
+                match job {
+                    Ok(Some(processor)) => jobs.push(processor),
+                    Ok(None) => {}
+                    Err(err) => {
+                        if err.is_bad_data() {
+                            invalid_chunks.push(chunk_header.clone());
                         }
+                        return Err(err);
                     }
-                    return Ok(());
-                };
+                }
+                return Ok(());
+            };
 
-                let stateful_job = self.get_update_shard_job(
+            let stateful_job = self.get_update_shard_job(
+                me,
+                block,
+                prev_block,
+                chunk_header,
+                prev_chunk_header,
+                shard_id as ShardId,
+                mode,
+                incoming_receipts,
+                state_patch,
+            );
+            insert_job(stateful_job)?;
+
+            let protocol_version =
+                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
+            if checked_feature!("stable", ChunkValidation, protocol_version) {
+                let stateless_job = self.get_stateless_validation_job(
                     me,
                     block,
                     prev_block,
@@ -3978,36 +3991,12 @@ impl Chain {
                     prev_chunk_header,
                     shard_id as ShardId,
                     mode,
-                    incoming_receipts,
-                    state_patch,
                 );
-                insert_job(stateful_job)?;
+                insert_job(stateless_job)?;
+            }
+        }
 
-                let protocol_version =
-                    self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-                if checked_feature!(
-                    "protocol_feature_chunk_validation",
-                    ChunkValidation,
-                    protocol_version
-                ) {
-                    let stateless_job = self.get_stateless_validation_job(
-                        me,
-                        block,
-                        prev_block,
-                        chunk_header,
-                        prev_chunk_header,
-                        shard_id as ShardId,
-                        mode,
-                    );
-                    insert_job(stateless_job)?;
-                }
-
-                return Ok(jobs);
-            })
-            .collect::<Result<Vec<Vec<UpdateShardJob>>, Error>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>())
+        Ok(jobs)
     }
 
     fn get_shard_context(
@@ -4211,7 +4200,7 @@ impl Chain {
         let epoch_manager = self.epoch_manager.clone();
         let shard_id = prev_chunk_header.shard_id();
         let prev_chunk_height_included = prev_chunk_header.height_included();
-        let prev_chunk_prev_hash = prev_chunk_header.prev_block_hash().clone();
+        let prev_chunk_prev_hash = *prev_chunk_header.prev_block_hash();
 
         // If previous chunk is genesis chunk, its execution is trivial.
         // TODO(logunov): check that state witness is empty.
@@ -4221,11 +4210,8 @@ impl Chain {
 
         // Find the block at which height previous chunk was created.
         // We will apply previous chunk to validate state witness in current chunk.
-        let mut last_blocks = self.get_blocks_until_height(
-            prev_block.hash().clone(),
-            prev_chunk_height_included,
-            true,
-        )?;
+        let mut last_blocks =
+            self.get_blocks_until_height(*prev_block.hash(), prev_chunk_height_included, true)?;
         let prev_chunk_block_hash = last_blocks.pop().unwrap();
         let prev_chunk_block_header = self.get_block_header(&prev_chunk_block_hash)?;
         assert_eq!(prev_chunk_block_header.prev_hash(), &prev_chunk_prev_hash);
