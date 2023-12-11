@@ -2338,7 +2338,6 @@ impl Chain {
         let provenance = block_preprocess_info.provenance.clone();
         let block_start_processing_time = block_preprocess_info.block_start_processing_time;
         // TODO(#8055): this zip relies on the ordering of the apply_results.
-        error!(target: "client", "NUMBER RESULTS {}", apply_results.len());
         for (shard_id, apply_result) in apply_results.iter() {
             if let Err(err) = apply_result {
                 if err.is_bad_data() {
@@ -3983,7 +3982,6 @@ impl Chain {
             }
         }
 
-        error!(target: "client", "NUMBER JOBS {}", jobs.len());
         Ok(jobs)
     }
 
