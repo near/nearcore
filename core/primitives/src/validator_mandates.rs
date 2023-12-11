@@ -115,7 +115,7 @@ impl ValidatorMandates {
         R: Rng + ?Sized,
     {
         // Shuffling shard ids to avoid a bias towards lower ids, see [`ShuffledShardIds`]. We
-        // do two separate shufflings for full and partial mandates to reduce the likelihood of
+        // do two separate shuffes for full and partial mandates to reduce the likelihood of
         // assigning fewer full _and_ partial mandates to the _same_ shard.
         let shard_ids_for_mandates = ShuffledShardIds::new(rng, self.config.num_shards);
         let shard_ids_for_partials = ShuffledShardIds::new(rng, self.config.num_shards);
@@ -129,8 +129,6 @@ impl ValidatorMandates {
         //
         // Assume, for example, there are 10 mandates and 4 shards. Then the shard with id 1 gets
         // assigned the mandates with indices 1, 5, and 9.
-        //
-        // TODO(#10014) shuffle shard ids to avoid a bias towards smaller shard ids
         let mut mandates_per_shard: ValidatorMandatesAssignment =
             vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
@@ -341,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_validator_mandates_shuffled_mandates() {
-        // Testing with different `num_shards` values to verify the shufflings used in other tests.
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
         assert_validator_mandates_shuffled_mandates(3, vec![0, 1, 4, 4, 3, 1, 4, 0, 0]);
         assert_validator_mandates_shuffled_mandates(4, vec![0, 4, 1, 1, 0, 0, 4, 3, 4]);
     }
@@ -369,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_validator_mandates_shuffled_partials() {
-        // Testing with different `num_shards` values to verify the shufflings used in other tests.
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
         assert_validator_mandates_shuffled_partials(
             3,
             vec![(3, 2), (4, 5), (1, 7), (2, 9), (5, 4), (6, 6)],
@@ -486,8 +484,8 @@ mod tests {
 
     #[test]
     fn test_shuffled_shard_ids_new() {
-        // Testing with different `num_shards` values to verify the shufflings used in other tests.
-        // Doing two shufflings for each `num_shards` with the same RNG since shard ids are shuffled
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
+        // Doing two shuffles for each `num_shards` with the same RNG since shard ids are shuffled
         // twice (once for full and once for partial mandates).
         let mut rng_3_shards = new_fixed_rng();
         assert_shuffled_shard_ids(&mut rng_3_shards, 3, vec![2, 1, 0], "3 shards, 1st shuffle");
