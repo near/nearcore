@@ -40,6 +40,13 @@ impl ValidatorMandatesConfig {
 }
 
 /// The mandates for a set of validators given a [`ValidatorMandatesConfig`].
+///
+/// A mandate is a liability for a validator to validate a shard. Depending on its stake and the
+/// `stake_per_mandate` specified in `ValidatorMandatesConfig`, a validator may hold multiple
+/// mandates. Each mandate may be assigned to a different shard. The assignment of mandates to
+/// shards is calculated with [`Self::sample`], typically at every height.
+///
+/// See #9983 for context and links to resources that introduce mandates.
 #[derive(
     BorshSerialize, BorshDeserialize, Default, Clone, Debug, PartialEq, Eq, serde::Serialize,
 )]
