@@ -106,7 +106,9 @@ impl ValidatorMandates {
         Self { config, mandates, partials }
     }
 
-    /// Returns a validator assignment obtained by shuffling mandates.
+    /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
+    /// Shard ids are shuffled as well in this process to avoid a bias lower shard ids, see
+    /// [`ShuffledShardIds`].
     ///
     /// It clones mandates since [`ValidatorMandates`] is supposed to be valid for an epoch, while a
     /// new assignment is calculated at every height.
@@ -125,10 +127,10 @@ impl ValidatorMandates {
 
         // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
         // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
-        // num_shards == shard_id`
+        // num_shards == shard_id`.
         //
-        // Assume, for example, there are 10 mandates and 4 shards. Then the shard with id 1 gets
-        // assigned the mandates with indices 1, 5, and 9.
+        // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
+        // collect the mandates with indices 1, 5, and 9.
         let mut mandates_per_shard: ValidatorMandatesAssignment =
             vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
@@ -136,7 +138,7 @@ impl ValidatorMandates {
             let mandates_assignment =
                 &mut mandates_per_shard[shard_ids_for_mandates.get_alias(shard_id)];
 
-            // For the current `mandates_shard_id`, collect mandates with index `i` such that
+            // For the current `shard_id`, collect mandates with index `i` such that
             // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
                 let validator_id = shuffled_mandates[idx];
