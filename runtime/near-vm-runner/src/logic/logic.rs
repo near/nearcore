@@ -973,6 +973,12 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_g2_sum_base)?;
+        if value_len % 193 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_g2_sum: {} is not divisible by 193", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res_pk = blst::blst_p2::default();
@@ -988,15 +994,17 @@ impl<'a> VMLogic<'a> {
                 blst::blst_p2_deserialize(&mut pk_aff, data[i*193 + 1..(i + 1)*193].as_ptr());
             }
 
-            if sign == 1 {
-                unsafe {
-                    blst::blst_fp2_inverse(&mut pk_aff.y, &pk_aff.y);
-                }
-            }
-
             let mut pk = blst::blst_p2::default();
             unsafe {
                 blst::blst_p2_from_affine(&mut pk, &pk_aff);
+            }
+
+            if sign == 1 {
+                unsafe {
+                    blst::blst_p2_cneg(&mut pk, true);
+                }
+            } else if sign != 0 {
+                return Ok(1);
             }
 
             unsafe {

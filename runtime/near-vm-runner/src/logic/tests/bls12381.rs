@@ -2,9 +2,15 @@ mod tests {
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use amcl::bls381::big::Big;
     use amcl::bls381::bls381::core::deserialize_g1;
+    use amcl::bls381::bls381::core::deserialize_g2;
     use amcl::bls381::ecp::ECP;
+    use amcl::bls381::ecp2::ECP2;
     use amcl::rand::RAND;
-    use amcl::bls381::bls381::utils::{subgroup_check_g1, serialize_uncompressed_g1};
+    use amcl::bls381::bls381::utils::{subgroup_check_g1,
+                                      subgroup_check_g2,
+                                      serialize_uncompressed_g1,
+                                      serialize_uncompressed_g2};
+    use amcl::bls381::fp2::FP2;
     use rand::thread_rng;
     use rand::seq::SliceRandom;
     use rand::RngCore;
@@ -16,7 +22,14 @@ mod tests {
         g.mul(&r)
     }
 
-    fn get_random_curve_point(rnd: &mut RAND) -> ECP {
+    fn get_random_g2_point(rnd: &mut RAND) -> ECP2 {
+        let r: Big = Big::random(rnd);
+        let g: ECP2 = ECP2::generator();
+
+        g.mul(&r)
+    }
+
+    fn get_random_g1_curve_point(rnd: &mut RAND) -> ECP {
         let mut r: Big = Big::random(rnd);
         r.mod2m(381);
         let mut p: ECP = ECP::new_big(&r);
@@ -25,6 +38,27 @@ mod tests {
             r = Big::random(rnd);
             r.mod2m(381);
             p = ECP::new_big(&r);
+        }
+
+        p
+    }
+
+    fn get_random_g2_curve_point(rnd: &mut RAND) -> ECP2 {
+        let mut c: Big = Big::random(rnd);
+        c.mod2m(381);
+
+        let mut d: Big = Big::random(rnd);
+        d.mod2m(381);
+        let mut p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
+
+        while p.is_infinity() {
+            c = Big::random(rnd);
+            c.mod2m(381);
+
+            d = Big::random(rnd);
+            d.mod2m(381);
+
+            p = ECP2::new_fp2(&FP2::new_bigs(c, d));
         }
 
         p
@@ -44,13 +78,34 @@ mod tests {
         p
     }
 
+    fn get_random_not_g2_curve_point(rnd: &mut RAND) -> ECP2 {
+        let mut c: Big = Big::random(rnd);
+        c.mod2m(381);
+
+        let mut d: Big = Big::random(rnd);
+        d.mod2m(381);
+        let mut p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
+
+        while p.is_infinity() || subgroup_check_g2(&p) {
+            c = Big::random(rnd);
+            c.mod2m(381);
+
+            d = Big::random(rnd);
+            d.mod2m(381);
+
+            p = ECP2::new_fp2(&FP2::new_bigs(c, d));
+        }
+
+        p
+    }
+
     fn get_rnd() -> RAND {
         let mut rnd: RAND = RAND::new();
         rnd.clean();
-        let mut raw : [u8;100]=[0;100];
-        for i in 0..100 {raw[i]=i as u8}
+        let mut raw: [u8; 100] = [0; 100];
+        for i in 0..100 { raw[i] = i as u8 }
 
-        rnd.seed(100,&raw);
+        rnd.seed(100, &raw);
 
         rnd
     }
@@ -64,11 +119,29 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g2_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
+        let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
+
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     fn get_g1_inverse(p: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
         let buffer = vec![vec![1], p.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
+    fn get_g2_inverse(p: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
+        let buffer = vec![vec![1], p.to_vec()];
+
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -88,6 +161,21 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g2_sum_many_points(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(vec![points[i].0]);
+            buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     fn get_g1_multiexp_many_points(points: &Vec<(u8, ECP)>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -98,6 +186,7 @@ mod tests {
             if points[i].0 == 0 {
                 buffer.push(vec![vec![1], vec![0; 31]].concat());
             } else {
+                // r - 1
                 buffer.push(hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000").unwrap());
             }
         }
@@ -107,12 +196,32 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g2_multiexp_many_points(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
+            if points[i].0 == 0 {
+                buffer.push(vec![vec![1], vec![0; 31]].concat());
+            } else {
+                // r - 1
+                buffer.push(hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000").unwrap());
+            }
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     fn check_multipoint_g1_sum(n: usize, rnd: &mut RAND) {
         let mut res3 = ECP::new();
 
         let mut points: Vec<(u8, ECP)> = vec![];
-        for i in 0 .. n {
-            points.push((rnd.getbyte() % 2, get_random_curve_point(rnd)));
+        for i in 0..n {
+            points.push((rnd.getbyte() % 2, get_random_g1_curve_point(rnd)));
 
             let mut current_point = points[i].1.clone();
             if points[i].0 == 1 {
@@ -130,6 +239,32 @@ mod tests {
 
         assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
     }
+
+    fn check_multipoint_g2_sum(n: usize, rnd: &mut RAND) {
+        let mut res3 = ECP2::new();
+
+        let mut points: Vec<(u8, ECP2)> = vec![];
+        for i in 0..n {
+            points.push((rnd.getbyte() % 2, get_random_g2_curve_point(rnd)));
+
+            let mut current_point = points[i].1.clone();
+            if points[i].0 == 1 {
+                current_point.neg();
+            }
+
+            res3.add(&current_point);
+        }
+
+        let res1 = get_g2_sum_many_points(&points);
+
+        points.shuffle(&mut thread_rng());
+        let res2 = get_g2_sum_many_points(&points);
+        assert_eq!(res1, res2);
+
+        assert_eq!(res1, serialize_uncompressed_g2(&res3).to_vec());
+    }
+
+    //==== TESTS FOR G1_SUM
 
     #[test]
     fn test_bls12381_g1_sum_edge_cases() {
@@ -151,13 +286,13 @@ mod tests {
             let got = get_g1_sum(0, &zero, 0, &p_ser, &mut logic);
             assert_eq!(p_ser.to_vec(), got);
 
-            let got = get_g1_sum(0,&p_ser, 0, &zero, &mut logic);
+            let got = get_g1_sum(0, &p_ser, 0, &zero, &mut logic);
             assert_eq!(p_ser.to_vec(), got);
         }
 
         // P + (-P) = (-P) + P =  0
         for _ in 0..10 {
-            let mut p = get_random_curve_point(&mut rnd);
+            let mut p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             p.neg();
@@ -173,7 +308,7 @@ mod tests {
 
         // P + P&mut
         for _ in 0..10 {
-            let p = get_random_curve_point(&mut rnd);
+            let p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             let pmul2 = p.mul(&Big::from_bytes(&[2]));
@@ -185,7 +320,7 @@ mod tests {
 
         // P + (-(P + P))
         for _ in 0..10 {
-            let mut p = get_random_curve_point(&mut rnd);
+            let mut p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
@@ -207,15 +342,15 @@ mod tests {
         let mut rnd = get_rnd();
 
         for _ in 0..100 {
-            let mut p = get_random_curve_point(&mut rnd);
+            let mut p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
-            let q = get_random_curve_point(&mut rnd);
+            let q = get_random_g1_curve_point(&mut rnd);
             let q_ser = serialize_uncompressed_g1(&q);
 
             // P + Q = Q + P
             let got1 = get_g1_sum(0, &p_ser, 0, &q_ser, &mut logic);
-            let got2 = get_g1_sum(0, &q_ser,0,  &p_ser, &mut logic);
+            let got2 = get_g1_sum(0, &q_ser, 0, &p_ser, &mut logic);
             assert_eq!(got1, got2);
 
             // compare with library results
@@ -279,12 +414,12 @@ mod tests {
         zero[0] = 64;
 
         for _ in 0..10 {
-            let p = get_random_curve_point(&mut rnd);
+            let p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             // P - P = - P + P = 0
-            let got1 = get_g1_sum(1, &p_ser, 0,&p_ser, &mut logic);
-            let got2 = get_g1_sum(0,&p_ser, 1, &p_ser, &mut logic);
+            let got1 = get_g1_sum(1, &p_ser, 0, &p_ser, &mut logic);
+            let got2 = get_g1_sum(0, &p_ser, 1, &p_ser, &mut logic);
             assert_eq!(got1, got2);
             assert_eq!(got1, zero.to_vec());
 
@@ -308,7 +443,7 @@ mod tests {
 
         // Random point check with library
         for _ in 0..10 {
-            let mut p = get_random_curve_point(&mut rnd);
+            let mut p = get_random_g1_curve_point(&mut rnd);
             let p_ser = serialize_uncompressed_g1(&p);
 
             let p_inv = get_g1_inverse(&p_ser, &mut logic);
@@ -327,6 +462,7 @@ mod tests {
             let p_inv = get_g1_inverse(&p_ser, &mut logic);
 
             p.neg();
+
             let p_neg_ser = serialize_uncompressed_g1(&p);
 
             assert_eq!(p_neg_ser.to_vec(), p_inv);
@@ -350,7 +486,7 @@ mod tests {
 
         const MAX_N: usize = 676;
 
-        for _ in 0 .. 100 {
+        for _ in 0..100 {
             let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
             check_multipoint_g1_sum(n, &mut rnd);
         }
@@ -358,10 +494,10 @@ mod tests {
         check_multipoint_g1_sum(MAX_N - 1, &mut rnd);
         check_multipoint_g1_sum(1, &mut rnd);
 
-        for _ in 0 .. 10 {
+        for _ in 0..10 {
             let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
             let mut points: Vec<(u8, ECP)> = vec![];
-            for _ in 0 .. n {
+            for _ in 0..n {
                 points.push((rnd.getbyte() % 2, get_random_g1_point(&mut rnd)));
             }
 
@@ -379,10 +515,10 @@ mod tests {
 
         const MAX_N: usize = 676;
 
-        for n in 0 .. MAX_N {
+        for n in 0..MAX_N {
             let mut points: Vec<(u8, ECP)> = vec![];
-            for _ in 0 .. n {
-                points.push((rnd.getbyte() % 2, get_random_curve_point(&mut rnd)));
+            for _ in 0..n {
+                points.push((rnd.getbyte() % 2, get_random_g1_curve_point(&mut rnd)));
             }
 
             let res1 = get_g1_sum_many_points(&points);
@@ -435,7 +571,7 @@ mod tests {
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
-        let p = get_random_curve_point(&mut rnd);
+        let p = get_random_g1_curve_point(&mut rnd);
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[0] |= 0x80;
 
@@ -444,16 +580,17 @@ mod tests {
         assert_eq!(res, 1);
 
         // Point not on the curve
-        let p = get_random_curve_point(&mut rnd);
+        let p = get_random_g1_curve_point(&mut rnd);
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[95] ^= 0x01;
+
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
         let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-        let p = get_random_curve_point(&mut rnd);
+        let p = get_random_g1_curve_point(&mut rnd);
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[0] ^= 0x20;
 
@@ -462,7 +599,7 @@ mod tests {
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-        let p = get_random_curve_point(&mut rnd);
+        let p = get_random_g1_curve_point(&mut rnd);
         let mut ybig = p.gety();
         ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
         let mut p_ser = serialize_uncompressed_g1(&p);
@@ -480,9 +617,268 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let buffer = vec![0u8; 97*676];
+        let buffer = vec![0u8; 97 * 676];
 
         let input = logic.internal_mem_write(buffer.as_slice());
         logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+    }
+
+
+    //==== TESTS FOR G2_SUM
+    #[test]
+    fn test_bls12381_g2_sum_edge_cases() {
+        const POINT_LEN: usize = 192;
+
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        // 0 + 0
+        let mut zero: [u8; POINT_LEN] = [0; POINT_LEN];
+        zero[0] = 64;
+        let got = get_g2_sum(0, &zero, 0, &zero, &mut logic);
+        assert_eq!(zero.to_vec(), got);
+
+
+        // 0 + P = P + 0 = P
+        let mut rnd = get_rnd();
+        for _ in 0..10 {
+            let p = get_random_g2_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let got = get_g2_sum(0, &zero, 0, &p_ser, &mut logic);
+            assert_eq!(p_ser.to_vec(), got);
+
+            let got = get_g2_sum(0, &p_ser, 0, &zero, &mut logic);
+            assert_eq!(p_ser.to_vec(), got);
+        }
+
+        // P + (-P) = (-P) + P =  0
+        for _ in 0..10 {
+            let mut p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g2(&p);
+
+            let got = get_g2_sum(0, &p_neg_ser, 0, &p_ser, &mut logic);
+            assert_eq!(zero.to_vec(), got);
+
+            let got = get_g2_sum(0, &p_ser, 0, &p_neg_ser, &mut logic);
+            assert_eq!(zero.to_vec(), got);
+        }
+
+
+        // P + P&mutg1
+        for _ in 0..10 {
+            let p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let pmul2 = p.mul(&Big::from_bytes(&[2]));
+            let pmul2_ser = serialize_uncompressed_g2(&pmul2);
+
+            let got = get_g2_sum(0, &p_ser, 0, &p_ser, &mut logic);
+            assert_eq!(pmul2_ser.to_vec(), got);
+        }
+
+        // P + (-(P + P))
+        for _ in 0..10 {
+            let mut p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
+            pmul2.neg();
+            let pmul2_neg_ser = serialize_uncompressed_g2(&pmul2);
+
+            p.neg();
+
+            let p_neg_ser = serialize_uncompressed_g2(&p);
+            let got = get_g2_sum(0, &p_ser, 0, &pmul2_neg_ser, &mut logic);
+            assert_eq!(p_neg_ser.to_vec(), got);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_sum() {
+        for _ in 0..100 {
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let mut rnd = get_rnd();
+
+            let mut p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let q = get_random_g2_curve_point(&mut rnd);
+            let q_ser = serialize_uncompressed_g2(&q);
+
+            // P + Q = Q + P
+            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser, &mut logic);
+            let got2 = get_g2_sum(0, &q_ser, 0, &p_ser, &mut logic);
+            assert_eq!(got1, got2);
+
+            // compare with library results
+            p.add(&q);
+            let library_sum = serialize_uncompressed_g2(&p);
+
+            assert_eq!(library_sum.to_vec(), got1);
+        }
+
+        // generate points from G2
+        for _ in 0..100 {
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let mut rnd = get_rnd();
+
+            let p = get_random_g2_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let q = get_random_g2_point(&mut rnd);
+            let q_ser = serialize_uncompressed_g2(&q);
+
+            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser, &mut logic);
+
+            let result_point = deserialize_g2(&got1).unwrap();
+            assert!(subgroup_check_g2(&result_point));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_sum_not_g2_points() {
+        //points not from G2
+        for _ in 0..100 {
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let mut rnd = get_rnd();
+
+            let mut p = get_random_not_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let q = get_random_not_g2_curve_point(&mut rnd);
+            let q_ser = serialize_uncompressed_g2(&q);
+
+            // P + Q = Q + P
+            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser, &mut logic);
+            let got2 = get_g2_sum(0, &q_ser, 0, &p_ser, &mut logic);
+            assert_eq!(got1, got2);
+
+            // compare with library results
+            p.add(&q);
+            let library_sum = serialize_uncompressed_g2(&p);
+
+            assert_eq!(library_sum.to_vec(), got1);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_sum_inverse() {
+        const POINT_LEN: usize = 192;
+
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut rnd = get_rnd();
+
+        let mut zero: [u8; POINT_LEN] = [0; POINT_LEN];
+        zero[0] |= 0x40;
+
+        for _ in 0..10 {
+            let p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            // P - P = - P + P = 0
+            let got1 = get_g2_sum(1, &p_ser, 0, &p_ser, &mut logic);
+            let got2 = get_g2_sum(0, &p_ser, 1, &p_ser, &mut logic);
+            assert_eq!(got1, got2);
+            assert_eq!(got1, zero.to_vec());
+
+            // -(-P)
+            let p_inv = get_g2_inverse(&p_ser, &mut logic);
+            let p_inv_inv = get_g2_inverse(p_inv.as_slice(), &mut logic);
+
+            assert_eq!(p_ser.to_vec(), p_inv_inv);
+        }
+
+        // P in G2 => -P in G2
+        for _ in 0..10 {
+            let p = get_random_g2_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let p_inv = get_g2_inverse(&p_ser, &mut logic);
+
+            let result_point = deserialize_g2(&p_inv).unwrap();
+            assert!(subgroup_check_g2(&result_point));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_sum_many_points() {
+        const POINT_LEN: usize = 192;
+
+        let mut rnd = get_rnd();
+
+        let mut zero: [u8; POINT_LEN] = [0; POINT_LEN];
+        zero[0] = 64;
+
+        //empty input
+        let res = get_g2_sum_many_points(&vec![]);
+        assert_eq!(zero.to_vec(), res);
+
+        const MAX_N: usize = 338;
+
+        for _ in 0..100 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+            check_multipoint_g2_sum(n, &mut rnd);
+        }
+
+        check_multipoint_g2_sum(MAX_N - 1, &mut rnd);
+        check_multipoint_g2_sum(1, &mut rnd);
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+            let mut points: Vec<(u8, ECP2)> = vec![];
+            for _ in 0..n {
+                points.push((rnd.getbyte() % 2, get_random_g2_point(&mut rnd)));
+            }
+
+            let res1 = get_g2_sum_many_points(&points);
+            let sum = deserialize_g2(&res1).unwrap();
+
+            assert!(subgroup_check_g2(&sum));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_bls12381_g2_crosscheck_sum_and_multiexp() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 338;
+
+        for n in 0..MAX_N {
+            let mut points: Vec<(u8, ECP2)> = vec![];
+            for _ in 0..n {
+                points.push((rnd.getbyte() % 2, get_random_g2_curve_point(&mut rnd)));
+            }
+
+            let res1 = get_g2_sum_many_points(&points);
+            let res2 = get_g2_multiexp_many_points(&points);
+            assert_eq!(res1, res2);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_g2_sum_incorrect_length() {
+        const POINT_LEN: usize = 192;
+
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; POINT_LEN];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
     }
 }
