@@ -311,6 +311,22 @@ pub struct ApplyChunkShardContext<'a> {
     pub is_first_block_with_chunk_of_version: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTransactions {
+    /// Prepared transactions
+    pub transactions: Vec<SignedTransaction>,
+    /// Describes which limit was hit when preparing the transactions.
+    pub limited_by: Option<PrepareTransactionsLimit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
+pub enum PrepareTransactionsLimit {
+    Gas,
+    Size,
+    Time,
+    ReceiptCount,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -378,7 +394,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error>;
+    ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`

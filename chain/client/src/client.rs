@@ -29,8 +29,8 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::RuntimeAdapter;
 use near_chain::types::{ChainConfig, LatestKnown};
+use near_chain::types::{PreparedTransactions, RuntimeAdapter};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
@@ -853,20 +853,24 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let transactions = self.prepare_transactions(
+        let prepared_transactions = self.prepare_transactions(
             shard_uid,
             chunk_extra.gas_limit(),
             *chunk_extra.state_root(),
             &prev_block_header,
         )?;
+        if let Some(limit) = prepared_transactions.limited_by {
+            // TODO: Remove message, use a metric
+            println!("Prepared transactions limited by {}", limit.as_ref());
+        }
         #[cfg(feature = "test_features")]
         let transactions = Self::maybe_insert_invalid_transaction(
             transactions,
             prev_block_hash,
             self.produce_invalid_tx_in_chunks,
         );
-        let num_filtered_transactions = transactions.len();
-        let (tx_root, _) = merklize(&transactions);
+        let num_filtered_transactions = prepared_transactions.transactions.len();
+        let (tx_root, _) = merklize(&prepared_transactions.transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
             prev_block_hash,
             shard_id,
@@ -888,7 +892,7 @@ impl Client {
             chunk_extra.gas_limit(),
             chunk_extra.balance_burnt(),
             chunk_extra.validator_proposals().collect(),
-            transactions,
+            prepared_transactions.transactions,
             &outgoing_receipts,
             outgoing_receipts_root,
             tx_root,
@@ -967,14 +971,14 @@ impl Client {
         gas_limit: Gas,
         state_root: StateRoot,
         prev_block_header: &BlockHeader,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
         let shard_id = shard_uid.shard_id as ShardId;
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+        let prepared = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
             let transaction_validity_period = chain.transaction_validity_period;
             runtime.prepare_transactions(
                 prev_block_header.next_gas_price(),
@@ -1001,15 +1005,16 @@ impl Client {
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {
-            vec![]
+            PreparedTransactions { transactions: Vec::new(), limited_by: None }
         };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_uid, &transactions);
-        if reintroduced_count < transactions.len() {
-            debug!(target: "client", reintroduced_count, num_tx = transactions.len(), "Reintroduced transactions");
+        let reintroduced_count =
+            sharded_tx_pool.reintroduce_transactions(shard_uid, &prepared.transactions);
+        if reintroduced_count < prepared.transactions.len() {
+            debug!(target: "client", reintroduced_count, num_tx = prepared.transactions.len(), "Reintroduced transactions");
         }
-        Ok(transactions)
+        Ok(prepared)
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
