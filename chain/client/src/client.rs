@@ -859,10 +859,6 @@ impl Client {
             *chunk_extra.state_root(),
             &prev_block_header,
         )?;
-        if let Some(limit) = prepared_transactions.limited_by {
-            // TODO: Remove message, use a metric
-            println!("Prepared transactions limited by {}", limit.as_ref());
-        }
         #[cfg(feature = "test_features")]
         let transactions = Self::maybe_insert_invalid_transaction(
             transactions,
@@ -917,6 +913,12 @@ impl Client {
                 chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
             },
         );
+        if let Some(limit) = prepared_transactions.limited_by {
+            // When some transactions from the pool didn't fit into the chunk due to a limit, it's reported in a metric.
+            metrics::PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT
+                .with_label_values(&[&shard_id.to_string(), limit.as_ref()])
+                .inc();
+        }
 
         Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
     }
