@@ -2289,7 +2289,7 @@ be needed in next epoch (X+2).</p>
 </ul>
 <p>The remainig fields in the StateSplitConfig are only intended for testing purposes and should remain set to their default values. </p>
 <p>The default configuration for StateSplitConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
-<p>A node needs to be restarted for the new config to take effect. This should be done only when absolutely necessary as restarting during resharding will interrupt it and resharding will need to start from beginning. </p>
+<p>The state split config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. </p>
 <h2 id="future-possibilities"><a class="header" href="#future-possibilities">Future possibilities</a></h2>
 <h3 id="localize-resharding-to-a-single-shard"><a class="header" href="#localize-resharding-to-a-single-shard">Localize resharding to a single shard</a></h3>
 <p>Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version. </p>
