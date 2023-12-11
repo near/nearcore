@@ -271,6 +271,39 @@ impl RuntimeStorageConfig {
     }
 }
 
+#[derive(Clone)]
+pub struct ApplyTransactionsBlockContext {
+    pub height: BlockHeight,
+    pub block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub gas_price: Balance,
+    pub challenges_result: ChallengesResult,
+    pub random_seed: CryptoHash,
+}
+
+impl ApplyTransactionsBlockContext {
+    pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
+        Self {
+            height: header.height(),
+            block_hash: *header.hash(),
+            prev_block_hash: *header.prev_hash(),
+            block_timestamp: header.raw_timestamp(),
+            gas_price,
+            challenges_result: header.challenges_result().clone(),
+            random_seed: *header.random_value(),
+        }
+    }
+}
+
+pub struct ApplyTransactionsChunkContext<'a> {
+    pub shard_id: ShardId,
+    pub last_validator_proposals: ValidatorStakeIter<'a>,
+    pub gas_limit: Gas,
+    pub is_new_chunk: bool,
+    pub is_first_block_with_chunk_of_version: bool,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -350,21 +383,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
         storage: RuntimeStorageConfig,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.

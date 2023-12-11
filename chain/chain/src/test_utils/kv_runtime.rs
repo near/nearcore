@@ -1,6 +1,7 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -12,7 +13,6 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -29,7 +29,7 @@ use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
 };
-use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
     ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
@@ -1030,24 +1030,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
-        height: BlockHeight,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        _last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        _gas_limit: Gas,
-        _challenges: &ChallengesResult,
-        _random_seed: CryptoHash,
-        _is_new_chunk: bool,
-        _is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
+        let shard_id = chunk.shard_id;
 
         let mut state =
             self.state.read().unwrap().get(&storage_config.state_root).cloned().unwrap();
@@ -1145,7 +1136,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price,
+                            gas_price: block.gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
@@ -1184,8 +1175,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId { version: 0, shard_id: shard_id as u32 },
                 TrieChanges::empty(state_root),
                 Default::default(),
-                *block_hash,
-                height,
+                block.block_hash,
+                block.height,
             ),
             new_root: state_root,
             outcomes: tx_results,

@@ -2,7 +2,10 @@ use anyhow::{anyhow, Context};
 use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
+    RuntimeAdapter, RuntimeStorageConfig,
+};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::hash::CryptoHash;
@@ -129,24 +132,28 @@ pub(crate) fn apply_chunk(
 
     Ok((
         runtime.apply_transactions(
-            shard_id,
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
-            target_height,
-            prev_timestamp + 1_000_000_000,
-            prev_block_hash,
-            &combine_hash(
-                prev_block_hash,
-                &hash("nonsense block hash for testing purposes".as_ref()),
-            ),
+            ApplyTransactionsChunkContext {
+                shard_id,
+                last_validator_proposals: chunk_header.prev_validator_proposals(),
+                gas_limit: chunk_header.gas_limit(),
+                is_first_block_with_chunk_of_version,
+                is_new_chunk: true,
+            },
+            ApplyTransactionsBlockContext {
+                height: target_height,
+                block_timestamp: prev_timestamp + 1_000_000_000,
+                challenges_result: vec![],
+                prev_block_hash: *prev_block_hash,
+                block_hash: combine_hash(
+                    prev_block_hash,
+                    &hash("nonsense block hash for testing purposes".as_ref()),
+                ),
+                gas_price,
+                random_seed: hash("random seed".as_ref()),
+            },
             &receipts,
             transactions,
-            chunk_header.prev_validator_proposals(),
-            gas_price,
-            chunk_header.gas_limit(),
-            &vec![],
-            hash("random seed".as_ref()),
-            true,
-            is_first_block_with_chunk_of_version,
         )?,
         chunk_header.gas_limit(),
     ))

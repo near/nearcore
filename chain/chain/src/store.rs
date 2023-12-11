@@ -2312,7 +2312,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let shard_layout =
             epoch_manager.get_shard_layout(block_header.epoch_id()).expect("epoch info must exist");
         // gc shards in this epoch
-        let mut shard_uids_to_gc: Vec<_> = shard_layout.get_shard_uids();
+        let mut shard_uids_to_gc: Vec<_> = shard_layout.shard_uids().collect();
         // gc shards in the shard layout in the next epoch if shards will change in the next epoch
         // Suppose shard changes at epoch T, we need to garbage collect the new shard layout
         // from the last block in epoch T-2 to the last block in epoch T-1
@@ -2322,7 +2322,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let next_shard_layout =
             epoch_manager.get_shard_layout(next_epoch_id).expect("epoch info must exist");
         if shard_layout != next_shard_layout {
-            shard_uids_to_gc.extend(next_shard_layout.get_shard_uids());
+            shard_uids_to_gc.extend(next_shard_layout.shard_uids());
         }
         shard_uids_to_gc
     }
@@ -2368,7 +2368,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
         // Now we can proceed to removing the trie state and flat state
         let mut store_update = self.store().store_update();
-        for shard_uid in prev_shard_layout.get_shard_uids() {
+        for shard_uid in prev_shard_layout.shard_uids() {
             tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
             runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
             runtime
@@ -2939,7 +2939,7 @@ impl<'a> ChainStoreUpdate<'a> {
             .block_extras
             .insert(*block_hash, source_store.get_block_extra(block_hash)?);
         let shard_layout = source_epoch_manager.get_shard_layout(&header.epoch_id())?;
-        for shard_uid in shard_layout.get_shard_uids() {
+        for shard_uid in shard_layout.shard_uids() {
             chain_store_update.chain_store_cache_update.chunk_extras.insert(
                 (*block_hash, shard_uid),
                 source_store.get_chunk_extra(block_hash, &shard_uid)?.clone(),

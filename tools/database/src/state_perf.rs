@@ -161,11 +161,12 @@ impl PerfContext {
 
 fn generate_state_requests(store: Store, samples: usize) -> Vec<(ShardUId, ValueRef)> {
     eprintln!("Generate {samples} requests to State");
-    let shard_uids = ShardLayout::get_simple_nightshade_layout().get_shard_uids();
+    let shard_uids = ShardLayout::get_simple_nightshade_layout().shard_uids().collect::<Vec<_>>();
+    let num_shards = shard_uids.len();
     let mut ret = Vec::new();
     let progress = ProgressBar::new(samples as u64);
-    for &shard_uid in &shard_uids {
-        let shard_samples = samples / shard_uids.len();
+    for shard_uid in shard_uids {
+        let shard_samples = samples / num_shards;
         let mut keys_read = std::collections::HashSet::new();
         for value_ref in iter_flat_state_entries(shard_uid, &store, None, None)
             .flat_map(|res| res.map(|(_, value)| value.to_value_ref()))

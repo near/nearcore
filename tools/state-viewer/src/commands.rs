@@ -12,6 +12,8 @@ use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::ApplyTransactionResult;
+use near_chain::types::ApplyTransactionsBlockContext;
+use near_chain::types::ApplyTransactionsChunkContext;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
@@ -88,21 +90,20 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_transactions(
-                shard_id,
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                height,
-                block.header().raw_timestamp(),
-                block.header().prev_hash(),
-                block.hash(),
+                ApplyTransactionsChunkContext {
+                    shard_id,
+                    last_validator_proposals: chunk_inner.prev_validator_proposals(),
+                    gas_limit: chunk_inner.gas_limit(),
+                    is_new_chunk: true,
+                    is_first_block_with_chunk_of_version,
+                },
+                ApplyTransactionsBlockContext::from_header(
+                    block.header(),
+                    prev_block.header().next_gas_price(),
+                ),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.prev_validator_proposals(),
-                prev_block.header().next_gas_price(),
-                chunk_inner.gas_limit(),
-                block.header().challenges_result(),
-                *block.header().random_value(),
-                true,
-                is_first_block_with_chunk_of_version,
             )
             .unwrap()
     } else {
@@ -111,21 +112,20 @@ pub(crate) fn apply_block(
 
         runtime
             .apply_transactions(
-                shard_id,
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                block.header().height(),
-                block.header().raw_timestamp(),
-                block.header().prev_hash(),
-                block.hash(),
+                ApplyTransactionsChunkContext {
+                    shard_id,
+                    last_validator_proposals: chunk_extra.validator_proposals(),
+                    gas_limit: chunk_extra.gas_limit(),
+                    is_new_chunk: false,
+                    is_first_block_with_chunk_of_version: false,
+                },
+                ApplyTransactionsBlockContext::from_header(
+                    block.header(),
+                    block.header().next_gas_price(),
+                ),
                 &[],
                 &[],
-                chunk_extra.validator_proposals(),
-                block.header().next_gas_price(),
-                chunk_extra.gas_limit(),
-                block.header().challenges_result(),
-                *block.header().random_value(),
-                false,
-                false,
             )
             .unwrap()
     };
@@ -1082,7 +1082,7 @@ pub(crate) fn print_state_stats(home_dir: &Path, store: Store, near_config: Near
     let shard_layout = epoch_manager.get_shard_layout_from_prev_block(&block_hash).unwrap();
 
     let flat_storage_manager = runtime.get_flat_storage_manager();
-    for shard_uid in shard_layout.get_shard_uids() {
+    for shard_uid in shard_layout.shard_uids() {
         print_state_stats_for_shard_uid(&store, &flat_storage_manager, block_hash, shard_uid);
     }
 }

@@ -73,8 +73,6 @@ pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
     InProgress,
-    /// The client needs to start fetching the block
-    RequestBlock,
     /// The state for all shards was downloaded.
     Completed,
 }
@@ -133,10 +131,6 @@ pub struct StateSync {
 
     /// Is used for communication with the peers.
     network_adapter: PeerManagerAdapter,
-
-    /// When the "sync block" was requested.
-    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    last_time_block_requested: Option<DateTime<Utc>>,
 
     /// Timeout (set in config - by default to 60 seconds) is used to figure out how long we should wait
     /// for the answer from the other node before giving up.
@@ -205,45 +199,12 @@ impl StateSync {
         StateSync {
             inner,
             network_adapter,
-            last_time_block_requested: None,
             timeout,
             state_parts_apply_results: HashMap::new(),
             split_state_roots: HashMap::new(),
             state_parts_mpsc_rx: rx,
             state_parts_mpsc_tx: tx,
         }
-    }
-
-    fn sync_block_status(
-        &mut self,
-        prev_hash: &CryptoHash,
-        chain: &Chain,
-        now: DateTime<Utc>,
-    ) -> Result<(bool, bool), near_chain::Error> {
-        let (request_block, have_block) = if !chain.block_exists(prev_hash)? {
-            match self.last_time_block_requested {
-                None => (true, false),
-                Some(last_time) => {
-                    if now - last_time >= self.timeout {
-                        tracing::error!(
-                            target: "sync",
-                            %prev_hash,
-                            timeout_sec = self.timeout.num_seconds(),
-                            "State sync: block request timed out");
-                        (true, false)
-                    } else {
-                        (false, false)
-                    }
-                }
-            }
-        } else {
-            self.last_time_block_requested = None;
-            (false, true)
-        };
-        if request_block {
-            self.last_time_block_requested = Some(now);
-        };
-        Ok((request_block, have_block))
     }
 
     // The return value indicates whether state sync is
@@ -711,27 +672,13 @@ impl StateSync {
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
-        let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
         let now = StaticClock::utc();
-
-        // FIXME: it checks if the block exists.. but I have no idea why..
-        // seems that we don't really use this block in case of catchup - we use it only for state sync.
-        // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-        let (request_block, have_block) = self.sync_block_status(&prev_hash, chain, now)?;
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
             //    in the previous (or about a subset of them), return success right away
 
-            return if !have_block {
-                if request_block {
-                    Ok(StateSyncResult::RequestBlock)
-                } else {
-                    Ok(StateSyncResult::InProgress)
-                }
-            } else {
-                Ok(StateSyncResult::Completed)
-            };
+            return Ok(StateSyncResult::Completed);
         }
         // The downloaded parts are from all shards. This function takes all downloaded parts and
         // saves them to the DB.
@@ -753,11 +700,11 @@ impl StateSync {
             runtime_adapter,
         )?;
 
-        if have_block && all_done {
-            return Ok(StateSyncResult::Completed);
+        if all_done {
+            Ok(StateSyncResult::Completed)
+        } else {
+            Ok(StateSyncResult::InProgress)
         }
-
-        Ok(if request_block { StateSyncResult::RequestBlock } else { StateSyncResult::InProgress })
     }
 
     pub fn update_download_on_state_response_message(

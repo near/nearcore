@@ -1640,25 +1640,17 @@ impl ClientActor {
                             notify_start_sync = true;
                         }
                     };
-                    let state_sync_status = match &mut self.client.sync_status {
-                        SyncStatus::StateSync(s) => s,
-                        _ => unreachable!(),
+                    let sync_hash = match &self.client.sync_status {
+                        SyncStatus::StateSync(s) => s.sync_hash,
+                        _ => unreachable!("Sync status should have been StateSync!"),
                     };
 
                     let me =
                         self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-                    let block_header = unwrap_and_report!(self
-                        .client
-                        .chain
-                        .get_block_header(&state_sync_status.sync_hash));
+                    let block_header =
+                        unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
                     let prev_hash = *block_header.prev_hash();
-                    let epoch_id = self
-                        .client
-                        .chain
-                        .get_block_header(&state_sync_status.sync_hash)
-                        .unwrap()
-                        .epoch_id()
-                        .clone();
+                    let epoch_id = block_header.epoch_id().clone();
                     let shards_to_sync: Vec<_> = self
                         .client
                         .epoch_manager
@@ -1681,7 +1673,6 @@ impl ClientActor {
 
                     // Notify each shard to sync.
                     if notify_start_sync {
-                        let sync_hash = state_sync_status.sync_hash;
                         let shard_layout = self
                             .client
                             .epoch_manager
@@ -1706,9 +1697,39 @@ impl ClientActor {
                         }
                     }
 
+                    let now = StaticClock::utc();
+
+                    // FIXME: it checks if the block exists.. but I have no idea why..
+                    // seems that we don't really use this block in case of catchup - we use it only for state sync.
+                    // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
+                    let (request_block, have_block) =
+                        unwrap_and_report!(self.sync_block_status(&prev_hash, now));
+
+                    if request_block {
+                        self.client.last_time_sync_block_requested = Some(now);
+                        if let Some(peer_info) =
+                            self.network_info.highest_height_peers.choose(&mut thread_rng())
+                        {
+                            let id = peer_info.peer_info.id.clone();
+
+                            for hash in
+                                vec![*block_header.prev_hash(), *block_header.hash()].into_iter()
+                            {
+                                self.client.request_block(hash, id.clone());
+                            }
+                        }
+                    }
+                    if have_block {
+                        self.client.last_time_sync_block_requested = None;
+                    }
+
+                    let state_sync_status = match &mut self.client.sync_status {
+                        SyncStatus::StateSync(s) => s,
+                        _ => unreachable!("Sync status should have been StateSync!"),
+                    };
                     match unwrap_and_report!(self.client.state_sync.run(
                         &me,
-                        state_sync_status.sync_hash,
+                        sync_hash,
                         &mut state_sync_status.sync_status,
                         &mut self.client.chain,
                         self.client.epoch_manager.as_ref(),
@@ -1721,31 +1742,18 @@ impl ClientActor {
                         self.client.runtime_adapter.clone(),
                     )) {
                         StateSyncResult::InProgress => (),
-                        StateSyncResult::RequestBlock => {
-                            if let Some(peer_info) =
-                                self.network_info.highest_height_peers.choose(&mut thread_rng())
-                            {
-                                let id = peer_info.peer_info.id.clone();
-
-                                if let Ok(header) =
-                                    self.client.chain.get_block_header(&state_sync_status.sync_hash)
-                                {
-                                    for hash in
-                                        vec![*header.prev_hash(), *header.hash()].into_iter()
-                                    {
-                                        self.client.request_block(hash, id.clone());
-                                    }
-                                }
-                            }
-                        }
                         StateSyncResult::Completed => {
+                            if !have_block {
+                                trace!(target: "sync", "Sync done. Waiting for sync block.");
+                                return;
+                            }
                             info!(target: "sync", "State sync: all shards are done");
 
                             let mut block_processing_artifacts = BlockProcessingArtifact::default();
 
                             unwrap_and_report!(self.client.chain.reset_heads_post_state_sync(
                                 &me,
-                                state_sync_status.sync_hash,
+                                sync_hash,
                                 &mut block_processing_artifacts,
                                 self.get_apply_chunks_done_callback(),
                             ));
@@ -1762,6 +1770,38 @@ impl ClientActor {
                 }
             }
         }
+    }
+
+    /// Verifies if the node possesses sync block.
+    /// It is the last block of the previous epoch.
+    /// If the block is absent, the node requests it from peers.
+    fn sync_block_status(
+        &self,
+        prev_hash: &CryptoHash,
+        now: DateTime<Utc>,
+    ) -> Result<(bool, bool), near_chain::Error> {
+        let (request_block, have_block) = if !self.client.chain.block_exists(prev_hash)? {
+            let timeout =
+                chrono::Duration::from_std(self.client.config.state_sync_timeout).unwrap();
+            match self.client.last_time_sync_block_requested {
+                None => (true, false),
+                Some(last_time) => {
+                    if (now - last_time) >= timeout {
+                        tracing::error!(
+                            target: "sync",
+                            %prev_hash,
+                            ?timeout,
+                            "State sync: block request timed out");
+                        (true, false)
+                    } else {
+                        (false, false)
+                    }
+                }
+            }
+        } else {
+            (false, true)
+        };
+        Ok((request_block, have_block))
     }
 
     /// Print current summary.

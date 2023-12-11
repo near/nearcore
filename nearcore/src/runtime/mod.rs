@@ -5,8 +5,8 @@ use crate::NearConfig;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource, Tip,
+    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use near_chain::Error;
 use near_chain_configs::{
@@ -16,7 +16,6 @@ use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::config::ActionCosts;
 use near_primitives::config::ExtCosts;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
@@ -31,7 +30,6 @@ use near_primitives::shard_layout::{
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::validator_stake::ValidatorStakeIter;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
@@ -137,10 +135,11 @@ impl NightshadeRuntime {
         let runtime = Runtime::new();
         let trie_viewer = TrieViewer::new(trie_viewer_state_size_limit, max_gas_burnt_view);
         let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let shard_uids: Vec<_> = genesis_config.shard_layout.shard_uids().collect();
         let tries = ShardTries::new(
             store.clone(),
             trie_config,
-            &genesis_config.shard_layout.get_shard_uids(),
+            &shard_uids,
             flat_storage_manager,
             state_snapshot_config,
         );
@@ -148,7 +147,7 @@ impl NightshadeRuntime {
             let epoch_manager = epoch_manager.read();
             let epoch_id = epoch_manager.get_epoch_id(&prev_block_hash)?;
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
-            Ok(shard_layout.get_shard_uids())
+            Ok(shard_layout.shard_uids().collect())
         }) {
             tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
         }
@@ -276,23 +275,29 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
-        shard_id: ShardId,
-        block_height: BlockHeight,
-        block_hash: &CryptoHash,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyTransactionResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
+        let ApplyTransactionsBlockContext {
+            height: block_height,
+            block_hash,
+            ref prev_block_hash,
+            block_timestamp,
+            gas_price,
+            challenges_result,
+            random_seed,
+        } = block;
+        let ApplyTransactionsChunkContext {
+            shard_id,
+            last_validator_proposals,
+            gas_limit,
+            is_new_chunk,
+            is_first_block_with_chunk_of_version,
+        } = chunk;
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let validator_accounts_update = {
             let epoch_manager = self.epoch_manager.read();
@@ -382,7 +387,7 @@ impl NightshadeRuntime {
         let apply_state = ApplyState {
             block_height,
             prev_block_hash: *prev_block_hash,
-            block_hash: *block_hash,
+            block_hash,
             epoch_id,
             epoch_height,
             gas_price,
@@ -460,7 +465,7 @@ impl NightshadeRuntime {
                 shard_uid,
                 apply_result.trie_changes,
                 apply_result.state_changes,
-                *block_hash,
+                block_hash,
                 apply_state.block_height,
             ),
             new_root: apply_result.state_root,
@@ -826,29 +831,20 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges: &ChallengesResult,
-        random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
+        let shard_id = chunk.shard_id;
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => self.get_trie_for_shard(
                 shard_id,
-                prev_block_hash,
+                &block.prev_block_hash,
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             )?,
@@ -864,20 +860,10 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         match self.process_state_update(
             trie,
-            shard_id,
-            height,
-            block_hash,
-            block_timestamp,
-            prev_block_hash,
+            chunk,
+            block,
             receipts,
             transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges,
-            random_seed,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
             storage_config.state_patch,
         ) {
             Ok(result) => Ok(result),
