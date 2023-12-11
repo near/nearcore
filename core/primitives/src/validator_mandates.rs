@@ -40,6 +40,13 @@ impl ValidatorMandatesConfig {
 }
 
 /// The mandates for a set of validators given a [`ValidatorMandatesConfig`].
+///
+/// A mandate is a liability for a validator to validate a shard. Depending on its stake and the
+/// `stake_per_mandate` specified in `ValidatorMandatesConfig`, a validator may hold multiple
+/// mandates. Each mandate may be assigned to a different shard. The assignment of mandates to
+/// shards is calculated with [`Self::sample`], typically at every height.
+///
+/// See #9983 for context and links to resources that introduce mandates.
 #[derive(
     BorshSerialize, BorshDeserialize, Default, Clone, Debug, PartialEq, Eq, serde::Serialize,
 )]
@@ -106,7 +113,9 @@ impl ValidatorMandates {
         Self { config, mandates, partials }
     }
 
-    /// Returns a validator assignment obtained by shuffling mandates.
+    /// Returns a validator assignment obtained by shuffling mandates and assigning them to shards.
+    /// Shard ids are shuffled as well in this process to avoid a bias lower shard ids, see
+    /// [`ShuffledShardIds`].
     ///
     /// It clones mandates since [`ValidatorMandates`] is supposed to be valid for an epoch, while a
     /// new assignment is calculated at every height.
@@ -114,46 +123,55 @@ impl ValidatorMandates {
     where
         R: Rng + ?Sized,
     {
+        // Shuffling shard ids to avoid a bias towards lower ids, see [`ShuffledShardIds`]. We
+        // do two separate shuffes for full and partial mandates to reduce the likelihood of
+        // assigning fewer full _and_ partial mandates to the _same_ shard.
+        let shard_ids_for_mandates = ShuffledShardIds::new(rng, self.config.num_shards);
+        let shard_ids_for_partials = ShuffledShardIds::new(rng, self.config.num_shards);
+
         let shuffled_mandates = self.shuffled_mandates(rng);
         let shuffled_partials = self.shuffled_partials(rng);
 
         // Distribute shuffled mandates and partials across shards. For each shard with `shard_id`
         // in `[0, num_shards)`, we take the elements of the vector with index `i` such that `i %
-        // num_shards == shard_id`
+        // num_shards == shard_id`.
         //
-        // Assume, for example, there are 10 mandates and 4 shards. Then the shard with id 1 gets
-        // assigned the mandates with indices 1, 5, and 9.
-        //
-        // TODO(#10014) shuffle shard ids to avoid a bias towards smaller shard ids
-        let mut mandates_per_shard = Vec::with_capacity(self.config.num_shards);
+        // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
+        // collect the mandates with indices 1, 5, and 9.
+        let mut mandates_per_shard: ValidatorMandatesAssignment =
+            vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
-            let mut assignments: HashMap<ValidatorId, AssignmentWeight> = HashMap::new();
+            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
+            let mandates_assignment =
+                &mut mandates_per_shard[shard_ids_for_mandates.get_alias(shard_id)];
 
             // For the current `shard_id`, collect mandates with index `i` such that
             // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_mandates.len()).step_by(self.config.num_shards) {
-                let id = shuffled_mandates[idx];
-                assignments
-                    .entry(id)
+                let validator_id = shuffled_mandates[idx];
+                mandates_assignment
+                    .entry(validator_id)
                     .and_modify(|assignment_weight| {
                         assignment_weight.num_mandates += 1;
                     })
                     .or_insert(AssignmentWeight::new(1, 0));
             }
 
+            // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
+            let partials_assignment =
+                &mut mandates_per_shard[shard_ids_for_partials.get_alias(shard_id)];
+
             // For the current `shard_id`, collect partials with index `i` such that
             // `i % num_shards == shard_id`.
             for idx in (shard_id..shuffled_partials.len()).step_by(self.config.num_shards) {
-                let (id, partial_weight) = shuffled_partials[idx];
-                assignments
-                    .entry(id)
+                let (validator_id, partial_weight) = shuffled_partials[idx];
+                partials_assignment
+                    .entry(validator_id)
                     .and_modify(|assignment_weight| {
                         assignment_weight.partial_weight += partial_weight;
                     })
                     .or_insert(AssignmentWeight::new(0, partial_weight));
             }
-
-            mandates_per_shard.push(assignments)
         }
 
         mandates_per_shard
@@ -205,6 +223,47 @@ impl AssignmentWeight {
     }
 }
 
+/// When assigning mandates first to shards with lower ids, the shards with higher ids might end up
+/// with fewer assigned mandates.
+///
+/// Assumes shard ids are in `[0, num_shards)`.
+///
+/// # Example
+///
+/// Assume there are 3 shards and 5 mandates. Assigning to shards with lower ids first, the first
+/// two shards get 2 mandates each. For the third shard only 1 mandate remains.
+///
+/// # Shuffling to avoid bias
+///
+/// When mandates cannot be distributed evenly across shards, some shards will be assigned one
+/// mandata less than others. Shuffling shard ids prevents a bias towards lower shard ids, as it is
+/// no longer predictable which shard(s) will be assigned one mandate less.
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+struct ShuffledShardIds {
+    /// Contains the shard ids `[0, num_shards)` in shuffled order.
+    shuffled_ids: Vec<usize>,
+}
+
+impl ShuffledShardIds {
+    fn new<R>(rng: &mut R, num_shards: usize) -> Self
+    where
+        R: Rng + ?Sized,
+    {
+        let mut shuffled_ids = (0..num_shards).collect::<Vec<_>>();
+        shuffled_ids.shuffle(rng);
+        Self { shuffled_ids }
+    }
+
+    /// Gets the alias of `shard_id` corresponding to the current shuffling.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `shard_id >= num_shards`.
+    fn get_alias(&self, shard_id: usize) -> usize {
+        self.shuffled_ids[shard_id]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -219,7 +278,9 @@ mod tests {
         validator_mandates::ValidatorMandatesConfig,
     };
 
-    use super::{AssignmentWeight, ValidatorMandates, ValidatorMandatesAssignment};
+    use super::{
+        AssignmentWeight, ShuffledShardIds, ValidatorMandates, ValidatorMandatesAssignment,
+    };
 
     /// Returns a new, fixed RNG to be used only in tests. Using a fixed RNG facilitates testing as
     /// it makes outcomes based on that RNG deterministic.
@@ -245,16 +306,8 @@ mod tests {
     /// The mandates are (verified in [`test_validator_mandates_new`]):
     /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
     ///
-    /// The shuffling based on `new_fixed_rng` is (verified in
-    /// [`test_validator_mandates_shuffled_mandates`]):
-    /// `vec![0, 0, 0, 1, 1, 3, 4, 4, 4]`
-    ///
     /// The partials are (verified in [`test_validator_mandates_new`]):
     /// `vec![(1, 7), (2, 9), (3, 2), (4, 5), (5, 4), (6, 6)]`
-    ///
-    /// The shuffled partials used in tests are (verified in
-    /// [`test_validator_mandates_shuffled_partials`]):
-    /// `vec![(1, 7), (4, 5), (2, 9), (3, 2), (6, 6), (5, 4)]`
     fn new_validator_stakes() -> Vec<ValidatorStake> {
         let new_vs = |account_id: &str, balance: Balance| -> ValidatorStake {
             ValidatorStake::new(
@@ -295,31 +348,65 @@ mod tests {
 
     #[test]
     fn test_validator_mandates_shuffled_mandates() {
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
+        assert_validator_mandates_shuffled_mandates(3, vec![0, 1, 4, 4, 3, 1, 4, 0, 0]);
+        assert_validator_mandates_shuffled_mandates(4, vec![0, 4, 1, 1, 0, 0, 4, 3, 4]);
+    }
+
+    fn assert_validator_mandates_shuffled_mandates(
+        num_shards: usize,
+        expected_assignment: Vec<ValidatorId>,
+    ) {
         let validators = new_validator_stakes();
-        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let config = ValidatorMandatesConfig::new(10, 1, num_shards);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
+
+        // Call methods that modify `rng` before shuffling mandates to emulate what happens in
+        // [`ValidatorMandates::sample`]. Then `expected_assignment` below equals the shuffled
+        // mandates assigned to shards in `test_validator_mandates_sample_*`.
+        let _shard_ids_for_mandates = ShuffledShardIds::new(&mut rng, config.num_shards);
+        let _shard_ids_for_partials = ShuffledShardIds::new(&mut rng, config.num_shards);
         let assignment = mandates.shuffled_mandates(&mut rng);
-        let expected_assignment: Vec<ValidatorId> = vec![0, 1, 1, 4, 4, 4, 0, 3, 0];
-        assert_eq!(assignment, expected_assignment);
+        assert_eq!(
+            assignment, expected_assignment,
+            "Unexpected shuffling for num_shards = {num_shards}"
+        );
     }
 
     #[test]
     fn test_validator_mandates_shuffled_partials() {
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
+        assert_validator_mandates_shuffled_partials(
+            3,
+            vec![(3, 2), (4, 5), (1, 7), (2, 9), (5, 4), (6, 6)],
+        );
+        assert_validator_mandates_shuffled_partials(
+            4,
+            vec![(5, 4), (4, 5), (1, 7), (3, 2), (2, 9), (6, 6)],
+        );
+    }
+
+    fn assert_validator_mandates_shuffled_partials(
+        num_shards: usize,
+        expected_assignment: Vec<(ValidatorId, Balance)>,
+    ) {
         let validators = new_validator_stakes();
-        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let config = ValidatorMandatesConfig::new(10, 1, num_shards);
         let mandates = ValidatorMandates::new(config, &validators);
         let mut rng = new_fixed_rng();
 
-        // Call `shuffled_mandates` before calling `shuffled_partials` using the same `rng` to
-        // emulate what happens in [`ValidatorMandates::sample`]. Then `expected_assignment` below
-        // equals the shuffled partial mandates assigned to shards in
-        // `test_validator_mandates_sample_*`.
+        // Call methods that modify `rng` before shuffling mandates to emulate what happens in
+        // [`ValidatorMandates::sample`]. Then `expected_assignment` below equals the shuffled
+        // partials assigned to shards in `test_validator_mandates_sample_*`.
+        let _shard_ids_for_mandates = ShuffledShardIds::new(&mut rng, config.num_shards);
+        let _shard_ids_for_partials = ShuffledShardIds::new(&mut rng, config.num_shards);
         let _ = mandates.shuffled_mandates(&mut rng);
         let assignment = mandates.shuffled_partials(&mut rng);
-        let expected_assignment: Vec<(ValidatorId, Balance)> =
-            vec![(1, 7), (4, 5), (2, 9), (3, 2), (6, 6), (5, 4)];
-        assert_eq!(assignment, expected_assignment);
+        assert_eq!(
+            assignment, expected_assignment,
+            "Unexpected shuffling for num_shards = {num_shards}"
+        );
     }
 
     /// Test mandates per shard are collected correctly for `num_mandates % num_shards == 0` and
@@ -329,26 +416,27 @@ mod tests {
         // Choosing `num_shards` such that mandates and partials are distributed evenly.
         // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
         // `expected_assignment` below.
+        // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(10, 1, 3);
         let expected_assignment: ValidatorMandatesAssignment = vec![
             HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
                 (4, AssignmentWeight::new(1, 0)),
-                (1, AssignmentWeight::new(0, 7)),
-                (3, AssignmentWeight::new(0, 2)),
-            ]),
-            HashMap::from([
-                (1, AssignmentWeight::new(1, 0)),
-                (4, AssignmentWeight::new(1, 5)),
-                (3, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(1, 7)),
+                (0, AssignmentWeight::new(1, 0)),
                 (6, AssignmentWeight::new(0, 6)),
             ]),
             HashMap::from([
-                (0, AssignmentWeight::new(1, 0)),
                 (1, AssignmentWeight::new(1, 0)),
-                (4, AssignmentWeight::new(1, 0)),
-                (2, AssignmentWeight::new(0, 9)),
+                (3, AssignmentWeight::new(1, 0)),
+                (0, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(0, 5)),
                 (5, AssignmentWeight::new(0, 4)),
+            ]),
+            HashMap::from([
+                (0, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(2, 0)),
+                (3, AssignmentWeight::new(0, 2)),
+                (2, AssignmentWeight::new(0, 9)),
             ]),
         ];
         assert_validator_mandates_sample(config, expected_assignment);
@@ -357,29 +445,34 @@ mod tests {
     /// Test mandates per shard are collected correctly for `num_mandates % num_shards != 0` and
     /// `num_partials % num_shards != 0`.
     #[test]
-    fn test_assigned_validator_mandates_get_mandates_for_shard_uneven() {
+    fn test_validator_mandates_sample_uneven() {
         // Choosing `num_shards` such that mandates and partials are distributed unevenly.
         // Assignments in `test_validator_mandates_shuffled_*` can be used to construct
         // `expected_assignment` below.
+        // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(10, 1, 4);
         let expected_mandates_per_shards: ValidatorMandatesAssignment = vec![
             HashMap::from([
                 (0, AssignmentWeight::new(2, 0)),
                 (4, AssignmentWeight::new(1, 0)),
                 (1, AssignmentWeight::new(0, 7)),
+            ]),
+            HashMap::from([
+                (1, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 0)),
+                (3, AssignmentWeight::new(0, 2)),
+            ]),
+            HashMap::from([
+                (4, AssignmentWeight::new(1, 5)),
+                (0, AssignmentWeight::new(1, 0)),
                 (6, AssignmentWeight::new(0, 6)),
             ]),
             HashMap::from([
                 (1, AssignmentWeight::new(1, 0)),
-                (4, AssignmentWeight::new(1, 5)),
+                (3, AssignmentWeight::new(1, 0)),
                 (5, AssignmentWeight::new(0, 4)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(1, 0)),
-                (1, AssignmentWeight::new(1, 0)),
                 (2, AssignmentWeight::new(0, 9)),
             ]),
-            HashMap::from([(4, AssignmentWeight::new(1, 0)), (3, AssignmentWeight::new(1, 2))]),
         ];
         assert_validator_mandates_sample(config, expected_mandates_per_shards);
     }
@@ -396,5 +489,40 @@ mod tests {
         let assignment = mandates.sample(&mut rng);
 
         assert_eq!(assignment, expected_assignment);
+    }
+
+    #[test]
+    fn test_shuffled_shard_ids_new() {
+        // Testing with different `num_shards` values to verify the shuffles used in other tests.
+        // Doing two shuffles for each `num_shards` with the same RNG since shard ids are shuffled
+        // twice (once for full and once for partial mandates).
+        let mut rng_3_shards = new_fixed_rng();
+        assert_shuffled_shard_ids(&mut rng_3_shards, 3, vec![2, 1, 0], "3 shards, 1st shuffle");
+        assert_shuffled_shard_ids(&mut rng_3_shards, 3, vec![2, 1, 0], "3 shards, 2nd shuffle");
+        let mut rng_4_shards = new_fixed_rng();
+        assert_shuffled_shard_ids(&mut rng_4_shards, 4, vec![0, 2, 1, 3], "4 shards, 1st shuffle");
+        assert_shuffled_shard_ids(&mut rng_4_shards, 4, vec![3, 2, 0, 1], "4 shards, 2nd shuffle");
+    }
+
+    fn assert_shuffled_shard_ids(
+        rng: &mut ChaCha8Rng,
+        num_shards: usize,
+        expected_shuffling: Vec<usize>,
+        test_descriptor: &str,
+    ) {
+        let shuffled_ids_full_mandates = ShuffledShardIds::new(rng, num_shards);
+        assert_eq!(
+            shuffled_ids_full_mandates,
+            ShuffledShardIds { shuffled_ids: expected_shuffling },
+            "Unexpected shuffling for {test_descriptor}",
+        );
+    }
+
+    #[test]
+    fn test_shuffled_shard_ids_get_alias() {
+        let mut rng = new_fixed_rng();
+        let shuffled_ids = ShuffledShardIds::new(&mut rng, 4);
+        // See [`test_shuffled_shard_ids_new`] for the result of this shuffling.
+        assert_eq!(shuffled_ids.get_alias(1), 2);
     }
 }
