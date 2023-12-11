@@ -25,13 +25,13 @@ class CongestionUser(NearUser):
     @task
     def compute_sha256(self):
         self.send_tx(ComputeSha256(self.contract_account_id, self.account,
-                                   100000),
-                     locust_name="SHA256, 100 KiB")
+                                   1000),
+                     locust_name="SHA256, 1 KiB")
 
-    @task
-    def compute_sum(self):
-        self.send_tx(ComputeSum(self.contract_account_id, self.account, 250),
-                     locust_name="Sum, 250 TGas")
+    # @task
+    # def compute_sum(self):
+    #     self.send_tx(ComputeSum(self.contract_account_id, self.account, 250),
+    #                  locust_name="Sum, 250 TGas")
 
     def on_start(self):
         super().on_start()
