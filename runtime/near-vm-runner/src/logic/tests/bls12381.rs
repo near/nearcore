@@ -11,6 +11,7 @@ mod tests {
                                       serialize_uncompressed_g1,
                                       serialize_uncompressed_g2};
     use amcl::bls381::fp2::FP2;
+    use borsh::BorshSerialize;
     use rand::thread_rng;
     use rand::seq::SliceRandom;
     use rand::RngCore;
@@ -212,6 +213,23 @@ mod tests {
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_g2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
+    fn get_g1_multiexp(points: &Vec<(Big, ECP)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
+            let mut n_vec: [u8; 32] = [0u8; 32];
+            points[i].0.to_byte_array(&mut n_vec, 0);
+            buffer.push(n_vec.try_to_vec().unwrap());
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_g1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -509,7 +527,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_bls12381_g1_crosscheck_sum_and_multiexp() {
         let mut rnd = get_rnd();
 
@@ -850,7 +867,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_bls12381_g2_crosscheck_sum_and_multiexp() {
         let mut rnd = get_rnd();
 
@@ -947,7 +963,7 @@ mod tests {
         yabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
         let mut p_ser = serialize_uncompressed_g2(&p);
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
-        
+
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
         let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
@@ -966,4 +982,20 @@ mod tests {
         logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
     }
 
+    // Tests for multiplication
+    #[test]
+    fn test_bls12381_g1_multiexp_mul() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p = get_random_g1_curve_point(&mut rnd);
+            let n = rnd.getbyte();
+
+            let points: Vec<(u8, ECP)> = vec![(0, p.clone()); n as usize];
+            let res1 = get_g1_sum_many_points(&points);
+            let res2 = get_g1_multiexp(&vec![(Big::from_bytes(&[n; 1]), p)]);
+
+            assert_eq!(res1, res2);
+        }
+    }
 }
