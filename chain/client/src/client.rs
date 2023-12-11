@@ -190,6 +190,9 @@ impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
         self.config.state_split_config.update(update_client_config.state_split_config);
+        self.config
+            .produce_chunk_add_transactions_time_limit
+            .update(update_client_config.produce_chunk_add_transactions_time_limit);
     }
 }
 
@@ -984,6 +987,7 @@ impl Client {
                         .is_ok()
                 },
                 protocol_version,
+                self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {
             vec![]

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
@@ -370,6 +371,7 @@ pub trait RuntimeAdapter: Send + Sync {
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
+        time_limit: Option<Duration>,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
