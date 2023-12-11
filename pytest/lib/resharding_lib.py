@@ -1,7 +1,7 @@
 # A library with the common constants and functions for testing resharding.
 
 V1_PROTOCOL_VERSION = 48
-V2_PROTOCOL_VERSION = 135
+V2_PROTOCOL_VERSION = 64
 
 V0_SHARD_LAYOUT = {
     "V0": {
