@@ -242,10 +242,7 @@ impl ShuffledShardIds {
     where
         R: Rng + ?Sized,
     {
-        let mut shuffled_ids = Vec::with_capacity(num_shards);
-        for shard_id in 0..num_shards {
-            shuffled_ids.push(shard_id);
-        }
+        let mut shuffled_ids = (0..num_shards).collect::<Vec<_>>();
         shuffled_ids.shuffle(rng);
         Self { shuffled_ids }
     }
