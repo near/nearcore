@@ -3104,30 +3104,27 @@ impl Chain {
             return Ok(state_part.into());
         }
 
-        let sync_block = self
+        let block = self
             .get_block(&sync_hash)
             .log_storage_error("block has already been checked for existence")?;
-        let sync_block_header = sync_block.header().clone();
-        let sync_block_epoch_id = sync_block.header().epoch_id().clone();
-        if shard_id as usize >= sync_block.chunks().len() {
+        let header = block.header();
+        let epoch_id = block.header().epoch_id();
+        let shard_ids = self.epoch_manager.shard_ids(epoch_id)?;
+        if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
         }
-        let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
-        if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
+        let prev_block = self.get_block(header.prev_hash())?;
+        if epoch_id == prev_block.header().epoch_id() {
             return Err(sync_hash_not_first_hash(sync_hash));
         }
-        if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(shard_id_out_of_bounds(shard_id));
-        }
-        let state_root = sync_prev_block.chunks()[shard_id as usize].prev_state_root();
-        let sync_prev_hash = *sync_prev_block.hash();
-        let sync_prev_prev_hash = *sync_prev_block.header().prev_hash();
+        let state_root = prev_block.chunks()[shard_id as usize].prev_state_root();
+        let prev_hash = *prev_block.hash();
+        let prev_prev_hash = *prev_block.header().prev_hash();
         let state_root_node = self
             .runtime_adapter
-            .get_state_root_node(shard_id, &sync_prev_hash, &state_root)
+            .get_state_root_node(shard_id, &prev_hash, &state_root)
             .log_storage_error("get_state_root_node fail")?;
         let num_parts = get_num_state_parts(state_root_node.memory_usage);
-
         if part_id >= num_parts {
             return Err(shard_id_out_of_bounds(shard_id));
         }
@@ -3136,7 +3133,7 @@ impl Chain {
             .runtime_adapter
             .obtain_state_part(
                 shard_id,
-                &sync_prev_prev_hash,
+                &prev_prev_hash,
                 &state_root,
                 PartId::new(part_id, num_parts),
             )
