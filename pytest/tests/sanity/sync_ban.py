@@ -22,7 +22,7 @@ import utils
 TIMEOUT = 300
 EPOCH_LENGTH = 50
 
-BAN_STRING = 'ban a fraudulent peer'
+BAN_STRING = 'ban a peer: [^\n]*, for not providing enough headers'
 
 
 class Handler(ProxyHandler):
@@ -108,7 +108,7 @@ if __name__ == '__main__':
         assert time.time() - start < TIMEOUT
 
         if should_ban:
-            if tracker1.check(BAN_STRING):
+            if tracker1.check_re(BAN_STRING):
                 break
         else:
             cur_height = nodes[0].get_latest_block().height
@@ -122,8 +122,8 @@ if __name__ == '__main__':
                 break
         time.sleep(2)
 
-    if not should_ban and (tracker0.check(BAN_STRING) or
-                           tracker1.check(BAN_STRING)):
+    if not should_ban and (tracker0.check_re(BAN_STRING) or
+                           tracker1.check_re(BAN_STRING)):
         assert False, "unexpected ban of peers"
 
     # logger.info('shutting down')
