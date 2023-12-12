@@ -4,7 +4,6 @@ use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::SignedTransaction;
@@ -133,14 +132,11 @@ fn test_maybe_open_state_snapshot_garbage_snapshot() {
 fn verify_make_snapshot(
     state_snapshot_test_env: &StateSnaptshotTestEnv,
     block_hash: CryptoHash,
-    block: &Block,
 ) -> Result<(), anyhow::Error> {
     state_snapshot_test_env.shard_tries.delete_state_snapshot();
-    state_snapshot_test_env.shard_tries.create_state_snapshot(
-        block_hash,
-        &vec![ShardUId::single_shard()],
-        block,
-    )?;
+    state_snapshot_test_env
+        .shard_tries
+        .create_state_snapshot(block_hash, &vec![ShardUId::single_shard()])?;
     // check that make_state_snapshot does not panic or err out
     // assert!(res.is_ok());
     let snapshot_path = ShardTries::get_state_snapshot_base_dir(
@@ -229,7 +225,7 @@ fn test_make_state_snapshot() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         assert_eq!(
             format!("{:?}", Ok::<(), anyhow::Error>(())),
-            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, *block.hash(), &block))
+            format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, *block.hash()))
         );
     }
 
@@ -237,13 +233,9 @@ fn test_make_state_snapshot() {
     state_snapshot_test_env.shard_tries.set_state_snapshot_hash(None).unwrap();
     let head = env.clients[0].chain.head().unwrap();
     let head_block_hash = head.last_block_hash;
-    let head_block = env.clients[0].chain.get_block(&head_block_hash).unwrap();
     assert_eq!(
         format!("{:?}", Ok::<(), anyhow::Error>(())),
-        format!(
-            "{:?}",
-            verify_make_snapshot(&state_snapshot_test_env, head_block_hash, &head_block)
-        )
+        format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, head_block_hash))
     );
 
     // check that if the snapshot is deleted from file system while there's entry in DBCol::STATE_SNAPSHOT_KEY
@@ -258,9 +250,6 @@ fn test_make_state_snapshot() {
     delete_content_at_path(snapshot_path.to_str().unwrap()).unwrap();
     assert_eq!(
         format!("{:?}", Ok::<(), anyhow::Error>(())),
-        format!(
-            "{:?}",
-            verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash, &head_block)
-        )
+        format!("{:?}", verify_make_snapshot(&state_snapshot_test_env, head.last_block_hash))
     );
 }

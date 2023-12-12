@@ -1267,7 +1267,7 @@ mod test {
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerInfo;
     use near_primitives::state_sync::{
-        CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
+        CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV4,
     };
     use near_primitives::{test_utils::TestBlockBuilder, types::EpochId};
 
@@ -1313,7 +1313,8 @@ mod test {
         let state_sync_header = chain.get_state_response_header(0, *request_hash).unwrap();
         let state_sync_header = match state_sync_header {
             ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
-            ShardStateSyncResponseHeader::V2(internal) => internal,
+            ShardStateSyncResponseHeader::V2(_) => panic!("Invalid header"),
+            ShardStateSyncResponseHeader::V3(internal) => internal,
         };
 
         let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
@@ -1379,7 +1380,7 @@ mod test {
 
             // Now let's simulate header return message.
 
-            let state_response = ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+            let state_response = ShardStateSyncResponse::V4(ShardStateSyncResponseV4 {
                 header: Some(state_sync_header),
                 part: None,
                 cached_parts: Some(CachedParts::AllParts),
