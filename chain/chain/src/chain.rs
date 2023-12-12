@@ -3930,28 +3930,13 @@ impl Chain {
         let prev_chunk_headers =
             Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
 
-        let mut jobs = vec![];
+        let mut maybe_jobs = vec![];
         for (shard_id, (chunk_header, prev_chunk_header)) in
             block.chunks().iter().zip(prev_chunk_headers.iter()).enumerate()
         {
             // XXX: This is a bit questionable -- sandbox state patching works
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
-
-            // Insert job into list of all jobs to run, if job is valid.
-            let mut insert_job = |job: Result<Option<UpdateShardJob>, Error>| {
-                match job {
-                    Ok(Some(processor)) => jobs.push(processor),
-                    Ok(None) => {}
-                    Err(err) => {
-                        if err.is_bad_data() {
-                            invalid_chunks.push(chunk_header.clone());
-                        }
-                        return Err(err);
-                    }
-                }
-                return Ok(());
-            };
 
             let stateful_job = self.get_update_shard_job(
                 me,
@@ -3964,7 +3949,7 @@ impl Chain {
                 incoming_receipts,
                 state_patch,
             );
-            insert_job(stateful_job)?;
+            maybe_jobs.push((shard_id, stateful_job));
 
             let protocol_version =
                 self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
@@ -3978,7 +3963,22 @@ impl Chain {
                     shard_id as ShardId,
                     mode,
                 );
-                insert_job(stateless_job)?;
+                maybe_jobs.push((shard_id, stateless_job));
+            }
+        }
+
+        let mut jobs = vec![];
+        for (shard_id, maybe_job) in maybe_jobs {
+            match maybe_job {
+                Ok(Some(processor)) => jobs.push(processor),
+                Ok(None) => {}
+                Err(err) => {
+                    if err.is_bad_data() {
+                        let chunk_header = block.chunks()[shard_id].clone();
+                        invalid_chunks.push(chunk_header);
+                    }
+                    return Err(err);
+                }
             }
         }
 
@@ -4061,6 +4061,8 @@ impl Chain {
                 prev_block.header(),
                 is_new_chunk,
             )?;
+            let storage_context =
+                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
             if is_new_chunk {
                 // Validate new chunk and collect incoming receipts for it.
 
@@ -4130,6 +4132,7 @@ impl Chain {
                     chunk,
                     receipts,
                     split_state_roots,
+                    storage_context,
                 })
             } else {
                 ShardUpdateReason::OldChunk(OldChunkData {
@@ -4138,6 +4141,7 @@ impl Chain {
                         self.get_chunk_extra(prev_hash, &shard_context.shard_uid)?.as_ref(),
                     ),
                     split_state_roots,
+                    storage_context,
                 })
             }
         } else if let Some(split_state_roots) = split_state_roots {
@@ -4167,7 +4171,6 @@ impl Chain {
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
-                    StorageContext { storage_data_source: StorageDataSource::Db, state_patch },
                 )?))
             }),
         )))
@@ -4328,12 +4331,12 @@ impl Chain {
                             block: block_context.clone(),
                             split_state_roots: None,
                             prev_chunk_extra: current_chunk_extra.clone(),
+                            storage_context: StorageContext {
+                                storage_data_source: StorageDataSource::DbTrieOnly,
+                                state_patch: Default::default(),
+                            },
                         }),
                         shard_context,
-                        StorageContext {
-                            storage_data_source: StorageDataSource::DbTrieOnly,
-                            state_patch: Default::default(),
-                        },
                     )?;
                     if let ShardBlockUpdateResult::OldChunk(OldChunkResult {
                         shard_uid,
@@ -4361,12 +4364,12 @@ impl Chain {
                         split_state_roots: None,
                         block: last_block_context.clone(),
                         is_first_block_with_chunk_of_version: false,
+                        storage_context: StorageContext {
+                            storage_data_source: StorageDataSource::DbTrieOnly,
+                            state_patch: Default::default(),
+                        },
                     }),
                     last_shard_context,
-                    StorageContext {
-                        storage_data_source: StorageDataSource::DbTrieOnly,
-                        state_patch: Default::default(),
-                    },
                 )?;
                 if let ShardBlockUpdateResult::NewChunk(NewChunkResult {
                     gas_limit,

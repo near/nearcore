@@ -73,12 +73,14 @@ pub(crate) struct NewChunkData {
     pub split_state_roots: Option<SplitStateRoots>,
     pub block: ApplyTransactionsBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
+    pub storage_context: StorageContext,
 }
 
 pub(crate) struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub split_state_roots: Option<SplitStateRoots>,
     pub block: ApplyTransactionsBlockContext,
+    pub storage_context: StorageContext,
 }
 
 pub(crate) struct StateSplitData {
@@ -131,25 +133,14 @@ pub(crate) fn process_shard_update(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
-    storage_context: StorageContext,
 ) -> Result<ShardBlockUpdateResult, Error> {
     match shard_update_reason {
-        ShardUpdateReason::NewChunk(data) => apply_new_chunk(
-            parent_span,
-            data,
-            shard_context,
-            storage_context,
-            runtime,
-            epoch_manager,
-        ),
-        ShardUpdateReason::OldChunk(data) => apply_old_chunk(
-            parent_span,
-            data,
-            shard_context,
-            storage_context,
-            runtime,
-            epoch_manager,
-        ),
+        ShardUpdateReason::NewChunk(data) => {
+            apply_new_chunk(parent_span, data, shard_context, runtime, epoch_manager)
+        }
+        ShardUpdateReason::OldChunk(data) => {
+            apply_old_chunk(parent_span, data, shard_context, runtime, epoch_manager)
+        }
         ShardUpdateReason::StateSplit(data) => {
             apply_state_split(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)
         }
@@ -162,7 +153,6 @@ fn apply_new_chunk(
     parent_span: &tracing::Span,
     data: NewChunkData,
     shard_context: ShardContext,
-    storage_context: StorageContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<ShardBlockUpdateResult, Error> {
@@ -172,6 +162,7 @@ fn apply_new_chunk(
         receipts,
         split_state_roots,
         is_first_block_with_chunk_of_version,
+        storage_context,
     } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
@@ -234,11 +225,10 @@ fn apply_old_chunk(
     parent_span: &tracing::Span,
     data: OldChunkData,
     shard_context: ShardContext,
-    storage_context: StorageContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<ShardBlockUpdateResult, Error> {
-    let OldChunkData { prev_chunk_extra, split_state_roots, block } = data;
+    let OldChunkData { prev_chunk_extra, split_state_roots, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
