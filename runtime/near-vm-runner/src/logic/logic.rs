@@ -1047,12 +1047,8 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
 
-        let elements_count_div_log = elements_count / (std::cmp::max(u64::ilog2(elements_count as u64), 1) as usize);
-        self.gas_counter.pay_per(bls12381_g1_multiexp_element_div_log, elements_count_div_log as u64)?;
+        let mut res_pk = blst::blst_p1::default();
 
-        let mut blst_points: Vec<blst::blst_p1> = vec![];
-        let nbits = 32 * 8 * elements_count;
-        let mut scalars: Vec<u8> = vec![];
         for i in 0..elements_count {
             let mut pk_aff = blst::blst_p1_affine::default();
             unsafe {
@@ -1064,21 +1060,25 @@ impl<'a> VMLogic<'a> {
                 blst::blst_p1_from_affine(&mut pk, &pk_aff);
             }
 
-            blst_points.push(pk);
-            scalars.extend_from_slice(&data[(i*128 + 96)..(i + 1)*128]);
+            let mut pk_mul = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_mult(&mut pk_mul, &pk, data[i*128 + 96..(i + 1)*128].as_ptr(), 32 * 8);
+            }
+
+            unsafe {
+                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk_mul);
+            }
         }
 
-        let blst_p1s = blst::p1_affines::from(&blst_points);
-        let mul_res = blst_p1s.mult(&scalars, nbits);
-        let mut mul_res_affine = blst::blst_p1_affine::default();
+        let mut res_affine = blst::blst_p1_affine::default();
 
         unsafe {
-            blst::blst_p1_to_affine(&mut mul_res_affine, &mul_res);
+            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
         }
 
         let mut res = [0u8; 96];
         unsafe {
-            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
         }
 
         self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
@@ -1100,9 +1100,6 @@ impl<'a> VMLogic<'a> {
 
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_g2_multiexp_element, elements_count as u64)?;
-
-        let elements_count_div_log = elements_count / (std::cmp::max(u64::ilog2(elements_count as u64), 1) as usize);
-        self.gas_counter.pay_per(bls12381_g2_multiexp_element_div_log, elements_count_div_log as u64)?;
 
         let mut blst_points: Vec<blst::blst_p2> = vec![];
         let nbits = 32 * 8 * elements_count;
