@@ -2910,24 +2910,22 @@ impl Chain {
         let sync_block = self
             .get_block(&sync_hash)
             .log_storage_error("block has already been checked for existence")?;
-        let sync_block_header = sync_block.header().clone();
-        let sync_block_epoch_id = sync_block.header().epoch_id().clone();
-        if shard_id as usize >= sync_block.chunks().len() {
+        let sync_block_header = sync_block.header();
+        let sync_block_epoch_id = sync_block_header.epoch_id();
+        let shard_ids = self.epoch_manager.shard_ids(sync_block_epoch_id)?;
+        if !shard_ids.contains(&shard_id) {
             return Err(shard_id_out_of_bounds(shard_id));
         }
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
         let sync_prev_block = self.get_block(sync_block_header.prev_hash())?;
-        if &sync_block_epoch_id == sync_prev_block.header().epoch_id() {
+        if sync_block_epoch_id == sync_prev_block.header().epoch_id() {
             return Err(sync_hash_not_first_hash(sync_hash));
         }
-        if shard_id as usize >= sync_prev_block.chunks().len() {
-            return Err(shard_id_out_of_bounds(shard_id));
-        }
         // Chunk header here is the same chunk header as at the `current` height.
-        let sync_prev_hash = *sync_prev_block.hash();
-        let chunk_header = sync_prev_block.chunks()[shard_id as usize].clone();
+        let sync_prev_hash = sync_prev_block.hash();
+        let chunk_header = &sync_prev_block.chunks()[shard_id as usize];
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
@@ -2939,7 +2937,7 @@ impl Chain {
         );
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
-        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
+        let chunk = self.get_chunk_clone_from_header(chunk_header)?;
         let chunk_proof = chunk_proofs[shard_id as usize].clone();
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
@@ -2949,9 +2947,6 @@ impl Chain {
             .get_block(block_header.prev_hash())
         {
             Ok(prev_block) => {
-                if shard_id as usize >= prev_block.chunks().len() {
-                    return Err(shard_id_out_of_bounds(shard_id));
-                }
                 let prev_chunk_header = prev_block.chunks()[shard_id as usize].clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
                     &prev_block
@@ -3030,7 +3025,7 @@ impl Chain {
 
         let state_root_node = self.runtime_adapter.get_state_root_node(
             shard_id,
-            &sync_prev_hash,
+            sync_prev_hash,
             &chunk_header.prev_state_root(),
         )?;
 
@@ -4968,27 +4963,22 @@ impl<'a> ChainUpdate<'a> {
     /// EpochManager, otherwise it will return an error.
     fn save_receipt_id_to_shard_id_for_block(
         &mut self,
-        me: &Option<AccountId>,
+        account_id: Option<&AccountId>,
         hash: &CryptoHash,
         prev_hash: &CryptoHash,
-        num_shards: NumShards,
+        shard_ids: &[ShardId],
     ) -> Result<(), Error> {
-        for shard_id in 0..num_shards {
-            let care_about_shard = self.shard_tracker.care_about_shard(
-                me.as_ref(),
-                &prev_hash,
-                shard_id as ShardId,
-                true,
-            );
-            if !care_about_shard {
-                continue;
+        let mut list = vec![];
+        for &shard_id in shard_ids {
+            if self.shard_tracker.care_about_shard(account_id, prev_hash, shard_id, true) {
+                list.push(self.get_receipt_id_to_shard_id(hash, shard_id)?);
             }
-            let receipt_id_to_shard_id = self.get_receipt_id_to_shard_id(hash, shard_id)?;
-            for (receipt_id, shard_id) in receipt_id_to_shard_id {
+        }
+        for map in list {
+            for (receipt_id, shard_id) in map {
                 self.chain_store_update.save_receipt_id_to_shard_id(receipt_id, shard_id);
             }
         }
-
         Ok(())
     }
 
@@ -5276,6 +5266,7 @@ impl<'a> ChainUpdate<'a> {
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<Result<ApplyChunkResult, Error>>,
     ) -> Result<Option<Tip>, Error> {
+        let shard_ids = self.epoch_manager.shard_ids(block.header().epoch_id())?;
         let prev_hash = block.header().prev_hash();
         let results = apply_chunks_results.into_iter().map(|x| {
             if let Err(err) = &x {
@@ -5343,10 +5334,10 @@ impl<'a> ChainUpdate<'a> {
 
         // Save receipt_id_to_shard_id for all outgoing receipts generated in this block
         self.save_receipt_id_to_shard_id_for_block(
-            me,
+            me.as_ref(),
             block.hash(),
             prev_hash,
-            block.chunks().len() as NumShards,
+            &shard_ids,
         )?;
 
         // Update the chain head if it's the new tip
