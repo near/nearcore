@@ -1,11 +1,12 @@
-name: Near crates publish
+name: Near Crates Publish
 
 on:
-  push:
-    branches: master
-    paths:
-      - 'Cargo.toml'
   workflow_dispatch:
+    inputs:
+      branch:
+        type: string
+        required: true
+        description: Branch name or tag to build from
 
 jobs:
   publish-cargo-crates:
@@ -17,10 +18,11 @@ jobs:
     timeout-minutes: 30 
     
     steps:
-      - name: Checkout near/nearcore branch
+      - name: Checkout near/nearcore's ${{ github.event.inputs.branch }} branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.branch }}
       - name: Set up git user
         uses: fregante/setup-git-user@v2
       - name: Publish near-workspaces on crates.io
