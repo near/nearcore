@@ -2,7 +2,7 @@ use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
     ApplySplitStateResult, ApplySplitStateResultOrStateChanges, ApplyTransactionResult,
     ApplyTransactionsBlockContext, ApplyTransactionsChunkContext, RuntimeAdapter,
-    RuntimeStorageConfig,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -45,8 +45,20 @@ pub struct StateSplitResult {
     pub(crate) results: Vec<ApplySplitStateResult>,
 }
 
+/// Result of processing shard update, covering both stateful and stateless scenarios.
 #[derive(Debug)]
-pub enum ApplyChunkResult {
+pub enum ShardUpdateResult {
+    /// Stateful scenario - processed update for a single block.
+    Stateful(ShardBlockUpdateResult),
+    /// Stateless scenario - processed update based on state witness in a chunk.
+    /// Contains `ChunkExtra`s - results for processing updates corresponding
+    /// to state witness.
+    Stateless(Vec<(CryptoHash, ShardUId, ChunkExtra)>),
+}
+
+/// Result for a shard update for a single block.
+#[derive(Debug)]
+pub enum ShardBlockUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
     StateSplit(StateSplitResult),
@@ -61,12 +73,14 @@ pub(crate) struct NewChunkData {
     pub split_state_roots: Option<SplitStateRoots>,
     pub block: ApplyTransactionsBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
+    pub storage_context: StorageContext,
 }
 
 pub(crate) struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub split_state_roots: Option<SplitStateRoots>,
     pub block: ApplyTransactionsBlockContext,
+    pub storage_context: StorageContext,
 }
 
 pub(crate) struct StateSplitData {
@@ -94,8 +108,21 @@ pub(crate) enum ShardUpdateReason {
 /// Information about shard to update.
 pub(crate) struct ShardContext {
     pub shard_uid: ShardUId,
+    /// Whether node cares about shard in this epoch.
+    pub cares_about_shard_this_epoch: bool,
     /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
+    /// Whether transactions should be applied.
+    pub should_apply_transactions: bool,
+    /// See comment in `get_update_shard_job`.
+    pub need_to_split_states: bool,
+}
+
+/// Information about storage used for applying txs and receipts.
+pub(crate) struct StorageContext {
+    /// Data source used for processing shard update.
+    pub storage_data_source: StorageDataSource,
+    pub state_patch: SandboxStatePatch,
 }
 
 /// Processes shard update with given block and shard.
@@ -106,14 +133,13 @@ pub(crate) fn process_shard_update(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
-    state_patch: SandboxStatePatch,
-) -> Result<ApplyChunkResult, Error> {
+) -> Result<ShardBlockUpdateResult, Error> {
     match shard_update_reason {
         ShardUpdateReason::NewChunk(data) => {
-            apply_new_chunk(parent_span, data, shard_context, state_patch, runtime, epoch_manager)
+            apply_new_chunk(parent_span, data, shard_context, runtime, epoch_manager)
         }
         ShardUpdateReason::OldChunk(data) => {
-            apply_old_chunk(parent_span, data, shard_context, state_patch, runtime, epoch_manager)
+            apply_old_chunk(parent_span, data, shard_context, runtime, epoch_manager)
         }
         ShardUpdateReason::StateSplit(data) => {
             apply_state_split(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)
@@ -126,19 +152,19 @@ pub(crate) fn process_shard_update(
 fn apply_new_chunk(
     parent_span: &tracing::Span,
     data: NewChunkData,
-    shard_info: ShardContext,
-    state_patch: SandboxStatePatch,
+    shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<ApplyChunkResult, Error> {
+) -> Result<ShardBlockUpdateResult, Error> {
     let NewChunkData {
         block,
         chunk,
         receipts,
         split_state_roots,
         is_first_block_with_chunk_of_version,
+        storage_context,
     } = data;
-    let shard_id = shard_info.shard_uid.shard_id();
+    let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
@@ -152,8 +178,8 @@ fn apply_new_chunk(
     let storage_config = RuntimeStorageConfig {
         state_root: *chunk_inner.prev_state_root(),
         use_flat_storage: true,
-        source: crate::types::StorageDataSource::Db,
-        state_patch,
+        source: storage_context.storage_data_source,
+        state_patch: storage_context.state_patch,
         record_storage: false,
     };
     match runtime.apply_transactions(
@@ -170,7 +196,7 @@ fn apply_new_chunk(
         chunk.transactions(),
     ) {
         Ok(apply_result) => {
-            let apply_split_result_or_state_changes = if shard_info.will_shard_layout_change {
+            let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
                 Some(apply_split_state_changes(
                     epoch_manager,
                     runtime,
@@ -181,9 +207,9 @@ fn apply_new_chunk(
             } else {
                 None
             };
-            Ok(ApplyChunkResult::NewChunk(NewChunkResult {
+            Ok(ShardBlockUpdateResult::NewChunk(NewChunkResult {
                 gas_limit,
-                shard_uid: shard_info.shard_uid,
+                shard_uid: shard_context.shard_uid,
                 apply_result,
                 apply_split_result_or_state_changes,
             }))
@@ -198,13 +224,12 @@ fn apply_new_chunk(
 fn apply_old_chunk(
     parent_span: &tracing::Span,
     data: OldChunkData,
-    shard_info: ShardContext,
-    state_patch: SandboxStatePatch,
+    shard_context: ShardContext,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<ApplyChunkResult, Error> {
-    let OldChunkData { prev_chunk_extra, split_state_roots, block } = data;
-    let shard_id = shard_info.shard_uid.shard_id();
+) -> Result<ShardBlockUpdateResult, Error> {
+    let OldChunkData { prev_chunk_extra, split_state_roots, block, storage_context } = data;
+    let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
@@ -215,8 +240,8 @@ fn apply_old_chunk(
     let storage_config = RuntimeStorageConfig {
         state_root: *prev_chunk_extra.state_root(),
         use_flat_storage: true,
-        source: crate::types::StorageDataSource::Db,
-        state_patch,
+        source: storage_context.storage_data_source,
+        state_patch: storage_context.state_patch,
         record_storage: false,
     };
     match runtime.apply_transactions(
@@ -233,7 +258,7 @@ fn apply_old_chunk(
         &[],
     ) {
         Ok(apply_result) => {
-            let apply_split_result_or_state_changes = if shard_info.will_shard_layout_change {
+            let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
                 Some(apply_split_state_changes(
                     epoch_manager,
                     runtime,
@@ -244,8 +269,8 @@ fn apply_old_chunk(
             } else {
                 None
             };
-            Ok(ApplyChunkResult::OldChunk(OldChunkResult {
-                shard_uid: shard_info.shard_uid,
+            Ok(ShardBlockUpdateResult::OldChunk(OldChunkResult {
+                shard_uid: shard_context.shard_uid,
                 apply_result,
                 apply_split_result_or_state_changes,
             }))
@@ -261,7 +286,7 @@ fn apply_state_split(
     shard_uid: ShardUId,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<ApplyChunkResult, Error> {
+) -> Result<ShardBlockUpdateResult, Error> {
     let StateSplitData { split_state_roots, state_changes, block_height: height, block_hash } =
         data;
     let shard_id = shard_uid.shard_id();
@@ -281,7 +306,7 @@ fn apply_state_split(
         &next_epoch_shard_layout,
         state_changes,
     )?;
-    Ok(ApplyChunkResult::StateSplit(StateSplitResult { shard_uid, results }))
+    Ok(ShardBlockUpdateResult::StateSplit(StateSplitResult { shard_uid, results }))
 }
 
 /// Process ApplyTransactionResult to apply changes to split states

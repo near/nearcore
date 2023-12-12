@@ -22,6 +22,7 @@ use crate::{metrics, StatusResponse, SyncAdapter};
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Utc};
+use itertools::Itertools;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
@@ -1889,7 +1890,9 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
             self.client.catchup_state_syncs.get_mut(&msg.sync_hash)
         {
             assert!(blocks_catch_up_state.scheduled_blocks.remove(&msg.block_hash));
-            blocks_catch_up_state.processed_blocks.insert(msg.block_hash, msg.results);
+            blocks_catch_up_state
+                .processed_blocks
+                .insert(msg.block_hash, msg.results.into_iter().map(|res| res.1).collect_vec());
         } else {
             panic!("block catch up processing result from unknown sync hash");
         }

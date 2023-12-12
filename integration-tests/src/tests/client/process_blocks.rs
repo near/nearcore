@@ -11,9 +11,12 @@ use near_async::messaging::IntoSender;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
+#[cfg(not(feature = "nightly"))]
 use near_chain::validate::validate_chunk_with_chunk_extra;
+#[cfg(not(feature = "nightly"))]
+use near_chain::ChainStore;
 use near_chain::{
-    Block, BlockProcessingArtifact, ChainGenesis, ChainStore, ChainStoreAccess, Error, Provenance,
+    Block, BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Error, Provenance,
 };
 use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
@@ -2252,7 +2255,10 @@ fn test_block_height_processed_orphan() {
     assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
 }
 
+// Disabled until stateless validation release, because the test relies on
+// logging which is impacted by the release process.
 #[test]
+#[cfg(not(feature = "nightly"))]
 fn test_validate_chunk_extra() {
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
