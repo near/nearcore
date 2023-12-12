@@ -143,16 +143,18 @@ mod tests {
         outputs.sort();
 
         // The error will happen on 100th input, but other threads might produce subsequent outputs in parallel,
-        // so the size of outputs could be a bit larger than 100. Compare with 10_000 as a safety margin.
-        assert!(outputs.len() > 10);
-        assert!(outputs.len() < 10_000);
-        assert_eq!(&outputs[..10], &[2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+        // so there might be over 100 outputs. We can't really assume antything about the outputs due to the
+        // nature of multithreading, but we can check that some basic conditions hold.
 
-        for output in outputs {
+        // All outputs should be distinct
+        for two_outputs in outputs.windows(2) {
+            assert_ne!(two_outputs[0], two_outputs[1]);
+
             // All outputs should be even, func multiplies the inputs by 2.
-            assert_eq!(output % 2, 0);
-            assert!(output < 20_0000);
+            assert_eq!(two_outputs[0] % 2, 0);
+            assert_eq!(two_outputs[1] % 2, 0);
         }
+
         assert_eq!(result, Err(TestError));
     }
 
