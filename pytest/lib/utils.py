@@ -1,4 +1,3 @@
-import atexit
 import base58
 import hashlib
 import json
@@ -7,7 +6,6 @@ import pathlib
 import random
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
