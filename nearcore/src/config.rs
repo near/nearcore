@@ -1,12 +1,18 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
-use near_chain_configs::ExternalStorageLocation::GCS;
 use near_chain_configs::{
-    get_initial_supply, ClientConfig, ExternalStorageConfig, GCConfig, Genesis, GenesisConfig,
-    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSplitConfig, StateSyncConfig,
-    SyncConfig, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+    default_enable_multiline_logging, default_epoch_sync_enabled,
+    default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
+    default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
+    default_log_summary_period, default_produce_chunk_add_transactions_time_limit,
+    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
+    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply, ClientConfig, GCConfig, Genesis,
+    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSplitConfig,
+    StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -150,88 +156,8 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 /// Protocol upgrade stake threshold.
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
-fn default_header_sync_initial_timeout() -> Duration {
-    Duration::from_secs(10)
-}
-
-fn default_header_sync_progress_timeout() -> Duration {
-    Duration::from_secs(2)
-}
-
-fn default_header_sync_stall_ban_timeout() -> Duration {
-    Duration::from_secs(120)
-}
-
-fn default_state_sync_timeout() -> Duration {
-    Duration::from_secs(60)
-}
-
-fn default_header_sync_expected_height_per_second() -> u64 {
-    10
-}
-
-fn default_sync_check_period() -> Duration {
-    Duration::from_secs(10)
-}
-
-fn default_sync_step_period() -> Duration {
-    Duration::from_millis(10)
-}
-
-fn default_sync_height_threshold() -> u64 {
-    1
-}
-
-fn default_epoch_sync_enabled() -> bool {
-    false
-}
-
-fn default_state_sync() -> Option<StateSyncConfig> {
-    Some(StateSyncConfig {
-        dump: None,
-        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
-            location: GCS { bucket: "state-parts".to_string() },
-            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
-            num_concurrent_requests_during_catchup:
-                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
-        }),
-    })
-}
-
-fn default_state_sync_enabled() -> bool {
-    true
-}
-
-fn default_view_client_threads() -> usize {
-    4
-}
-
-fn default_log_summary_period() -> Duration {
-    Duration::from_secs(10)
-}
-
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
-}
-
-fn default_view_client_throttle_period() -> Duration {
-    Duration::from_secs(30)
-}
-
-fn default_trie_viewer_state_size_limit() -> Option<u64> {
-    Some(50_000)
-}
-
-fn default_transaction_pool_size_limit() -> Option<u64> {
-    Some(100_000_000) // 100 MB.
-}
-
-fn default_tx_routing_height_horizon() -> BlockHeightDelta {
-    4
-}
-
-fn default_enable_multiline_logging() -> Option<bool> {
-    Some(true)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -385,6 +311,11 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// Limit the time of adding transactions to a chunk.
+    /// A node produces a chunk by adding transactions from the transaction pool until
+    /// some limit is reached. This time limit ensures that adding transactions won't take
+    /// longer than the specified duration, which helps to produce the chunk quickly.
+    pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -427,6 +358,8 @@ impl Default for Config {
             enable_multiline_logging: default_enable_multiline_logging(),
             state_split_config: StateSplitConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            produce_chunk_add_transactions_time_limit:
+                default_produce_chunk_add_transactions_time_limit(),
         }
     }
 }
@@ -728,6 +661,10 @@ impl NearConfig {
                     "state_split_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
+                produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                    config.produce_chunk_add_transactions_time_limit,
+                    "produce_chunk_add_transactions_time_limit",
+                ),
             },
             network_config: NetworkConfig::new(
                 config.network,
