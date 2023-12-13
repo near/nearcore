@@ -21,7 +21,7 @@ use near_primitives_core::types::BlockHeight;
 use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata};
 use near_store::{DBCol, RawTrieNodeWithSize, Store, TrieChanges};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use strum::IntoEnumIterator;
 
@@ -89,6 +89,11 @@ fn format_key_and_value<'a>(
             Box::new(String::from_utf8_lossy(key).to_string()),
             format_block_misc_value(key, value),
         ),
+        DBCol::BlockPerHeight => {
+            let value: HashMap<EpochId, HashSet<CryptoHash>> =
+                BorshDeserialize::try_from_slice(value).unwrap();
+            (Box::new(BlockHeight::try_from_slice(key).unwrap()), Box::new(value))
+        }
         DBCol::BlockRefCount => (
             Box::new(CryptoHash::try_from(key).unwrap()),
             Box::new(u64::try_from_slice(value).unwrap()),

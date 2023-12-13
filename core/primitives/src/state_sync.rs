@@ -125,7 +125,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),
-            Self::V3(header) => hash(&borsh::to_vec(&header.state_root_node).unwrap()),
+            Self::V3(header) => hash(&header.state_root_node.data),
         }
     }
 

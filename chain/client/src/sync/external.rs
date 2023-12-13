@@ -233,7 +233,7 @@ pub fn location_prefix(
     shard_id: u64,
 ) -> String {
     format!(
-        "chain_id={}/epoch_height={}/epoch_id={}/shard_id={}",
+        "encabulator/chain_id={}/epoch_height={}/epoch_id={}/shard_id={}",
         chain_id, epoch_height, epoch_id.0, shard_id
     )
 }
@@ -377,7 +377,8 @@ mod test {
         tracing::debug!("Data: {:?}", data);
 
         // Directory resembles real usecase.
-        let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
+        let dir = "test_folder/encabulator/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0"
+            .to_string();
         let full_filename = format!("{}/{}", dir, filename);
 
         // Before uploading we shouldn't see filename in the list of files.

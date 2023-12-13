@@ -44,6 +44,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
+    ShardStateSyncResponseV4,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
@@ -1359,7 +1360,7 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
                     }
                 };
                 let header = match header {
-                    ShardStateSyncResponseHeader::V2(inner) => inner,
+                    ShardStateSyncResponseHeader::V3(inner) => inner,
                     _ => {
                         tracing::error!(target: "sync", ?sync_hash, shard_id, "Invalid state sync header format");
                         return None;
@@ -1367,14 +1368,14 @@ impl Handler<WithSpanContext<StateRequestHeader>> for ViewClientActor {
                 };
 
                 let can_generate = self.has_state_snapshot(&sync_hash, shard_id).is_ok();
-                ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+                ShardStateSyncResponse::V4(ShardStateSyncResponseV4 {
                     header: Some(header),
                     part: None,
                     cached_parts,
                     can_generate,
                 })
             }
-            None => ShardStateSyncResponse::V3(ShardStateSyncResponseV3 {
+            None => ShardStateSyncResponse::V4(ShardStateSyncResponseV4 {
                 header: None,
                 part: None,
                 cached_parts: None,

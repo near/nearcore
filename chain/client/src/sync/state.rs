@@ -1266,6 +1266,7 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerInfo;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::state_sync::{
         CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV4,
     };
@@ -1274,6 +1275,7 @@ mod test {
     #[test]
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
+        init_test_logger();
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
             mock_peer_manager.clone().into(),

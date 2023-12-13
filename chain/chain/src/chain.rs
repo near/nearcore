@@ -2936,9 +2936,14 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &sync_hash, &state_root)?;
 
-        let shard_state_header = ShardStateSyncResponseHeaderV3 { state_root_node };
+        let shard_state_header =
+            ShardStateSyncResponseHeaderV3 { state_root_node: state_root_node.clone() };
+        let res = ShardStateSyncResponseHeader::V3(shard_state_header);
+        let computed_state_root = res.chunk_prev_state_root();
+        tracing::info!(target: "sync", ?state_root_node, ?state_root, ?computed_state_root, ?sync_block);
+        assert_eq!(state_root, computed_state_root);
 
-        Ok(ShardStateSyncResponseHeader::V3(shard_state_header))
+        Ok(res)
     }
 
     /// Returns ShardStateSyncResponseHeader for the given epoch and shard.
@@ -3043,19 +3048,10 @@ impl Chain {
         shard_state_header: ShardStateSyncResponseHeader,
     ) -> Result<(), Error> {
         let state_root_node = shard_state_header.state_root_node();
-        let state_root = hash(&borsh::to_vec(state_root_node).unwrap());
-        let sync_block = self.get_block(&sync_hash)?;
-        let chunk = &sync_block.chunks()[shard_id as usize];
-        let chunk_state_root = chunk.prev_state_root();
-        if chunk_state_root != state_root {
-            return Err(Error::Other(format!("set_shard_state failed: received state_root {state_root:?}, expected {chunk_state_root:?}")));
-        }
+        let state_root = shard_state_header.chunk_prev_state_root();
 
         // 5. Checking that state_root_node is valid
-        if !self
-            .runtime_adapter
-            .validate_state_root_node(shard_state_header.state_root_node(), &state_root)
-        {
+        if !self.runtime_adapter.validate_state_root_node(state_root_node, &state_root) {
             byzantine_assert!(false);
             return Err(Error::Other("set_shard_state failed: state_root_node is invalid".into()));
         }
@@ -3085,7 +3081,7 @@ impl Chain {
         data: &[u8],
     ) -> Result<(), Error> {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = hash(&borsh::to_vec(shard_state_header.state_root_node()).unwrap());
+        let state_root = shard_state_header.chunk_prev_state_root();
         if !self.runtime_adapter.validate_state_part(&state_root, part_id, data) {
             byzantine_assert!(false);
             return Err(Error::Other(format!(
