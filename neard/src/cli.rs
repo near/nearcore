@@ -556,6 +556,7 @@ impl RunCmd {
                 cold_store_loop_handle,
                 state_sync_dump_handle,
                 flat_state_migration_handle,
+                state_split_handle,
                 ..
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
@@ -582,6 +583,7 @@ impl RunCmd {
             if let Some(handle) = state_sync_dump_handle {
                 handle.stop()
             }
+            state_split_handle.stop();
             flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
