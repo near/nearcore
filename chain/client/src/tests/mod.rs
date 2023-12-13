@@ -7,3 +7,4 @@ mod doomslug;
 mod maintenance_windows;
 mod process_blocks;
 mod query_client;
+mod test_utils;

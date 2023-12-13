@@ -25,9 +25,9 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction, TransferAction,
 };
-use near_primitives::transaction::{ExecutionMetadata, TransferAction};
+use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
@@ -307,7 +307,7 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountId::is_system(&receipt.predecessor_id);
+        let is_refund = receipt.predecessor_id.is_system();
 
         let receipt_starts_with_create_account =
             matches!(actions.get(0), Some(Action::CreateAccount(_)));
@@ -368,35 +368,20 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::Transfer(transfer) => {
-                if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer)?;
-                    // Check if this is a gas refund, then try to refund the access key allowance.
-                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
-                        try_refund_allowance(
-                            state_update,
-                            &receipt.receiver_id,
-                            &action_receipt.signer_public_key,
-                            transfer,
-                        )?;
-                    }
-                } else {
-                    // Implicit account creation
-                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
-                    debug_assert!(!is_refund);
-                    action_implicit_account_creation_transfer(
-                        state_update,
-                        apply_state,
-                        &apply_state.config.fees,
-                        account,
-                        actor_id,
-                        &receipt.receiver_id,
-                        transfer,
-                        apply_state.block_height,
-                        apply_state.current_protocol_version,
-                    );
-                }
-            },
+            Action::Transfer(TransferAction { deposit }) => {
+                let nonrefundable = false;
+                action_transfer_or_implicit_account_creation(
+                    account,
+                    *deposit,
+                    nonrefundable,
+                    is_refund,
+                    action_receipt,
+                    receipt,
+                    state_update,
+                    apply_state,
+                    actor_id,
+                )?;
+            }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             Action::TransferV2(transfer) => {
                 action_transfer_or_implicit_account_creation(
@@ -1561,6 +1546,7 @@ fn action_transfer_or_implicit_account_creation(
         debug_assert!(!is_refund);
         action_implicit_account_creation_transfer(
             state_update,
+            &apply_state,
             &apply_state.config.fees,
             account,
             actor_id,

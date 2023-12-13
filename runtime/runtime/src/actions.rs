@@ -18,7 +18,7 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction,
+    FunctionCallAction, StakeAction
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -455,7 +455,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
-    transfer: &TransferAction,
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
@@ -515,7 +514,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + wallet_contract.code().len() as u64;
 
                 *account =
-                    Some(Account::new(transfer.deposit, 0, 0, *wallet_contract.hash(), storage_usage));
+                    Some(Account::new(deposit, 0, 0, *wallet_contract.hash(), storage_usage));
 
                 // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
                 set_code(state_update, account_id.clone(), &wallet_contract);
@@ -1056,6 +1055,8 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 fn check_transfer_to_nonexisting_account(
     config: &RuntimeConfig,
     is_the_only_action: bool,
