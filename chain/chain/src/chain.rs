@@ -10,11 +10,10 @@ use crate::missing_chunks::{BlockLike, MissingChunksPool};
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, GCMode};
-
 use crate::types::{
     AcceptedBlock, ApplySplitStateResultOrStateChanges, ApplyTransactionResult,
-    ApplyTransactionsBlockContext, ApplyTransactionsChunkContext, BlockEconomicsConfig,
-    ChainConfig, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
+    ApplyTransactionsBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
+    StorageDataSource,
 };
 use crate::update_shard::{
     process_shard_update, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
@@ -5596,186 +5595,14 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    // FIXME: Needed?
     pub fn set_state_finalize(
         &mut self,
         block_hash: &CryptoHash,
         shard_uid: &ShardUId,
         chunk_extra: ChunkExtra,
     ) -> Result<(), Error> {
-        let _span =
-            tracing::debug_span!(target: "sync", "chain_update_set_state_finalize").entered();
         self.chain_store_update.save_chunk_extra(block_hash, shard_uid, chunk_extra);
         Ok(())
-        /*
-        let (chunk, incoming_receipts_proofs) = match shard_state_header {
-            ShardStateSyncResponseHeader::V1(shard_state_header) => (
-                ShardChunk::V1(shard_state_header.chunk),
-                shard_state_header.incoming_receipts_proofs,
-            ),
-            ShardStateSyncResponseHeader::V2(shard_state_header) => {
-                (shard_state_header.chunk, shard_state_header.incoming_receipts_proofs)
-            }
-        };
-
-        let block_header = self
-            .chain_store_update
-            .get_block_header_on_chain_by_height(&sync_hash, chunk.height_included())?;
-
-        // Getting actual incoming receipts.
-        let mut receipt_proof_response: Vec<ReceiptProofResponse> = vec![];
-        for incoming_receipt_proof in incoming_receipts_proofs.iter() {
-            let ReceiptProofResponse(hash, _) = incoming_receipt_proof;
-            let block_header = self.chain_store_update.get_block_header(hash)?;
-            if block_header.height() <= chunk.height_included() {
-                receipt_proof_response.push(incoming_receipt_proof.clone());
-            }
-        }
-        let receipts = collect_receipts_from_response(&receipt_proof_response);
-        // Prev block header should be present during state sync, since headers have been synced at this point.
-        let gas_price = if block_header.height() == self.chain_store_update.get_genesis_height() {
-            block_header.next_gas_price()
-        } else {
-            self.chain_store_update.get_block_header(block_header.prev_hash())?.next_gas_price()
-        };
-
-        let chunk_header = chunk.cloned_header();
-        let gas_limit = chunk_header.gas_limit();
-        // This is set to false because the value is only relevant
-        // during protocol version RestoreReceiptsAfterFixApplyChunks.
-        // TODO(nikurt): Determine the value correctly.
-        let is_first_block_with_chunk_of_version = false;
-
-        let apply_result = self.runtime_adapter.apply_transactions(
-            RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
-            ApplyTransactionsChunkContext {
-                shard_id,
-                gas_limit,
-                last_validator_proposals: chunk_header.prev_validator_proposals(),
-                is_first_block_with_chunk_of_version,
-                is_new_chunk: true,
-            },
-            ApplyTransactionsBlockContext {
-                height: chunk_header.height_included(),
-                block_hash: *block_header.hash(),
-                prev_block_hash: *chunk_header.prev_block_hash(),
-                block_timestamp: block_header.raw_timestamp(),
-                gas_price,
-                challenges_result: block_header.challenges_result().clone(),
-                random_seed: *block_header.random_value(),
-            },
-            &receipts,
-            chunk.transactions(),
-        )?;
-
-        let (outcome_root, outcome_proofs) =
-            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-
-        self.chain_store_update.save_chunk(chunk);
-
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        let store_update = flat_storage_manager.save_flat_state_changes(
-            *block_header.hash(),
-            *chunk_header.prev_block_hash(),
-            chunk_header.height_included(),
-            shard_uid,
-            apply_result.trie_changes.state_changes(),
-        )?;
-        self.chain_store_update.merge(store_update);
-
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-        let chunk_extra = ChunkExtra::new(
-            &apply_result.new_root,
-            outcome_root,
-            apply_result.validator_proposals,
-            apply_result.total_gas_burnt,
-            gas_limit,
-            apply_result.total_balance_burnt,
-        );
-        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, chunk_extra);
-
-        self.chain_store_update.save_outgoing_receipt(
-            block_header.hash(),
-            shard_id,
-            apply_result.outgoing_receipts,
-        );
-        // Saving transaction results.
-        self.chain_store_update.save_outcomes_with_proofs(
-            block_header.hash(),
-            shard_id,
-            apply_result.outcomes,
-            outcome_proofs,
-        );
-        // Saving all incoming receipts.
-        for receipt_proof_response in incoming_receipts_proofs {
-            self.chain_store_update.save_incoming_receipt(
-                &receipt_proof_response.0,
-                shard_id,
-                receipt_proof_response.1,
-            );
-        }
-        Ok(())
-         */
-    }
-
-    pub fn set_state_finalize_on_height(
-        &mut self,
-        height: BlockHeight,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-    ) -> Result<bool, Error> {
-        let _span = tracing::debug_span!(target: "sync", "set_state_finalize_on_height").entered();
-        let block_header_result =
-            self.chain_store_update.get_block_header_on_chain_by_height(&sync_hash, height);
-        if let Err(_) = block_header_result {
-            // No such height, go ahead.
-            return Ok(true);
-        }
-        let block_header = block_header_result?;
-        if block_header.hash() == &sync_hash {
-            // Don't continue
-            return Ok(false);
-        }
-        let prev_block_header =
-            self.chain_store_update.get_block_header(block_header.prev_hash())?;
-
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, block_header.epoch_id())?;
-        let chunk_extra =
-            self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
-
-        let apply_result = self.runtime_adapter.apply_transactions(
-            RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
-            ApplyTransactionsChunkContext {
-                shard_id,
-                last_validator_proposals: chunk_extra.validator_proposals(),
-                gas_limit: chunk_extra.gas_limit(),
-                is_new_chunk: false,
-                is_first_block_with_chunk_of_version: false,
-            },
-            ApplyTransactionsBlockContext::from_header(
-                &block_header,
-                prev_block_header.next_gas_price(),
-            ),
-            &[],
-            &[],
-        )?;
-        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-        let store_update = flat_storage_manager.save_flat_state_changes(
-            *block_header.hash(),
-            *prev_block_header.hash(),
-            height,
-            shard_uid,
-            apply_result.trie_changes.state_changes(),
-        )?;
-        self.chain_store_update.merge(store_update);
-        self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-
-        let mut new_chunk_extra = ChunkExtra::clone(&chunk_extra);
-        *new_chunk_extra.state_root_mut() = apply_result.new_root;
-
-        self.chain_store_update.save_chunk_extra(block_header.hash(), &shard_uid, new_chunk_extra);
-        Ok(true)
     }
 }
 

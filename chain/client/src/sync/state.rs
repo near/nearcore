@@ -52,7 +52,7 @@ use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot
 use near_store::DBCol;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -70,10 +70,9 @@ pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// A node must check external storage for parts to dump again once time is up.
 pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
 
-#[derive(Debug)]
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
-    InProgress(Option<HashSet<CryptoHash>>),
+    InProgress,
     /// The state for all shards was downloaded.
     Completed,
 }
@@ -225,7 +224,7 @@ impl StateSync {
         state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-    ) -> Result<(bool, Option<HashSet<CryptoHash>>), near_chain::Error> {
+    ) -> Result<bool, near_chain::Error> {
         let mut all_done = true;
 
         let prev_hash = *chain.get_block_header(&sync_hash)?.prev_hash();
@@ -240,33 +239,18 @@ impl StateSync {
         }
         let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
 
-        let mut hashes_to_request: Option<HashSet<_>> = None;
         for shard_id in tracking_shards {
             let version = prev_shard_layout.version();
             let shard_uid = ShardUId { version, shard_id: shard_id as u32 };
             let mut download_timeout = false;
             let mut run_shard_state_download = false;
             let shard_sync_download = sync_status.entry(shard_id).or_insert_with(|| {
-                ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateRequestBlock }
+                run_shard_state_download = true;
+                ShardSyncDownload::new_download_state_header(now)
             });
 
             let mut shard_sync_done = false;
             match &shard_sync_download.status {
-                ShardSyncStatus::StateRequestBlock => {
-                    if let Some(shard_hashes_to_request) =
-                        self.sync_request_blocks(sync_hash, chain, now, shard_sync_download)?
-                    {
-                        let mut existing_to_request = HashSet::new();
-                        if let Some(hashes_to_request) = hashes_to_request {
-                            existing_to_request =
-                                HashSet::from_iter(hashes_to_request.iter().cloned());
-                        }
-                        for v in shard_hashes_to_request {
-                            existing_to_request.insert(v);
-                        }
-                        hashes_to_request = Some(existing_to_request);
-                    }
-                }
                 ShardSyncStatus::StateDownloadHeader => {
                     (download_timeout, run_shard_state_download) = self
                         .sync_shards_download_header_status(
@@ -369,7 +353,7 @@ impl StateSync {
             }
         }
 
-        Ok((all_done, hashes_to_request))
+        Ok(all_done)
     }
 
     // Checks the message queue for new downloaded parts and writes them.
@@ -526,7 +510,6 @@ impl StateSync {
 
         // Downloading strategy starts here
         match shard_sync_download.status {
-            ShardSyncStatus::StateRequestBlock => {}
             ShardSyncStatus::StateDownloadHeader => {
                 self.request_shard_header(
                     shard_id,
@@ -701,7 +684,7 @@ impl StateSync {
         // saves them to the DB.
         // TODO: Ideally, we want to process the downloads on a different thread than the one that runs the Client.
         self.process_downloaded_parts(sync_hash, sync_status);
-        let (all_done, hashes_to_request) = self.sync_shards_status(
+        let all_done = self.sync_shards_status(
             me,
             sync_hash,
             sync_status,
@@ -720,7 +703,7 @@ impl StateSync {
         if all_done {
             Ok(StateSyncResult::Completed)
         } else {
-            Ok(StateSyncResult::InProgress(hashes_to_request))
+            Ok(StateSyncResult::InProgress)
         }
     }
 
@@ -787,34 +770,6 @@ impl StateSync {
             }
             _ => {}
         }
-    }
-
-    fn sync_request_blocks(
-        &mut self,
-        sync_hash: CryptoHash,
-        chain: &Chain,
-        now: DateTime<Utc>,
-        shard_sync_download: &mut ShardSyncDownload,
-    ) -> Result<Option<HashSet<CryptoHash>>, near_chain::Error> {
-        let header = chain.get_block_header(&sync_hash).unwrap();
-        let mut is_new = false;
-        if shard_sync_download.downloads.is_empty() {
-            is_new = true;
-            shard_sync_download.downloads.push(DownloadStatus::new(now));
-        }
-        let download = &mut shard_sync_download.downloads[0];
-        if let Ok(_block) = chain.get_block(header.prev_hash()) {
-            *shard_sync_download = ShardSyncDownload::new_download_state_header(now);
-            return Ok(None);
-        }
-        let download_timeout = now - download.prev_update_time > self.timeout;
-        if is_new || download_timeout {
-            download.prev_update_time = now;
-            tracing::debug!(target: "sync", last_target = ?download.last_target, start_time = ?download.start_time, prev_update_time = ?download.prev_update_time, state_requests_count = download.state_requests_count, "block request timed out");
-            let hashes = vec![*header.hash(), *header.prev_hash()];
-            return Ok(Some(HashSet::from_iter(hashes.into_iter())));
-        }
-        return Ok(None);
     }
 
     /// Checks if the header is downloaded.
@@ -1311,7 +1266,6 @@ mod test {
     use near_epoch_manager::EpochManagerAdapter;
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_network::types::PeerInfo;
-    use near_o11y::testonly::init_test_logger;
     use near_primitives::state_sync::{
         CachedParts, ShardStateSyncResponseHeader, ShardStateSyncResponseV4,
     };
@@ -1320,7 +1274,6 @@ mod test {
     #[test]
     // Start a new state sync - and check that it asks for a header.
     fn test_ask_for_header() {
-        init_test_logger();
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
             mock_peer_manager.clone().into(),

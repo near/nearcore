@@ -91,7 +91,6 @@ impl Clone for DownloadStatus {
 /// Various status of syncing a specific shard.
 #[derive(Clone, Debug)]
 pub enum ShardSyncStatus {
-    StateRequestBlock,
     StateDownloadHeader,
     StateDownloadParts,
     StateDownloadScheduling,
@@ -105,7 +104,6 @@ pub enum ShardSyncStatus {
 impl ShardSyncStatus {
     pub fn repr(&self) -> u8 {
         match self {
-            ShardSyncStatus::StateRequestBlock => 8,
             ShardSyncStatus::StateDownloadHeader => 0,
             ShardSyncStatus::StateDownloadParts => 1,
             ShardSyncStatus::StateDownloadScheduling => 2,
@@ -137,7 +135,6 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
             ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
             ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
-            ShardSyncStatus::StateRequestBlock => "request block".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }
