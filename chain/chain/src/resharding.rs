@@ -46,16 +46,16 @@ pub struct StateSplitRequest {
     pub prev_prev_hash: CryptoHash,
     // Parent shardUId to be split into child shards.
     pub shard_uid: ShardUId,
-    // state root of the parent shardUId. This is different from block sync_hash
+    // The state root of the parent ShardUId. This is different from block sync_hash
     pub state_root: StateRoot,
+    // The shard layout in the next epoch.
     pub next_epoch_shard_layout: ShardLayout,
     // Time we've spent polling for the state snapshot to be ready. We autofail after a certain time.
     pub curr_poll_time: Duration,
     // Configuration for resharding. Can be used to throttle resharding if needed.
     pub config: MutableConfigValue<StateSplitConfig>,
-
-    // A handle that allows the main process to stop resharing if needed. This
-    // typically happens when the main process is interrupted.
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
     pub handle: StateSplitHandle,
 }
 
@@ -363,7 +363,8 @@ impl Chain {
         loop {
             if !handle.get() {
                 // The keep_going is set to false, interrupt processing.
-                return Err(Error::Other("Resharding interrupted by the handle.".to_string()));
+                tracing::info!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl interrupted");
+                return Err(Error::Other("Resharding interrupted.".to_string()));
             }
             // Prepare the batch.
             let batch = {
