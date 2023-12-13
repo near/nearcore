@@ -41,6 +41,8 @@ use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::wallet_contract;
 
+use std::sync::Arc;
+
 /// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
 /// For ETH-implicit accounts returns `Wallet Contract` implementation that it is a part
 /// of the protocol and it's cached in memory.
@@ -48,7 +50,7 @@ fn get_contract_code(
     runtime_ext: &RuntimeExt,
     account: &Account,
     protocol_version: ProtocolVersion,
-) -> Result<Option<ContractCode>, StorageError> {
+) -> Result<Option<Arc<ContractCode>>, StorageError> {
     let account_id = runtime_ext.account_id();
     let code_hash = account.code_hash();
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
@@ -56,9 +58,9 @@ fn get_contract_code(
     {
         let contract = wallet_contract();
         debug_assert!(code_hash == *contract.hash());
-        return Ok(Some(contract.clone()));
+        return Ok(Some(contract));
     }
-    runtime_ext.get_code(code_hash)
+    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
 }
 
 /// Runs given function call with given context / apply state.

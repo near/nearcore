@@ -3,11 +3,12 @@
 use near_vm_runner::ContractCode;
 use once_cell::sync::OnceCell;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Temporary (placeholder) Wallet Contract. Read from file once, then cache in memory.
-pub fn wallet_contract() -> &'static ContractCode {
-    static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
-    CONTRACT.get_or_init(|| read_contract("wallet_contract.wasm"))
+pub fn wallet_contract() -> Arc<ContractCode> {
+    static CONTRACT: OnceCell<Arc<ContractCode>> = OnceCell::new();
+    CONTRACT.get_or_init(|| Arc::new(read_contract("wallet_contract.wasm"))).clone()
 }
 
 /// Read given wasm file or panic if unable to.

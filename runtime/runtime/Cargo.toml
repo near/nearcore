@@ -44,6 +44,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-vm-runner/nightly",
+  "near-wallet-contract/nightly",
 ]
 default = []
 nightly_protocol = [
@@ -53,6 +54,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
+  "near-wallet-contract/nightly_protocol",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
@@ -74,5 +76,4 @@ tempfile.workspace = true
 near-chain-configs.workspace = true
 near-store = { workspace = true, features = ["test_features"] }
 near-test-contracts.workspace = true
-near-wallet-contract.workspace = true
 testlib.workspace = true

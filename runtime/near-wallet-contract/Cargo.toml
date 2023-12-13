@@ -15,6 +15,12 @@ workspace = true
 [dependencies]
 near-vm-runner.workspace = true
 once_cell.workspace = true
-wat.workspace = true
-wasm-encoder.workspace = true
-wasm-smith.workspace = true
+
+[features]
+nightly_protocol = [
+  "near-vm-runner/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-vm-runner/nightly",
+]
