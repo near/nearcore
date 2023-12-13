@@ -2,33 +2,27 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use crate::adapter::ProcessTxResponse;
-use crate::debug::BlockProductionTracker;
-use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::debug::{BlockProductionTracker, PRODUCTION_TIMES_CACHE_SIZE};
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
 use crate::sync::header::HeaderSync;
 use crate::sync::state::{StateSync, StateSyncResult};
-use crate::SyncAdapter;
-use crate::SyncMessage;
-use crate::{metrics, SyncStatus};
+use crate::{metrics, SyncAdapter, SyncMessage, SyncStatus};
 use actix_rt::ArbiterHandle;
-use chrono::DateTime;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use lru::LruCache;
 use near_async::messaging::{CanSend, Sender};
-use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks,
+    OrphanMissingChunks, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::resharding::StateSplitRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::RuntimeAdapter;
-use near_chain::types::{ChainConfig, LatestKnown};
+use near_chain::types::{ChainConfig, LatestKnown, RuntimeAdapter};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
@@ -46,12 +40,11 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
-    HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
+    AccountKeys, ChainInfo, HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter,
+    PeerManagerMessageRequest, ReasonForBan, SetChainInfo,
 };
-use near_o11y::log_assert;
-use near_o11y::WithSpanContextExt;
+use near_o11y::{log_assert, WithSpanContextExt};
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -62,10 +55,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
-    ShardChunkHeader, ShardInfo,
+    ShardChunkHeader, ShardInfo, StateSyncInfo,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
@@ -135,10 +127,8 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
-    prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
-        CryptoHash,
-        HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-    >,
+    prev_block_to_chunk_headers_ready_for_inclusion:
+        LruCache<CryptoHash, HashMap<ShardId, (ShardChunkHeader, DateTime<Utc>, AccountId)>>,
     pub do_not_include_chunks_from: LruCache<(EpochId, AccountId), ()>,
     /// Network adapter.
     network_adapter: PeerManagerAdapter,
@@ -180,10 +170,6 @@ pub struct Client {
     tier1_accounts_cache: Option<(EpochId, Arc<AccountKeys>)>,
     /// Used when it is needed to create flat storage in background for some shards.
     flat_storage_creator: Option<FlatStorageCreator>,
-
-    /// When the "sync block" was requested.
-    /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<DateTime<Utc>>,
 }
 
 impl Client {
@@ -369,7 +355,6 @@ impl Client {
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
             flat_storage_creator,
-            last_time_sync_block_requested: None,
         })
     }
 
@@ -513,7 +498,7 @@ impl Client {
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
+    ) -> HashMap<ShardId, (ShardChunkHeader, DateTime<Utc>, AccountId)> {
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .peek(prev_block_hash)
             .cloned()
@@ -2336,7 +2321,7 @@ impl Client {
                 use_colour,
                 self.runtime_adapter.clone(),
             )? {
-                StateSyncResult::InProgress => {}
+                StateSyncResult::InProgress(_) => {}
                 StateSyncResult::Completed => {
                     debug!(target: "catchup", "state sync completed now catch up blocks");
                     self.chain.catchup_blocks_step(

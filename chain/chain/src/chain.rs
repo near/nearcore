@@ -2089,8 +2089,8 @@ impl Chain {
         let _span = tracing::debug_span!(target: "sync", "reset_heads_post_state_sync").entered();
         // Get header we were syncing into.
         let header = self.get_block_header(&sync_hash)?;
-        let hash = *header.prev_hash();
-        let prev_block = self.get_block(&hash)?;
+        let prev_hash = *header.prev_hash();
+        let prev_block = self.get_block(&prev_hash)?;
         let new_tail = prev_block.header().height();
         let new_chunk_tail = prev_block.chunks().iter().map(|x| x.height_created()).min().unwrap();
         let tip = Tip::from_header(prev_block.header());
@@ -2109,7 +2109,7 @@ impl Chain {
         // Check if there are any orphans unlocked by this state sync.
         // We can't fail beyond this point because the caller will not process accepted blocks
         //    and the blocks with missing chunks if this method fails
-        self.check_orphans(me, hash, block_processing_artifacts, apply_chunks_done_callback);
+        self.check_orphans(me, prev_hash, block_processing_artifacts, apply_chunks_done_callback);
         Ok(())
     }
 
@@ -2922,7 +2922,8 @@ impl Chain {
         if shard_id as usize >= sync_block.chunks().len() {
             return Err(shard_id_out_of_bounds(shard_id));
         }
-        let state_root = sync_block.chunks()[shard_id as usize].prev_state_root();
+        let chunk = &sync_block.chunks()[shard_id as usize];
+        let state_root = chunk.prev_state_root();
 
         // The chunk was applied at height `chunk_header.height_included`.
         // Getting the `current` state.
@@ -2936,8 +2937,13 @@ impl Chain {
         let state_root_node =
             self.runtime_adapter.get_state_root_node(shard_id, &sync_hash, &state_root)?;
 
-        let shard_state_header =
-            ShardStateSyncResponseHeaderV3 { state_root_node: state_root_node.clone() };
+        let shard_uid =
+            self.epoch_manager.shard_id_to_uid(shard_id, sync_prev_block.header().epoch_id())?;
+        let chunk_extra = self.get_chunk_extra(sync_prev_block.hash(), &shard_uid)?;
+        let shard_state_header = ShardStateSyncResponseHeaderV3 {
+            state_root_node: state_root_node.clone(),
+            chunk_extra: (*chunk_extra).clone(),
+        };
         let res = ShardStateSyncResponseHeader::V3(shard_state_header);
         let computed_state_root = res.chunk_prev_state_root();
         tracing::info!(target: "sync", ?state_root_node, ?state_root, ?computed_state_root, ?sync_block);
@@ -3163,10 +3169,11 @@ impl Chain {
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
         // TODO: Map to the shard_id of the previous shard layout.
-        let block = self.get_block(&sync_hash)?;
-        let chunk = &block.chunks()[shard_id as usize];
-        let state_root = chunk.prev_state_root();
-        let chunk_extra = ChunkExtra::new(&state_root, CryptoHash::default(), vec![], 0, 0, 0);
+        let state_header = self.get_state_response_header(shard_id, sync_hash)?;
+        // let state_root = state_header.chunk_prev_state_root();
+        let chunk_extra = state_header
+            .chunk_extra()
+            .ok_or(Error::Other(format!("Missing ChunkExtra in the state response header")))?;
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let mut chain_update = self.chain_update();
         chain_update.set_state_finalize(&flat_head_hash, &shard_uid, chunk_extra)?;

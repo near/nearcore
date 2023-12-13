@@ -1698,32 +1698,6 @@ impl ClientActor {
                         }
                     }
 
-                    let now = StaticClock::utc();
-
-                    // FIXME: it checks if the block exists.. but I have no idea why..
-                    // seems that we don't really use this block in case of catchup - we use it only for state sync.
-                    // Seems it is related to some bug with block getting orphaned after state sync? but not sure.
-                    let (request_block, have_block) =
-                        unwrap_and_report!(self.sync_block_status(&prev_hash, now));
-
-                    if request_block {
-                        self.client.last_time_sync_block_requested = Some(now);
-                        if let Some(peer_info) =
-                            self.network_info.highest_height_peers.choose(&mut thread_rng())
-                        {
-                            let id = peer_info.peer_info.id.clone();
-
-                            for hash in
-                                vec![*block_header.prev_hash(), *block_header.hash()].into_iter()
-                            {
-                                self.client.request_block(hash, id.clone());
-                            }
-                        }
-                    }
-                    if have_block {
-                        self.client.last_time_sync_block_requested = None;
-                    }
-
                     let state_sync_status = match &mut self.client.sync_status {
                         SyncStatus::StateSync(s) => s,
                         _ => unreachable!("Sync status should have been StateSync!"),
@@ -1742,12 +1716,21 @@ impl ClientActor {
                         use_colour,
                         self.client.runtime_adapter.clone(),
                     )) {
-                        StateSyncResult::InProgress => (),
-                        StateSyncResult::Completed => {
-                            if !have_block {
-                                trace!(target: "sync", "Sync done. Waiting for sync block.");
-                                return;
+                        StateSyncResult::InProgress(None) => (),
+                        StateSyncResult::InProgress(Some(blocks_to_request)) => {
+                            info!(target: "sync", ?blocks_to_request);
+                            for block_hash in blocks_to_request {
+                                if let Some(peer_info) =
+                                    self.network_info.highest_height_peers.choose(&mut thread_rng())
+                                {
+                                    let id = peer_info.peer_info.id.clone();
+                                    self.client.request_block(block_hash, id.clone());
+                                } else {
+                                    error!(target: "sync", "No peers to request state sync blocks");
+                                }
                             }
+                        }
+                        StateSyncResult::Completed => {
                             info!(target: "sync", "State sync: all shards are done");
 
                             let mut block_processing_artifacts = BlockProcessingArtifact::default();
@@ -1771,38 +1754,6 @@ impl ClientActor {
                 }
             }
         }
-    }
-
-    /// Verifies if the node possesses sync block.
-    /// It is the last block of the previous epoch.
-    /// If the block is absent, the node requests it from peers.
-    fn sync_block_status(
-        &self,
-        prev_hash: &CryptoHash,
-        now: DateTime<Utc>,
-    ) -> Result<(bool, bool), near_chain::Error> {
-        let (request_block, have_block) = if !self.client.chain.block_exists(prev_hash)? {
-            let timeout =
-                chrono::Duration::from_std(self.client.config.state_sync_timeout).unwrap();
-            match self.client.last_time_sync_block_requested {
-                None => (true, false),
-                Some(last_time) => {
-                    if (now - last_time) >= timeout {
-                        tracing::error!(
-                            target: "sync",
-                            %prev_hash,
-                            ?timeout,
-                            "State sync: block request timed out");
-                        (true, false)
-                    } else {
-                        (false, false)
-                    }
-                }
-            }
-        } else {
-            (false, true)
-        };
-        Ok((request_block, have_block))
     }
 
     /// Print current summary.

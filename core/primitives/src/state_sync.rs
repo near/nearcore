@@ -3,6 +3,7 @@ use crate::merkle::MerklePath;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
+use crate::types::chunk_extra::ChunkExtra;
 use crate::types::{BlockHeight, EpochId, ShardId, StateRoot, StateRootNode};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::EpochHeight;
@@ -45,6 +46,7 @@ pub struct ShardStateSyncResponseHeaderV2 {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ShardStateSyncResponseHeaderV3 {
     pub state_root_node: StateRootNode,
+    pub chunk_extra: ChunkExtra,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -84,6 +86,15 @@ pub enum ShardStateSyncResponseHeader {
 }
 
 impl ShardStateSyncResponseHeader {
+    #[inline]
+    pub fn chunk_extra(self) -> Option<ChunkExtra> {
+        match self {
+            Self::V1(_header) => None,
+            Self::V2(_header) => None,
+            Self::V3(header) => Some(header.chunk_extra),
+        }
+    }
+
     #[inline]
     pub fn take_chunk(self) -> Option<ShardChunk> {
         match self {
