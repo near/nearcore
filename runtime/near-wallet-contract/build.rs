@@ -1,38 +1,42 @@
-use std::process::Command;
+/// This file is run as a part of `cargo build` process and it builds the `Wallet Contract`.
+/// The generated WASM file is put to the `./res` directory.
+use std::path::{Path, PathBuf};
+use std::process::{exit, Command};
 
 type Error = Box<dyn std::error::Error>;
 
 fn main() {
-    if let Err(err) = try_main() {
+    build_contract("./wallet-contract", &[], "wallet_contract").unwrap_or_else(|err| {
         eprintln!("{}", err);
-        std::process::exit(1);
-    }
-}
-
-fn try_main() -> Result<(), Error> {
-    build_contract("./wallet-contract", &[], "wallet_contract")?;
-    build_contract("./wallet-contract", &["--features", "nightly"], "nightly_wallet_contract")?;
-    Ok(())
+        exit(1);
+    });
 }
 
 fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<(), Error> {
-    let target_dir = out_dir();
-
+    let target_dir: PathBuf = std::env::var("OUT_DIR").unwrap().into();
+    // We place the build artifacts in `target_dir` (workspace's build directory).
     let mut cmd = cargo_build_cmd(&target_dir);
     cmd.args(args);
     cmd.current_dir(dir);
     check_status(cmd)?;
 
-    let src =
-        target_dir.join(format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_")));
-    std::fs::copy(&src, format!("./res/{}.wasm", output))
+    let build_artifact_path =
+        format!("wasm32-unknown-unknown/release/{}.wasm", dir.replace('-', "_"));
+    let src = target_dir.join(build_artifact_path);
+    let wasm_target_path = format!("./res/{}.wasm", output);
+    std::fs::copy(&src, wasm_target_path)
         .map_err(|err| format!("failed to copy `{}`: {}", src.display(), err))?;
     println!("cargo:rerun-if-changed=./{}/src/lib.rs", dir);
     println!("cargo:rerun-if-changed=./{}/Cargo.toml", dir);
     Ok(())
 }
 
-fn cargo_build_cmd(target_dir: &std::path::Path) -> Command {
+/// Creates `cargo build` command to compile the WASM file.
+/// Note that we are in `build.rs` file, so this will be called as a part
+/// of the global `cargo build` process that already has some flags set.
+/// `env_remove` invocations will remove these flags from the nested `cargo build`
+/// process, to avoid unexpected behaviors due to the workspace configurations.
+fn cargo_build_cmd(target_dir: &Path) -> Command {
     let mut res = Command::new("cargo");
 
     res.env_remove("CARGO_BUILD_RUSTFLAGS");
@@ -58,8 +62,4 @@ fn check_status(mut cmd: Command) -> Result<(), Error> {
             }
         })
         .map_err(Error::from)
-}
-
-fn out_dir() -> std::path::PathBuf {
-    std::env::var("OUT_DIR").unwrap().into()
 }

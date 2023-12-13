@@ -7,12 +7,7 @@ use std::path::Path;
 /// Temporary (placeholder) Wallet Contract. Read from file once, then cache in memory.
 pub fn wallet_contract() -> &'static ContractCode {
     static CONTRACT: OnceCell<ContractCode> = OnceCell::new();
-    let file_name = if cfg!(feature = "nightly") {
-        "nightly_wallet_contract.wasm"
-    } else {
-        "wallet_contract.wasm"
-    };
-    CONTRACT.get_or_init(|| read_contract(file_name))
+    CONTRACT.get_or_init(|| read_contract("wallet_contract.wasm"))
 }
 
 /// Read given wasm file or panic if unable to.

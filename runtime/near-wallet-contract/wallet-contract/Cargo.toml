@@ -27,6 +27,3 @@ incremental = false
 
 [workspace]
 members = []
-
-[features]
-nightly = []

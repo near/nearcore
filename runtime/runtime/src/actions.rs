@@ -454,6 +454,7 @@ pub(crate) fn action_create_account(
 /// Can only be used for implicit accounts.
 pub(crate) fn action_implicit_account_creation_transfer(
     state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
     fee_config: &RuntimeFeesConfig,
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
@@ -500,13 +501,21 @@ pub(crate) fn action_implicit_account_creation_transfer(
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
+                let wallet_contract = wallet_contract();
+
                 // We do not literally deploy `Wallet Contract`, just store a reference to the contract.
-                *account = Some(Account::new(
-                    transfer.deposit,
-                    0,
-                    *wallet_contract().hash(),
-                    storage_usage,
-                ));
+                *account =
+                    Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
+
+                // Precompile the contract and store result (compiled code or error) in the database.
+                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+                // is a no-op if the contract was already compiled.
+                precompile_contract(
+                    &wallet_contract,
+                    &apply_state.config.wasm_config,
+                    apply_state.cache.as_deref(),
+                )
+                .ok();
             } else {
                 // This panic is unreachable as this is an implicit account creation transfer.
                 // `check_account_existence` would fail because in this protocol version `account_is_implicit`
