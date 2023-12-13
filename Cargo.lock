@@ -4669,8 +4669,8 @@ dependencies = [
 name = "near-wallet-contract"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "near-vm-runner",
- "once_cell",
 ]
 
 [[package]]

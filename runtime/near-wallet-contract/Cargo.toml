@@ -14,7 +14,9 @@ workspace = true
 
 [dependencies]
 near-vm-runner.workspace = true
-once_cell.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
 
 [features]
 nightly_protocol = [

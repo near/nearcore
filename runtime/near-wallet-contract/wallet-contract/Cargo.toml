@@ -24,6 +24,7 @@ panic = "abort"
 rpath = false
 debug-assertions = false
 incremental = false
+overflow-checks = true
 
 [workspace]
 members = []
