@@ -511,8 +511,11 @@ pub struct Chain {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
+    /// Configuration for resharding.
     pub(crate) state_split_config: MutableConfigValue<near_chain_configs::StateSplitConfig>,
 
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
     pub state_split_handle: StateSplitHandle,
 }
 

@@ -214,7 +214,8 @@ pub struct NearNode {
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
     pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
-    /// A handle to control background state split processing for resharding.
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
     pub state_split_handle: StateSplitHandle,
 }
 

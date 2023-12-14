@@ -151,6 +151,8 @@ impl SyncConfig {
     }
 }
 
+// A handle that allows the main process to interrupt resharding if needed.
+// This typically happens when the main process is interrupted.
 #[derive(Clone)]
 pub struct StateSplitHandle {
     keep_going: Arc<AtomicBool>,
@@ -170,6 +172,7 @@ impl StateSplitHandle {
     }
 }
 
+/// Configuration for resharding.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct StateSplitConfig {
