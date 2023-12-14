@@ -35,7 +35,7 @@ use chrono::Duration;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
-use near_chain_configs::{MutableConfigValue, StateSplitConfig};
+use near_chain_configs::{MutableConfigValue, StateSplitConfig, StateSplitHandle};
 #[cfg(feature = "new_epoch_sync")]
 use near_chain_primitives::error::epoch_sync::EpochSyncInfoError;
 use near_chain_primitives::error::{BlockKnownError, Error, LogTransientStorageError};
@@ -511,7 +511,12 @@ pub struct Chain {
     /// A callback to initiate state snapshot.
     snapshot_callbacks: Option<SnapshotCallbacks>,
 
+    /// Configuration for resharding.
     pub(crate) state_split_config: MutableConfigValue<near_chain_configs::StateSplitConfig>,
+
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
+    pub state_split_handle: StateSplitHandle,
 }
 
 impl Drop for Chain {
@@ -609,6 +614,7 @@ impl Chain {
                 StateSplitConfig::default(),
                 "state_split_config",
             ),
+            state_split_handle: StateSplitHandle::new(),
         })
     }
 
@@ -785,6 +791,7 @@ impl Chain {
             requested_state_parts: StateRequestTracker::new(),
             snapshot_callbacks,
             state_split_config: chain_config.state_split_config,
+            state_split_handle: StateSplitHandle::new(),
         })
     }
 

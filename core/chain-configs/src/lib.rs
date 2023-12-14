@@ -15,8 +15,9 @@ pub use client_config::{
     default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
     default_tx_routing_height_horizon, default_view_client_threads,
     default_view_client_throttle_period, ClientConfig, DumpConfig, ExternalStorageConfig,
-    ExternalStorageLocation, GCConfig, LogSummaryStyle, StateSplitConfig, StateSyncConfig,
-    SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+    ExternalStorageLocation, GCConfig, LogSummaryStyle, StateSplitConfig, StateSplitHandle,
+    StateSyncConfig, SyncConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL, MIN_GC_NUM_EPOCHS_TO_KEEP,
     TEST_STATE_SYNC_TIMEOUT,
 };

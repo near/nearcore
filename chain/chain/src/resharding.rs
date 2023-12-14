@@ -10,7 +10,7 @@ use crate::metrics::{
 };
 use crate::Chain;
 use itertools::Itertools;
-use near_chain_configs::{MutableConfigValue, StateSplitConfig};
+use near_chain_configs::{MutableConfigValue, StateSplitConfig, StateSplitHandle};
 use near_chain_primitives::error::Error;
 use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
@@ -46,13 +46,17 @@ pub struct StateSplitRequest {
     pub prev_prev_hash: CryptoHash,
     // Parent shardUId to be split into child shards.
     pub shard_uid: ShardUId,
-    // state root of the parent shardUId. This is different from block sync_hash
+    // The state root of the parent ShardUId. This is different from block sync_hash
     pub state_root: StateRoot,
+    // The shard layout in the next epoch.
     pub next_epoch_shard_layout: ShardLayout,
     // Time we've spent polling for the state snapshot to be ready. We autofail after a certain time.
     pub curr_poll_time: Duration,
     // Configuration for resharding. Can be used to throttle resharding if needed.
     pub config: MutableConfigValue<StateSplitConfig>,
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
+    pub handle: StateSplitHandle,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
@@ -222,6 +226,7 @@ impl Chain {
             next_epoch_shard_layout,
             curr_poll_time: Duration::ZERO,
             config: self.state_split_config.clone(),
+            handle: self.state_split_handle.clone(),
         });
 
         RESHARDING_STATUS
@@ -289,6 +294,7 @@ impl Chain {
             state_root,
             next_epoch_shard_layout,
             config,
+            handle,
             ..
         } = state_split_request;
         tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
@@ -355,6 +361,11 @@ impl Chain {
         // Once we build the iterator, we break it into batches using the get_trie_update_batch function.
         let mut iter = iter;
         loop {
+            if !handle.get() {
+                // The keep_going is set to false, interrupt processing.
+                tracing::info!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl interrupted");
+                return Err(Error::Other("Resharding interrupted.".to_string()));
+            }
             // Prepare the batch.
             let batch = {
                 let histogram = RESHARDING_BATCH_PREPARE_TIME.with_label_values(&metrics_labels);

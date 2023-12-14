@@ -37,7 +37,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, StateSplitHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -2002,7 +2002,7 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-) -> (Addr<ClientActor>, ArbiterHandle) {
+) -> (Addr<ClientActor>, ArbiterHandle, StateSplitHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
 
@@ -2022,6 +2022,7 @@ pub fn start_client(
         snapshot_callbacks,
     )
     .unwrap();
+    let state_split_handle = client.chain.state_split_handle.clone();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client,
@@ -2038,5 +2039,5 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter_handle)
+    (client_addr, client_arbiter_handle, state_split_handle)
 }

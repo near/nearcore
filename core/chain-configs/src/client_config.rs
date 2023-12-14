@@ -7,6 +7,8 @@ use near_primitives::types::{
 use near_primitives::version::Version;
 use std::cmp::{max, min};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -149,6 +151,28 @@ impl SyncConfig {
     }
 }
 
+// A handle that allows the main process to interrupt resharding if needed.
+// This typically happens when the main process is interrupted.
+#[derive(Clone)]
+pub struct StateSplitHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl StateSplitHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn stop(&self) -> () {
+        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Configuration for resharding.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct StateSplitConfig {

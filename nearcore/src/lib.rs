@@ -17,6 +17,7 @@ use near_chain::state_snapshot_actor::{
 };
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
+use near_chain_configs::StateSplitHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::sync::adapter::SyncAdapter;
@@ -213,6 +214,9 @@ pub struct NearNode {
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
     pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
+    // A handle that allows the main process to interrupt resharding if needed.
+    // This typically happens when the main process is interrupted.
+    pub state_split_handle: StateSplitHandle,
 }
 
 pub fn start_with_config(home_dir: &Path, config: NearConfig) -> anyhow::Result<NearNode> {
@@ -329,7 +333,7 @@ pub fn start_with_config_and_synchronization(
         get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (client_actor, client_arbiter_handle) = start_client(
+    let (client_actor, client_arbiter_handle, state_split_handle) = start_client(
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -442,6 +446,7 @@ pub fn start_with_config_and_synchronization(
         cold_store_loop_handle,
         state_sync_dump_handle,
         flat_state_migration_handle,
+        state_split_handle,
     })
 }
 
