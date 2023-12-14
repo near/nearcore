@@ -6,7 +6,7 @@ on:
       branch:
         type: string
         required: true
-        description: Branch name or tag to build from
+        description: Branch name or tag to publish crates from
 
 jobs:
   publish-cargo-crates:
