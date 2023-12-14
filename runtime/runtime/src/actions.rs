@@ -39,7 +39,7 @@ use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
-use near_wallet_contract::wallet_contract;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ fn get_contract_code(
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
         let contract = wallet_contract();
-        debug_assert!(code_hash == *contract.hash());
+        debug_assert!(code_hash == *wallet_contract_magic_bytes().hash());
         return Ok(Some(contract));
     }
     runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
@@ -500,20 +500,24 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
-                let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + fee_config.storage_usage_config.num_extra_bytes_record;
+                // near[wallet contract hash]
+                let magic_bytes = wallet_contract_magic_bytes();
 
-                let wallet_contract = wallet_contract();
+                let storage_usage = fee_config.storage_usage_config.num_bytes_account
+                    + magic_bytes.code().len() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 // We do not literally deploy `Wallet Contract`, just store a reference to the contract.
                 *account =
-                    Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
+                    Some(Account::new(transfer.deposit, 0, *magic_bytes.hash(), storage_usage));
 
-                // Precompile the contract and store result (compiled code or error) in the database.
+                set_code(state_update, account_id.clone(), &magic_bytes);
+
+                // Precompile Wallet Contract and store result (compiled code or error) in the database.
                 // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
                 // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract,
+                    &wallet_contract(),
                     &apply_state.config.wasm_config,
                     apply_state.cache.as_deref(),
                 )

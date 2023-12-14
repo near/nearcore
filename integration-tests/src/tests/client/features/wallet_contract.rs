@@ -3,23 +3,27 @@ use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
-use near_primitives::{
-    errors::{
-        ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
-        TxExecutionError,
-    },
-    transaction::{
-        Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
-        TransferAction,
-    },
-    utils::derive_eth_implicit_account_id,
-    views::FinalExecutionStatus,
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
+    TxExecutionError,
+};
+use near_primitives::test_utils::eth_implicit_test_account;
+use near_primitives::transaction::{
+    Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction,
+    TransferAction,
+};
+use near_primitives::utils::derive_eth_implicit_account_id;
+use near_primitives::views::{
+    FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
 };
 use near_primitives_core::{
     account::AccessKey, checked_feature, types::BlockHeight, version::PROTOCOL_VERSION,
 };
-use near_wallet_contract::wallet_contract;
+use near_store::ShardUId;
+use near_vm_runner::ContractCode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use nearcore::{config::GenesisExt, test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
+use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use rlp::RlpStream;
 use testlib::runtime_utils::{alice_account, bob_account, carol_account};
 
@@ -42,6 +46,78 @@ fn check_tx_processing(
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
     next_height
+}
+
+fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
+    let head = env.clients[0].chain.head().unwrap();
+    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    env.clients[0]
+        .runtime_adapter
+        .query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &request,
+        )
+        .unwrap()
+}
+
+#[test]
+fn test_eth_implicit_account_creation() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut env = TestEnv::builder(ChainGenesis::test())
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build();
+    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
+
+    let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
+    let eth_implicit_account_id = eth_implicit_test_account();
+
+    // Make zero-transfer to ETH-implicit account, invoking its creation.
+    let transfer_tx = SignedTransaction::send_money(
+        1,
+        signer.account_id.clone(),
+        eth_implicit_account_id.clone(),
+        &signer,
+        0,
+        *genesis_block.hash(),
+    );
+    assert_eq!(env.clients[0].process_tx(transfer_tx, false, false), ProcessTxResponse::ValidTx);
+    for i in 1..5 {
+        env.produce_block(0, i);
+    }
+
+    let magic_bytes = wallet_contract_magic_bytes();
+
+    // Verify the ETH-implicit account has zero balance, wallet contract hash, and its storage fits within zero balance account limit.
+    let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
+    match view_request(&env, request).kind {
+        QueryResponseKind::ViewAccount(view) => {
+            assert_eq!(view.amount, 0);
+            assert_eq!(view.code_hash, *magic_bytes.hash());
+            assert!(view.storage_usage <= ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT)
+        }
+        _ => panic!("wrong query response"),
+    }
+
+    // Verify that contract code deployed to the ETH-implicit account is near[wallet contract hash].
+    let request = QueryRequest::ViewCode { account_id: eth_implicit_account_id };
+    match view_request(&env, request).kind {
+        QueryResponseKind::ViewCode(view) => {
+            let contract_code = ContractCode::new(view.code, None);
+            assert_eq!(contract_code.hash(), magic_bytes.hash());
+            assert_eq!(contract_code.code(), magic_bytes.code());
+        }
+        _ => panic!("wrong query response"),
+    }
 }
 
 /// Test that transactions from ETH-implicit accounts are rejected.
