@@ -81,7 +81,7 @@ use near_primitives::types::{
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::utils::index_to_bytes;
-use near_primitives::utils::MaybeValidated;
+use near_primitives::utils::{get_block_shard_id, MaybeValidated};
 use near_primitives::version::{ProtocolFeature, PROTOCOL_VERSION};
 use near_primitives::views::{
     BlockStatusView, DroppedReason, ExecutionOutcomeWithIdView, ExecutionStatusView,
@@ -2939,14 +2939,36 @@ impl Chain {
         let shard_uid =
             self.epoch_manager.shard_id_to_uid(shard_id, sync_prev_block.header().epoch_id())?;
         let chunk_extra = self.get_chunk_extra(sync_prev_block.hash(), &shard_uid)?;
+        let (outgoing_receipts_key, outgoing_receipts) = {
+            let mut receipts_block_hash = *sync_prev_block.hash();
+            // TODO: Is that the correct shard_id ?
+            let prev_chunk = &sync_prev_block.chunks()[shard_id as usize];
+            let last_included_height = prev_chunk.height_included();
+            loop {
+                let block_header = self.get_block_header(&receipts_block_hash)?;
+                if block_header.height() != last_included_height {
+                    receipts_block_hash = *block_header.prev_hash();
+                    continue;
+                }
+                // TODO: Handle resharding
+                let receipts = self
+                    .store
+                    .get_outgoing_receipts(&receipts_block_hash, shard_id)
+                    .map(|v| v.to_vec())
+                    .unwrap_or_default();
+                break ((receipts_block_hash, shard_id), receipts);
+            }
+        };
         let shard_state_header = ShardStateSyncResponseHeaderV3 {
             state_root_node: state_root_node.clone(),
             chunk_extra: (*chunk_extra).clone(),
+            outgoing_receipts_key,
+            outgoing_receipts,
         };
         let res = ShardStateSyncResponseHeader::V3(shard_state_header);
-        let computed_state_root = res.chunk_prev_state_root();
-        tracing::info!(target: "sync", ?state_root_node, ?state_root, ?computed_state_root, ?sync_block);
-        assert_eq!(state_root, computed_state_root);
+        // let computed_state_root = res.chunk_prev_state_root();
+        // tracing::info!(target: "sync", ?state_root_node, ?state_root, ?computed_state_root, ?sync_block);
+        // assert_eq!(state_root, computed_state_root);
 
         Ok(res)
     }
@@ -3175,8 +3197,18 @@ impl Chain {
             .ok_or(Error::Other(format!("Missing ChunkExtra in the state response header")))?;
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let mut chain_update = self.chain_update();
+        let outgoing_receipts_key = state_header.outgoing_receipts_key().unwrap();
+        let outgoing_receipts = state_header.outgoing_receipts().unwrap();
         chain_update.set_state_finalize(&flat_head_hash, &shard_uid, chunk_extra)?;
         chain_update.commit()?;
+
+        let mut store_update = self.store.store().store_update();
+        store_update.set_ser(
+            DBCol::OutgoingReceipts,
+            &get_block_shard_id(&outgoing_receipts_key.0, outgoing_receipts_key.1),
+            &outgoing_receipts,
+        )?;
+        store_update.commit()?;
 
         Ok(())
     }

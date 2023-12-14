@@ -1,5 +1,6 @@
-use crate::hash::{hash, CryptoHash};
+use crate::hash::CryptoHash;
 use crate::merkle::MerklePath;
+use crate::receipt::Receipt;
 use crate::sharding::{
     ReceiptProof, ShardChunk, ShardChunkHeader, ShardChunkHeaderV1, ShardChunkV1,
 };
@@ -47,6 +48,8 @@ pub struct ShardStateSyncResponseHeaderV2 {
 pub struct ShardStateSyncResponseHeaderV3 {
     pub state_root_node: StateRootNode,
     pub chunk_extra: ChunkExtra,
+    pub outgoing_receipts: Vec<Receipt>,
+    pub outgoing_receipts_key: (CryptoHash, ShardId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
@@ -86,12 +89,28 @@ pub enum ShardStateSyncResponseHeader {
 }
 
 impl ShardStateSyncResponseHeader {
-    #[inline]
-    pub fn chunk_extra(self) -> Option<ChunkExtra> {
+    pub fn outgoing_receipts(&self) -> Option<Vec<Receipt>> {
         match self {
             Self::V1(_header) => None,
             Self::V2(_header) => None,
-            Self::V3(header) => Some(header.chunk_extra),
+            Self::V3(header) => Some(header.outgoing_receipts.clone()),
+        }
+    }
+
+    pub fn outgoing_receipts_key(&self) -> Option<(CryptoHash, ShardId)> {
+        match self {
+            Self::V1(_header) => None,
+            Self::V2(_header) => None,
+            Self::V3(header) => Some(header.outgoing_receipts_key.clone()),
+        }
+    }
+
+    #[inline]
+    pub fn chunk_extra(&self) -> Option<ChunkExtra> {
+        match self {
+            Self::V1(_header) => None,
+            Self::V2(_header) => None,
+            Self::V3(header) => Some(header.chunk_extra.clone()),
         }
     }
 
@@ -136,7 +155,7 @@ impl ShardStateSyncResponseHeader {
         match self {
             Self::V1(header) => header.chunk.header.inner.prev_state_root,
             Self::V2(header) => header.chunk.prev_state_root(),
-            Self::V3(header) => hash(&header.state_root_node.data),
+            Self::V3(header) => *header.chunk_extra.state_root(),
         }
     }
 
