@@ -66,6 +66,7 @@ fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
         .unwrap()
 }
 
+/// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
 #[test]
 fn test_eth_implicit_account_creation() {
     if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
@@ -97,7 +98,8 @@ fn test_eth_implicit_account_creation() {
 
     let magic_bytes = wallet_contract_magic_bytes();
 
-    // Verify the ETH-implicit account has zero balance, wallet contract hash, and its storage fits within zero balance account limit.
+    // Verify the ETH-implicit account has zero balance and appropriate code hash.
+    // Check that the account storage fits within zero balance account limit.
     let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
     match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {

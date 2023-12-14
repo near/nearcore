@@ -56,9 +56,8 @@ fn get_contract_code(
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
-        let contract = wallet_contract();
         debug_assert!(code_hash == *wallet_contract_magic_bytes().hash());
-        return Ok(Some(contract));
+        return Ok(Some(wallet_contract()));
     }
     runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
 }
@@ -500,17 +499,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
-                // near[wallet contract hash]
+                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+                // to mark that this is a neard-defined contract. It will not be used on a function call.
+                // Instead, neard-defined Wallet Contract implementation will be used.
                 let magic_bytes = wallet_contract_magic_bytes();
 
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                // We do not literally deploy `Wallet Contract`, just store a reference to the contract.
                 *account =
                     Some(Account::new(transfer.deposit, 0, *magic_bytes.hash(), storage_usage));
-
                 set_code(state_update, account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
