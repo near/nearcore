@@ -6,6 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
 fn main() {
+    if cfg!(not(feature = "build-wallet-contract")) {
+        return;
+    }
     build_contract("./wallet-contract", &[], "wallet_contract").unwrap_or_else(|err| {
         eprintln!("Error: {}", err);
         exit(1);

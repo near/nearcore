@@ -4670,6 +4670,7 @@ name = "near-wallet-contract"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "near-primitives-core",
  "near-vm-runner",
 ]
 

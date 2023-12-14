@@ -184,6 +184,7 @@ fn meta_tx_call_wallet_contract(create_account: bool, authorized: bool) {
     let mut stream = RlpStream::new_list(3);
     stream.append(&target.as_str());
     // The RLP trait `Encodable` is not implemented for `u128`. We must encode it as bytes.
+    // TODO(eth-implicit) Do not try to encode `u128` values directly, see https://github.com/near/nearcore/pull/10269#discussion_r1425585051.
     stream.append(&transfer_amount.to_be_bytes().as_slice());
     if authorized {
         stream.append(&public_key.key_data());
