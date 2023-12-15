@@ -784,6 +784,8 @@ impl ChunkForwardingOptimizationTestData {
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
             }
+            NetworkRequests::ChunkStateWitness(_, _) => {}
+            NetworkRequests::ChunkEndorsement(_) => {}
             _ => {
                 panic!("Unexpected network request: {:?}", requests);
             }
