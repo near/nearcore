@@ -10,8 +10,12 @@ pub fn wallet_contract() -> Arc<ContractCode> {
 
 /// Include the WASM file content directly in the binary at compile time.
 fn read_contract() -> ContractCode {
-    let code: &[u8] =
-        if cfg!(feature = "nightly") { include_bytes!("../res/wallet_contract.wasm") } else { &[] };
+    #[cfg(feature = "nightly")]
+    let code = include_bytes!("../res/wallet_contract.wasm");
+
+    #[cfg(not(feature = "nightly"))]
+    let code = &[];
+
     ContractCode::new(code.to_vec(), None)
 }
 
@@ -34,8 +38,8 @@ mod tests {
     use near_primitives_core::hash::CryptoHash;
     use std::str::FromStr;
 
-    const WALLET_CONTRACT_HASH: &'static str = "4UkQ8nasN1u5aBuRna2wEHHAbQmWS2Kdq88TRz1phxAc";
-    const MAGIC_BYTES_HASH: &'static str = "46ABZEDwsEGnyJqNzJ1EftKzqH3ZtZj5Loj78Wr1vopm";
+    const WALLET_CONTRACT_HASH: &'static str = "5wJJ2YaCq75kVSfx8zoZpevg1uLAn4h7nqUd2njKUEXe";
+    const MAGIC_BYTES_HASH: &'static str = "31PSU4diHE4cpWju91fb2zTqn5JSDRZ6xNGM2ub8Lgdg";
 
     #[test]
     fn check_wallet_contract() {
