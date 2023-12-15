@@ -56,7 +56,7 @@ fn get_contract_code(
     if checked_feature!("stable", EthImplicitAccounts, protocol_version)
         && account_id.get_account_type() == AccountType::EthImplicitAccount
     {
-        debug_assert!(code_hash == *wallet_contract_magic_bytes().hash());
+        assert!(code_hash == *wallet_contract_magic_bytes().hash());
         return Ok(Some(wallet_contract()));
     }
     runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))

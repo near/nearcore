@@ -1,18 +1,15 @@
 /// This file is run as a part of `cargo build` process and it builds the `Wallet Contract`.
 /// The generated WASM file is put to the `./res` directory.
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Ok, Result};
 
 use std::path::{Path, PathBuf};
-use std::process::{exit, Command};
+use std::process::Command;
 
-fn main() {
-    if cfg!(not(feature = "build_wallet_contract")) {
-        return;
+fn main() -> Result<()> {
+    if cfg!(not(feature = "nightly")) {
+        return Ok(());
     }
-    build_contract("./wallet-contract", &[], "wallet_contract").unwrap_or_else(|err| {
-        eprintln!("Error: {}", err);
-        exit(1);
-    });
+    build_contract("./wallet-contract", &[], "wallet_contract")
 }
 
 fn build_contract(dir: &str, args: &[&str], output: &str) -> Result<()> {

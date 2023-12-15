@@ -10,7 +10,8 @@ pub fn wallet_contract() -> Arc<ContractCode> {
 
 /// Include the WASM file content directly in the binary at compile time.
 fn read_contract() -> ContractCode {
-    let code = include_bytes!("../res/wallet_contract.wasm");
+    let code: &[u8] =
+        if cfg!(feature = "nightly") { include_bytes!("../res/wallet_contract.wasm") } else { &[] };
     ContractCode::new(code.to_vec(), None)
 }
 
@@ -26,6 +27,7 @@ pub fn wallet_contract_magic_bytes() -> Arc<ContractCode> {
         .clone()
 }
 
+#[cfg(feature = "nightly")]
 #[cfg(test)]
 mod tests {
     use crate::{wallet_contract, wallet_contract_magic_bytes};
