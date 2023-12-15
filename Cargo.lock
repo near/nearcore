@@ -5584,11 +5584,10 @@ checksum = "cf7e6d18738ecd0902d30d1ad232c9125985a3422929b16c65517b38adc14f96"
 [[package]]
 name = "protobuf"
 version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a74937d52a466a535fda2e83f0e575f3ef1b34e4a84545b4a9e418fad32a3b1c"
+source = "git+https://github.com/near/rust-protobuf.git?branch=3.0.2-patch#86cdbf1ce1f085486b15ec94af1954c55c1e2862"
 dependencies = [
  "once_cell",
- "protobuf-support",
+ "protobuf-support 3.0.2 (git+https://github.com/near/rust-protobuf.git?branch=3.0.2-patch)",
  "thiserror",
 ]
 
@@ -5617,7 +5616,7 @@ dependencies = [
  "indexmap 1.9.2",
  "log",
  "protobuf 3.0.2",
- "protobuf-support",
+ "protobuf-support 3.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile",
  "thiserror",
  "which",
@@ -5628,6 +5627,14 @@ name = "protobuf-support"
 version = "3.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebf34636d66670da249c3b6589142e7f0b4918a015ec72fa32102fd43e023b0e"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
+name = "protobuf-support"
+version = "3.0.2"
+source = "git+https://github.com/near/rust-protobuf.git?branch=3.0.2-patch#86cdbf1ce1f085486b15ec94af1954c55c1e2862"
 dependencies = [
  "thiserror",
 ]
