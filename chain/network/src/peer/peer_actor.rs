@@ -988,6 +988,14 @@ impl PeerActor {
                 // variant completely.
                 None
             }
+            RoutedMessageBody::ChunkStateWitness(witness) => {
+                network_state.client.chunk_state_witness(witness).await;
+                None
+            }
+            RoutedMessageBody::ChunkEndorsement(_) => {
+                // TODO(#10265): Handle chunk approvals.
+                None
+            }
             body => {
                 tracing::error!(target: "network", "Peer received unexpected message type: {:?}", body);
                 None

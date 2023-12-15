@@ -7,6 +7,7 @@ use near_network::types::{
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -134,6 +135,10 @@ pub enum ProcessTxResponse {
     /// response.
     DoesNotTrackShard,
 }
+
+#[derive(actix::Message, Debug, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
 
 pub struct Adapter {
     /// Address of the client actor.
@@ -331,6 +336,13 @@ impl near_network::client::Client for Adapter {
                 tracing::error!("mailbox error: {err}");
                 Ok(vec![])
             }
+        }
+    }
+
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+        match self.client_addr.send(ChunkStateWitnessMessage(witness).with_span_context()).await {
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 }

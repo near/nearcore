@@ -18,6 +18,7 @@ use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResp
 use near_o11y::testonly::TracingCapture;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
+use near_primitives::chunk_validation::ChunkEndorsementMessage;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -46,7 +47,7 @@ pub struct TestEnv {
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
     pub shards_manager_adapters: Vec<ShardsManagerAdapterForTest>,
     pub clients: Vec<Client>,
-    pub(crate) account_to_client_index: HashMap<AccountId, usize>,
+    pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
@@ -110,11 +111,11 @@ impl TestEnv {
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
-        &mut self.clients[self.account_to_client_index[account_id]]
+        self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
     pub fn shards_manager(&self, account: &AccountId) -> &ShardsManagerAdapterForTest {
-        &self.shards_manager_adapters[self.account_to_client_index[account]]
+        self.account_indices.lookup(&self.shards_manager_adapters, account)
     }
 
     pub fn process_partial_encoded_chunks(&mut self) {
@@ -122,51 +123,40 @@ impl TestEnv {
 
         let mut keep_going = true;
         while keep_going {
+            keep_going = false;
             // for network_adapter in network_adapters.iter() {
             for i in 0..network_adapters.len() {
                 let network_adapter = network_adapters.get(i).unwrap();
                 let _span =
                     tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
 
-                keep_going = false;
-                // process partial encoded chunks
-                while let Some(request) = network_adapter.pop() {
-                    // if there are any requests in any of the adapters reset
-                    // keep going to true as processing of any message may
-                    // trigger more messages to be processed in other clients
-                    // it's a bit sad and it would be much nicer if all messages
-                    // were forwarded to a single queue
-                    // TODO would be nicer to first handle all PECs and then all PECFs
-                    keep_going = true;
-                    match request {
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedChunkMessage {
-                                account_id,
-                                partial_encoded_chunk,
-                            },
-                        ) => {
-                            let partial_encoded_chunk =
-                                PartialEncodedChunk::from(partial_encoded_chunk);
-                            let message =
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                                    partial_encoded_chunk,
-                                );
-                            self.shards_manager(&account_id).send(message);
-                        }
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
-                        ) => {
-                            let message =
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
-                                    forward,
-                                );
-                            self.shards_manager(&account_id).send(message);
-                        }
-                        _ => {
-                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
-                        }
+                keep_going |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkMessage {
+                            account_id,
+                            partial_encoded_chunk,
+                        },
+                    ) => {
+                        let partial_encoded_chunk =
+                            PartialEncodedChunk::from(partial_encoded_chunk);
+                        let message = ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                            partial_encoded_chunk,
+                        );
+                        self.shards_manager(&account_id).send(message);
+                        None
                     }
-                }
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                    ) => {
+                        let message =
+                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                forward,
+                            );
+                        self.shards_manager(&account_id).send(message);
+                        None
+                    }
+                    _ => Some(request),
+                });
             }
         }
     }
@@ -189,7 +179,7 @@ impl TestEnv {
             NetworkRequests::PartialEncodedChunkRequest { target, request, .. },
         ) = request
         {
-            let target_id = self.account_to_client_index[&target.account_id.unwrap()];
+            let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
@@ -269,6 +259,53 @@ impl TestEnv {
                 return;
             }
         }
+    }
+
+    pub fn propagate_chunk_state_witnesses(&mut self) {
+        for idx in 0..self.clients.len() {
+            let _span =
+                tracing::debug_span!(target: "test", "propagate_chunk_state_witnesses", client=idx)
+                    .entered();
+
+            self.network_adapters[idx].handle_filtered(|msg| {
+                if let PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::ChunkStateWitness(accounts, chunk_state_witness),
+                ) = msg
+                {
+                    for account in accounts {
+                        self.account_indices
+                            .lookup_mut(&mut self.clients, &account)
+                            .process_chunk_state_witness(chunk_state_witness.clone())
+                            .unwrap();
+                    }
+                    None
+                } else {
+                    Some(msg)
+                }
+            });
+        }
+    }
+
+    pub fn get_all_chunk_endorsements(&mut self) -> Vec<ChunkEndorsementMessage> {
+        let mut approvals = Vec::new();
+        for idx in 0..self.clients.len() {
+            let _span =
+                tracing::debug_span!(target: "test", "get_all_chunk_endorsements", client=idx)
+                    .entered();
+
+            self.network_adapters[idx].handle_filtered(|msg| {
+                if let PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::ChunkEndorsement(endorsement),
+                ) = msg
+                {
+                    approvals.push(endorsement);
+                    None
+                } else {
+                    Some(msg)
+                }
+            });
+        }
+        approvals
     }
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
@@ -526,5 +563,21 @@ impl Drop for TestEnv {
         if !paused_blocks.is_empty() && !std::thread::panicking() {
             panic!("some blocks are still paused, did you call `resume_block_processing`?")
         }
+    }
+}
+
+pub(crate) struct AccountIndices(pub(crate) HashMap<AccountId, usize>);
+
+impl AccountIndices {
+    pub fn index(&self, account_id: &AccountId) -> usize {
+        self.0[account_id]
+    }
+
+    pub fn lookup<'a, T>(&self, container: &'a [T], account_id: &AccountId) -> &'a T {
+        &container[self.0[account_id]]
+    }
+
+    pub fn lookup_mut<'a, T>(&self, container: &'a mut [T], account_id: &AccountId) -> &'a mut T {
+        &mut container[self.0[account_id]]
     }
 }

@@ -134,6 +134,8 @@ pub enum Error {
     /// Invalid chunk state.
     #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
+    #[error("Invalid Chunk State Witness")]
+    InvalidChunkStateWitness,
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -194,6 +196,11 @@ pub enum Error {
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator")]
     NotAValidator,
+    /// Someone is not a chunk validator. Happens if we're asked to validate a chunk we're not
+    /// supposed to validate, or to verify a chunk approval signed by a validator that isn't
+    /// supposed to validate the chunk.
+    #[error("Not A Chunk Validator")]
+    NotAChunkValidator,
     /// Validator error.
     #[error("Validator Error: {0}")]
     ValidatorError(String),
@@ -263,6 +270,7 @@ impl Error {
             | Error::InvalidChunk
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
+            | Error::InvalidChunkStateWitness
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -294,6 +302,7 @@ impl Error {
             | Error::InvalidBlockMerkleRoot
             | Error::InvalidProtocolVersion
             | Error::NotAValidator
+            | Error::NotAChunkValidator
             | Error::InvalidChallengeRoot => true,
         }
     }
@@ -334,6 +343,7 @@ impl Error {
             Error::InvalidChunk => "invalid_chunk",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
+            Error::InvalidChunkStateWitness => "invalid_chunk_state_witness",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",
@@ -365,6 +375,7 @@ impl Error {
             Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
             Error::InvalidProtocolVersion => "invalid_protocol_version",
             Error::NotAValidator => "not_a_validator",
+            Error::NotAChunkValidator => "not_a_chunk_validator",
             Error::InvalidChallengeRoot => "invalid_challenge_root",
         }
     }

@@ -84,6 +84,12 @@ impl AdversarialBehaviorTestData {
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.
             }
+            NetworkRequests::ChunkEndorsement(_) => {
+                // TODO(#10265).
+            }
+            NetworkRequests::ChunkStateWitness(_, _) => {
+                // TODO(#10265).
+            }
             _ => {
                 panic!("Unexpected network request: {:?}", requests);
             }

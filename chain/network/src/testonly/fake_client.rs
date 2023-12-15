@@ -6,6 +6,7 @@ use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_async::messaging;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
@@ -25,6 +26,7 @@ pub enum Event {
     Challenge(Challenge),
     Chunk(Vec<PartialEncodedChunkPart>),
     ChunkRequest(ChunkHash),
+    ChunkStateWitness(ChunkStateWitness),
     Transaction(SignedTransaction),
 }
 
@@ -116,6 +118,10 @@ impl client::Client for Fake {
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         self.event_sink.push(Event::AnnounceAccount(accounts.clone()));
         Ok(accounts.into_iter().map(|a| a.0).collect())
+    }
+
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+        self.event_sink.push(Event::ChunkStateWitness(witness));
     }
 }
 

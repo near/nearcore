@@ -6,8 +6,8 @@
 //! https://github.com/near/nearcore/issues/7899
 
 use crate::adapter::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, SetNetworkInfo, StateResponse,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkStateWitnessMessage, ProcessTxRequest,
+    ProcessTxResponse, RecvChallenge, SetNetworkInfo, StateResponse,
 };
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
@@ -1975,6 +1975,22 @@ impl Handler<WithSpanContext<SyncMessage>> for ClientActor {
         tracing::debug!(target: "client", ?msg);
         // TODO
         // process messages from SyncActors
+    }
+}
+
+impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<ChunkStateWitnessMessage>,
+        _: &mut Context<Self>,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        if let Err(err) = self.client.process_chunk_state_witness(msg.0) {
+            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
+        }
     }
 }
 

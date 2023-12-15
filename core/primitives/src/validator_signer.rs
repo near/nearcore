@@ -5,6 +5,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
+use crate::chunk_validation::ChunkEndorsementInner;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
@@ -35,6 +36,9 @@ pub trait ValidatorSigner: Sync + Send {
 
     /// Signs approval of given parent hash and reference hash.
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature;
+
+    /// Signs approval of the given chunk.
+    fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature;
 
     /// Signs challenge body.
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature);
@@ -105,6 +109,10 @@ impl ValidatorSigner for EmptyValidatorSigner {
     }
 
     fn sign_approval(&self, _inner: &ApprovalInner, _target_height: BlockHeight) -> Signature {
+        Signature::default()
+    }
+
+    fn sign_chunk_endorsement(&self, _inner: &ChunkEndorsementInner) -> Signature {
         Signature::default()
     }
 
@@ -197,6 +205,10 @@ impl ValidatorSigner for InMemoryValidatorSigner {
 
     fn sign_approval(&self, inner: &ApprovalInner, target_height: BlockHeight) -> Signature {
         self.signer.sign(&Approval::get_data_for_sig(inner, target_height))
+    }
+
+    fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature {
+        self.signer.sign(&borsh::to_vec(inner).unwrap())
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {

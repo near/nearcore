@@ -183,15 +183,16 @@ fn test_verify_block_double_sign_challenge() {
 
     let result = env.clients[0].process_block_test(b2.into(), Provenance::SYNC);
     assert!(result.is_ok());
-    let mut last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
-    if let NetworkRequests::Block { .. } = last_message {
-        last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
+
+    let mut seen_challenge = false;
+    while let Some(message) = env.network_adapters[0].pop() {
+        if let NetworkRequests::Challenge(network_challenge) = message.as_network_requests() {
+            assert_eq!(network_challenge, valid_challenge);
+            seen_challenge = true;
+            break;
+        }
     }
-    if let NetworkRequests::Challenge(network_challenge) = last_message {
-        assert_eq!(network_challenge, valid_challenge);
-    } else {
-        assert!(false);
-    }
+    assert!(seen_challenge);
 }
 
 fn create_invalid_proofs_chunk(
@@ -500,13 +501,15 @@ fn test_verify_chunk_invalid_state_challenge() {
     let result = client.process_block_test(block.into(), Provenance::NONE);
     assert!(result.is_err());
 
-    let last_message = env.network_adapters[0].pop().unwrap().as_network_requests();
-
-    if let NetworkRequests::Challenge(network_challenge) = last_message {
-        assert_eq!(challenge, network_challenge);
-    } else {
-        assert!(false);
+    let mut seen_challenge = false;
+    while let Some(message) = env.network_adapters[0].pop() {
+        if let NetworkRequests::Challenge(network_challenge) = message.as_network_requests() {
+            assert_eq!(network_challenge, challenge);
+            seen_challenge = true;
+            break;
+        }
     }
+    assert!(seen_challenge);
 }
 
 /// Receive invalid state transition in chunk as a validator / non-producer.

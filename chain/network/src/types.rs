@@ -18,6 +18,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::{ChunkEndorsementMessage, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
@@ -257,6 +258,11 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+    /// A chunk's state witness.
+    ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
+    /// Message for a chunk endorsement, sent by a chunk validator to
+    /// the block producer.
+    ChunkEndorsement(ChunkEndorsementMessage),
 }
 
 /// Combines peer address info, chain.
