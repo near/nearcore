@@ -3467,7 +3467,7 @@ impl Chain {
     ) -> Result<(), Error> {
         let mut chain_store_update = self.mut_store().store_update();
         chain_store_update.gc_col_state_parts(sync_hash, shard_id, num_parts)?;
-        Ok(chain_store_update.commit()?)
+        chain_store_update.commit()
     }
 
     pub fn catchup_blocks_step(
@@ -3580,7 +3580,7 @@ impl Chain {
             }
         };
 
-        return Ok(());
+        Ok(())
     }
 
     /// For given pair of block headers and shard id, return information about
