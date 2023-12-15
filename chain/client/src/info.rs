@@ -641,22 +641,14 @@ pub fn display_sync_status(
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            match state_sync_config {
-                SyncConfig::Peers => {
-                    tracing::warn!(
-                        target: "stats",
-                        "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
-                         Suggestions:\n\
-                         * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
-                         or
-                         * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
-                }
-                SyncConfig::ExternalStorage(_) => {
-                    tracing::info!(
-                        target: "stats",
-                        "The node is trying to sync its State from external storage. The current implementation is experimental. If it fails, consider disabling state sync and restarting from a recent snapshot:\n\
-                         - Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
-                }
+            if let SyncConfig::Peers = state_sync_config {
+                tracing::warn!(
+                    target: "stats",
+                    "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                     Suggestions:\n\
+                      * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
+                      or
+                      * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
             };
             res
         }

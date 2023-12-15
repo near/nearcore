@@ -48,6 +48,7 @@ pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
     UpdateableClientConfig {
         expected_shutdown: config.expected_shutdown,
         state_split_config: config.state_split_config,
+        produce_chunk_add_transactions_time_limit: config.produce_chunk_add_transactions_time_limit,
     }
 }
 

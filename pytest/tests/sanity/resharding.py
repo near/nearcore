@@ -71,15 +71,40 @@ class ReshardingTest(unittest.TestCase):
 
         metrics_tracker = MetricsTracker(node0)
 
-        for height, _ in poll_blocks(node0):
+        for height, hash in poll_blocks(node0):
             version = metrics_tracker.get_int_metric_value(
                 "near_shard_layout_version")
             num_shards = metrics_tracker.get_int_metric_value(
                 "near_shard_layout_num_shards")
 
-            logger.info(
-                f"#{height} shard layout version: {version}, num shards: {num_shards} "
+            protocol_config = node0.json_rpc(
+                "EXPERIMENTAL_protocol_config",
+                {"block_id": hash},
             )
+
+            self.assertTrue('error' not in protocol_config)
+
+            self.assertTrue('result' in protocol_config)
+            protocol_config = protocol_config.get('result')
+
+            self.assertTrue('shard_layout' in protocol_config)
+            shard_layout = protocol_config.get('shard_layout')
+
+            self.assertTrue('V1' in shard_layout)
+            shard_layout = shard_layout.get('V1')
+
+            self.assertTrue('boundary_accounts' in shard_layout)
+            boundary_accounts = shard_layout.get('boundary_accounts')
+
+            logger.info(
+                f"#{height} shard layout version: {version}, num shards: {num_shards}"
+            )
+            logger.debug(f"#{height} shard layout: {shard_layout}")
+
+            # check the shard layout versions from metrics and from json rpc are equal
+            self.assertEqual(version, shard_layout.get('version'))
+            # check the shard num from metrics and json rpc are equal
+            self.assertEqual(num_shards, len(boundary_accounts) + 1)
 
             # This may be flaky - it shouldn't - but it may. We collect metrics
             # after the block is processed. If there is some delay the shard

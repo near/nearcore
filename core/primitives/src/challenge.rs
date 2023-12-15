@@ -17,6 +17,12 @@ pub enum PartialState {
     TrieValues(Vec<TrieValue>),
 }
 
+impl Default for PartialState {
+    fn default() -> Self {
+        PartialState::TrieValues(vec![])
+    }
+}
+
 impl PartialState {
     pub fn len(&self) -> usize {
         let Self::TrieValues(values) = self;

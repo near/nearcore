@@ -154,7 +154,7 @@ The remainig fields in the StateSplitConfig are only intended for testing purpos
 
 The default configuration for StateSplitConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. 
 
-A node needs to be restarted for the new config to take effect. This should be done only when absolutely necessary as restarting during resharding will interrupt it and resharding will need to start from beginning. 
+The state split config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. 
 
 ## Future possibilities
 
