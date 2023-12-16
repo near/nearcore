@@ -147,6 +147,47 @@ pub(crate) fn process_shard_update(
     }
 }
 
+/// Processes shard updates for the execution contexts range which must
+/// correspond to missing chunks for some shard.
+/// `current_chunk_extra` must correspond to `ChunkExtra` just before
+/// execution; in the end it will correspond to the latest execution
+/// result.
+pub(crate) fn process_missing_chunks_range(
+    parent_span: &tracing::Span,
+    current_chunk_extra: &mut ChunkExtra,
+    runtime: &dyn RuntimeAdapter,
+    epoch_manager: &dyn EpochManagerAdapter,
+    execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)>,
+) -> Result<Vec<(CryptoHash, ShardUId, ChunkExtra)>, Error> {
+    let mut result = vec![];
+    for (block_context, shard_context) in execution_contexts {
+        let block_result = process_shard_update(
+            parent_span,
+            runtime,
+            epoch_manager,
+            ShardUpdateReason::OldChunk(OldChunkData {
+                block: block_context.clone(),
+                split_state_roots: None,
+                prev_chunk_extra: current_chunk_extra.clone(),
+                storage_context: StorageContext {
+                    storage_data_source: StorageDataSource::DbTrieOnly,
+                    state_patch: Default::default(),
+                },
+            }),
+            shard_context,
+        )?;
+        if let ShardBlockUpdateResult::OldChunk(OldChunkResult {
+            shard_uid,
+            apply_result,
+            apply_split_result_or_state_changes: _,
+        }) = block_result
+        {
+            *current_chunk_extra.state_root_mut() = apply_result.new_root;
+            result.push((block_context.block_hash, shard_uid, current_chunk_extra.clone()));
+        }
+    }
+    Ok(result)
+}
 /// Applies new chunk, which includes applying transactions from chunk and
 /// receipts filtered from outgoing receipts from previous chunks.
 fn apply_new_chunk(
