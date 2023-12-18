@@ -4404,11 +4404,15 @@ impl Chain {
                 // Process missing chunks before previous chunk.
                 let mut result = process_missing_chunks_range(
                     parent_span,
-                    &mut current_chunk_extra,
+                    current_chunk_extra.clone(),
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     execution_contexts_before,
                 )?;
+                current_chunk_extra = match result.last() {
+                    Some((_, _, chunk_extra)) => chunk_extra.clone(),
+                    None => current_chunk_extra,
+                };
                 // TODO(logunov): use `validate_chunk_with_chunk_extra`
                 assert_eq!(current_chunk_extra.state_root(), &prev_chunk.prev_state_root());
                 // Process previous chunk.
@@ -4452,7 +4456,7 @@ impl Chain {
                 // Process missing chunks after previous chunk.
                 let result_after = process_missing_chunks_range(
                     parent_span,
-                    &mut current_chunk_extra,
+                    current_chunk_extra,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     execution_contexts_after,

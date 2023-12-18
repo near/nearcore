@@ -162,7 +162,7 @@ pub(crate) fn process_shard_update(
 /// result.
 pub(crate) fn process_missing_chunks_range(
     parent_span: &tracing::Span,
-    current_chunk_extra: &mut ChunkExtra,
+    mut current_chunk_extra: ChunkExtra,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)>,
