@@ -1,0 +1,31 @@
+[package]
+name = "near-wallet-contract"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Builds and exposes Wallet Contract code."
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+near-vm-runner.workspace = true
+
+[dev-dependencies]
+near-primitives-core.workspace = true
+
+[build-dependencies]
+anyhow.workspace = true
+
+[features]
+nightly_protocol = [
+  "near-vm-runner/nightly_protocol",
+]
+nightly = [
+  "nightly_protocol",
+  "near-vm-runner/nightly",
+]

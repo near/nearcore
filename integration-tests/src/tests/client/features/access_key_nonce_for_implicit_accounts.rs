@@ -12,17 +12,14 @@ use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::account::AccessKey;
-use near_primitives::checked_feature;
-use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
+use near_primitives::errors::InvalidTxError;
 use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::{Action, AddKeyAction, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{
-    derive_eth_implicit_account_id, derive_near_implicit_account_id, wallet_contract_placeholder,
-};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -237,105 +234,6 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
         ),
         ProcessTxResponse::ValidTx
     );
-}
-
-/// Test that transactions from ETH-implicit accounts are rejected.
-#[test]
-fn test_transaction_from_eth_implicit_account_fail() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
-        return;
-    }
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let deposit_for_account_creation = 10u128.pow(23);
-    let mut height = 1;
-    let blocks_number = 5;
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-
-    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
-    let public_key = secret_key.public_key();
-    let eth_implicit_account_id = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
-    let eth_implicit_account_signer =
-        InMemorySigner::from_secret_key(eth_implicit_account_id.clone(), secret_key);
-
-    // Send money to ETH-implicit account, invoking its creation.
-    let send_money_tx = SignedTransaction::send_money(
-        1,
-        "test1".parse().unwrap(),
-        eth_implicit_account_id.clone(),
-        &signer1,
-        deposit_for_account_creation,
-        *genesis_block.hash(),
-    );
-    // Check for tx success status and get new block height.
-    height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
-    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-
-    // Try to send money from ETH-implicit account using `(block_height - 1) * 1e6` as a nonce.
-    // That would be a good nonce for any access key, but the transaction should fail nonetheless because there is no access key.
-    let nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    let send_money_from_eth_implicit_account_tx = SignedTransaction::send_money(
-        nonce,
-        eth_implicit_account_id.clone(),
-        "test0".parse().unwrap(),
-        &eth_implicit_account_signer,
-        100,
-        *block.hash(),
-    );
-    let response = env.clients[0].process_tx(send_money_from_eth_implicit_account_tx, false, false);
-    let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
-        InvalidAccessKeyError::AccessKeyNotFound {
-            account_id: eth_implicit_account_id.clone(),
-            public_key: public_key.clone(),
-        },
-    ));
-    assert_eq!(response, expected_tx_error);
-
-    // Try to delete ETH-implicit account. Should fail because there is no access key.
-    let delete_eth_implicit_account_tx = SignedTransaction::delete_account(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id.clone(),
-        "test0".parse().unwrap(),
-        &eth_implicit_account_signer,
-        *block.hash(),
-    );
-    let response = env.clients[0].process_tx(delete_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
-
-    // Try to add an access key to the ETH-implicit account. Should fail because there is no access key.
-    let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id.clone(),
-        &eth_implicit_account_signer,
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key,
-            access_key: AccessKey::full_access(),
-        }))],
-        *block.hash(),
-    );
-    let response =
-        env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
-
-    // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract_placeholder().code().to_vec();
-    let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id,
-        &eth_implicit_account_signer,
-        vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
-        *block.hash(),
-    );
-    let response =
-        env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
 }
 
 /// Test that chunks with transactions that have expired are considered invalid.

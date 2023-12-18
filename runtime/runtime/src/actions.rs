@@ -22,9 +22,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::{
-    account_is_implicit, create_random_seed, wallet_contract_placeholder,
-};
+use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -41,6 +39,28 @@ use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
+
+use std::sync::Arc;
+
+/// Returns `ContractCode` (if exists) for the given `account` or returns `StorageError`.
+/// For ETH-implicit accounts returns `Wallet Contract` implementation that it is a part
+/// of the protocol and it's cached in memory.
+fn get_contract_code(
+    runtime_ext: &RuntimeExt,
+    account: &Account,
+    protocol_version: ProtocolVersion,
+) -> Result<Option<Arc<ContractCode>>, StorageError> {
+    let account_id = runtime_ext.account_id();
+    let code_hash = account.code_hash();
+    if checked_feature!("stable", EthImplicitAccounts, protocol_version)
+        && account_id.get_account_type() == AccountType::EthImplicitAccount
+    {
+        assert!(code_hash == *wallet_contract_magic_bytes().hash());
+        return Ok(Some(wallet_contract()));
+    }
+    runtime_ext.get_code(code_hash).map(|option| option.map(Arc::new))
+}
 
 /// Runs given function call with given context / apply state.
 pub(crate) fn execute_function_call(
@@ -58,7 +78,8 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match runtime_ext.get_code(account.code_hash()) {
+    let code = match get_contract_code(&runtime_ext, account, apply_state.current_protocol_version)
+    {
         Ok(Some(code)) => code,
         Ok(None) => {
             let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
@@ -478,22 +499,24 @@ pub(crate) fn action_implicit_account_creation_transfer(
         // It holds because in the only calling site, we've checked the permissions before.
         AccountType::EthImplicitAccount => {
             if checked_feature!("stable", EthImplicitAccounts, current_protocol_version) {
-                // TODO(eth-implicit) Use real Wallet Contract.
-                let wallet_contract = wallet_contract_placeholder();
+                // We deploy "near[wallet contract hash]" magic bytes as the contract code,
+                // to mark that this is a neard-defined contract. It will not be used on a function call.
+                // Instead, neard-defined Wallet Contract implementation will be used.
+                let magic_bytes = wallet_contract_magic_bytes();
+
                 let storage_usage = fee_config.storage_usage_config.num_bytes_account
-                    + fee_config.storage_usage_config.num_extra_bytes_record
-                    + wallet_contract.code().len() as u64;
+                    + magic_bytes.code().len() as u64
+                    + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 *account =
-                    Some(Account::new(transfer.deposit, 0, *wallet_contract.hash(), storage_usage));
+                    Some(Account::new(transfer.deposit, 0, *magic_bytes.hash(), storage_usage));
+                set_code(state_update, account_id.clone(), &magic_bytes);
 
-                // TODO(eth-implicit) Store a reference to the `Wallet Contract` instead of literally deploying it.
-                set_code(state_update, account_id.clone(), &wallet_contract);
-                // Precompile the contract and store result (compiled code or error) in the database.
-                // Note, that contract compilation costs are already accounted in deploy cost using
-                // special logic in estimator (see get_runtime_config() function).
+                // Precompile Wallet Contract and store result (compiled code or error) in the database.
+                // Note this contract is shared among ETH-implicit accounts and `precompile_contract`
+                // is a no-op if the contract was already compiled.
                 precompile_contract(
-                    &wallet_contract,
+                    &wallet_contract(),
                     &apply_state.config.wasm_config,
                     apply_state.cache.as_deref(),
                 )

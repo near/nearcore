@@ -39,7 +39,6 @@ strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
-wat.workspace = true
 
 near-crypto.workspace = true
 near-fmt.workspace = true

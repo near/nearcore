@@ -33,6 +33,7 @@ near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
 near-vm-runner.workspace = true
+near-wallet-contract.workspace = true
 
 [features]
 nightly = [
@@ -43,6 +44,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-vm-runner/nightly",
+  "near-wallet-contract/nightly",
 ]
 default = []
 nightly_protocol = [
@@ -52,6 +54,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "near-vm-runner/nightly_protocol",
+  "near-wallet-contract/nightly_protocol",
 ]
 no_cpu_compatibility_checks = ["near-vm-runner/no_cpu_compatibility_checks"]
 
