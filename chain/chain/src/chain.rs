@@ -4234,9 +4234,13 @@ impl Chain {
                 shard_id,
                 &self.epoch_manager.get_epoch_id(chunk_extra_block_hash)?,
             )?;
-            Some(ChunkExtra::clone(
-                self.get_chunk_extra(chunk_extra_block_hash, &shard_uid)?.as_ref(),
-            ))
+            match self.get_chunk_extra(chunk_extra_block_hash, &shard_uid) {
+                Ok(chunk_extra) => Some(ChunkExtra::clone(chunk_extra.as_ref())),
+                Err(e) => {
+                    debug!(target: "client", ?chunk_extra_block_hash, ?shard_uid, "Chunk extra is missing: {e}");
+                    None
+                }
+            }
         } else {
             None
         };
