@@ -1,13 +1,15 @@
+use super::test_vm_config;
 use crate::internal::wasmparser::{Export, ExternalKind, Parser, Payload, TypeDef};
 use crate::logic::errors::FunctionCallError;
 use crate::logic::mocks::mock_external::MockedExternal;
-use crate::logic::{Config, VMContext};
+use crate::logic::VMContext;
+use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::ContractCode;
-use crate::VMKind;
 use arbitrary::Arbitrary;
 use core::fmt;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_parameters::vm::{ContractPrepareVersion, VMKind};
+use near_parameters::RuntimeFeesConfig;
 
 /// Finds a no-parameter exported function, something like `(func (export "entry-point"))`.
 pub fn find_entry_point(contract: &ContractCode) -> Option<String> {
@@ -109,9 +111,9 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
     let mut context = create_context(vec![]);
     context.prepaid_gas = 10u64.pow(14);
 
-    let mut config = Config::test();
+    let mut config = test_vm_config();
     config.limit_config.wasmer2_stack_limit = i32::MAX; // If we can crash wasmer2 even without the secondary stack limit it's still good to know
-    config.limit_config.contract_prepare_version = crate::ContractPrepareVersion::V2;
+    config.limit_config.contract_prepare_version = ContractPrepareVersion::V2;
 
     let fees = RuntimeFeesConfig::test();
 
@@ -147,7 +149,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 fn current_vm_does_not_crash_fuzzer() {
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let config = Config::test();
+        let config = test_vm_config();
         let _result = run_fuzz(&code, config.vm_kind);
     });
 }
@@ -167,11 +169,11 @@ fn near_vm_and_wasmtime_agree_fuzzer() {
 #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
 fn near_vm_is_reproducible_fuzzer() {
     use crate::near_vm_runner::NearVM;
-    use near_primitives::hash::CryptoHash;
+    use near_primitives_core::hash::CryptoHash;
 
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let config = Config::test();
+        let config = test_vm_config();
         let mut first_hash = None;
         for _ in 0..3 {
             let vm = NearVM::new(config.clone());

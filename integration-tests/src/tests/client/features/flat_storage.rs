@@ -4,10 +4,10 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_parameters::ExtCosts;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction, Transaction};
 use near_primitives::version::ProtocolFeature;
-use near_primitives_core::config::ExtCosts;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use nearcore::config::GenesisExt;
@@ -29,7 +29,7 @@ fn test_flat_storage_upgrade() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let runtime_config = near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
+    let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])

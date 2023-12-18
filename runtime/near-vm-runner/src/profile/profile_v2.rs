@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use near_primitives_core::config::{ActionCosts, ExtCosts};
+use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives_core::types::Gas;
 use std::fmt;
 use std::ops::Index;

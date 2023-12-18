@@ -83,48 +83,44 @@ mod function_call;
 mod gas_metering;
 mod trie;
 
-use std::convert::TryFrom;
-use std::iter;
-use std::time::Instant;
-
+use crate::config::Config;
+pub use crate::cost::Cost;
+use crate::cost_table::format_gas;
+pub use crate::cost_table::CostTable;
+pub use crate::costs_to_runtime_config::costs_to_runtime_config;
+use crate::estimator_context::EstimatorContext;
+use crate::gas_cost::GasCost;
+pub use crate::qemu::QemuCommandBuilder;
+pub use crate::rocksdb::RocksDBTestConfig;
+use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
+use crate::transaction_builder::TransactionBuilder;
+use crate::vm_estimator::create_context;
 use estimator_params::sha256_cost;
 use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
+use near_parameters::{ExtCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::config::ExtCosts;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
 use near_vm_runner::MockCompiledContractCache;
 use serde_json::json;
+use std::convert::TryFrom;
+use std::iter;
+use std::time::Instant;
 use utils::{
     average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
     transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
-
-use crate::config::Config;
-use crate::cost_table::format_gas;
-use crate::estimator_context::EstimatorContext;
-use crate::gas_cost::GasCost;
-use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
-use crate::transaction_builder::TransactionBuilder;
-use crate::vm_estimator::create_context;
-
-pub use crate::cost::Cost;
-pub use crate::cost_table::CostTable;
-pub use crate::costs_to_runtime_config::costs_to_runtime_config;
-pub use crate::qemu::QemuCommandBuilder;
-pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::ActionReceiptCreation, action_receipt_creation),

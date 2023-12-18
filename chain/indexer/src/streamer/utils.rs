@@ -1,8 +1,9 @@
 use actix::Addr;
 
 use near_indexer_primitives::IndexerTransactionWithOutcome;
+use near_parameters::RuntimeConfig;
 use near_primitives::views;
-use node_runtime::config::{tx_cost, RuntimeConfig};
+use node_runtime::config::tx_cost;
 
 use super::errors::FailedToFetchData;
 use super::fetchers::fetch_block;

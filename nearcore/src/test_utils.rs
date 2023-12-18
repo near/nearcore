@@ -2,7 +2,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnvBuilder;
 use near_epoch_manager::EpochManagerHandle;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::RuntimeConfigStore;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{Store, TrieConfig};
 use std::path::PathBuf;

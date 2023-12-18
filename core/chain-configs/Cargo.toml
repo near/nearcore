@@ -26,17 +26,20 @@ tracing.workspace = true
 
 near-crypto.workspace = true
 near-o11y = { workspace = true, optional = true }
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-config-utils.workspace = true
 
 [features]
 nightly_protocol = [
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
   "nightly_protocol",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives/nightly",
 ]
 default = []

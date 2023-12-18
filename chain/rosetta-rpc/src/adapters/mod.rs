@@ -833,10 +833,9 @@ mod tests {
     use near_actix_test_utils::run_actix;
     use near_client::test_utils::setup_no_network;
     use near_crypto::{KeyType, SecretKey};
+    use near_parameters::{RuntimeConfig, RuntimeConfigView};
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::transaction::{Action, TransferAction};
-    use near_primitives::views::RuntimeConfigView;
 
     #[test]
     fn test_convert_block_changes_to_transactions() {

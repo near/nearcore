@@ -11,10 +11,10 @@ use crate::logic::{
 };
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::VMKind;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeFeesConfig;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,

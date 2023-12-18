@@ -6,10 +6,10 @@ mod runtime;
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
+use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
-use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, TxExecutionError,
@@ -25,8 +25,8 @@ use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 
 use crate::node::Node;
 use crate::user::User;
+use near_parameters::RuntimeConfig;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::test_utils;
 use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
 use testlib::fees_utils::FeeHelper;
@@ -419,10 +419,7 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap();
 
     let create_account_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
-    let add_access_key_fee = fee_helper
-        .cfg()
-        .fee(near_primitives::config::ActionCosts::add_full_access_key)
-        .send_fee(false);
+    let add_access_key_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
 
     let cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {

@@ -14,18 +14,16 @@ use near_jsonrpc_primitives::types::transactions::{RpcTransactionStatusRequest, 
 use near_network::test_utils::WaitOrTimeoutActor;
 use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
+use near_parameters::{RuntimeConfigStore, RuntimeConfigView};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::{compute_root_from_path_and_item, verify_path};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::to_base64;
 use near_primitives::transaction::{PartialExecutionStatus, SignedTransaction};
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, TransactionOrReceiptId,
 };
 use near_primitives::version::ProtocolVersion;
-use near_primitives::views::{
-    ExecutionOutcomeView, ExecutionStatusView, RuntimeConfigView, TxExecutionStatus,
-};
+use near_primitives::views::{ExecutionOutcomeView, ExecutionStatusView, TxExecutionStatus};
 use std::time::Duration;
 
 #[test]

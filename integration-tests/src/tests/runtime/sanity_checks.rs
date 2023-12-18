@@ -1,8 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
-use near_primitives::config::ExtCosts;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::{ExtCosts, RuntimeConfig, RuntimeConfigStore};
 use near_primitives::serialize::to_base64;
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -220,6 +218,7 @@ fn test_cost_sanity_nondeterministic() {
 /// [gas instrumentation]: https://nomicon.io/RuntimeSpec/Preparation#gas-instrumentation
 #[test]
 fn test_sanity_used_gas() {
+    use near_parameters::vm::ContractPrepareVersion;
     let node = setup_runtime_node_with_contract(&contract_sanity_check_used_gas());
     let res = node
         .user()
@@ -251,14 +250,10 @@ fn test_sanity_used_gas() {
         //
         // In this test we account for this by setting `op_cost` to zero, but if future tests
         // change test WASM in significant ways, this approach may become incorrect.
-        near_vm_runner::ContractPrepareVersion::V0 | near_vm_runner::ContractPrepareVersion::V1 => {
-            0
-        }
+        ContractPrepareVersion::V0 | ContractPrepareVersion::V1 => 0,
         // Gas accounting is precise and instructions executed between calls to the side-effectful
         // `used_gas` host function calls will be observbable.
-        near_vm_runner::ContractPrepareVersion::V2 => {
-            u64::from(runtime_config.wasm_config.regular_op_cost)
-        }
+        ContractPrepareVersion::V2 => u64::from(runtime_config.wasm_config.regular_op_cost),
     };
 
     // Executing `used_gas` costs `base_cost` plus an instruction to execute the `call` itself.

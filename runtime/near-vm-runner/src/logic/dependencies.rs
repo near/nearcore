@@ -4,6 +4,7 @@ use super::types::ReceiptIndex;
 use super::TrieNodesCount;
 use super::VMLogicError;
 use near_crypto::PublicKey;
+use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
 use near_primitives_core::types::GasWeight;
@@ -100,13 +101,6 @@ pub trait MemoryLike {
     fn write_memory(&mut self, offset: u64, buffer: &[u8]) -> Result<(), ()>;
 }
 
-/// This enum represents if a storage_get call will be performed through flat storage or trie
-#[derive(PartialEq, Eq, Hash, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub enum StorageGetMode {
-    FlatStorage,
-    Trie,
-}
-
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 /// Logical pointer to a value in storage.
@@ -154,7 +148,8 @@ pub trait External {
     /// # Example
     /// ```
     /// # use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-    /// # use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
+    /// # use near_vm_runner::logic::{External, ValuePtr};
+    /// # use near_parameters::vm::StorageGetMode;
     ///
     /// # let mut external = MockedExternal::new();
     /// external.storage_set(b"key42", b"value1337").unwrap();

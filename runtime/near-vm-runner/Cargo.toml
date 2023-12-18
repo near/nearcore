@@ -17,7 +17,6 @@ anyhow = { workspace = true, optional = true }
 base64.workspace = true
 bn.workspace = true
 borsh.workspace = true
-clap = { workspace = true, optional = true }
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"] }
@@ -43,6 +42,7 @@ wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
 near-primitives-core.workspace = true
+near-parameters.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
@@ -70,14 +70,7 @@ assert_matches.workspace = true
 bolero.workspace = true
 expect-test.workspace = true
 hex.workspace = true
-near-primitives.workspace = true
 near-test-contracts.workspace = true
-# Woah. The tests in this crate depend on (the public interface of) this crate itself. This is
-# because the `test_builder` loads `RuntimeConfig` which comes from `near-primitives` and that
-# `RuntimeConfig` contains types from `[lib]` output of this package. These types are then
-# different from `crate::*` stuff that you get in the tests themselves, so in some special
-# circumstances it is necessary to refer to the `[lib]` output rather than using `crate::*` stuff.
-near-vm-runner.workspace = true
 rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 wasm-smith.workspace = true
@@ -86,6 +79,7 @@ wat.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
 # all vms enabled for now
@@ -124,6 +118,7 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
+  "near-parameters/nightly",
   "near-primitives-core/nightly",
 ]
 sandbox = []

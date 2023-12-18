@@ -1,12 +1,13 @@
 use crate::config::{
     safe_add_compute, safe_add_gas, total_prepaid_exec_fees, total_prepaid_gas,
-    total_prepaid_send_fees, RuntimeConfig,
+    total_prepaid_send_fees,
 };
 use crate::ext::{ExternalError, RuntimeExt};
 use crate::receipt_manager::ReceiptManager;
 use crate::{metrics, ActionResult, ApplyState};
 
 use near_crypto::PublicKey;
+use near_parameters::{AccountCreationConfig, ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::checked_feature;
@@ -14,8 +15,6 @@ use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -27,7 +26,6 @@ use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
 use near_primitives_core::account::id::AccountType;
-use near_primitives_core::config::ActionCosts;
 use near_store::{
     get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
     StorageError, TrieUpdate,

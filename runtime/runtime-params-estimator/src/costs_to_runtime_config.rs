@@ -1,10 +1,9 @@
-use near_primitives::config::{ActionCosts, ExtCosts, ExtCostsConfig, ParameterCost};
-use near_primitives::runtime::config::AccountCreationConfig;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig};
+use near_parameters::vm::Config as VMConfig;
+use near_parameters::{
+    AccountCreationConfig, ActionCosts, ExtCosts, ExtCostsConfig, Fee, ParameterCost,
+    RuntimeConfig, RuntimeConfigStore, RuntimeFeesConfig,
+};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_vm_runner::logic::Config as VMConfig;
-use node_runtime::config::RuntimeConfig;
 
 use anyhow::Context;
 
