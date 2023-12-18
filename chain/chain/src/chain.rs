@@ -17,9 +17,9 @@ use crate::types::{
     ChainConfig, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use crate::update_shard::{
-    process_missing_chunks_range, process_shard_update, NewChunkData, NewChunkResult, OldChunkData,
-    OldChunkResult, ShardBlockUpdateResult, ShardContext, ShardUpdateReason, ShardUpdateResult,
-    StateSplitData, StateSplitResult, StorageContext,
+    apply_new_chunk, process_missing_chunks_range, process_shard_update, NewChunkData,
+    NewChunkResult, OldChunkData, OldChunkResult, ShardBlockUpdateResult, ShardContext,
+    ShardUpdateReason, ShardUpdateResult, StateSplitData, StateSplitResult, StorageContext,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_with_chunk_extra,
@@ -4412,11 +4412,14 @@ impl Chain {
                 // TODO(logunov): use `validate_chunk_with_chunk_extra`
                 assert_eq!(current_chunk_extra.state_root(), &prev_chunk.prev_state_root());
                 // Process previous chunk.
-                let block_result = process_shard_update(
+                let NewChunkResult {
+                    gas_limit,
+                    shard_uid,
+                    apply_result,
+                    apply_split_result_or_state_changes: _,
+                } = apply_new_chunk(
                     parent_span,
-                    runtime.as_ref(),
-                    epoch_manager.as_ref(),
-                    ShardUpdateReason::NewChunk(NewChunkData {
+                    NewChunkData {
                         chunk: prev_chunk,
                         receipts,
                         split_state_roots: None,
@@ -4426,32 +4429,26 @@ impl Chain {
                             storage_data_source: StorageDataSource::DbTrieOnly,
                             state_patch: Default::default(),
                         },
-                    }),
+                    },
                     prev_chunk_shard_context,
+                    runtime.as_ref(),
+                    epoch_manager.as_ref(),
                 )?;
-                if let ShardBlockUpdateResult::NewChunk(NewChunkResult {
+                let (outcome_root, _) =
+                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                current_chunk_extra = ChunkExtra::new(
+                    &apply_result.new_root,
+                    outcome_root,
+                    apply_result.validator_proposals,
+                    apply_result.total_gas_burnt,
                     gas_limit,
+                    apply_result.total_balance_burnt,
+                );
+                result.push((
+                    prev_chunk_block_context.block_hash,
                     shard_uid,
-                    apply_result,
-                    apply_split_result_or_state_changes: _,
-                }) = block_result
-                {
-                    let (outcome_root, _) =
-                        ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                    current_chunk_extra = ChunkExtra::new(
-                        &apply_result.new_root,
-                        outcome_root,
-                        apply_result.validator_proposals,
-                        apply_result.total_gas_burnt,
-                        gas_limit,
-                        apply_result.total_balance_burnt,
-                    );
-                    result.push((
-                        prev_chunk_block_context.block_hash,
-                        shard_uid,
-                        current_chunk_extra.clone(),
-                    ));
-                }
+                    current_chunk_extra.clone(),
+                ));
                 // Process missing chunks after previous chunk.
                 let result_after = process_missing_chunks_range(
                     parent_span,
