@@ -19,4 +19,5 @@ mod lower_storage_key_limit;
 mod nearvm;
 mod restore_receipts_after_fix_apply_chunks;
 mod restrict_tla;
+mod wallet_contract;
 mod zero_balance_account;

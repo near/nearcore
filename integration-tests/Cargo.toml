@@ -25,6 +25,7 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
+rlp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
@@ -58,6 +59,7 @@ near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
 near-undo-block.workspace = true
 near-vm-runner.workspace = true
+near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 testlib.workspace = true
@@ -105,6 +107,7 @@ nightly = [
   "near-telemetry/nightly",
   "near-undo-block/nightly",
   "near-vm-runner/nightly",
+  "near-wallet-contract/nightly",
   "nearcore/nightly",
   "node-runtime/nightly",
   "testlib/nightly",
@@ -130,6 +133,7 @@ nightly_protocol = [
   "near-telemetry/nightly_protocol",
   "near-undo-block/nightly_protocol",
   "near-vm-runner/nightly_protocol",
+  "near-wallet-contract/nightly_protocol",
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
   "testlib/nightly_protocol",

@@ -2844,12 +2844,14 @@ dependencies = [
  "near-test-contracts",
  "near-undo-block",
  "near-vm-runner",
+ "near-wallet-contract",
  "nearcore",
  "node-runtime",
  "once_cell",
  "parking_lot 0.12.1",
  "primitive-types",
  "rand 0.8.5",
+ "rlp",
  "serde",
  "serde_json",
  "smart-default",
@@ -4216,7 +4218,6 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "wat",
 ]
 
 [[package]]
@@ -4666,6 +4667,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-wallet-contract"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "near-primitives-core",
+ "near-vm-runner",
+]
+
+[[package]]
 name = "nearcore"
 version = "0.0.0"
 dependencies = [
@@ -4821,6 +4831,7 @@ dependencies = [
  "near-store",
  "near-test-contracts",
  "near-vm-runner",
+ "near-wallet-contract",
  "num-bigint 0.3.3",
  "num-rational",
  "num-traits",
@@ -5996,6 +6007,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "347703a5ae47adf1e693144157be231dde38c72bd485925cae7407ad3e52480b"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "rlp"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb919243f34364b6bd2fc10ef797edbfa75f33c252e7998527479c6d6b47e1ec"
+dependencies = [
+ "bytes",
+ "rustc-hex",
 ]
 
 [[package]]

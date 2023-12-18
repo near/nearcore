@@ -281,7 +281,7 @@ fn meta_tx_near_transfer() {
     let node = RuntimeNode::new(&relayer);
     let fee_helper = fee_helper(&node);
 
-    let amount = nearcore::NEAR_BASE;
+    let amount = NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
@@ -837,7 +837,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
 
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = NEAR_BASE;
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
         Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
@@ -887,7 +887,12 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     node.view_account(&new_account).expect_err("account already exists");
 
     let fee_helper = fee_helper(&node);
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = match new_account.get_account_type() {
+        AccountType::NearImplicitAccount => NEAR_BASE,
+        // ETH-implicit accounts fit within zero-balance account limit.
+        AccountType::EthImplicitAccount => 0u128,
+        AccountType::NamedAccount => panic!("must be implicit"),
+    };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
 
     let tx_cost = match new_account.get_account_type() {
