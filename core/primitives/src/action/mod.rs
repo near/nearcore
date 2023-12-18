@@ -197,7 +197,7 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    TransferV2(TransferActionV2),
+    TransferV2(Box<TransferActionV2>),
 }
 const _: () = assert!(
     cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,

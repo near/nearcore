@@ -355,11 +355,9 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                near_primitives::transaction::Action::TransferV2(
-                    near_primitives::transaction::TransferActionV2 { deposit, .. },
-                ) => {
+                near_primitives::transaction::Action::TransferV2(action) => {
                     // TODO(protocol_feature_nonrefundable_transfer_nep491): merge with branch above on stabilization
-                    let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
+                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
 
                     let sender_transfer_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
@@ -893,6 +891,8 @@ mod tests {
                             amount: 5000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
+                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                            nonrefundable: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -908,6 +908,8 @@ mod tests {
                             amount: 4000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
+                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                            nonrefundable: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -921,6 +923,8 @@ mod tests {
                             amount: 7000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
+                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                            nonrefundable: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -936,6 +940,8 @@ mod tests {
                             amount: 8000000000000000000,
                             code_hash: near_primitives::hash::CryptoHash::default(),
                             locked: 400000000000000000000000000000,
+                            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                            nonrefundable: 0,
                             storage_paid_at: 0,
                             storage_usage: 200000,
                         },
@@ -949,6 +955,8 @@ mod tests {
                     amount: 4000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
                     locked: 400000000000000000000000000000,
+                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                    nonrefundable: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
                 },
@@ -959,6 +967,8 @@ mod tests {
                     amount: 6000000000000000000,
                     code_hash: near_primitives::hash::CryptoHash::default(),
                     locked: 400000000000000000000000000000,
+                    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+                    nonrefundable: 0,
                     storage_paid_at: 0,
                     storage_usage: 200000,
                 },
