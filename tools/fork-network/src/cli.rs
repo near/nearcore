@@ -237,7 +237,7 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
-        let all_shard_uids = shard_layout.get_shard_uids();
+        let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
         let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .

@@ -118,7 +118,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let tries = ShardTries::new(
         store.clone(),
         TrieConfig::default(),
-        &genesis.config.shard_layout.get_shard_uids(),
+        &genesis.config.shard_layout.shard_uids().collect::<Vec<_>>(),
         FlatStorageManager::new(store),
         StateSnapshotConfig::default(),
     );

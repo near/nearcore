@@ -269,6 +269,29 @@ impl MockPeerManagerAdapter {
     pub fn put_back_most_recent(&self, request: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(request);
     }
+    /// Calls the handler for each message, but removing only those for which the handler returns
+    /// None (or else the returned message gets requeued; the returned message should be the same
+    /// as the one given). Returns true if any message was removed.
+    pub fn handle_filtered(
+        &self,
+        mut f: impl FnMut(PeerManagerMessageRequest) -> Option<PeerManagerMessageRequest>,
+    ) -> bool {
+        // We get the count first and then pop one by one, that way we avoid
+        // grabbing the lock for the whole duration, which might lead to a
+        // deadlock if the processing of the request results in more network
+        // messages.
+        let num_requests = self.requests.read().unwrap().len();
+        let mut handled = false;
+        for _ in 0..num_requests {
+            let request = self.requests.write().unwrap().pop_front().unwrap();
+            if let Some(request) = f(request) {
+                self.requests.write().unwrap().push_back(request);
+            } else {
+                handled = true;
+            }
+        }
+        handled
+    }
 }
 
 #[derive(actix::Message, Clone, Debug)]

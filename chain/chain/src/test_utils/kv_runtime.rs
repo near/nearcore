@@ -1,6 +1,7 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig,
+    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -12,7 +13,6 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::challenge::ChallengesResult;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -29,11 +29,12 @@ use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
 };
-use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
     ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
+use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
@@ -48,6 +49,7 @@ use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// Simple key value runtime for tests.
 ///
@@ -704,6 +706,15 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
+    fn get_chunk_validators(
+        &self,
+        _epoch_id: &EpochId,
+        _shard_id: ShardId,
+        _height: BlockHeight,
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+        Ok(HashMap::new())
+    }
+
     fn get_validator_by_account_id(
         &self,
         epoch_id: &EpochId,
@@ -1020,6 +1031,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
+        _time_limit: Option<Duration>,
     ) -> Result<Vec<SignedTransaction>, Error> {
         let mut res = vec![];
         while let Some(iter) = transactions.next() {
@@ -1030,24 +1042,15 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
-        height: BlockHeight,
-        _block_timestamp: u64,
-        _prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        _last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        _gas_limit: Gas,
-        _challenges: &ChallengesResult,
-        _random_seed: CryptoHash,
-        _is_new_chunk: bool,
-        _is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error> {
         assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
+        let shard_id = chunk.shard_id;
 
         let mut state =
             self.state.read().unwrap().get(&storage_config.state_root).cloned().unwrap();
@@ -1145,7 +1148,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         receipt: ReceiptEnum::Action(ActionReceipt {
                             signer_id: from.clone(),
                             signer_public_key: PublicKey::empty(KeyType::ED25519),
-                            gas_price,
+                            gas_price: block.gas_price,
                             output_data_receivers: vec![],
                             input_data_ids: vec![],
                             actions: vec![Action::Transfer(TransferAction { deposit: amount })],
@@ -1184,8 +1187,8 @@ impl RuntimeAdapter for KeyValueRuntime {
                 ShardUId { version: 0, shard_id: shard_id as u32 },
                 TrieChanges::empty(state_root),
                 Default::default(),
-                *block_hash,
-                height,
+                block.block_hash,
+                block.height,
             ),
             new_root: state_root,
             outcomes: tx_results,

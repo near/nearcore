@@ -4,6 +4,7 @@ use crate::types::{NetworkInfo, ReasonForBan};
 
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::transaction::SignedTransaction;
@@ -62,6 +63,8 @@ pub trait Client: Send + Sync + 'static {
         &self,
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
+
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness);
 }
 
 /// Implementation of Client which doesn't do anything and never returns errors.
@@ -129,4 +132,6 @@ impl Client for Noop {
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
         Ok(vec![])
     }
+
+    async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
 }

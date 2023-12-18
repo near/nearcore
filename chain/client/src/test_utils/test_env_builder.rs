@@ -23,7 +23,7 @@ use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
 
 use super::setup::{setup_client_with_runtime, setup_synchronous_shards_manager};
 use super::test_env::TestEnv;
-use super::TEST_SEED;
+use super::{AccountIndices, TEST_SEED};
 
 #[derive(derive_more::From, Clone)]
 enum EpochManagerKind {
@@ -544,12 +544,13 @@ impl TestEnvBuilder {
             client_adapters,
             shards_manager_adapters,
             clients,
-            account_to_client_index: self
-                .clients
-                .into_iter()
-                .enumerate()
-                .map(|(index, client)| (client, index))
-                .collect(),
+            account_indices: AccountIndices(
+                self.clients
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, client)| (client, index))
+                    .collect(),
+            ),
             paused_blocks: Default::default(),
             seeds,
             archive: self.archive,

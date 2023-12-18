@@ -120,7 +120,7 @@ fn test_send_money_runtime() {
 fn test_transfer_tokens_near_implicit_account_runtime() {
     let node = create_runtime_node();
     let public_key = node.user().signer().public_key();
-    transfer_tokens_implicit_account(node, public_key);
+    transfer_tokens_to_implicit_account(node, public_key);
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn test_transfer_tokens_eth_implicit_account_runtime() {
     }
     let node = create_runtime_node();
     let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
-    transfer_tokens_implicit_account(node, secret_key.public_key());
+    transfer_tokens_to_implicit_account(node, secret_key.public_key());
 }
 
 #[test]

@@ -7,6 +7,8 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
+use near_primitives::chunk_validation::ChunkEndorsement;
+use near_primitives::chunk_validation::ChunkStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -540,6 +542,9 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+
+    ChunkStateWitness(ChunkStateWitness),
+    ChunkEndorsement(ChunkEndorsement),
 }
 
 impl RoutedMessageBody {
@@ -548,10 +553,11 @@ impl RoutedMessageBody {
     // lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
-            // are only sent by the original node and if they are lost, the receiver node doesn't
-            // know to request them.
+            // These messages are important because they are critical for block and chunk production,
+            // and lost messages cannot be requested again.
             RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ChunkEndorsement(_)
+            | RoutedMessageBody::ChunkStateWitness(_)
             | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
         }
@@ -604,6 +610,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
+            RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
+            RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
         }
     }
 }

@@ -18,10 +18,10 @@ impl CorruptStateSnapshotCommand {
 
         let mut store_update = store.store_update();
         // TODO(resharding) automatically detect the shard version
-        let shard_uids = match self.shard_layout_version {
-            0 => ShardLayout::v0(1, 0).get_shard_uids(),
-            1 => ShardLayout::get_simple_nightshade_layout().get_shard_uids(),
-            2 => ShardLayout::get_simple_nightshade_layout_v2().get_shard_uids(),
+        let shard_layout = match self.shard_layout_version {
+            0 => ShardLayout::v0(1, 0),
+            1 => ShardLayout::get_simple_nightshade_layout(),
+            2 => ShardLayout::get_simple_nightshade_layout_v2(),
             _ => {
                 return Err(anyhow!(
                     "Unsupported shard layout version! {}",
@@ -29,7 +29,7 @@ impl CorruptStateSnapshotCommand {
                 ))
             }
         };
-        for shard_uid in shard_uids {
+        for shard_uid in shard_layout.shard_uids() {
             corrupt(&mut store_update, &flat_storage_manager, shard_uid)?;
         }
         store_update.commit().unwrap();

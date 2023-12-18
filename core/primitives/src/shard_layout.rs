@@ -227,11 +227,10 @@ impl ShardLayout {
         0..self.num_shards()
     }
 
-    /// Returns shard uids for all shards in the shard layout
-    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        self.shard_ids()
-            .map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
-            .collect()
+    /// Returns an iterator that iterates over all the shard uids for all the
+    /// shards in the shard layout
+    pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
+        self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 }
 

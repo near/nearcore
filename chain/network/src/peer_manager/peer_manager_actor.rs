@@ -958,6 +958,24 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkStateWitness(chunk_validators, state_witness) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::ChunkStateWitness(state_witness.clone()),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkEndorsement(approval) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &approval.target,
+                    RoutedMessageBody::ChunkEndorsement(approval.endorsement),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 

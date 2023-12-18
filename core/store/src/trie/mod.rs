@@ -60,7 +60,7 @@ pub mod update;
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
 /// For fraud proofs
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PartialStorage {
     pub nodes: PartialState,
 }
@@ -647,6 +647,11 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
+    }
+
+    /// Temporary helper, must be removed after stateless validation release.
+    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
+        self.charge_gas_for_trie_node_access = false;
     }
 
     /// Makes a new trie that has everything the same except that access

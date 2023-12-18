@@ -110,9 +110,9 @@ impl HeaderSync {
         // TODO: Why call `header_sync_due()` if that decision can be overridden here?
         let enable_header_sync = match sync_status {
             SyncStatus::HeaderSync { .. }
-            | SyncStatus::BodySync { .. }
+            | SyncStatus::BlockSync { .. }
             | SyncStatus::StateSyncDone => {
-                // TODO: Transitioning from BodySync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
+                // TODO: Transitioning from BlockSync to HeaderSync is fine if the highest height of peers gets too far from our header_head_height. However it's currently unconditional.
                 true
             }
             SyncStatus::NoSync | SyncStatus::AwaitingPeers | SyncStatus::EpochSync { .. } => {
@@ -134,7 +134,7 @@ impl HeaderSync {
         // This number has no other functional value.
         let start_height = match &sync_status {
             SyncStatus::HeaderSync { start_height, .. } => *start_height,
-            SyncStatus::BodySync { start_height, .. } => *start_height,
+            SyncStatus::BlockSync { start_height, .. } => *start_height,
             _ => chain.head()?.height,
         };
 
@@ -238,6 +238,7 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.highest_block_height
                                 {
+                                    // This message is used in sync_ban.py test. Consider checking there as well if you change it.
                                     // The peer is one of the peers with the highest height, but we consider the peer stalling.
                                     warn!(target: "sync", "Sync: ban a peer: {}, for not providing enough headers. Peer's height:  {}", peer.peer_info, peer.highest_block_height);
                                     // Ban the peer, which blocks all interactions with the peer for some time.

@@ -1,7 +1,7 @@
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
-use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
+use std::{fmt::Debug, time::Duration};
 
 use crate::StateSplitConfig;
 
@@ -93,4 +93,7 @@ pub struct UpdateableClientConfig {
 
     // Configuration for resharding.
     pub state_split_config: StateSplitConfig,
+
+    /// Time limit for adding transactions in produce_chunk()
+    pub produce_chunk_add_transactions_time_limit: Option<Duration>,
 }

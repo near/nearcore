@@ -330,7 +330,7 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
-pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) {
+pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKey) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();

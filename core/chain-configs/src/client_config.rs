@@ -1,4 +1,5 @@
 //! Chain Client Configuration
+use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -6,6 +7,8 @@ use near_primitives::types::{
 use near_primitives::version::Version;
 use std::cmp::{max, min};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -148,6 +151,28 @@ impl SyncConfig {
     }
 }
 
+// A handle that allows the main process to interrupt resharding if needed.
+// This typically happens when the main process is interrupted.
+#[derive(Clone)]
+pub struct StateSplitHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl StateSplitHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn stop(&self) -> () {
+        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Configuration for resharding.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
 pub struct StateSplitConfig {
@@ -190,6 +215,90 @@ impl Default for StateSplitConfig {
             max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
         }
     }
+}
+
+pub fn default_header_sync_initial_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_header_sync_progress_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
+pub fn default_header_sync_stall_ban_timeout() -> Duration {
+    Duration::from_secs(120)
+}
+
+pub fn default_state_sync_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
+pub fn default_header_sync_expected_height_per_second() -> u64 {
+    10
+}
+
+pub fn default_sync_check_period() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_sync_step_period() -> Duration {
+    Duration::from_millis(10)
+}
+
+pub fn default_sync_height_threshold() -> u64 {
+    1
+}
+
+pub fn default_epoch_sync_enabled() -> bool {
+    false
+}
+
+pub fn default_state_sync() -> Option<StateSyncConfig> {
+    Some(StateSyncConfig {
+        dump: None,
+        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+            location: GCS { bucket: "state-parts".to_string() },
+            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+            num_concurrent_requests_during_catchup:
+                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+        }),
+    })
+}
+
+pub fn default_state_sync_enabled() -> bool {
+    true
+}
+
+pub fn default_view_client_threads() -> usize {
+    4
+}
+
+pub fn default_log_summary_period() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
+}
+
+pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
+    Some(50_000)
+}
+
+pub fn default_transaction_pool_size_limit() -> Option<u64> {
+    Some(100_000_000) // 100 MB.
+}
+
+pub fn default_tx_routing_height_horizon() -> BlockHeightDelta {
+    4
+}
+
+pub fn default_enable_multiline_logging() -> Option<bool> {
+    Some(true)
+}
+
+pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
+    Some(Duration::from_millis(200))
 }
 
 /// ClientConfig where some fields can be updated at runtime.
@@ -305,6 +414,11 @@ pub struct ClientConfig {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    /// Limit the time of adding transactions to a chunk.
+    /// A node produces a chunk by adding transactions from the transaction pool until
+    /// some limit is reached. This time limit ensures that adding transactions won't take
+    /// longer than the specified duration, which helps to produce the chunk quickly.
+    pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
 }
 
 impl ClientConfig {
@@ -384,6 +498,10 @@ impl ClientConfig {
                 "state_split_config",
             ),
             tx_routing_height_horizon: 4,
+            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                default_produce_chunk_add_transactions_time_limit(),
+                "produce_chunk_add_transactions_time_limit",
+            ),
         }
     }
 }

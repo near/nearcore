@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::Client;
 use actix_rt::{Arbiter, System};
+use itertools::Itertools;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::resharding::StateSplitRequest;
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
@@ -242,7 +243,10 @@ pub fn run_catchup(
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {
-            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work);
+            let results = do_apply_chunks(msg.block_hash, msg.block_height, msg.work)
+                .into_iter()
+                .map(|res| res.1)
+                .collect_vec();
             if let Some((_, _, blocks_catch_up_state)) =
                 client.catchup_state_syncs.get_mut(&msg.sync_hash)
             {
