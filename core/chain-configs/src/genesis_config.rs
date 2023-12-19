@@ -525,29 +525,32 @@ impl Genesis {
         path: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
+        let mut file = File::open(&path).map_err(|e| ValidationError::GenesisFileError {
             error_message: format!(
-                "Could not open genesis config file at path {}.",
-                &path.as_ref().display()
+                "Could not open genesis config file at path {}: {:?}",
+                &path.as_ref().display(),
+                e,
             ),
         })?;
 
         let mut json_str = String::new();
-        file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
-            error_message: format!("Failed to read genesis config file to string. "),
+        file.read_to_string(&mut json_str).map_err(|e| ValidationError::GenesisFileError {
+            error_message: format!("Failed to read genesis config file to string: {:?}", e),
         })?;
 
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
-            .map_err(|_| ValidationError::GenesisFileError {
-                error_message: format!("Failed to strip comments from genesis config file"),
+            .map_err(|e| ValidationError::GenesisFileError {
+                error_message: format!(
+                    "Failed to strip comments from genesis config file: {:?}",
+                    e
+                ),
             })?;
 
-        let genesis =
-            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
-                ValidationError::GenesisFileError {
-                    error_message: format!("Failed to deserialize the genesis records."),
-                }
-            })?;
+        let genesis = serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|e| {
+            ValidationError::GenesisFileError {
+                error_message: format!("Failed to deserialize the genesis records: {:?}", e),
+            }
+        })?;
 
         genesis.validate(genesis_validation)?;
         Ok(genesis)
