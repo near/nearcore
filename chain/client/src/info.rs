@@ -574,6 +574,13 @@ impl InfoHelper {
         if let Some(new_sync_requirement) = change {
             // Something change, update the metrics and record it.
             metrics::SYNC_REQUIREMENT.with_label_values(&[&new_sync_requirement]).inc();
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
+            if let Some(prev_sync_requirement) = &self.prev_sync_requirement {
+                metrics::SYNC_REQUIREMENT_CURRENT
+                    .with_label_values(&[&prev_sync_requirement])
+                    .set(0);
+            }
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
             self.prev_sync_requirement = Some(new_sync_requirement);
         }
     }

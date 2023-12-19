@@ -533,3 +533,12 @@ pub(crate) static SYNC_REQUIREMENT: Lazy<IntCounterVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_sync_requirements_current",
+        "The latest SyncRequirement",
+        &["state"],
+    )
+    .unwrap()
+});
