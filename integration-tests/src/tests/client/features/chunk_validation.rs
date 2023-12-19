@@ -70,7 +70,7 @@ fn test_chunk_validation_basic() {
         let staked = if i < 8 { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(0, staked, CryptoHash::default(), 0),
+            account: Account::new(0, staked, 0, CryptoHash::default(), 0),
         });
         // The total supply must be correct to pass validation.
         genesis_config.total_supply += staked;

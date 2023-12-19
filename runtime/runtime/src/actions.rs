@@ -18,15 +18,13 @@ use near_primitives::runtime::config::AccountCreationConfig;
 use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction
+    FunctionCallAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
 };
-use near_primitives::utils::{
-    account_is_implicit, create_random_seed, wallet_contract_placeholder,
-};
+use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
 };
@@ -539,8 +537,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                *account =
-                    Some(Account::new(transfer.deposit, 0, 0, *magic_bytes.hash(), storage_usage));
+                *account = Some(Account::new(deposit, 0, 0, *magic_bytes.hash(), storage_usage));
                 set_code(state_update, account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
@@ -1080,7 +1077,6 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
-
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 fn check_transfer_to_nonexisting_account(
     config: &RuntimeConfig,
@@ -1090,7 +1086,7 @@ fn check_transfer_to_nonexisting_account(
 ) -> Result<(), ActionError> {
     if config.wasm_config.implicit_account_creation
         && is_the_only_action
-        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts) 
+        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
         && !is_refund
     {
         // OK. It's implicit account creation.

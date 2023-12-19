@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn test_account_serialization() {
         let acc = Account::new(1_000_000, 1_000_000, 0, CryptoHash::default(), 100);
-        let bytes = acc.try_to_vec().unwrap();
+        let bytes = borsh::to_vec(&acc).unwrap();
         if cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491") {
             expect_test::expect!("HaZPNG4KpXQ9Mre4PAA83V5usqXsA4zy4vMwSXBiBcQv")
         } else {

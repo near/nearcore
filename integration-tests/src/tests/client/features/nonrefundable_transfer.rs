@@ -6,7 +6,6 @@
 //!
 //! NEP: https://github.com/near/NEPs/pull/491
 
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -17,6 +16,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionOutcomeView;
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Refundable transfer V2 successfully adds balance like a transfer V1.
 #[test]
@@ -91,7 +91,7 @@ fn exec_transfer_v2(
     let sender_pre_balance = env.query_balance(sender());
     let receiver_before = env.query_account(receiver());
 
-    let transfer = Action::TransferV2(TransferActionV2 { deposit, nonrefundable });
+    let transfer = Action::TransferV2(Box::new(TransferActionV2 { deposit, nonrefundable }));
     let tx = env.tx_from_actions(vec![transfer], &signer, receiver());
 
     let status = env.execute_tx(tx);

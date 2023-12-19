@@ -25,9 +25,9 @@ use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction, TransferAction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+    SignedTransaction, TransferAction,
 };
-use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,

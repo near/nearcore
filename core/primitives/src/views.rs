@@ -1294,7 +1294,10 @@ impl TryFrom<ActionView> for Action {
             // Is this good enough? Must the Action -> View -> Action conversion be lossless?
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ActionView::Transfer { deposit, nonrefundable } => {
-                Action::TransferV2(Box::new(crate::transaction::TransferActionV2 { deposit, nonrefundable }))
+                Action::TransferV2(Box::new(crate::transaction::TransferActionV2 {
+                    deposit,
+                    nonrefundable,
+                }))
             }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
