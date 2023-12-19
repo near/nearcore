@@ -2,6 +2,7 @@ use crate::config::{total_prepaid_gas, tx_cost, TransactionCost};
 use crate::near_primitives::account::Account;
 use crate::VerificationResult;
 use near_crypto::key_conversion::is_valid_staking_key;
+use near_parameters::RuntimeConfig;
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::action::delegate::SignedDelegateAction;
 use near_primitives::checked_feature;
@@ -10,7 +11,6 @@ use near_primitives::errors::{
     RuntimeError,
 };
 use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, AddKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction,
@@ -566,7 +566,7 @@ mod tests {
     const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
     fn test_limit_config() -> LimitConfig {
-        let store = near_primitives::runtime::config_store::RuntimeConfigStore::test();
+        let store = near_parameters::RuntimeConfigStore::test();
         store.get_config(PROTOCOL_VERSION).wasm_config.limit_config.clone()
     }
 

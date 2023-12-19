@@ -3,7 +3,7 @@ use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 use crate::logic::HostError;
 use crate::logic::VMLogicError;
 use crate::map;
-use near_primitives_core::config::ExtCosts;
+use near_parameters::ExtCosts;
 use std::collections::HashMap;
 
 const SIGNATURE: [u8; 64] = [

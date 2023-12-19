@@ -2,7 +2,8 @@ use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::mocks::mock_memory::MockedMemory;
 use crate::logic::types::PromiseResult;
 use crate::logic::{Config, MemSlice, VMContext, VMLogic};
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use crate::tests::test_vm_config;
+use near_parameters::RuntimeFeesConfig;
 
 pub(super) struct VMLogicBuilder {
     pub ext: MockedExternal,
@@ -16,7 +17,7 @@ pub(super) struct VMLogicBuilder {
 impl Default for VMLogicBuilder {
     fn default() -> Self {
         VMLogicBuilder {
-            config: Config::test(),
+            config: test_vm_config(),
             fees_config: RuntimeFeesConfig::test(),
             ext: MockedExternal::default(),
             memory: MockedMemory::default(),
@@ -50,7 +51,7 @@ impl VMLogicBuilder {
     pub fn free() -> Self {
         VMLogicBuilder {
             config: {
-                let mut config = Config::test();
+                let mut config = test_vm_config();
                 config.make_free();
                 config
             },

@@ -40,6 +40,7 @@ members = [
     "core/crypto",
     "core/dyn-configs",
     "core/o11y",
+    "core/parameters",
     "core/primitives",
     "core/primitives-core",
     "core/store",
@@ -219,6 +220,7 @@ near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
+near-parameters = { path = "core/parameters" }
 near-performance-metrics = { path = "utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
 near-ping = { path = "tools/ping" }

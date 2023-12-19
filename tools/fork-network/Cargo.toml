@@ -29,6 +29,7 @@ near-crypto.workspace = true
 near-epoch-manager.workspace = true
 near-mirror.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 nearcore.workspace = true
@@ -41,6 +42,7 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-mirror/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
@@ -51,6 +53,7 @@ nightly_protocol = [
   "near-epoch-manager/nightly_protocol",
   "near-mirror/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",

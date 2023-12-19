@@ -2,8 +2,7 @@
 //! wasm module before execution.
 
 use crate::logic::errors::PrepareError;
-use crate::logic::Config;
-use crate::VMKind;
+use near_parameters::vm::{Config, VMKind};
 
 mod prepare_v0;
 mod prepare_v1;
@@ -51,7 +50,7 @@ pub fn prepare_contract(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::with_vm_variants;
+    use crate::tests::{test_vm_config, with_vm_variants};
     use assert_matches::assert_matches;
 
     fn parse_and_prepare_wat(
@@ -65,7 +64,7 @@ mod tests {
 
     #[test]
     fn internal_memory_declaration() {
-        let config = Config::test();
+        let config = test_vm_config();
         with_vm_variants(&config, |kind| {
             let r = parse_and_prepare_wat(&config, kind, r#"(module (memory 1 1))"#);
             assert_matches!(r, Ok(_));
@@ -74,7 +73,7 @@ mod tests {
 
     #[test]
     fn memory_imports() {
-        let config = Config::test();
+        let config = test_vm_config();
 
         // This test assumes that maximum page number is configured to a certain number.
         assert_eq!(config.limit_config.max_memory_pages, 2048);
@@ -119,7 +118,7 @@ mod tests {
 
     #[test]
     fn multiple_valid_memory_are_disabled() {
-        let config = Config::test();
+        let config = test_vm_config();
         with_vm_variants(&config, |kind| {
             // Our preparation and sanitization pass assumes a single memory, so we should fail when
             // there are multiple specified.
@@ -146,7 +145,7 @@ mod tests {
 
     #[test]
     fn imports() {
-        let config = Config::test();
+        let config = test_vm_config();
         with_vm_variants(&config, |kind| {
             // nothing can be imported from non-"env" module for now.
             let r = parse_and_prepare_wat(

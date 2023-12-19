@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use near_chain_configs::Genesis;
+use near_parameters::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::AccountId;
@@ -10,7 +11,6 @@ use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::GenesisExt;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 

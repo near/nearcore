@@ -1,9 +1,10 @@
 use crate::config::Config;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
+use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::ContractCode;

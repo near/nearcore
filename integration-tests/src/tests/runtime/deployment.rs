@@ -1,6 +1,6 @@
 use crate::node::{Node, RuntimeNode};
 use near_chain_configs::Genesis;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;

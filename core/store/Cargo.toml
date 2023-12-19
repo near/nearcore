@@ -45,6 +45,7 @@ near-chain-configs = { workspace = true, features = ["metrics"] }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-vm-runner.workspace = true
 
@@ -82,6 +83,7 @@ nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
@@ -90,6 +92,7 @@ nightly = [
   "near-chain-configs/nightly",
   "near-fmt/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives/nightly",
   "near-vm-runner/nightly",
 ]

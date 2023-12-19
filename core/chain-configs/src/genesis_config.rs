@@ -7,14 +7,13 @@ use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
+use near_parameters::{RuntimeConfig, RuntimeConfigView};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::StateRoot;
-use near_primitives::views::RuntimeConfigView;
 use near_primitives::{
     hash::CryptoHash,
-    runtime::config::RuntimeConfig,
     serialize::dec_format,
     state_record::StateRecord,
     types::{

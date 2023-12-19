@@ -1,6 +1,5 @@
+use near_parameters::{Fee, RuntimeConfig, RuntimeFeesConfig, StorageUsageConfig};
 use near_primitives::num_rational::Rational32;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{Fee, RuntimeFeesConfig, StorageUsageConfig};
 use rand::{thread_rng, RngCore};
 
 pub fn random_config() -> RuntimeConfig {

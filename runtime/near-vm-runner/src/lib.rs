@@ -2,7 +2,6 @@
 
 mod cache;
 mod code;
-mod config;
 mod errors;
 mod features;
 mod imports;
@@ -18,7 +17,6 @@ mod runner;
 #[cfg(test)]
 mod tests;
 mod utils;
-mod vm_kind;
 #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
 mod wasmer2_runner;
 #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
@@ -27,10 +25,8 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
-pub use crate::vm_kind::VMKind;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use code::ContractCode;
-pub use config::ContractPrepareVersion;
 pub use profile::ProfileDataV2;
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
@@ -39,5 +35,6 @@ pub use runner::{run, VM};
 /// implementation detail of `near-vm-runner`.
 #[doc(hidden)]
 pub mod internal {
+    pub use crate::runner::VMKindExt;
     pub use wasmparser;
 }

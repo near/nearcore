@@ -1,19 +1,20 @@
 //! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
-use super::{create_context, with_vm_variants};
+use super::{create_context, test_vm_config, with_vm_variants};
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::Config;
 use crate::logic::{CompiledContract, CompiledContractCache};
+use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
 use crate::ContractCode;
-use crate::VMKind;
 use crate::{prepare, MockCompiledContractCache};
 use assert_matches::assert_matches;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use wasmer_compiler::{CpuFeature, Target};
@@ -21,7 +22,7 @@ use wasmer_engine::Executable;
 
 #[test]
 fn test_caches_compilation_error() {
-    let config = Config::test();
+    let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -45,7 +46,7 @@ fn test_caches_compilation_error() {
 
 #[test]
 fn test_does_not_cache_io_error() {
-    let config = Config::test();
+    let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         match vm_kind {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
@@ -131,7 +132,7 @@ fn test_wasmer2_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = Config::test();
+        let config = test_vm_config();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::Wasmer2).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));
@@ -202,7 +203,7 @@ fn test_near_vm_artifact_output_stability() {
     for seed in seeds {
         let contract = ContractCode::new(near_test_contracts::arbitrary_contract(seed), None);
 
-        let config = Config::test();
+        let config = test_vm_config();
         let prepared_code =
             prepare::prepare_contract(contract.code(), &config, VMKind::NearVm).unwrap();
         got_prepared_hashes.push(crate::utils::stable_hash((&contract.code(), &prepared_code)));

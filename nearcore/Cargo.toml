@@ -62,6 +62,7 @@ near-network.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-rosetta-rpc = { workspace = true, optional = true }
 near-store.workspace = true
@@ -138,6 +139,7 @@ nightly = [
   "near-mainnet-res/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-rosetta-rpc/nightly",
@@ -160,6 +162,7 @@ nightly_protocol = [
   "near-mainnet-res/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-pool/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-rosetta-rpc/nightly_protocol",

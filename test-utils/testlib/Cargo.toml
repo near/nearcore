@@ -17,6 +17,7 @@ once_cell.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-crypto.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-test-contracts.workspace = true
 node-runtime.workspace = true
@@ -25,6 +26,7 @@ node-runtime.workspace = true
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "node-runtime/nightly_protocol",
 ]
@@ -32,6 +34,7 @@ nightly = [
   "nightly_protocol",
   "near-chain-configs/nightly",
   "near-chain/nightly",
+  "near-parameters/nightly",
   "near-primitives/nightly",
   "node-runtime/nightly",
 ]

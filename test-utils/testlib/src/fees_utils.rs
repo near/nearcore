@@ -1,8 +1,6 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
-use near_primitives::config::ActionCosts;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
+use near_parameters::{ActionCosts, RuntimeConfig, RuntimeFeesConfig};
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
 

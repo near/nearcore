@@ -1,12 +1,11 @@
 use crate::logic::tests::helpers::*;
 use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
 use crate::logic::types::Gas;
-use crate::logic::{Config, MemSlice};
+use crate::logic::MemSlice;
 use crate::logic::{HostError, VMLogicError};
-
+use crate::tests::test_vm_config;
 use expect_test::expect;
-use near_primitives_core::config::{ActionCosts, ExtCosts};
-use near_primitives_core::runtime::fees::Fee;
+use near_parameters::{ActionCosts, ExtCosts, Fee};
 
 #[test]
 fn test_dont_burn_gas_when_exceeding_attached_gas_limit() {
@@ -717,7 +716,7 @@ fn create_promise_dependency(logic: &mut TestVMLogic) -> Result<(), VMLogicError
 /// Given the limit in gas, compute the corresponding limit in wasm ops for use
 /// with [`VMLogic::gas`] function.
 fn op_limit(gas_limit: Gas) -> u32 {
-    (gas_limit / (Config::test().regular_op_cost as u64)) as u32
+    (gas_limit / (test_vm_config().regular_op_cost as u64)) as u32
 }
 
 fn test_pk() -> Vec<u8> {

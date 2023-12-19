@@ -6,16 +6,15 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::RpcInto;
 use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
 use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
-use node_runtime::config::RuntimeConfig;
 use testlib::runtime_utils::{alice_account, bob_account};
 
 fn start_node() -> ThreadNode {

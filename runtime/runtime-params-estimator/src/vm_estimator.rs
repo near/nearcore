@@ -1,14 +1,15 @@
 use crate::config::GasMetric;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
+use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::ContractCode;
-use near_vm_runner::VMKind;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
