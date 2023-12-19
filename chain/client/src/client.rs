@@ -23,9 +23,9 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
-    OrphanMissingChunks,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
+use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::StateSplitRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;

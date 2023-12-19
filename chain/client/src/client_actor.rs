@@ -1839,7 +1839,9 @@ impl ClientActor {
                 }
             } else if block_hash == sync_hash {
                 // The first block of the new epoch.
-                if let Err(err) = self.client.chain.save_orphan(block, false) {
+                if let Err(err) =
+                    self.client.chain.save_orphan(block, Provenance::NONE, None, false)
+                {
                     error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
                 }
             }
