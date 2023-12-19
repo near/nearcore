@@ -5,7 +5,7 @@
 
 use hex;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::{env, near_bindgen, AccountId, Promise};
+use near_sdk::{env, near_bindgen, AccountId, NearToken, Promise};
 use rlp::Rlp;
 
 #[near_bindgen]
@@ -48,6 +48,6 @@ impl WalletContract {
             env::panic_str("Public key does not match the Wallet Contract address.");
         }
 
-        Promise::new(target).transfer(value);
+        Promise::new(target).transfer(NearToken::from_yoctonear(value));
     }
 }
