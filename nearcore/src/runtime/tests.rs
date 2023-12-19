@@ -1434,7 +1434,14 @@ fn test_genesis_hash() {
 
     let block = Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)
         .unwrap();
-    assert_eq!(block.header().hash().to_string(), "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H");
+
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    let block_expected_hash = "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H";
+
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    let block_expected_hash = "3Cm2e8aZQuZbbnwWMNES6WnuszR7r2zzhdDhBK1Ft3f1";
+
+    assert_eq!(block.header().hash().to_string(), block_expected_hash);
 
     let epoch_manager = EpochManager::new_from_genesis_config(store, &genesis.config).unwrap();
     let epoch_info = epoch_manager.get_epoch_info(&EpochId::default()).unwrap();

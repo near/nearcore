@@ -48,8 +48,9 @@ pub struct Account {
     #[serde(with = "dec_format")]
     locked: Balance,
     /// Tokens that are not available to withdraw, stake, or refund, but can be used to cover storage usage.
-    #[serde(with = "dec_format")]
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    #[serde(default = "Account::default_nonrefundable")]
+    #[serde(with = "dec_format")]
     nonrefundable: Balance,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -104,10 +105,14 @@ impl Account {
         self.nonrefundable
     }
 
+    fn default_nonrefundable() -> Balance {
+        0
+    }
+
     #[inline]
     #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
     pub fn nonrefundable(&self) -> Balance {
-        0
+        Self::default_nonrefundable()
     }
 
     #[inline]
