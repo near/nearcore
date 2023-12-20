@@ -1,12 +1,9 @@
 use super::errors::{HostError, VMLogicError};
 use super::TrieNodesCount;
 use crate::ProfileDataV3;
-use near_primitives_core::config::ExtCosts::read_cached_trie_node;
-use near_primitives_core::config::ExtCosts::touching_trie_node;
-use near_primitives_core::{
-    config::{ActionCosts, ExtCosts, ExtCostsConfig},
-    types::Gas,
-};
+use near_parameters::ExtCosts::{read_cached_trie_node, touching_trie_node};
+use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
+use near_primitives_core::types::Gas;
 use std::collections::HashMap;
 
 #[inline]
@@ -286,6 +283,7 @@ impl GasCounter {
 #[cfg(test)]
 mod tests {
     use super::{ExtCostsConfig, HostError};
+    use near_parameters::{ActionCosts, ExtCosts};
     use near_primitives_core::types::Gas;
 
     /// Max prepaid amount of gas.
@@ -355,17 +353,9 @@ mod tests {
     #[test]
     fn test_profile_compute_cost_is_accurate() {
         let mut counter = make_test_counter(MAX_GAS, MAX_GAS, false);
-        counter.pay_base(near_primitives_core::config::ExtCosts::storage_write_base).unwrap();
-        counter
-            .pay_per(near_primitives_core::config::ExtCosts::storage_write_value_byte, 10)
-            .unwrap();
-        counter
-            .pay_action_accumulated(
-                100,
-                100,
-                near_primitives_core::config::ActionCosts::new_data_receipt_byte,
-            )
-            .unwrap();
+        counter.pay_base(ExtCosts::storage_write_base).unwrap();
+        counter.pay_per(ExtCosts::storage_write_value_byte, 10).unwrap();
+        counter.pay_action_accumulated(100, 100, ActionCosts::new_data_receipt_byte).unwrap();
 
         let mut profile = counter.profile_data();
         profile.compute_wasm_instruction_cost(counter.burnt_gas());
@@ -378,8 +368,7 @@ mod tests {
         fn test(burn: Gas, prepaid: Gas, want: Result<(), HostError>) {
             let mut counter = make_test_counter(burn, prepaid, false);
             assert_eq!(
-                counter
-                    .pay_per(near_primitives_core::config::ExtCosts::storage_write_value_byte, 100),
+                counter.pay_per(ExtCosts::storage_write_value_byte, 100),
                 want.map_err(Into::into)
             );
             let mut profile = counter.profile_data();
@@ -401,7 +390,7 @@ mod tests {
                 counter.pay_action_accumulated(
                     10_000_000_000,
                     10_000_000_000,
-                    near_primitives_core::config::ActionCosts::new_data_receipt_byte
+                    ActionCosts::new_data_receipt_byte
                 ),
                 want.map_err(Into::into)
             );

@@ -1,9 +1,9 @@
 use super::dependencies::{MemSlice, MemoryLike};
 use super::errors::{HostError, VMLogicError};
 use super::gas_counter::GasCounter;
-use crate::config::LimitConfig;
 use core::mem::size_of;
-use near_primitives_core::config::ExtCosts::*;
+use near_parameters::vm::LimitConfig;
+use near_parameters::ExtCosts::*;
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 
@@ -257,7 +257,8 @@ mod tests {
     use super::Registers;
     use crate::logic::gas_counter::GasCounter;
     use crate::logic::LimitConfig;
-    use near_primitives_core::config::ExtCostsConfig;
+    use crate::tests::test_vm_config;
+    use near_parameters::ExtCostsConfig;
 
     struct RegistersTestContext {
         gas: GasCounter,
@@ -270,7 +271,7 @@ mod tests {
             let costs = ExtCostsConfig::test();
             Self {
                 gas: GasCounter::new(costs, u64::MAX, 0, u64::MAX, false),
-                cfg: crate::logic::Config::test().limit_config,
+                cfg: test_vm_config().limit_config,
                 regs: Default::default(),
             }
         }

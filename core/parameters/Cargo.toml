@@ -1,0 +1,42 @@
+[package]
+name = "near-parameters"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "This crate provides the information about the configuration of the near protocol"
+repository.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+assert_matches.workspace = true
+enum-map.workspace = true
+num-rational.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+serde_repr.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+borsh.workspace = true
+clap = { workspace = true, optional = true }
+
+
+# FIXME: this ideally should not depend on near-primitives-core...
+near-primitives-core.workspace = true
+near-account-id.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+
+[features]
+nightly = [
+  "nightly_protocol",
+  "near-primitives-core/nightly",
+]
+nightly_protocol = [
+  "near-primitives-core/nightly_protocol",
+]
+calimero_zero_storage = []

@@ -232,7 +232,7 @@ class NearNodeProxy:
 
     def __init__(self, environment):
         self.request_event = environment.events.request
-        url, port = environment.host.split(":")
+        [url, port] = environment.host.rsplit(":", 1)
         self.node = cluster.RpcNode(url, port)
         self.session = requests.Session()
 

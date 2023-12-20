@@ -435,8 +435,8 @@ impl Config {
             &mut serde_json::Deserializer::from_str(&json_str_without_comments),
             |field| unrecognised_fields.push(field.to_string()),
         )
-        .map_err(|_| ValidationError::ConfigFileError {
-            error_message: format!("Failed to deserialize config from {}", path.display()),
+        .map_err(|e| ValidationError::ConfigFileError {
+            error_message: format!("Failed to deserialize config from {}: {:?}", path.display(), e),
         })?;
 
         if !unrecognised_fields.is_empty() {

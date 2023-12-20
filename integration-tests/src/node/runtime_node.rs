@@ -2,9 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_parameters::RuntimeConfig;
 use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
-use node_runtime::config::RuntimeConfig;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;

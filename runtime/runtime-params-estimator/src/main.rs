@@ -3,8 +3,8 @@
 use anyhow::Context;
 use genesis_populate::GenesisBuilder;
 use near_chain_configs::GenesisValidationMode;
-use near_primitives::views::RuntimeConfigView;
-use near_vm_runner::VMKind;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeConfigView;
 use replay::ReplayCmd;
 use runtime_params_estimator::config::{Config, GasMetric};
 use runtime_params_estimator::{

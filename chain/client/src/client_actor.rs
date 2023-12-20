@@ -1829,6 +1829,10 @@ impl ClientActor {
         if let Ok(header) = self.client.chain.get_block_header(&sync_hash) {
             let block: MaybeValidated<Block> = (*block).clone().into();
             let block_hash = *block.hash();
+            if let Err(err) = self.client.chain.validate_block(&block) {
+                byzantine_assert!(false);
+                error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
+            }
             // Notice that two blocks are saved differently:
             // * save_block() for one block.
             // * save_orphan() for another block.
@@ -1839,9 +1843,7 @@ impl ClientActor {
                 }
             } else if block_hash == sync_hash {
                 // The first block of the new epoch.
-                if let Err(err) = self.client.chain.save_orphan(block, false) {
-                    error!(target: "client", ?err, ?block_hash, "Received an invalid block during state sync");
-                }
+                self.client.chain.save_orphan(block, Provenance::NONE, None, false);
             }
         }
         true

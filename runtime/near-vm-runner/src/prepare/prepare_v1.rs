@@ -234,11 +234,12 @@ pub(crate) fn validate_contract(
 
 #[cfg(test)]
 mod test {
-    use crate::logic::{Config, ContractPrepareVersion};
+    use crate::logic::ContractPrepareVersion;
+    use crate::tests::test_vm_config;
 
     #[test]
     fn v1_preparation_generates_valid_contract_fuzzer() {
-        let mut config = Config::test();
+        let mut config = test_vm_config();
         let prepare_version = ContractPrepareVersion::V1;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);

@@ -283,7 +283,7 @@ impl<'a> RosettaTransactions<'a> {
 /// Returns Rosetta transactions which map to given account changes.
 pub(crate) async fn convert_block_changes_to_transactions(
     view_client_addr: &Addr<near_client::ViewClientActor>,
-    runtime_config: &near_primitives::views::RuntimeConfigView,
+    runtime_config: &near_parameters::RuntimeConfigView,
     block_hash: &CryptoHash,
     accounts_changes: near_primitives::views::StateChangesView,
     mut accounts_previous_state: std::collections::HashMap<
@@ -371,7 +371,7 @@ pub(crate) async fn convert_block_changes_to_transactions(
 }
 
 fn convert_account_update_to_operations(
-    runtime_config: &near_primitives::views::RuntimeConfigView,
+    runtime_config: &near_parameters::RuntimeConfigView,
     operations: &mut Vec<crate::models::Operation>,
     account_id: &near_primitives::types::AccountId,
     previous_account_state: Option<&near_primitives::views::AccountView>,
@@ -511,7 +511,7 @@ fn convert_account_update_to_operations(
 }
 
 fn convert_account_delete_to_operations(
-    runtime_config: &near_primitives::views::RuntimeConfigView,
+    runtime_config: &near_parameters::RuntimeConfigView,
     operations: &mut Vec<crate::models::Operation>,
     account_id: &near_primitives::types::AccountId,
     previous_account_state: Option<near_primitives::views::AccountView>,

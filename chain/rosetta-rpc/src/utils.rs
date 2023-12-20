@@ -306,7 +306,7 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_primitives::views::RuntimeConfigView,
+        runtime_config: &near_parameters::RuntimeConfigView,
     ) -> Self {
         let account = account.into();
         let amount = account.amount();

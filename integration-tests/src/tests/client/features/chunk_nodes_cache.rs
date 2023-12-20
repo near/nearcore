@@ -5,9 +5,8 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_primitives::config::ExtCosts;
+use near_parameters::{ExtCosts, RuntimeConfigStore};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,

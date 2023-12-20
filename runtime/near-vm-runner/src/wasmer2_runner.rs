@@ -11,10 +11,10 @@ use crate::logic::{
 };
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::VMKind;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;

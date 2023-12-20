@@ -1,5 +1,6 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
+use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -11,7 +12,6 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::id::AccountIdRef;
-use near_primitives_core::config::ActionCosts;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::ShardTries;
