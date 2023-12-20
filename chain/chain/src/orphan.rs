@@ -12,9 +12,7 @@ use near_primitives::utils::MaybeValidated;
 use tracing::{debug, debug_span};
 
 use crate::missing_chunks::BlockLike;
-use crate::{
-    byzantine_assert, metrics, BlockProcessingArtifact, Chain, DoneApplyChunkCallback, Provenance,
-};
+use crate::{metrics, BlockProcessingArtifact, Chain, DoneApplyChunkCallback, Provenance};
 
 /// Maximum number of orphans chain can store.
 const MAX_ORPHAN_SIZE: usize = 1024;
@@ -265,19 +263,14 @@ impl Chain {
         provenance: Provenance,
         added: Option<Instant>,
         requested_missing_chunks: bool,
-    ) -> Result<(), Error> {
+    ) {
         let block_hash = *block.hash();
-        if self.orphans.contains(block.hash()) {
-            return Ok(());
+        if !self.orphans.contains(block.hash()) {
+            self.orphans.add(
+                Orphan { block, provenance, added: added.unwrap_or(StaticClock::instant()) },
+                requested_missing_chunks,
+            );
         }
-        if let Err(e) = self.validate_block(&block) {
-            byzantine_assert!(false);
-            return Err(e);
-        }
-        self.orphans.add(
-            Orphan { block, provenance, added: added.unwrap_or(StaticClock::instant()) },
-            requested_missing_chunks,
-        );
 
         debug!(
             target: "chain",
@@ -290,8 +283,6 @@ impl Chain {
                 String::new()
             },
         );
-
-        Ok(())
     }
 
     /// Check if we can request chunks for this orphan. Conditions are

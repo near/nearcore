@@ -620,11 +620,6 @@ impl Chain {
         if self.store.get_block(block.hash()).is_ok() {
             return Ok(());
         }
-        if let Err(e) = self.validate_block(&block) {
-            byzantine_assert!(false);
-            return Err(e);
-        }
-
         let mut chain_store_update = ChainStoreUpdate::new(&mut self.store);
 
         chain_store_update.save_block(block.into_inner());
@@ -1934,7 +1929,7 @@ impl Chain {
                                 provenance,
                                 Some(time),
                                 requested_missing_chunks,
-                            )?;
+                            );
                         }
                     }
                     Error::ChunksMissing(missing_chunks) => {
