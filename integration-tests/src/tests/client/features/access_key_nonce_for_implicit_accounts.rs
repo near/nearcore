@@ -1,7 +1,7 @@
 use crate::tests::client::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
-use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
+use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
