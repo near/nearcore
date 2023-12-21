@@ -1,42 +1,70 @@
 mod kv_runtime;
 mod validator_schedule;
 
+use chrono::{DateTime, Utc};
+use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
-use near_epoch_manager::shard_tracker::ShardTracker;
-use near_primitives::test_utils::create_test_signer;
-use num_rational::Ratio;
-use tracing::debug;
-
-use near_chain_primitives::Error;
-
-use near_primitives::block::Block;
-
-use near_primitives::hash::CryptoHash;
-
-use near_primitives::types::{AccountId, NumBlocks};
-use near_primitives::validator_signer::InMemoryValidatorSigner;
-use near_primitives::version::PROTOCOL_VERSION;
-
-use near_store::test_utils::create_test_store;
-use near_store::DBCol;
-
+pub use self::kv_runtime::account_id_to_shard_id;
+pub use self::kv_runtime::KeyValueRuntime;
+pub use self::kv_runtime::MockEpochManager;
+pub use self::validator_schedule::ValidatorSchedule;
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
+use near_chain_primitives::Error;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_primitives::block::Block;
+use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
+use near_primitives::test_utils::create_test_signer;
+use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
+use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_primitives::version::PROTOCOL_VERSION;
+use near_store::test_utils::create_test_store;
+use near_store::DBCol;
+use tracing::debug;
 
-pub use self::kv_runtime::account_id_to_shard_id;
-pub use self::kv_runtime::KeyValueRuntime;
-pub use self::kv_runtime::MockEpochManager;
+pub fn get_chain() -> Chain {
+    get_chain_with_epoch_length_and_num_shards(10, 1)
+}
 
-pub use self::validator_schedule::ValidatorSchedule;
+pub fn get_chain_with_num_shards(num_shards: NumShards) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(10, num_shards)
+}
+
+pub fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(epoch_length, 1)
+}
+
+pub fn get_chain_with_epoch_length_and_num_shards(
+    epoch_length: NumBlocks,
+    num_shards: NumShards,
+) -> Chain {
+    let store = create_test_store();
+    let chain_genesis = ChainGenesis::test();
+    let vs = ValidatorSchedule::new()
+        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
+        .num_shards(num_shards);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
+    Chain::new(
+        epoch_manager,
+        shard_tracker,
+        runtime,
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+        None,
+    )
+    .unwrap()
+}
 
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
