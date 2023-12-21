@@ -1,5 +1,5 @@
 pub use block_processing_utils::{BlockProcessingArtifact, DoneApplyChunkCallback};
-pub use chain::{check_known, collect_receipts, Chain, ChainUpdate, MAX_ORPHAN_SIZE};
+pub use chain::{check_known, collect_receipts, Chain, ChainUpdate};
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
@@ -19,6 +19,7 @@ mod lightclient;
 mod metrics;
 pub mod migrations;
 pub mod missing_chunks;
+pub mod orphan;
 pub mod resharding;
 mod state_request_tracker;
 pub mod state_snapshot_actor;

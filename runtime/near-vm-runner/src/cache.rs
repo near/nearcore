@@ -1,9 +1,10 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError};
 use crate::logic::{CompiledContract, CompiledContractCache, Config};
-use crate::vm_kind::VMKind;
+use crate::runner::VMKindExt;
 use crate::ContractCode;
 use borsh::BorshSerialize;
+use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use std::collections::HashMap;
 use std::fmt;

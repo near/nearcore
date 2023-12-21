@@ -56,6 +56,7 @@ near-o11y.workspace = true
 near-performance-metrics-macros.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-telemetry.workspace = true
@@ -83,6 +84,7 @@ nightly_protocol = [
   "near-epoch-manager/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-pool/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
@@ -99,6 +101,7 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",

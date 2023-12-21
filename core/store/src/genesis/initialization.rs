@@ -6,9 +6,9 @@ use std::{collections::HashSet, fs, path::Path};
 
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
-    runtime::config_store::RuntimeConfigStore,
     shard_layout::{account_id_to_shard_id, ShardLayout},
     state_record::{state_record_to_account_id, StateRecord},
     types::{AccountId, NumShards, ShardId, StateRoot},

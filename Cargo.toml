@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 # Most crates are not stable on purpose, as maintaining API compatibility is a
 # significant developer time expense. Please think thoroughly before adding
 # anything to the list of stable crates.
-version = "0.18.0"
+version = "0.19.0-pre.1"
 exclude = ["neard"]
 
 [workspace]
@@ -40,6 +40,7 @@ members = [
     "core/crypto",
     "core/dyn-configs",
     "core/o11y",
+    "core/parameters",
     "core/primitives",
     "core/primitives-core",
     "core/store",
@@ -219,6 +220,7 @@ near-mainnet-res = { path = "utils/mainnet-res" }
 near-mirror = { path = "tools/mirror" }
 near-network = { path = "chain/network" }
 near-o11y = { path = "core/o11y" }
+near-parameters = { path = "core/parameters" }
 near-performance-metrics = { path = "utils/near-performance-metrics" }
 near-performance-metrics-macros = { path = "utils/near-performance-metrics-macros" }
 near-ping = { path = "tools/ping" }

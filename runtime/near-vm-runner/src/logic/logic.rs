@@ -4,20 +4,20 @@ use super::errors::{FunctionCallError, InconsistentStateError};
 use super::gas_counter::{FastGasCounter, GasCounter};
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
+use super::ValuePtr;
 use super::{HostError, VMLogicError};
-use super::{StorageGetMode, ValuePtr};
-use crate::config::Config;
 use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
-use near_primitives_core::config::ExtCosts::*;
+use near_parameters::vm::{Config, StorageGetMode};
+use near_parameters::{
+    transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
+};
 use near_primitives_core::config::ViewConfig;
-use near_primitives_core::config::{ActionCosts, ExtCosts};
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
+use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 

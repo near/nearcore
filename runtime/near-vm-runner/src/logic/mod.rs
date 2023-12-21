@@ -17,15 +17,14 @@ pub mod types;
 mod utils;
 mod vmstate;
 
-pub use crate::config::{Config, ContractPrepareVersion, LimitConfig};
 pub use context::VMContext;
-pub use dependencies::{External, MemSlice, MemoryLike, StorageGetMode, ValuePtr};
+pub use dependencies::{External, MemSlice, MemoryLike, ValuePtr};
 pub use errors::{HostError, VMLogicError};
+pub use gas_counter::with_ext_cost_counter;
 pub use logic::{VMLogic, VMOutcome};
+pub use near_parameters::vm::{Config, ContractPrepareVersion, LimitConfig, StorageGetMode};
 pub use near_primitives_core::types::ProtocolVersion;
 pub use types::ReturnData;
-
-pub use gas_counter::with_ext_cost_counter;
 
 #[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
 pub enum CompiledContract {

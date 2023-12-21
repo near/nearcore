@@ -1,6 +1,6 @@
 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
-use crate::logic::Config;
 use crate::logic::{HostError, VMLogicError};
+use crate::tests::test_vm_config;
 
 #[test]
 fn test_one_register() {
@@ -61,7 +61,7 @@ fn test_max_register_size() {
 #[test]
 fn test_max_register_memory_limit() {
     let mut logic_builder = VMLogicBuilder::free();
-    let mut config = Config::test();
+    let mut config = test_vm_config();
     config.make_free();
     logic_builder.config = config.clone();
     let mut logic = logic_builder.build();

@@ -11,6 +11,7 @@ pub use crate::verifier::{
 };
 use config::total_prepaid_send_fees;
 pub use near_crypto;
+use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
@@ -20,7 +21,6 @@ use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -37,7 +37,6 @@ use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives_core::config::ActionCosts;
 use near_store::{
     get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
     set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
@@ -1519,9 +1518,9 @@ impl Runtime {
 mod tests {
     use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
     use near_primitives::account::AccessKey;
     use near_primitives::hash::hash;
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{
@@ -1529,7 +1528,6 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_primitives_core::config::{ExtCosts, ParameterCost};
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
     use testlib::runtime_utils::{alice_account, bob_account};

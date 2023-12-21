@@ -50,6 +50,7 @@ near-jsonrpc.workspace = true
 near-jsonrpc-client.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-network.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
@@ -101,6 +102,7 @@ nightly = [
   "near-jsonrpc/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
@@ -127,6 +129,7 @@ nightly_protocol = [
   "near-jsonrpc/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",

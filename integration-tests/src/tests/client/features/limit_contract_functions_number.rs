@@ -3,10 +3,10 @@ use assert_matches::assert_matches;
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::errors::{
     ActionErrorKind, CompilationError, FunctionCallError, PrepareError, TxExecutionError,
 };
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;

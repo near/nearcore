@@ -1,7 +1,6 @@
 use crate::logic::errors::PrepareError;
-use crate::logic::Config;
-use crate::VMKind;
 use finite_wasm::wasmparser as wp;
+use near_parameters::vm::{Config, VMKind};
 use wasm_encoder::{Encode, Section, SectionId};
 
 struct PrepareContext<'a> {
@@ -362,12 +361,13 @@ impl<'a> wp::VisitOperator<'a> for SimpleGasCostCfg {
 
 #[cfg(test)]
 mod test {
-    use crate::logic::{Config, ContractPrepareVersion};
-    use crate::VMKind;
+    use super::VMKind;
+    use crate::logic::ContractPrepareVersion;
+    use crate::tests::test_vm_config;
 
     #[test]
     fn v2_preparation_wasmtime_generates_valid_contract_fuzzer() {
-        let mut config = Config::test();
+        let mut config = test_vm_config();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);
@@ -394,7 +394,7 @@ mod test {
 
     #[test]
     fn v2_preparation_near_vm_generates_valid_contract_fuzzer() {
-        let mut config = Config::test();
+        let mut config = test_vm_config();
         let prepare_version = ContractPrepareVersion::V2;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);

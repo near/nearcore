@@ -46,6 +46,7 @@ near-o11y.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-vm-runner.workspace = true
+near-parameters.workspace = true
 
 [features]
 sandbox = []
@@ -60,6 +61,7 @@ nightly = [
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-fmt/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-vm-runner/nightly",
 ]
@@ -67,6 +69,7 @@ nightly = [
 nightly_protocol = [
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]

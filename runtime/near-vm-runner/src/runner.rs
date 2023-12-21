@@ -1,11 +1,10 @@
-use crate::config::Config;
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
 use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
-use crate::vm_kind::VMKind;
 use crate::ContractCode;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_parameters::vm::{Config, VMKind};
+use near_parameters::RuntimeFeesConfig;
 
 /// Returned by VM::run method.
 ///
@@ -111,12 +110,16 @@ pub trait VM {
     ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
 }
 
-impl VMKind {
+pub trait VMKindExt {
     /// Make a [`VM`] for this [`VMKind`].
     ///
     /// This is not intended to be used by code other than internal tools like
     /// the estimator.
-    pub fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
+    fn runtime(&self, config: Config) -> Option<Box<dyn VM>>;
+}
+
+impl VMKindExt for VMKind {
+    fn runtime(&self, config: Config) -> Option<Box<dyn VM>> {
         match self {
             #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
             Self::Wasmer0 => Some(Box::new(crate::wasmer_runner::Wasmer0VM::new(config))),
