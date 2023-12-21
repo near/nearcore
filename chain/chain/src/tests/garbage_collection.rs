@@ -1,48 +1,26 @@
+use rand::Rng;
 use std::sync::Arc;
 
 use crate::chain::Chain;
-use crate::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
-use crate::types::{ChainConfig, ChainGenesis, Tip};
-use crate::DoomslugThresholdMode;
+use crate::garbage_collection::GCMode;
+use crate::test_utils::{
+    get_chain, get_chain_with_epoch_length, get_chain_with_epoch_length_and_num_shards,
+    get_chain_with_num_shards,
+};
+use crate::types::Tip;
+use crate::{ChainStoreAccess, StoreValidator};
 
-use near_chain_configs::GCConfig;
-use near_epoch_manager::shard_tracker::ShardTracker;
+use near_chain_configs::{GCConfig, GenesisConfig};
+use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::Block;
+use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-use near_primitives::types::{NumBlocks, NumShards, StateRoot};
-use near_store::test_utils::{create_test_store, gen_changes};
-use near_store::{ShardTries, Trie, WrappedTrieChanges};
-use rand::Rng;
-
-fn get_chain(num_shards: NumShards) -> Chain {
-    get_chain_with_epoch_length_and_num_shards(10, num_shards)
-}
-
-fn get_chain_with_epoch_length_and_num_shards(
-    epoch_length: NumBlocks,
-    num_shards: NumShards,
-) -> Chain {
-    let store = create_test_store();
-    let chain_genesis = ChainGenesis::test();
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
-        .num_shards(num_shards);
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    Chain::new(
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        &chain_genesis,
-        DoomslugThresholdMode::NoApprovals,
-        ChainConfig::test(),
-        None,
-    )
-    .unwrap()
-}
+use near_primitives::types::{BlockHeight, NumBlocks, StateRoot};
+use near_primitives::validator_signer::InMemoryValidatorSigner;
+use near_store::test_utils::gen_changes;
+use near_store::{DBCol, ShardTries, Trie, WrappedTrieChanges};
 
 // Build a chain of num_blocks on top of prev_block
 fn do_fork(
@@ -169,7 +147,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let num_shards = rand::thread_rng().gen_range(1..3);
 
     // Init Chain 1
-    let mut chain1 = get_chain(num_shards);
+    let mut chain1 = get_chain_with_num_shards(num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
     let shard_to_check_trie = rng.gen_range(0..num_shards);
@@ -201,7 +179,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
         .unwrap();
 
-    let tries2 = get_chain(num_shards).runtime_adapter.get_tries();
+    let tries2 = get_chain_with_num_shards(num_shards).runtime_adapter.get_tries();
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 51;
@@ -716,5 +694,298 @@ fn test_fork_far_away_from_epoch_end() {
             block.hash(),
             block.header().height()
         );
+    }
+}
+
+/// Test that garbage collection works properly. The blocks behind gc head should be garbage
+/// collected while the blocks that are ahead of it should not.
+#[test]
+fn test_clear_old_data() {
+    let mut chain = get_chain_with_epoch_length(1);
+    let epoch_manager = chain.epoch_manager.clone();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = genesis;
+    let mut blocks = vec![prev_block.clone()];
+    for i in 1..15 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            i,
+        );
+    }
+
+    let trie = chain.runtime_adapter.get_tries();
+    chain.clear_data(trie, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
+
+    // epoch didn't change so no data is garbage collected.
+    for i in 0..15 {
+        println!("height = {} hash = {}", i, blocks[i].hash());
+        if i < 8 {
+            assert!(chain.get_block(blocks[i].hash()).is_err());
+            assert!(chain
+                .mut_store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .unwrap()
+                .is_empty());
+        } else {
+            assert!(chain.get_block(blocks[i].hash()).is_ok());
+            assert!(!chain
+                .mut_store()
+                .get_all_block_hashes_by_height(i as BlockHeight)
+                .unwrap()
+                .is_empty());
+        }
+    }
+}
+
+// Adds block to the chain at given height after prev_block.
+fn add_block(
+    chain: &mut Chain,
+    epoch_manager: &dyn EpochManagerAdapter,
+    prev_block: &mut Block,
+    blocks: &mut Vec<Block>,
+    signer: Arc<InMemoryValidatorSigner>,
+    height: u64,
+) {
+    let next_epoch_id = epoch_manager
+        .get_next_epoch_id_from_prev_block(prev_block.hash())
+        .expect("block must exist");
+    let mut store_update = chain.mut_store().store_update();
+
+    let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
+        TestBlockBuilder::new(&prev_block, signer).height(height).build()
+    } else {
+        let prev_hash = prev_block.hash();
+        let epoch_id = prev_block.header().next_epoch_id().clone();
+        let next_bp_hash = Chain::compute_bp_hash(
+            epoch_manager,
+            next_epoch_id.clone(),
+            epoch_id.clone(),
+            &prev_hash,
+        )
+        .unwrap();
+        TestBlockBuilder::new(&prev_block, signer)
+            .height(height)
+            .epoch_id(epoch_id)
+            .next_epoch_id(next_epoch_id)
+            .next_bp_hash(next_bp_hash)
+            .build()
+    };
+    blocks.push(block.clone());
+    store_update.save_block(block.clone());
+    store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+    store_update.save_block_header(block.header().clone()).unwrap();
+    store_update.save_head(&Tip::from_header(block.header())).unwrap();
+    store_update
+        .chain_store_cache_update
+        .height_to_hashes
+        .insert(height, Some(*block.header().hash()));
+    store_update.save_next_block_hash(prev_block.hash(), *block.hash());
+    store_update.commit().unwrap();
+    *prev_block = block.clone();
+}
+
+#[test]
+fn test_clear_old_data_fixed_height() {
+    let mut chain = get_chain();
+    let epoch_manager = chain.epoch_manager.clone();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = genesis;
+    let mut blocks = vec![prev_block.clone()];
+    for i in 1..10 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            i,
+        );
+    }
+
+    assert!(chain.get_block(blocks[4].hash()).is_ok());
+    assert!(chain.get_block(blocks[5].hash()).is_ok());
+    assert!(chain.get_block(blocks[6].hash()).is_ok());
+    assert!(chain.get_block_header(blocks[5].hash()).is_ok());
+    assert_eq!(
+        chain
+            .mut_store()
+            .get_all_block_hashes_by_height(5)
+            .unwrap()
+            .values()
+            .flatten()
+            .collect::<Vec<_>>(),
+        vec![blocks[5].hash()]
+    );
+    assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
+
+    let trie = chain.runtime_adapter.get_tries();
+    let mut store_update = chain.mut_store().store_update();
+    assert!(store_update
+        .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
+        .is_ok());
+    store_update.commit().unwrap();
+
+    assert!(chain.get_block(blocks[4].hash()).is_err());
+    assert!(chain.get_block(blocks[5].hash()).is_ok());
+    assert!(chain.get_block(blocks[6].hash()).is_ok());
+    // block header should be available
+    assert!(chain.get_block_header(blocks[4].hash()).is_ok());
+    assert!(chain.get_block_header(blocks[5].hash()).is_ok());
+    assert!(chain.get_block_header(blocks[6].hash()).is_ok());
+    assert!(chain.mut_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
+    assert!(!chain.mut_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
+    assert!(!chain.mut_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
+    assert!(chain.mut_store().get_next_block_hash(blocks[4].hash()).is_err());
+    assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
+    assert!(chain.mut_store().get_next_block_hash(blocks[6].hash()).is_ok());
+}
+
+/// Test that `gc_blocks_limit` works properly
+#[test]
+#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+fn test_clear_old_data_too_many_heights() {
+    for i in 1..5 {
+        println!("gc_blocks_limit == {:?}", i);
+        test_clear_old_data_too_many_heights_common(i);
+    }
+    test_clear_old_data_too_many_heights_common(25);
+    test_clear_old_data_too_many_heights_common(50);
+    test_clear_old_data_too_many_heights_common(87);
+}
+
+fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
+    let mut chain = get_chain_with_epoch_length(1);
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = genesis;
+    let mut blocks = vec![prev_block.clone()];
+    {
+        let mut store_update = chain.store().store().store_update();
+        let block_info = BlockInfo::default();
+        store_update.insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info).unwrap();
+        store_update.commit().unwrap();
+    }
+    for i in 1..1000 {
+        let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+        blocks.push(block.clone());
+
+        let mut store_update = chain.mut_store().store_update();
+        store_update.save_block(block.clone());
+        store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
+        store_update.save_block_header(block.header().clone()).unwrap();
+        store_update.save_head(&Tip::from_header(&block.header())).unwrap();
+        {
+            let mut store_update = store_update.store().store_update();
+            let block_info = BlockInfo::default();
+            store_update.insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info).unwrap();
+            store_update.commit().unwrap();
+        }
+        store_update
+            .chain_store_cache_update
+            .height_to_hashes
+            .insert(i, Some(*block.header().hash()));
+        store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
+        store_update.commit().unwrap();
+
+        prev_block = block.clone();
+    }
+
+    let trie = chain.runtime_adapter.get_tries();
+
+    for iter in 0..10 {
+        println!("ITERATION #{:?}", iter);
+        assert!(chain
+            .clear_data(trie.clone(), &GCConfig { gc_blocks_limit, ..GCConfig::default() })
+            .is_ok());
+
+        // epoch didn't change so no data is garbage collected.
+        for i in 0..1000 {
+            if i < (iter + 1) * gc_blocks_limit as usize {
+                assert!(chain.get_block(&blocks[i].hash()).is_err());
+                assert!(chain
+                    .mut_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty());
+            } else {
+                assert!(chain.get_block(&blocks[i].hash()).is_ok());
+                assert!(!chain
+                    .mut_store()
+                    .get_all_block_hashes_by_height(i as BlockHeight)
+                    .unwrap()
+                    .is_empty());
+            }
+        }
+        let mut genesis = GenesisConfig::default();
+        genesis.genesis_height = 0;
+        let mut store_validator = StoreValidator::new(
+            None,
+            genesis.clone(),
+            chain.epoch_manager.clone(),
+            chain.shard_tracker.clone(),
+            chain.runtime_adapter.clone(),
+            chain.store().store().clone(),
+            false,
+        );
+        store_validator.validate();
+        println!("errors = {:?}", store_validator.errors);
+        assert!(!store_validator.is_failed());
+    }
+}
+
+#[test]
+fn test_fork_chunk_tail_updates() {
+    let mut chain = get_chain();
+    let epoch_manager = chain.epoch_manager.clone();
+    let genesis = chain.get_block_by_height(0).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    let mut prev_block = genesis;
+    let mut blocks = vec![prev_block.clone()];
+    for i in 1..10 {
+        add_block(
+            &mut chain,
+            epoch_manager.as_ref(),
+            &mut prev_block,
+            &mut blocks,
+            signer.clone(),
+            i,
+        );
+    }
+    assert_eq!(chain.tail().unwrap(), 0);
+
+    {
+        let mut store_update = chain.mut_store().store_update();
+        assert_eq!(store_update.tail().unwrap(), 0);
+        store_update.update_tail(1).unwrap();
+        store_update.commit().unwrap();
+    }
+    // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
+    {
+        let store_update = chain.mut_store().store_update();
+        assert_eq!(store_update.tail().unwrap(), 1);
+        assert_eq!(store_update.fork_tail().unwrap(), 1);
+        assert_eq!(store_update.chunk_tail().unwrap(), 0);
+    }
+    {
+        let mut store_update = chain.mut_store().store_update();
+        store_update.update_fork_tail(3);
+        store_update.commit().unwrap();
+    }
+    {
+        let mut store_update = chain.mut_store().store_update();
+        store_update.update_tail(2).unwrap();
+        store_update.commit().unwrap();
+    }
+    {
+        let store_update = chain.mut_store().store_update();
+        assert_eq!(store_update.tail().unwrap(), 2);
+        assert_eq!(store_update.fork_tail().unwrap(), 3);
+        assert_eq!(store_update.chunk_tail().unwrap(), 0);
     }
 }
