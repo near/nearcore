@@ -97,6 +97,7 @@ impl HeaderSync {
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
+        let head = chain.head()?;
         let header_head = chain.header_head()?;
 
         // Check if we need to start a new request for a batch of header.
@@ -132,11 +133,7 @@ impl HeaderSync {
 
         // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
         // This number has no other functional value.
-        let start_height = match &sync_status {
-            SyncStatus::HeaderSync { start_height, .. } => *start_height,
-            SyncStatus::BlockSync { start_height, .. } => *start_height,
-            _ => chain.head()?.height,
-        };
+        let start_height = sync_status.start_height().unwrap_or(head.height);
 
         sync_status.update(SyncStatus::HeaderSync {
             start_height,

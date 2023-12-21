@@ -524,3 +524,21 @@ pub(crate) static STATE_SYNC_DUMP_LIST_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy
     )
     .unwrap()
 });
+
+pub(crate) static SYNC_REQUIREMENT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_requirements_total",
+        "Number of sync was required",
+        &["state"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_sync_requirements_current",
+        "The latest SyncRequirement",
+        &["state"],
+    )
+    .unwrap()
+});
