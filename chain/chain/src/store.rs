@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::{fmt, io};
+use std::io;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::Utc;
@@ -23,8 +23,7 @@ use near_primitives::sharding::{
     StateSyncInfo,
 };
 use near_primitives::state_sync::{
-    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey,
-    StateSyncDumpProgress,
+    ReceiptProofResponse, ShardStateSyncResponseHeader, StateHeaderKey, StateSyncDumpProgress,
 };
 use near_primitives::transaction::{
     ExecutionOutcomeWithId, ExecutionOutcomeWithIdAndProof, ExecutionOutcomeWithProof,
@@ -33,9 +32,8 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    BlockExtra, BlockHeight, BlockHeightDelta, EpochId, NumBlocks, ShardId, StateChanges,
-    StateChangesExt, StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt,
-    StateChangesRequest,
+    BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
+    StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -44,16 +42,15 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
+    DBCol, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
     FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
-use crate::types::{Block, BlockHeader, LatestKnown, RuntimeAdapter};
+use crate::types::{Block, BlockHeader, LatestKnown};
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
-use near_store::flat::store_helper;
 use std::sync::Arc;
 
 /// lru cache size
@@ -67,25 +64,10 @@ const CACHE_SIZE: usize = 1;
 #[cfg(feature = "no_cache")]
 const CHUNK_CACHE_SIZE: usize = 1;
 
-#[derive(Clone)]
-pub enum GCMode {
-    Fork(ShardTries),
-    Canonical(ShardTries),
-    StateSync { clear_block_info: bool },
-}
-
-impl fmt::Debug for GCMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            GCMode::Fork(_) => write!(f, "GCMode::Fork"),
-            GCMode::Canonical(_) => write!(f, "GCMode::Canonical"),
-            GCMode::StateSync { .. } => write!(f, "GCMode::StateSync"),
-        }
-    }
-}
-
 /// Accesses the chain store. Used to create atomic editable views that can be reverted.
 pub trait ChainStoreAccess {
+    /// Returns underlying chain store
+    fn chain_store(&self) -> &ChainStore;
     /// Returns underlaying store.
     fn store(&self) -> &Store;
     /// The chain head.
@@ -422,45 +404,46 @@ pub struct ChainStore {
     /// Tail height of the chain,
     tail: Option<BlockHeight>,
     /// Cache with headers.
-    headers: CellLruCache<Vec<u8>, BlockHeader>,
+    pub(crate) headers: CellLruCache<Vec<u8>, BlockHeader>,
     /// Cache with blocks.
-    blocks: CellLruCache<Vec<u8>, Block>,
+    pub(crate) blocks: CellLruCache<Vec<u8>, Block>,
     /// Cache with chunks
-    chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,
+    pub(crate) chunks: CellLruCache<Vec<u8>, Arc<ShardChunk>>,
     /// Cache with partial chunks
-    partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
+    pub(crate) partial_chunks: CellLruCache<Vec<u8>, Arc<PartialEncodedChunk>>,
     /// Cache with block extra.
-    block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
+    pub(crate) block_extras: CellLruCache<Vec<u8>, Arc<BlockExtra>>,
     /// Cache with chunk extra.
-    chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
+    pub(crate) chunk_extras: CellLruCache<Vec<u8>, Arc<ChunkExtra>>,
     /// Cache with height to hash on the main chain.
     height: CellLruCache<Vec<u8>, CryptoHash>,
     /// Cache with height to block hash on any chain.
-    block_hash_per_height: CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
+    pub(crate) block_hash_per_height:
+        CellLruCache<Vec<u8>, Arc<HashMap<EpochId, HashSet<CryptoHash>>>>,
     /// Next block hashes for each block on the canonical chain
-    next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
+    pub(crate) next_block_hashes: CellLruCache<Vec<u8>, CryptoHash>,
     /// Light client blocks corresponding to the last finalized block of each epoch
     epoch_light_client_blocks: CellLruCache<Vec<u8>, Arc<LightClientBlockView>>,
     /// Cache with outgoing receipts.
-    outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
+    pub(crate) outgoing_receipts: CellLruCache<Vec<u8>, Arc<Vec<Receipt>>>,
     /// Cache with incoming receipts.
-    incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
+    pub(crate) incoming_receipts: CellLruCache<Vec<u8>, Arc<Vec<ReceiptProof>>>,
     /// Invalid chunks.
-    invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
+    pub(crate) invalid_chunks: CellLruCache<Vec<u8>, Arc<EncodedShardChunk>>,
     /// Mapping from receipt id to destination shard id
-    receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
+    pub(crate) receipt_id_to_shard_id: CellLruCache<Vec<u8>, ShardId>,
     /// Transactions
-    transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
+    pub(crate) transactions: CellLruCache<Vec<u8>, Arc<SignedTransaction>>,
     /// Receipts
-    receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
+    pub(crate) receipts: CellLruCache<Vec<u8>, Arc<Receipt>>,
     /// Cache with Block Refcounts
-    block_refcounts: CellLruCache<Vec<u8>, u64>,
+    pub(crate) block_refcounts: CellLruCache<Vec<u8>, u64>,
     /// Cache of block hash -> block merkle tree at the current block
     block_merkle_tree: CellLruCache<Vec<u8>, Arc<PartialMerkleTree>>,
     /// Cache of block ordinal to block hash.
     block_ordinal_to_hash: CellLruCache<Vec<u8>, CryptoHash>,
     /// Processed block heights.
-    processed_block_heights: CellLruCache<Vec<u8>, ()>,
+    pub(crate) processed_block_heights: CellLruCache<Vec<u8>, ()>,
     /// save_trie_changes should be set to true iff
     /// - archive if false - non-archival nodes need trie changes to perform garbage collection
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
@@ -1114,6 +1097,10 @@ impl ChainStore {
 }
 
 impl ChainStoreAccess for ChainStore {
+    fn chain_store(&self) -> &ChainStore {
+        &self
+    }
+
     fn store(&self) -> &Store {
         &self.store
     }
@@ -1411,7 +1398,7 @@ impl ChainStoreAccess for ChainStore {
 
 /// Cache update for ChainStore
 #[derive(Default)]
-struct ChainStoreCacheUpdate {
+pub(crate) struct ChainStoreCacheUpdate {
     blocks: HashMap<CryptoHash, Block>,
     headers: HashMap<CryptoHash, BlockHeader>,
     block_extras: HashMap<CryptoHash, Arc<BlockExtra>>,
@@ -1419,7 +1406,7 @@ struct ChainStoreCacheUpdate {
     chunks: HashMap<ChunkHash, Arc<ShardChunk>>,
     partial_chunks: HashMap<ChunkHash, Arc<PartialEncodedChunk>>,
     block_hash_per_height: HashMap<BlockHeight, HashMap<EpochId, HashSet<CryptoHash>>>,
-    height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
+    pub(crate) height_to_hashes: HashMap<BlockHeight, Option<CryptoHash>>,
     next_block_hashes: HashMap<CryptoHash, CryptoHash>,
     epoch_light_client_blocks: HashMap<CryptoHash, Arc<LightClientBlockView>>,
     outgoing_receipts: HashMap<(CryptoHash, ShardId), Arc<Vec<Receipt>>>,
@@ -1442,7 +1429,7 @@ pub struct ChainStoreUpdate<'a> {
     chain_store: &'a mut ChainStore,
     store_updates: Vec<StoreUpdate>,
     /// Blocks added during this update. Takes ownership (unclear how to not do it because of failure exists).
-    chain_store_cache_update: ChainStoreCacheUpdate,
+    pub(crate) chain_store_cache_update: ChainStoreCacheUpdate,
     head: Option<Tip>,
     tail: Option<BlockHeight>,
     chunk_tail: Option<BlockHeight>,
@@ -1491,6 +1478,10 @@ impl<'a> ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
+    fn chain_store(&self) -> &ChainStore {
+        &self.chain_store
+    }
+
     fn store(&self) -> &Store {
         &self.chain_store.store
     }
@@ -1807,14 +1798,6 @@ impl<'a> ChainStoreAccess for ChainStoreUpdate<'a> {
 }
 
 impl<'a> ChainStoreUpdate<'a> {
-    pub fn get_state_changes_for_split_states(
-        &self,
-        block_hash: &CryptoHash,
-        shard_id: ShardId,
-    ) -> Result<StateChangesForSplitStates, Error> {
-        self.chain_store.get_state_changes_for_split_states(block_hash, shard_id)
-    }
-
     /// Update both header and block body head.
     pub fn save_head(&mut self, t: &Tip) -> Result<(), Error> {
         self.save_body_head(t)?;
@@ -2198,679 +2181,6 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn update_chunk_tail(&mut self, height: BlockHeight) {
         self.chunk_tail = Some(height);
-    }
-
-    fn clear_header_data_for_heights(
-        &mut self,
-        start: BlockHeight,
-        end: BlockHeight,
-    ) -> Result<(), Error> {
-        for height in start..=end {
-            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-            for header_hash in header_hashes {
-                // Delete header_hash-indexed data: block header
-                let mut store_update = self.store().store_update();
-                let key: &[u8] = header_hash.as_bytes();
-                store_update.delete(DBCol::BlockHeader, key);
-                self.chain_store.headers.pop(key);
-                self.merge(store_update);
-            }
-            let key = index_to_bytes(height);
-            self.gc_col(DBCol::HeaderHashesByHeight, &key);
-        }
-        Ok(())
-    }
-
-    pub fn clear_chunk_data_and_headers(
-        &mut self,
-        min_chunk_height: BlockHeight,
-    ) -> Result<(), Error> {
-        let chunk_tail = self.chunk_tail()?;
-        for height in chunk_tail..min_chunk_height {
-            let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
-            for chunk_hash in chunk_hashes {
-                // 1. Delete chunk-related data
-                let chunk = self.get_chunk(&chunk_hash)?.clone();
-                debug_assert_eq!(chunk.cloned_header().height_created(), height);
-                for transaction in chunk.transactions() {
-                    self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
-                }
-                for receipt in chunk.prev_outgoing_receipts() {
-                    self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
-                }
-
-                // 2. Delete chunk_hash-indexed data
-                let chunk_hash = chunk_hash.as_bytes();
-                self.gc_col(DBCol::Chunks, chunk_hash);
-                self.gc_col(DBCol::PartialChunks, chunk_hash);
-                self.gc_col(DBCol::InvalidChunks, chunk_hash);
-            }
-
-            let header_hashes = self.chain_store.get_all_header_hashes_by_height(height)?;
-            for _header_hash in header_hashes {
-                // 3. Delete header_hash-indexed data
-                // TODO #3488: enable
-                //self.gc_col(DBCol::BlockHeader, header_hash.as_bytes());
-            }
-
-            // 4. Delete chunks_tail-related data
-            let key = index_to_bytes(height);
-            self.gc_col(DBCol::ChunkHashesByHeight, &key);
-            self.gc_col(DBCol::HeaderHashesByHeight, &key);
-        }
-        self.update_chunk_tail(min_chunk_height);
-        Ok(())
-    }
-
-    /// Clears chunk data which can be computed from other data in the storage.
-    ///
-    /// We are storing PartialEncodedChunk objects in the DBCol::PartialChunks in
-    /// the storage.  However, those objects can be computed from data in
-    /// DBCol::Chunks and as such are redundant.  For performance reasons we want to
-    /// keep that data when operating at head of the chain but the data can be
-    /// safely removed from archival storage.
-    ///
-    /// `gc_stop_height` indicates height starting from which no data should be
-    /// garbage collected.  Roughly speaking this represents start of the ‘hot’
-    /// data that we want to keep.
-    ///
-    /// `gt_height_limit` indicates limit of how many non-empty heights to
-    /// process.  This limit means that the method may stop garbage collection
-    /// before reaching `gc_stop_height`.
-    pub fn clear_redundant_chunk_data(
-        &mut self,
-        gc_stop_height: BlockHeight,
-        gc_height_limit: BlockHeightDelta,
-    ) -> Result<(), Error> {
-        let mut height = self.chunk_tail()?;
-        let mut remaining = gc_height_limit;
-        while height < gc_stop_height && remaining > 0 {
-            let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
-            height += 1;
-            if !chunk_hashes.is_empty() {
-                remaining -= 1;
-                for chunk_hash in chunk_hashes {
-                    let chunk_hash = chunk_hash.as_bytes();
-                    self.gc_col(DBCol::PartialChunks, chunk_hash);
-                    // Data in DBCol::InvalidChunks isn’t technically redundant (it
-                    // cannot be calculated from other data) but it is data we
-                    // don’t need for anything so it can be deleted as well.
-                    self.gc_col(DBCol::InvalidChunks, chunk_hash);
-                }
-            }
-        }
-        self.update_chunk_tail(height);
-        Ok(())
-    }
-
-    fn get_shard_uids_to_gc(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        block_hash: &CryptoHash,
-    ) -> Vec<ShardUId> {
-        let block_header = self.get_block_header(block_hash).expect("block header must exist");
-        let shard_layout =
-            epoch_manager.get_shard_layout(block_header.epoch_id()).expect("epoch info must exist");
-        // gc shards in this epoch
-        let mut shard_uids_to_gc: Vec<_> = shard_layout.shard_uids().collect();
-        // gc shards in the shard layout in the next epoch if shards will change in the next epoch
-        // Suppose shard changes at epoch T, we need to garbage collect the new shard layout
-        // from the last block in epoch T-2 to the last block in epoch T-1
-        // Because we need to gc the last block in epoch T-2, we can't simply use
-        // block_header.epoch_id() as next_epoch_id
-        let next_epoch_id = block_header.next_epoch_id();
-        let next_shard_layout =
-            epoch_manager.get_shard_layout(next_epoch_id).expect("epoch info must exist");
-        if shard_layout != next_shard_layout {
-            shard_uids_to_gc.extend(next_shard_layout.shard_uids());
-        }
-        shard_uids_to_gc
-    }
-
-    /// GC trie state and flat state data after a resharding event
-    /// Most of the work happens on the last block of the epoch when resharding is COMPLETED
-    /// During GC, when we detect a change in shard layout, we can clear off all entries from
-    /// the parent shards
-    /// TODO(resharding): Need to clean remaining columns after resharding
-    pub fn clear_resharding_data(
-        &mut self,
-        runtime: &dyn RuntimeAdapter,
-        epoch_manager: &dyn EpochManagerAdapter,
-        block_hash: CryptoHash,
-    ) -> Result<(), Error> {
-        // Need to check if this is the last block of the epoch where resharding is completed
-        // which means shard layout changed in the previous epoch
-        if !epoch_manager.is_last_block_in_finished_epoch(&block_hash)? {
-            return Ok(());
-        }
-
-        // Since this code is related to GC, we need to be careful about accessing block_infos. Note
-        // that the BlockInfo exists for the current block_hash as it's not been GC'd yet.
-        // However, we need to use the block header to get the epoch_id and shard_layout for
-        // first_block_epoch_header and last_block_prev_epoch_hash as BlockInfo for these blocks is
-        // already GC'd while BlockHeader isn't GC'd.
-        let block_info = epoch_manager.get_block_info(&block_hash)?;
-        let first_block_epoch_hash = block_info.epoch_first_block();
-        if first_block_epoch_hash == &CryptoHash::default() {
-            return Ok(());
-        }
-        let first_block_epoch_header = self.get_block_header(first_block_epoch_hash)?;
-        let last_block_prev_epoch_header =
-            self.get_block_header(first_block_epoch_header.prev_hash())?;
-
-        let epoch_id = first_block_epoch_header.epoch_id();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        let prev_epoch_id = last_block_prev_epoch_header.epoch_id();
-        let prev_shard_layout = epoch_manager.get_shard_layout(prev_epoch_id)?;
-        if shard_layout == prev_shard_layout {
-            return Ok(());
-        }
-
-        // Now we can proceed to removing the trie state and flat state
-        let mut store_update = self.store().store_update();
-        for shard_uid in prev_shard_layout.shard_uids() {
-            tracing::info!(target: "garbage_collection", ?block_hash, ?shard_uid, "GC resharding");
-            runtime.get_tries().delete_trie_for_shard(shard_uid, &mut store_update);
-            runtime
-                .get_flat_storage_manager()
-                .remove_flat_storage_for_shard(shard_uid, &mut store_update)?;
-        }
-
-        self.merge(store_update);
-        Ok(())
-    }
-
-    // Clearing block data of `block_hash`, if on a fork.
-    // Clearing block data of `block_hash.prev`, if on the Canonical Chain.
-    pub fn clear_block_data(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-        mut block_hash: CryptoHash,
-        gc_mode: GCMode,
-    ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
-
-        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
-
-        // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
-        {
-            let shard_uids_to_gc: Vec<_> = self.get_shard_uids_to_gc(epoch_manager, &block_hash);
-            match gc_mode.clone() {
-                GCMode::Fork(tries) => {
-                    // If the block is on a fork, we delete the state that's the result of applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.revert_insertions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
-                    }
-                }
-                GCMode::Canonical(tries) => {
-                    // If the block is on canonical chain, we delete the state that's before applying this block
-                    for shard_uid in shard_uids_to_gc {
-                        let trie_changes = self.store().get_ser(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        )?;
-                        if let Some(trie_changes) = trie_changes {
-                            tries.apply_deletions(&trie_changes, shard_uid, &mut store_update);
-                            self.gc_col(
-                                DBCol::TrieChanges,
-                                &get_block_shard_uid(&block_hash, &shard_uid),
-                            );
-                        }
-                    }
-                    // Set `block_hash` on previous one
-                    block_hash = *self.get_block_header(&block_hash)?.prev_hash();
-                }
-                GCMode::StateSync { .. } => {
-                    // Not apply the data from DBCol::TrieChanges
-                    for shard_uid in shard_uids_to_gc {
-                        self.gc_col(
-                            DBCol::TrieChanges,
-                            &get_block_shard_uid(&block_hash, &shard_uid),
-                        );
-                    }
-                }
-            }
-        }
-
-        let block =
-            self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
-        let height = block.header().height();
-
-        // 2. Delete shard_id-indexed data (Receipts, State Headers and Parts, etc.)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let block_shard_id = get_block_shard_id(&block_hash, shard_id);
-            self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
-
-            // For incoming State Parts it's done in chain.clear_downloaded_parts()
-            // The following code is mostly for outgoing State Parts.
-            // However, if node crashes while State Syncing, it may never clear
-            // downloaded State parts in `clear_downloaded_parts`.
-            // We need to make sure all State Parts are removed.
-            if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
-            {
-                let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
-                self.gc_col(DBCol::StateHeaders, &key);
-            }
-        }
-        // gc DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
-        for shard_uid in self.get_shard_uids_to_gc(epoch_manager, &block_hash) {
-            let block_shard_uid = get_block_shard_uid(&block_hash, &shard_uid);
-            self.gc_col(DBCol::ChunkExtra, &block_shard_uid);
-        }
-
-        // 3. Delete block_hash-indexed data
-        self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
-        self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
-        self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
-        self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
-        let storage_key = KeyForStateChanges::for_block(&block_hash);
-        let stored_state_changes: Vec<Box<[u8]>> = self
-            .chain_store
-            .store()
-            .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|item| item.map(|(key, _)| key))
-            .collect::<io::Result<Vec<_>>>()?;
-        for key in stored_state_changes {
-            self.gc_col(DBCol::StateChanges, &key);
-        }
-        self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
-        self.gc_outcomes(&block)?;
-        match gc_mode {
-            GCMode::StateSync { clear_block_info: false } => {}
-            _ => self.gc_col(DBCol::BlockInfo, block_hash.as_bytes()),
-        }
-        self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
-
-        // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, height, block.header().epoch_id())?;
-
-        match gc_mode {
-            GCMode::Fork(_) => {
-                // 5. Forks only clearing
-                self.dec_block_refcount(block.header().prev_hash())?;
-            }
-            GCMode::Canonical(_) => {
-                // 6. Canonical Chain only clearing
-                // Delete chunks, chunk-indexed data and block headers
-                let mut min_chunk_height = self.tail()?;
-                for chunk_header in block.chunks().iter() {
-                    if min_chunk_height > chunk_header.height_created() {
-                        min_chunk_height = chunk_header.height_created();
-                    }
-                }
-                self.clear_chunk_data_and_headers(min_chunk_height)?;
-            }
-            GCMode::StateSync { .. } => {
-                // 7. State Sync clearing
-                // Chunks deleted separately
-            }
-        };
-        self.merge(store_update);
-        Ok(())
-    }
-
-    // Delete all data in rocksdb that are partially or wholly indexed and can be looked up by hash of the current head of the chain
-    // and that indicates a link between current head and its prev block
-    pub fn clear_head_block_data(
-        &mut self,
-        epoch_manager: &dyn EpochManagerAdapter,
-    ) -> Result<(), Error> {
-        let header_head = self.header_head().unwrap();
-        let header_head_height = header_head.height;
-        let block_hash = self.head().unwrap().last_block_hash;
-
-        let block =
-            self.get_block(&block_hash).expect("block data is not expected to be already cleaned");
-
-        let epoch_id = block.header().epoch_id();
-
-        let head_height = block.header().height();
-
-        // 1. Delete shard_id-indexed data (TrieChanges, Receipts, ChunkExtra, State Headers and Parts, FlatStorage data)
-        for shard_id in 0..block.header().chunk_mask().len() as ShardId {
-            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, epoch_id).unwrap();
-            let block_shard_id = get_block_shard_uid(&block_hash, &shard_uid);
-
-            // delete TrieChanges
-            self.gc_col(DBCol::TrieChanges, &block_shard_id);
-
-            // delete Receipts
-            self.gc_outgoing_receipts(&block_hash, shard_id);
-            self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
-
-            // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
-            self.gc_col(DBCol::ChunkExtra, &block_shard_id);
-
-            // delete state parts and state headers
-            if let Ok(shard_state_header) = self.chain_store.get_state_header(shard_id, block_hash)
-            {
-                let state_num_parts = shard_state_header.num_state_parts();
-                self.gc_col_state_parts(block_hash, shard_id, state_num_parts)?;
-                let state_header_key = borsh::to_vec(&StateHeaderKey(shard_id, block_hash))?;
-                self.gc_col(DBCol::StateHeaders, &state_header_key);
-            }
-
-            // delete flat storage columns: FlatStateChanges and FlatStateDeltaMetadata
-            let mut store_update = self.store().store_update();
-            store_helper::remove_delta(&mut store_update, shard_uid, block_hash);
-            self.merge(store_update);
-        }
-
-        // 2. Delete block_hash-indexed data
-        self.gc_col(DBCol::Block, block_hash.as_bytes());
-        self.gc_col(DBCol::BlockExtra, block_hash.as_bytes());
-        self.gc_col(DBCol::NextBlockHashes, block_hash.as_bytes());
-        self.gc_col(DBCol::ChallengedBlocks, block_hash.as_bytes());
-        self.gc_col(DBCol::BlocksToCatchup, block_hash.as_bytes());
-        let storage_key = KeyForStateChanges::for_block(&block_hash);
-        let stored_state_changes: Vec<Box<[u8]>> = self
-            .chain_store
-            .store()
-            .iter_prefix(DBCol::StateChanges, storage_key.as_ref())
-            .map(|item| item.map(|(key, _)| key))
-            .collect::<io::Result<Vec<_>>>()?;
-        for key in stored_state_changes {
-            self.gc_col(DBCol::StateChanges, &key);
-        }
-        self.gc_col(DBCol::BlockRefCount, block_hash.as_bytes());
-        self.gc_outcomes(&block)?;
-        self.gc_col(DBCol::BlockInfo, block_hash.as_bytes());
-        self.gc_col(DBCol::StateDlInfos, block_hash.as_bytes());
-
-        // 3. update columns related to prev block (block refcount and NextBlockHashes)
-        self.dec_block_refcount(block.header().prev_hash())?;
-        self.gc_col(DBCol::NextBlockHashes, block.header().prev_hash().as_bytes());
-
-        // 4. Update or delete block_hash_per_height
-        self.gc_col_block_per_height(&block_hash, head_height, block.header().epoch_id())?;
-
-        self.clear_chunk_data_at_height(head_height)?;
-
-        self.clear_header_data_for_heights(head_height, header_head_height)?;
-
-        Ok(())
-    }
-
-    fn clear_chunk_data_at_height(&mut self, height: BlockHeight) -> Result<(), Error> {
-        let chunk_hashes = self.chain_store.get_all_chunk_hashes_by_height(height)?;
-        for chunk_hash in chunk_hashes {
-            // 1. Delete chunk-related data
-            let chunk = self.get_chunk(&chunk_hash)?.clone();
-            debug_assert_eq!(chunk.cloned_header().height_created(), height);
-            for transaction in chunk.transactions() {
-                self.gc_col(DBCol::Transactions, transaction.get_hash().as_bytes());
-            }
-            for receipt in chunk.prev_outgoing_receipts() {
-                self.gc_col(DBCol::Receipts, receipt.get_hash().as_bytes());
-            }
-
-            // 2. Delete chunk_hash-indexed data
-            let chunk_hash = chunk_hash.as_bytes();
-            self.gc_col(DBCol::Chunks, chunk_hash);
-            self.gc_col(DBCol::PartialChunks, chunk_hash);
-            self.gc_col(DBCol::InvalidChunks, chunk_hash);
-        }
-
-        // 4. Delete chunk hashes per height
-        let key = index_to_bytes(height);
-        self.gc_col(DBCol::ChunkHashesByHeight, &key);
-
-        Ok(())
-    }
-
-    pub fn gc_col_block_per_height(
-        &mut self,
-        block_hash: &CryptoHash,
-        height: BlockHeight,
-        epoch_id: &EpochId,
-    ) -> Result<(), Error> {
-        let mut store_update = self.store().store_update();
-        let mut epoch_to_hashes =
-            HashMap::clone(self.chain_store.get_all_block_hashes_by_height(height)?.as_ref());
-        let hashes = epoch_to_hashes.get_mut(epoch_id).ok_or_else(|| {
-            near_chain_primitives::Error::Other("current epoch id should exist".into())
-        })?;
-        hashes.remove(block_hash);
-        if hashes.is_empty() {
-            epoch_to_hashes.remove(epoch_id);
-        }
-        let key = &index_to_bytes(height)[..];
-        if epoch_to_hashes.is_empty() {
-            store_update.delete(DBCol::BlockPerHeight, key);
-            self.chain_store.block_hash_per_height.pop(key);
-        } else {
-            store_update.set_ser(DBCol::BlockPerHeight, key, &epoch_to_hashes)?;
-            self.chain_store.block_hash_per_height.put(key.to_vec(), Arc::new(epoch_to_hashes));
-        }
-        if self.is_height_processed(height)? {
-            self.gc_col(DBCol::ProcessedBlockHeights, key);
-        }
-        self.merge(store_update);
-        Ok(())
-    }
-
-    pub fn gc_col_state_parts(
-        &mut self,
-        sync_hash: CryptoHash,
-        shard_id: ShardId,
-        num_parts: u64,
-    ) -> Result<(), Error> {
-        for part_id in 0..num_parts {
-            let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-            self.gc_col(DBCol::StateParts, &key);
-        }
-        Ok(())
-    }
-
-    pub fn gc_outgoing_receipts(&mut self, block_hash: &CryptoHash, shard_id: ShardId) {
-        let mut store_update = self.store().store_update();
-        match self
-            .get_outgoing_receipts(block_hash, shard_id)
-            .map(|receipts| receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>())
-        {
-            Ok(receipt_ids) => {
-                for receipt_id in receipt_ids {
-                    let key: Vec<u8> = receipt_id.into();
-                    store_update.decrement_refcount(DBCol::ReceiptIdToShardId, &key);
-                    self.chain_store.receipt_id_to_shard_id.pop(&key);
-                }
-            }
-            Err(error) => {
-                match error {
-                    Error::DBNotFoundErr(_) => {
-                        // Sometimes we don't save outgoing receipts. See the usages of save_outgoing_receipt.
-                        // The invariant is that DBCol::OutgoingReceipts has same receipts as DBCol::ReceiptIdToShardId.
-                    }
-                    _ => {
-                        tracing::error!(target: "chain", "Error getting outgoing receipts for block {}, shard {}: {:?}", block_hash, shard_id, error);
-                    }
-                }
-            }
-        }
-
-        let key = get_block_shard_id(block_hash, shard_id);
-        store_update.delete(DBCol::OutgoingReceipts, &key);
-        self.chain_store.outgoing_receipts.pop(&key);
-        self.merge(store_update);
-    }
-
-    pub fn gc_outcomes(&mut self, block: &Block) -> Result<(), Error> {
-        let block_hash = block.hash();
-        let store_update = self.store().store_update();
-        for chunk_header in
-            block.chunks().iter().filter(|h| h.height_included() == block.header().height())
-        {
-            let shard_id = chunk_header.shard_id();
-            let outcome_ids =
-                self.chain_store.get_outcomes_by_block_hash_and_shard_id(block_hash, shard_id)?;
-            for outcome_id in outcome_ids {
-                self.gc_col(
-                    DBCol::TransactionResultForBlock,
-                    &get_outcome_id_block_hash(&outcome_id, block_hash),
-                );
-            }
-            self.gc_col(DBCol::OutcomeIds, &get_block_shard_id(block_hash, shard_id));
-        }
-        self.merge(store_update);
-        Ok(())
-    }
-
-    fn gc_col(&mut self, col: DBCol, key: &[u8]) {
-        let mut store_update = self.store().store_update();
-        match col {
-            DBCol::OutgoingReceipts => {
-                panic!("Must use gc_outgoing_receipts");
-            }
-            DBCol::IncomingReceipts => {
-                store_update.delete(col, key);
-                self.chain_store.incoming_receipts.pop(key);
-            }
-            DBCol::StateHeaders => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockHeader => {
-                // TODO(#3488) At the moment header sync needs block headers.
-                // However, we want to eventually garbage collect headers.
-                // When that happens we should make sure that block headers is
-                // copied to the cold storage.
-                store_update.delete(col, key);
-                self.chain_store.headers.pop(key);
-                unreachable!();
-            }
-            DBCol::Block => {
-                store_update.delete(col, key);
-                self.chain_store.blocks.pop(key);
-            }
-            DBCol::BlockExtra => {
-                store_update.delete(col, key);
-                self.chain_store.block_extras.pop(key);
-            }
-            DBCol::NextBlockHashes => {
-                store_update.delete(col, key);
-                self.chain_store.next_block_hashes.pop(key);
-            }
-            DBCol::ChallengedBlocks => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlocksToCatchup => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateChanges => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockRefCount => {
-                store_update.delete(col, key);
-                self.chain_store.block_refcounts.pop(key);
-            }
-            DBCol::ReceiptIdToShardId => {
-                panic!("Must use gc_outgoing_receipts");
-            }
-            DBCol::Transactions => {
-                store_update.decrement_refcount(col, key);
-                self.chain_store.transactions.pop(key);
-            }
-            DBCol::Receipts => {
-                store_update.decrement_refcount(col, key);
-                self.chain_store.receipts.pop(key);
-            }
-            DBCol::Chunks => {
-                store_update.delete(col, key);
-                self.chain_store.chunks.pop(key);
-            }
-            DBCol::ChunkExtra => {
-                store_update.delete(col, key);
-                self.chain_store.chunk_extras.pop(key);
-            }
-            DBCol::PartialChunks => {
-                store_update.delete(col, key);
-                self.chain_store.partial_chunks.pop(key);
-            }
-            DBCol::InvalidChunks => {
-                store_update.delete(col, key);
-                self.chain_store.invalid_chunks.pop(key);
-            }
-            DBCol::ChunkHashesByHeight => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateParts => {
-                store_update.delete(col, key);
-            }
-            DBCol::State => {
-                panic!("Actual gc happens elsewhere, call inc_gc_col_state to increase gc count");
-            }
-            DBCol::TrieChanges => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockPerHeight => {
-                panic!("Must use gc_col_glock_per_height method to gc DBCol::BlockPerHeight");
-            }
-            DBCol::TransactionResultForBlock => {
-                store_update.delete(col, key);
-            }
-            DBCol::OutcomeIds => {
-                store_update.delete(col, key);
-            }
-            DBCol::StateDlInfos => {
-                store_update.delete(col, key);
-            }
-            DBCol::BlockInfo => {
-                store_update.delete(col, key);
-            }
-            DBCol::ProcessedBlockHeights => {
-                store_update.delete(col, key);
-                self.chain_store.processed_block_heights.pop(key);
-            }
-            DBCol::HeaderHashesByHeight => {
-                store_update.delete(col, key);
-            }
-            DBCol::DbVersion
-            | DBCol::BlockMisc
-            | DBCol::_GCCount
-            | DBCol::BlockHeight  // block sync needs it + genesis should be accessible
-            | DBCol::_Peers
-            | DBCol::RecentOutboundConnections
-            | DBCol::BlockMerkleTree
-            | DBCol::AccountAnnouncements
-            | DBCol::EpochLightClientBlocks
-            | DBCol::PeerComponent
-            | DBCol::LastComponentNonce
-            | DBCol::ComponentEdges
-            // https://github.com/nearprotocol/nearcore/pull/2952
-            | DBCol::EpochInfo
-            | DBCol::EpochStart
-            | DBCol::EpochValidatorInfo
-            | DBCol::BlockOrdinal
-            | DBCol::_ChunkPerHeightShard
-            | DBCol::_NextBlockWithNewChunk
-            | DBCol::_LastBlockWithNewChunk
-            | DBCol::_TransactionRefCount
-            | DBCol::_TransactionResult
-            | DBCol::StateChangesForSplitStates
-            | DBCol::CachedContractCode
-            | DBCol::FlatState
-            | DBCol::FlatStateChanges
-            | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus
-            | DBCol::Misc
-            => unreachable!(),
-            #[cfg(feature = "new_epoch_sync")]
-            DBCol::EpochSyncInfo => unreachable!(),
-        }
-        self.merge(store_update);
     }
 
     /// Merge another StoreUpdate into this one
@@ -3424,50 +2734,13 @@ impl<'a> ChainStoreUpdate<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use near_chain_configs::{GCConfig, GenesisConfig};
-    use near_epoch_manager::shard_tracker::ShardTracker;
-    use near_epoch_manager::EpochManagerAdapter;
-    use near_primitives::block::{Block, Tip};
-    use near_primitives::epoch_manager::block_info::BlockInfo;
+    use crate::test_utils::get_chain;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
     use near_primitives::test_utils::create_test_signer;
     use near_primitives::test_utils::TestBlockBuilder;
-    use near_primitives::types::{BlockHeight, EpochId, NumBlocks};
+    use near_primitives::types::EpochId;
     use near_primitives::utils::index_to_bytes;
-    use near_primitives::validator_signer::InMemoryValidatorSigner;
-    use near_store::test_utils::create_test_store;
-    use near_store::DBCol;
-
-    use crate::store::{ChainStoreAccess, GCMode};
-    use crate::store_validator::StoreValidator;
-    use crate::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
-    use crate::types::ChainConfig;
-    use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
-
-    fn get_chain() -> Chain {
-        get_chain_with_epoch_length(10)
-    }
-
-    fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
-        let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
-        let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-        let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-        Chain::new(
-            epoch_manager,
-            shard_tracker,
-            runtime,
-            &chain_genesis,
-            DoomslugThresholdMode::NoApprovals,
-            ChainConfig::test(),
-            None,
-        )
-        .unwrap()
-    }
 
     #[test]
     fn test_tx_validity_long_fork() {
@@ -3656,301 +2929,5 @@ mod tests {
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);
-    }
-
-    /// Test that garbage collection works properly. The blocks behind gc head should be garbage
-    /// collected while the blocks that are ahead of it should not.
-    #[test]
-    fn test_clear_old_data() {
-        let mut chain = get_chain_with_epoch_length(1);
-        let epoch_manager = chain.epoch_manager.clone();
-        let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut prev_block = genesis;
-        let mut blocks = vec![prev_block.clone()];
-        for i in 1..15 {
-            add_block(
-                &mut chain,
-                epoch_manager.as_ref(),
-                &mut prev_block,
-                &mut blocks,
-                signer.clone(),
-                i,
-            );
-        }
-
-        let trie = chain.runtime_adapter.get_tries();
-        chain.clear_data(trie, &GCConfig { gc_blocks_limit: 100, ..GCConfig::default() }).unwrap();
-
-        // epoch didn't change so no data is garbage collected.
-        for i in 0..15 {
-            println!("height = {} hash = {}", i, blocks[i].hash());
-            if i < 8 {
-                assert!(chain.get_block(blocks[i].hash()).is_err());
-                assert!(chain
-                    .mut_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
-            } else {
-                assert!(chain.get_block(blocks[i].hash()).is_ok());
-                assert!(!chain
-                    .mut_store()
-                    .get_all_block_hashes_by_height(i as BlockHeight)
-                    .unwrap()
-                    .is_empty());
-            }
-        }
-    }
-
-    // Adds block to the chain at given height after prev_block.
-    fn add_block(
-        chain: &mut Chain,
-        epoch_manager: &dyn EpochManagerAdapter,
-        prev_block: &mut Block,
-        blocks: &mut Vec<Block>,
-        signer: Arc<InMemoryValidatorSigner>,
-        height: u64,
-    ) {
-        let next_epoch_id = epoch_manager
-            .get_next_epoch_id_from_prev_block(prev_block.hash())
-            .expect("block must exist");
-        let mut store_update = chain.mut_store().store_update();
-
-        let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            TestBlockBuilder::new(&prev_block, signer).height(height).build()
-        } else {
-            let prev_hash = prev_block.hash();
-            let epoch_id = prev_block.header().next_epoch_id().clone();
-            let next_bp_hash = Chain::compute_bp_hash(
-                epoch_manager,
-                next_epoch_id.clone(),
-                epoch_id.clone(),
-                &prev_hash,
-            )
-            .unwrap();
-            TestBlockBuilder::new(&prev_block, signer)
-                .height(height)
-                .epoch_id(epoch_id)
-                .next_epoch_id(next_epoch_id)
-                .next_bp_hash(next_bp_hash)
-                .build()
-        };
-        blocks.push(block.clone());
-        store_update.save_block(block.clone());
-        store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-        store_update.save_block_header(block.header().clone()).unwrap();
-        store_update.save_head(&Tip::from_header(block.header())).unwrap();
-        store_update
-            .chain_store_cache_update
-            .height_to_hashes
-            .insert(height, Some(*block.header().hash()));
-        store_update.save_next_block_hash(prev_block.hash(), *block.hash());
-        store_update.commit().unwrap();
-        *prev_block = block.clone();
-    }
-
-    #[test]
-    fn test_clear_old_data_fixed_height() {
-        let mut chain = get_chain();
-        let epoch_manager = chain.epoch_manager.clone();
-        let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut prev_block = genesis;
-        let mut blocks = vec![prev_block.clone()];
-        for i in 1..10 {
-            add_block(
-                &mut chain,
-                epoch_manager.as_ref(),
-                &mut prev_block,
-                &mut blocks,
-                signer.clone(),
-                i,
-            );
-        }
-
-        assert!(chain.get_block(blocks[4].hash()).is_ok());
-        assert!(chain.get_block(blocks[5].hash()).is_ok());
-        assert!(chain.get_block(blocks[6].hash()).is_ok());
-        assert!(chain.get_block_header(blocks[5].hash()).is_ok());
-        assert_eq!(
-            chain
-                .mut_store()
-                .get_all_block_hashes_by_height(5)
-                .unwrap()
-                .values()
-                .flatten()
-                .collect::<Vec<_>>(),
-            vec![blocks[5].hash()]
-        );
-        assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
-
-        let trie = chain.runtime_adapter.get_tries();
-        let mut store_update = chain.mut_store().store_update();
-        assert!(store_update
-            .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
-            .is_ok());
-        store_update.commit().unwrap();
-
-        assert!(chain.get_block(blocks[4].hash()).is_err());
-        assert!(chain.get_block(blocks[5].hash()).is_ok());
-        assert!(chain.get_block(blocks[6].hash()).is_ok());
-        // block header should be available
-        assert!(chain.get_block_header(blocks[4].hash()).is_ok());
-        assert!(chain.get_block_header(blocks[5].hash()).is_ok());
-        assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-        assert!(chain.mut_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
-        assert!(!chain.mut_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
-        assert!(!chain.mut_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
-        assert!(chain.mut_store().get_next_block_hash(blocks[4].hash()).is_err());
-        assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
-        assert!(chain.mut_store().get_next_block_hash(blocks[6].hash()).is_ok());
-    }
-
-    /// Test that `gc_blocks_limit` works properly
-    #[test]
-    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
-    fn test_clear_old_data_too_many_heights() {
-        for i in 1..5 {
-            println!("gc_blocks_limit == {:?}", i);
-            test_clear_old_data_too_many_heights_common(i);
-        }
-        test_clear_old_data_too_many_heights_common(25);
-        test_clear_old_data_too_many_heights_common(50);
-        test_clear_old_data_too_many_heights_common(87);
-    }
-
-    fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
-        let mut chain = get_chain_with_epoch_length(1);
-        let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut prev_block = genesis;
-        let mut blocks = vec![prev_block.clone()];
-        {
-            let mut store_update = chain.store().store().store_update();
-            let block_info = BlockInfo::default();
-            store_update
-                .insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info)
-                .unwrap();
-            store_update.commit().unwrap();
-        }
-        for i in 1..1000 {
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
-            blocks.push(block.clone());
-
-            let mut store_update = chain.mut_store().store_update();
-            store_update.save_block(block.clone());
-            store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
-            store_update.save_block_header(block.header().clone()).unwrap();
-            store_update.save_head(&Tip::from_header(&block.header())).unwrap();
-            {
-                let mut store_update = store_update.store().store_update();
-                let block_info = BlockInfo::default();
-                store_update
-                    .insert_ser(DBCol::BlockInfo, block.hash().as_ref(), &block_info)
-                    .unwrap();
-                store_update.commit().unwrap();
-            }
-            store_update
-                .chain_store_cache_update
-                .height_to_hashes
-                .insert(i, Some(*block.header().hash()));
-            store_update.save_next_block_hash(&prev_block.hash(), *block.hash());
-            store_update.commit().unwrap();
-
-            prev_block = block.clone();
-        }
-
-        let trie = chain.runtime_adapter.get_tries();
-
-        for iter in 0..10 {
-            println!("ITERATION #{:?}", iter);
-            assert!(chain
-                .clear_data(trie.clone(), &GCConfig { gc_blocks_limit, ..GCConfig::default() })
-                .is_ok());
-
-            // epoch didn't change so no data is garbage collected.
-            for i in 0..1000 {
-                if i < (iter + 1) * gc_blocks_limit as usize {
-                    assert!(chain.get_block(&blocks[i].hash()).is_err());
-                    assert!(chain
-                        .mut_store()
-                        .get_all_block_hashes_by_height(i as BlockHeight)
-                        .unwrap()
-                        .is_empty());
-                } else {
-                    assert!(chain.get_block(&blocks[i].hash()).is_ok());
-                    assert!(!chain
-                        .mut_store()
-                        .get_all_block_hashes_by_height(i as BlockHeight)
-                        .unwrap()
-                        .is_empty());
-                }
-            }
-            let mut genesis = GenesisConfig::default();
-            genesis.genesis_height = 0;
-            let mut store_validator = StoreValidator::new(
-                None,
-                genesis.clone(),
-                chain.epoch_manager.clone(),
-                chain.shard_tracker.clone(),
-                chain.runtime_adapter.clone(),
-                chain.store().store().clone(),
-                false,
-            );
-            store_validator.validate();
-            println!("errors = {:?}", store_validator.errors);
-            assert!(!store_validator.is_failed());
-        }
-    }
-    #[test]
-    fn test_fork_chunk_tail_updates() {
-        let mut chain = get_chain();
-        let epoch_manager = chain.epoch_manager.clone();
-        let genesis = chain.get_block_by_height(0).unwrap();
-        let signer = Arc::new(create_test_signer("test1"));
-        let mut prev_block = genesis;
-        let mut blocks = vec![prev_block.clone()];
-        for i in 1..10 {
-            add_block(
-                &mut chain,
-                epoch_manager.as_ref(),
-                &mut prev_block,
-                &mut blocks,
-                signer.clone(),
-                i,
-            );
-        }
-        assert_eq!(chain.tail().unwrap(), 0);
-
-        {
-            let mut store_update = chain.mut_store().store_update();
-            assert_eq!(store_update.tail().unwrap(), 0);
-            store_update.update_tail(1).unwrap();
-            store_update.commit().unwrap();
-        }
-        // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
-        {
-            let store_update = chain.mut_store().store_update();
-            assert_eq!(store_update.tail().unwrap(), 1);
-            assert_eq!(store_update.fork_tail().unwrap(), 1);
-            assert_eq!(store_update.chunk_tail().unwrap(), 0);
-        }
-        {
-            let mut store_update = chain.mut_store().store_update();
-            store_update.update_fork_tail(3);
-            store_update.commit().unwrap();
-        }
-        {
-            let mut store_update = chain.mut_store().store_update();
-            store_update.update_tail(2).unwrap();
-            store_update.commit().unwrap();
-        }
-        {
-            let store_update = chain.mut_store().store_update();
-            assert_eq!(store_update.tail().unwrap(), 2);
-            assert_eq!(store_update.fork_tail().unwrap(), 3);
-            assert_eq!(store_update.chunk_tail().unwrap(), 0);
-        }
     }
 }

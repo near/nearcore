@@ -38,6 +38,30 @@ pub use self::kv_runtime::MockEpochManager;
 
 pub use self::validator_schedule::ValidatorSchedule;
 
+pub fn get_chain() -> Chain {
+    get_chain_with_epoch_length(10)
+}
+
+pub fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
+    let store = create_test_store();
+    let chain_genesis = ChainGenesis::test();
+    let vs =
+        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
+    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
+    Chain::new(
+        epoch_manager,
+        shard_tracker,
+        runtime,
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+        None,
+    )
+    .unwrap()
+}
+
 /// Wait for all blocks that started processing to be ready for postprocessing
 /// Returns true if there are new blocks that are ready
 pub fn wait_for_all_blocks_in_processing(chain: &Chain) -> bool {
