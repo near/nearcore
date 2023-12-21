@@ -95,6 +95,10 @@ fn exec_transfer_v2(
     let tx = env.tx_from_actions(vec![transfer], &signer, receiver());
 
     let status = env.execute_tx(tx);
+    let height = env.clients[0].chain.head().unwrap().height;
+    for i in 0..2 {
+        env.produce_block(0, height + 1 + i);
+    }
 
     if let Ok(outcome) = &status {
         let gas_cost = outcome.gas_cost();
