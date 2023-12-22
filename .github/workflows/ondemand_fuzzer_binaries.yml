@@ -53,6 +53,8 @@ jobs:
 
       - name: "Set up GCP SDK"
         uses: "google-github-actions/setup-gcloud@v1"
+        with:
+          version: ">= 416.0.0"
 
       - name: Checkout Release/RC branch
         if: contains(fromJSON('["released", "prereleased"]'), github.event.action)
@@ -79,5 +81,5 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          RUSTFLAGS="-A warnings --cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"
