@@ -276,7 +276,7 @@ pub enum SyncStatus {
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync {
-        /// Header head height at the beginning.
+        /// Head height at the beginning. Not the header head height!
         /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
         /// Current header head height.
@@ -290,8 +290,12 @@ pub enum SyncStatus {
     StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
+        /// Header head height at the beginning.
+        /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
+        /// Current head height.
         current_height: BlockHeight,
+        /// Highest height of our peers.
         highest_height: BlockHeight,
     },
 }

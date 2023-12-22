@@ -822,6 +822,16 @@ impl SyncRequirement {
     fn sync_needed(&self) -> bool {
         matches!(self, Self::SyncNeeded { .. })
     }
+
+    fn to_metrics_string(&self) -> String {
+        match self {
+            Self::SyncNeeded { .. } => "SyncNeeded",
+            Self::AlreadyCaughtUp { .. } => "AlreadyCaughtUp",
+            Self::NoPeers => "NoPeers",
+            Self::AdvHeaderSyncDisabled { .. } => "AdvHeaderSyncDisabled",
+        }
+        .to_string()
+    }
 }
 
 impl fmt::Display for SyncRequirement {
@@ -1577,6 +1587,7 @@ impl ClientActor {
 
         let currently_syncing = self.client.sync_status.is_syncing();
         let sync = unwrap_and_report!(self.syncing_info());
+        self.info_helper.update_sync_requirements_metrics(sync.to_metrics_string());
 
         match sync {
             SyncRequirement::AlreadyCaughtUp { .. }
