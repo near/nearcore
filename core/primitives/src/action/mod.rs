@@ -178,9 +178,15 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
 }
+// Note: If this number ever goes down, please adjust the equality accordingly. Otherwise,
+// we would get used to better performance and would be subject to a performance loss should
+// we come back up to 32 bytes later on.
+// If compiling with nightly, this check may fail due to new optimizations introduced by
+// rustc. So, cfg-them out, as our production system only runs with stable.
+#[cfg(not(fuzz))]
 const _: () = assert!(
     cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
-    "Action is less than 32 bytes for performance reasons, see #9451"
+    "Action is 32 bytes for performance reasons, see #9451"
 );
 
 impl Action {
