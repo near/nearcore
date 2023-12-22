@@ -155,18 +155,17 @@ pub fn create_nodes_from_seeds(seeds: Vec<String>) -> Vec<NodeConfig> {
         create_testnet_configs_from_seeds(seeds.clone(), 1, 0, true, false, vec![]);
     genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
     for seed in seeds {
-        let mut is_account_record_found = false;
+        let mut found_account_record = false;
         let records = genesis.force_read_records().as_mut();
         for record in records.iter_mut() {
-            if let StateRecord::Account { account_id: record_account_id, ref mut account } = record
-            {
-                if *record_account_id == seed {
-                    is_account_record_found = true;
+            if let StateRecord::Account { account_id, account } = record {
+                if account_id == &seed {
+                    found_account_record = true;
                     account.set_code_hash(*ContractCode::new(code.to_vec(), None).hash());
                 }
             }
         }
-        assert!(is_account_record_found);
+        assert!(found_account_record);
         records
             .push(StateRecord::Contract { account_id: seed.parse().unwrap(), code: code.to_vec() });
     }
