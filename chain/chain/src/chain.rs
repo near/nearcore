@@ -51,6 +51,7 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::chunk_validation::ChunkStateWitness;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::{block_info::BlockInfo, epoch_sync::EpochSyncInfo};
 #[cfg(feature = "new_epoch_sync")]
@@ -93,7 +94,7 @@ use near_primitives::views::{
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::get_genesis_state_roots;
+use near_store::{get_genesis_state_roots, PartialStorage};
 use near_store::{DBCol, ShardTries};
 use once_cell::sync::OnceCell;
 use rand::seq::SliceRandom;
@@ -3487,7 +3488,7 @@ impl Chain {
     /// parent on chain.
     /// TODO(logunov): consider uniting with `get_incoming_receipts_for_shard` because it
     /// has the same purpose.
-    fn get_blocks_until_height(
+    pub fn get_blocks_until_height(
         &self,
         mut last_block_hash: CryptoHash,
         first_block_height: BlockHeight,
@@ -3511,6 +3512,36 @@ impl Chain {
             blocks.push(last_block_hash);
         }
         Ok(blocks)
+    }
+
+    /// Checks whether `me` is chunk producer for this or next epoch, given
+    /// block header which is not in DB yet. If this is the case, node must
+    /// record state witness.
+    /// TODO(#9292): Check this for specific shard by extending EpochManager
+    /// interface. Consider asserting that node tracks the shard. Consider
+    /// returning true only if node produces state witness only for the next
+    /// chunk. However, node can't determine this if next validators missed
+    /// chunks.
+    fn is_chunk_producer_for_this_or_next_epoch(
+        &self,
+        me: &Option<AccountId>,
+        block_header: &BlockHeader,
+    ) -> Result<bool, Error> {
+        let epoch_id = block_header.epoch_id();
+        // Use epoch manager because block is not in DB yet.
+        let next_epoch_id =
+            self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
+        let next_protocol_version =
+            self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+        if !checked_feature!("stable", ChunkValidation, next_protocol_version) {
+            // Chunk validation not enabled yet.
+            return Ok(false);
+        }
+        let mut all_chunk_producers = self.epoch_manager.get_epoch_chunk_producers(epoch_id)?;
+        all_chunk_producers
+            .extend(self.epoch_manager.get_epoch_chunk_producers(&next_epoch_id)?.into_iter());
+        let mut chunk_producer_accounts = all_chunk_producers.iter().map(|v| v.account_id());
+        Ok(me.as_ref().map_or(false, |a| chunk_producer_accounts.contains(a)))
     }
 
     /// Creates jobs which will update shards for the given block and incoming
@@ -3537,6 +3568,12 @@ impl Chain {
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
 
+            let storage_context = StorageContext {
+                storage_data_source: StorageDataSource::Db,
+                state_patch,
+                record_storage: self
+                    .is_chunk_producer_for_this_or_next_epoch(me, block.header())?,
+            };
             let stateful_job = self.get_update_shard_job(
                 me,
                 block,
@@ -3546,24 +3583,9 @@ impl Chain {
                 shard_id as ShardId,
                 mode,
                 incoming_receipts,
-                state_patch,
+                storage_context,
             );
             maybe_jobs.push((shard_id, stateful_job));
-
-            let protocol_version =
-                self.epoch_manager.get_epoch_protocol_version(block.header().epoch_id())?;
-            if checked_feature!("stable", ChunkValidation, protocol_version) {
-                let stateless_job = self.get_stateless_validation_job(
-                    me,
-                    block,
-                    prev_block,
-                    chunk_header,
-                    prev_chunk_header,
-                    shard_id as ShardId,
-                    mode,
-                );
-                maybe_jobs.push((shard_id, stateless_job));
-            }
         }
 
         let mut jobs = vec![];
@@ -3625,7 +3647,7 @@ impl Chain {
         shard_id: ShardId,
         mode: ApplyChunksMode,
         incoming_receipts: &HashMap<u64, Vec<ReceiptProof>>,
-        state_patch: SandboxStatePatch,
+        storage_context: StorageContext,
     ) -> Result<Option<UpdateShardJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "get_update_shard_job").entered();
         let prev_hash = block.header().prev_hash();
@@ -3660,8 +3682,6 @@ impl Chain {
                 prev_block.header(),
                 is_new_chunk,
             )?;
-            let storage_context =
-                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
             if is_new_chunk {
                 // Validate new chunk and collect incoming receipts for it.
 
@@ -3786,11 +3806,9 @@ impl Chain {
     /// chunk.
     fn get_blocks_range_with_missing_chunks(
         &self,
-        me: &Option<AccountId>,
         chunk_prev_hash: CryptoHash,
         prev_chunk_height_included: BlockHeight,
         shard_id: ShardId,
-        mode: ApplyChunksMode,
         return_chunk_extra: bool,
     ) -> Result<(Vec<(ApplyTransactionsBlockContext, ShardContext)>, Option<ChunkExtra>), Error>
     {
@@ -3800,12 +3818,16 @@ impl Chain {
         for block_hash in blocks_to_execute {
             let block_header = self.get_block_header(&block_hash)?;
             let prev_block_header = self.get_previous_header(&block_header)?;
-            let shard_context = self.get_shard_context(me, &block_header, shard_id, mode)?;
-            if shard_context.need_to_split_states {
-                return Err(Error::Other(String::from(
-                    "State split occurred in blocks range, it is not supported yet",
-                )));
-            }
+            let shard_uid = self
+                .epoch_manager
+                .shard_id_to_uid(shard_id, &self.epoch_manager.get_epoch_id(&block_hash)?)?;
+            let shard_context = ShardContext {
+                shard_uid,
+                cares_about_shard_this_epoch: true,
+                will_shard_layout_change: false,
+                should_apply_transactions: true,
+                need_to_split_states: false,
+            };
             execution_contexts.push((
                 self.get_apply_transactions_block_context(
                     &block_header,
@@ -3844,36 +3866,47 @@ impl Chain {
         Ok((execution_contexts, chunk_extra))
     }
 
-    /// Returns closure which should validate a chunk without state, if chunk is present.
-    /// TODO(logunov):
+    /// Returns closure which should validate a chunk with given state witness.
+    /// TODO(#9292):
     /// 1. Currently result of this job is not applied and used only to validate with
     /// stateful chunk execution. Later current execution must be deprecated in favour of
     /// this one.
     /// 2. Use state witness and make this method truly stateless.
     /// 3. Use range of blocks between chunk and previous existing chunk to collect
     /// incoming receipts.
-    fn get_stateless_validation_job(
+    pub fn get_chunk_validation_job(
         &self,
-        me: &Option<AccountId>,
-        block: &Block,
+        witness: ChunkStateWitness,
         prev_block: &Block,
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
-        shard_id: ShardId,
-        mode: ApplyChunksMode,
-    ) -> Result<Option<UpdateShardJob>, Error> {
-        let _span = tracing::debug_span!(target: "chain", "get_stateless_validation_job").entered();
-        let last_shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
-        let is_new_chunk = chunk_header.height_included() == block.header().height();
+    ) -> Result<Option<Box<dyn FnOnce(&Span) -> Result<(), Error> + Send + 'static>>, Error> {
+        let _span = tracing::debug_span!(target: "chain", "get_chunk_validation_job").entered();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
 
-        // If we don't track a shard or there is no chunk, there is nothing to validate.
-        if !last_shard_context.should_apply_transactions || !is_new_chunk {
-            return Ok(None);
-        }
+        // Note that chunk is not included into a block yet.
+        // TODO(#9292): do we need a full chunk here?
+        let chunk = self
+            .get_chunk(&chunk_header.chunk_hash())
+            .map_err(|_| Error::ChunksMissing(vec![chunk_header.clone()]))?;
 
         // Validate transactions in chunk.
-        let chunk = self.get_chunk_clone_from_header(&chunk_header)?;
-        self.validate_chunk_transactions(&block, prev_block.header(), &chunk)?;
+        if !validate_transactions_order(chunk.transactions()) {
+            return Err(Error::InvalidChunk);
+        }
+        if checked_feature!("stable", AccessKeyNonceRange, protocol_version) {
+            let transaction_validity_period = self.transaction_validity_period;
+            for transaction in chunk.transactions() {
+                self.store()
+                    .check_transaction_validity_period(
+                        prev_block.header(),
+                        &transaction.transaction.block_hash,
+                        transaction_validity_period,
+                    )
+                    .map_err(|_| Error::from(Error::InvalidTransactions))?;
+            }
+        };
 
         let runtime = self.runtime_adapter.clone();
         let epoch_manager = self.epoch_manager.clone();
@@ -3882,13 +3915,14 @@ impl Chain {
         let prev_chunk_prev_hash = *prev_chunk_header.prev_block_hash();
 
         // If previous chunk is genesis chunk, its execution is trivial.
-        // TODO(logunov): check that state witness is empty.
+        // TODO(#9292): check that state witness is a correct vector of empty
+        // state proofs and receipts.
         if prev_chunk_prev_hash == CryptoHash::default() {
             return Ok(None);
         }
 
         // Find the block at which height previous chunk was created.
-        // We will apply previous chunk to validate state witness in current chunk.
+        // Previous chunk will be applied to validate current state witness.
         let mut last_blocks =
             self.get_blocks_until_height(*prev_block.hash(), prev_chunk_height_included, true)?;
         let prev_chunk_block_hash = last_blocks.pop().unwrap();
@@ -3900,11 +3934,9 @@ impl Chain {
         let prev_chunk_prev_block = match self.get_block(&prev_chunk_prev_hash) {
             Ok(b) => b,
             Err(e) => {
-                let block_height = block.header().height();
-                let block_hash = block.hash();
-                // TODO(logunov): this is probably happening just after state sync; needs to be
-                // fixed before stateless validation release.
-                debug!(target: "client", block_height, ?block_hash, shard_id, ?prev_chunk_prev_hash, "Previous block for previous chunk is missing: {e}");
+                // TODO(#9292): this is probably happening just after state sync.
+                // Consider fixing before stateless validation release.
+                debug!(target: "client", shard_id, ?prev_chunk_prev_hash, "Previous block for previous chunk is missing: {e}");
                 return Ok(None);
             }
         };
@@ -3916,22 +3948,16 @@ impl Chain {
             return Ok(None);
         }
 
-        // Do the same check for previous and previous-previous chunk, because we
-        // iterate over blocks between them to check shard update, and we will use
-        // the same shard id again for simplicity.
-        // TODO(logunov): does `prev_prev_chunk` always exist in DB?
-        let prev_prev_chunk = &prev_chunk_prev_block.chunks()[shard_id as usize];
-        let prev_prev_chunk_prev_hash = prev_prev_chunk.prev_block_hash();
-        let prev_prev_chunk_height_included = prev_prev_chunk.height_included();
-        let prev_prev_shard_layout =
-            epoch_manager.get_shard_layout_from_prev_block(prev_prev_chunk_prev_hash)?;
-        if prev_shard_layout != prev_prev_shard_layout {
-            return Ok(None);
-        }
-
-        // Collect receipts appeared on chain between previous and previous-previous chunk.
-        // Ideally we should collect receipts from current chunk (excluded) to previous chunk
-        // (included). But now we verify results against current stateful logic.
+        // Collect receipts appeared on chain between previous and
+        // previous-previous chunk.
+        // TODO(#9292): include these receipts in state witness.
+        // TODO(#9292): consider collecting receipts from current chunk
+        // (excluded) to previous chunk (included). But now we verify results
+        // against current stateful logic. Also, new approach would complicate
+        // optimistic chunk execution.
+        // TODO(#9292): does `prev_chunk_prev_block` always exist in DB?
+        let prev_prev_chunk_header = &prev_chunk_prev_block.chunks()[shard_id as usize];
+        let prev_prev_chunk_height_included = prev_prev_chunk_header.height_included();
         let receipts_response = &self.store().get_incoming_receipts_for_shard(
             self.epoch_manager.as_ref(),
             shard_id,
@@ -3940,22 +3966,17 @@ impl Chain {
         )?;
         let receipts = collect_receipts_from_response(receipts_response);
 
-        // Get execution contexts for blocks with missing chunks between
-        // previous-previous chunk and previous chunk to execute.
-        // Also get starting chunk extra.
-        let (execution_contexts_before, maybe_chunk_extra) = self
-            .get_blocks_range_with_missing_chunks(
-                me,
-                prev_chunk_prev_hash,
-                prev_prev_chunk_height_included,
-                shard_id,
-                mode,
-                true,
-            )?;
-        let mut current_chunk_extra = match maybe_chunk_extra {
-            Some(c) => c,
-            None => {
-                debug!(target: "client", "Warning: chunk extra is missing");
+        // Take starting execution result, which is `ChunkExtra`.
+        // TODO(#9292): chunk validator may not have it, take it from chain!
+        let chunk_extra_block_hash = &prev_chunk_prev_hash;
+        let shard_uid = self
+            .epoch_manager
+            .shard_id_to_uid(shard_id, &self.epoch_manager.get_epoch_id(chunk_extra_block_hash)?)?;
+        let mut current_chunk_extra = match self.get_chunk_extra(chunk_extra_block_hash, &shard_uid)
+        {
+            Ok(chunk_extra) => ChunkExtra::clone(chunk_extra.as_ref()),
+            Err(e) => {
+                debug!(target: "client", ?chunk_extra_block_hash, ?shard_uid, "Chunk extra is missing: {e}");
                 return Ok(None);
             }
         };
@@ -3964,10 +3985,13 @@ impl Chain {
         let (prev_chunk_block_context, prev_chunk_shard_context) = {
             let block_header = self.get_block_header(&prev_chunk_block_hash)?;
             let prev_block_header = self.get_previous_header(&block_header)?;
-            let shard_context = self.get_shard_context(me, &block_header, shard_id, mode)?;
-            if shard_context.need_to_split_states {
-                return Ok(None);
-            }
+            let shard_context = ShardContext {
+                shard_uid,
+                cares_about_shard_this_epoch: true,
+                will_shard_layout_change: false,
+                should_apply_transactions: true,
+                need_to_split_states: false,
+            };
             (
                 self.get_apply_transactions_block_context(&block_header, &prev_block_header, true)?,
                 shard_context,
@@ -3978,89 +4002,73 @@ impl Chain {
         // Get execution contexts for blocks with missing chunks between
         // previous chunk and the current chunk.
         let (execution_contexts_after, _) = self.get_blocks_range_with_missing_chunks(
-            me,
             *prev_block.hash(),
             prev_chunk_height_included,
             shard_id,
-            mode,
             false,
         )?;
-
+        let mut state_proofs = witness.state_proofs.into_iter();
         // Create stateless validation job.
-        // Its initial state corresponds to the block at which `prev_prev_chunk`
-        // was created, and then it:
-        // 1. processes updates for missing chunks until a block at which
-        // `prev_chunk` was created;
-        // 2. processes update for the `prev_chunk`;
-        // 3. processes updates for missing chunks until the last chunk
-        // is reached.
-        Ok(Some((
-            shard_id,
-            Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
-                // Process missing chunks before previous chunk.
-                let mut result = process_missing_chunks_range(
-                    parent_span,
-                    current_chunk_extra.clone(),
-                    runtime.as_ref(),
-                    epoch_manager.as_ref(),
-                    execution_contexts_before,
-                )?;
-                current_chunk_extra = match result.last() {
-                    Some((_, _, chunk_extra)) => chunk_extra.clone(),
-                    None => current_chunk_extra,
-                };
-                // TODO(logunov): use `validate_chunk_with_chunk_extra`
-                assert_eq!(current_chunk_extra.state_root(), &prev_chunk.prev_state_root());
-                // Process previous chunk.
-                let NewChunkResult {
-                    gas_limit,
-                    shard_uid,
-                    apply_result,
-                    apply_split_result_or_state_changes: _,
-                } = apply_new_chunk(
-                    parent_span,
-                    NewChunkData {
-                        chunk: prev_chunk,
-                        receipts,
-                        split_state_roots: None,
-                        block: prev_chunk_block_context.clone(),
-                        is_first_block_with_chunk_of_version: false,
-                        storage_context: StorageContext {
-                            storage_data_source: StorageDataSource::DbTrieOnly,
-                            state_patch: Default::default(),
-                        },
-                    },
-                    prev_chunk_shard_context,
-                    runtime.as_ref(),
-                    epoch_manager.as_ref(),
-                )?;
-                let (outcome_root, _) =
-                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
-                current_chunk_extra = ChunkExtra::new(
-                    &apply_result.new_root,
-                    outcome_root,
-                    apply_result.validator_proposals,
-                    apply_result.total_gas_burnt,
-                    gas_limit,
-                    apply_result.total_balance_burnt,
-                );
-                result.push((
+        // It starts at the state before which `prev_chunk` was applied, and then:
+        // 1. it processes update for the `prev_chunk`;
+        // 2. it processes updates for missing chunks until the current chunk,
+        // excluded.
+        // If validation succeeds, the job returns Ok.
+        // TODO(#9292): add test checking that `get_chunk_validation_job`
+        // succeeds for results generated by `get_update_shard_job`.
+        Ok(Some(Box::new(move |parent_span| -> Result<(), Error> {
+            // TODO(#9292): consider using `validate_chunk_with_chunk_extra`.
+            assert_eq!(current_chunk_extra.state_root(), &prev_chunk.prev_state_root());
+            // Process previous chunk.
+            let storage = PartialStorage {
+                nodes: state_proofs.next().ok_or(Error::Other(format!(
+                    "Missing state proof for {} {}",
                     prev_chunk_block_context.block_hash,
-                    shard_uid,
-                    current_chunk_extra.clone(),
-                ));
-                // Process missing chunks after previous chunk.
-                let result_after = process_missing_chunks_range(
-                    parent_span,
-                    current_chunk_extra,
-                    runtime.as_ref(),
-                    epoch_manager.as_ref(),
-                    execution_contexts_after,
-                )?;
-                result.extend(result_after.into_iter());
-                Ok(ShardUpdateResult::Stateless(result))
-            }),
-        )))
+                    prev_chunk_shard_context.shard_uid.shard_id()
+                )))?,
+            };
+            let NewChunkResult { gas_limit, apply_result, .. } = apply_new_chunk(
+                parent_span,
+                NewChunkData {
+                    chunk: prev_chunk,
+                    receipts,
+                    split_state_roots: None,
+                    block: prev_chunk_block_context.clone(),
+                    is_first_block_with_chunk_of_version: false,
+                    storage_context: StorageContext {
+                        storage_data_source: StorageDataSource::Recorded(storage),
+                        state_patch: Default::default(),
+                        record_storage: false,
+                    },
+                },
+                prev_chunk_shard_context,
+                runtime.as_ref(),
+                epoch_manager.as_ref(),
+            )?;
+            let (outcome_root, _) =
+                ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+            current_chunk_extra = ChunkExtra::new(
+                &apply_result.new_root,
+                outcome_root,
+                apply_result.validator_proposals,
+                apply_result.total_gas_burnt,
+                gas_limit,
+                apply_result.total_balance_burnt,
+            );
+            // Process missing chunks after previous chunk.
+            current_chunk_extra = process_missing_chunks_range(
+                parent_span,
+                current_chunk_extra,
+                runtime.as_ref(),
+                epoch_manager.as_ref(),
+                execution_contexts_after,
+                state_proofs,
+            )?;
+            if current_chunk_extra.state_root() != &witness.chunk_header.prev_state_root() {
+                return Err(Error::InvalidChunkStateWitness);
+            }
+            Ok(())
+        })))
     }
 
     /// Function to create a new snapshot if needed
@@ -5200,6 +5208,7 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                self.chain_store_update.save_state_proof(*block_hash, shard_id, apply_result.proof);
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }
@@ -5226,7 +5235,11 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-
+                self.chain_store_update.save_state_proof(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.proof,
+                );
                 if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
                     self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
                 }

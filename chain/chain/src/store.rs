@@ -44,14 +44,15 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    DBCol, KeyForStateChanges, ShardTries, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
-    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, TAIL_KEY,
+    DBCol, KeyForStateChanges, PartialStorage, ShardTries, Store, StoreUpdate, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown, RuntimeAdapter};
+use near_primitives::challenge::PartialState;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use near_store::flat::store_helper;
 use std::sync::Arc;
@@ -1451,6 +1452,7 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
+    state_proofs: HashMap<(CryptoHash, ShardId), PartialState>,
     // All state changes made by a chunk, this is only used for splitting states
     add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
     remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
@@ -1478,6 +1480,7 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            state_proofs: Default::default(),
             add_state_changes_for_split_states: HashMap::new(),
             remove_state_changes_for_split_states: HashSet::new(),
             add_blocks_to_catchup: vec![],
@@ -2090,6 +2093,17 @@ impl<'a> ChainStoreUpdate<'a> {
 
     pub fn save_trie_changes(&mut self, trie_changes: WrappedTrieChanges) {
         self.trie_changes.push(trie_changes);
+    }
+
+    pub fn save_state_proof(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        partial_storage: Option<PartialStorage>,
+    ) {
+        if let Some(partial_storage) = partial_storage {
+            self.state_proofs.insert((block_hash, shard_id), partial_storage.nodes);
+        }
     }
 
     pub fn add_state_changes_for_split_states(
@@ -2837,6 +2851,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);
             }
+            DBCol::StateProofs => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount
@@ -3212,6 +3229,14 @@ impl<'a> ChainStoreUpdate<'a> {
                     .trie_changes_into(&mut store_update)
                     .map_err(|err| Error::Other(err.to_string()))?;
             }
+        }
+
+        for ((block_hash, shard_id), state_proof) in self.state_proofs.drain() {
+            store_update.set_ser(
+                DBCol::StateProofs,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_proof,
+            )?;
         }
 
         for ((block_hash, shard_id), state_changes) in

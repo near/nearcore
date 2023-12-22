@@ -306,6 +306,7 @@ pub struct TrieMemoryPartialStorage {
 
 impl TrieStorage for TrieMemoryPartialStorage {
     fn retrieve_raw_bytes(&self, hash: &CryptoHash) -> Result<Arc<[u8]>, StorageError> {
+        println!("READ RECORDED {hash}");
         let result =
             self.recorded_storage.get(hash).cloned().ok_or(StorageError::MissingTrieValue(
                 MissingTrieValueContext::TrieMemoryPartialStorage,

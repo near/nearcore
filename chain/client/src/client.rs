@@ -336,7 +336,6 @@ impl Client {
             validator_signer.clone(),
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
-            runtime_adapter.clone(),
         );
         Ok(Self {
             #[cfg(feature = "test_features")]
@@ -1741,11 +1740,18 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
+            match self.produce_chunk(
+                *block.hash(),
+                &epoch_id,
+                last_header.clone(),
+                next_height,
+                shard_id,
+            ) {
                 Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
                         &encoded_chunk.cloned_header(),
+                        last_header,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }

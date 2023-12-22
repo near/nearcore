@@ -1,5 +1,5 @@
+use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ShardChunkHeader};
-use crate::types::StateRoot;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
 use near_primitives_core::types::AccountId;
@@ -8,10 +8,11 @@ use near_primitives_core::types::AccountId;
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateWitness {
-    // TODO(#10265): Is the entire header necessary?
+    // TODO(#10265): Validate the header. Is the entire header necessary?
     pub chunk_header: ShardChunkHeader,
-    // TODO(#10265): Replace this with fields for the actual witness.
-    pub state_root: StateRoot,
+    /// State proofs for the range of chunks to apply.
+    pub state_proofs: Vec<PartialState>,
+    // TODO(#10265): Add remaining fields for the actual witness.
 }
 
 /// The endorsement of a chunk by a chunk validator. By providing this, a
