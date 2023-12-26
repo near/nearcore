@@ -38,7 +38,10 @@ pub mod col {
     /// NOTE: It is a singleton per shard.
     pub const DELAYED_RECEIPT_INDICES: u8 = 7;
     /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
-    pub const DELAYED_RECEIPT: u8 = 8;
+    /// Here we share the identifier with `DELAYED_RECEIPT_INDICES` for historical reasons. It
+    /// is valid because the length of `TrieKey::DelayedReceipt` is always greater than
+    /// `TrieKey::DelayedReceiptIndices` when serialized to bytes.
+    pub const DELAYED_RECEIPT: u8 = DELAYED_RECEIPT_INDICES;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
     /// All columns
@@ -196,7 +199,7 @@ impl TrieKey {
                 buf.push(col::DELAYED_RECEIPT_INDICES);
             }
             TrieKey::DelayedReceipt { index } => {
-                buf.push(col::DELAYED_RECEIPT_INDICES);
+                buf.push(col::DELAYED_RECEIPT);
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {
