@@ -244,13 +244,10 @@ mod tests {
             let mut n_vec: [u8; 48] = [0u8; 48];
             points[i].0.to_byte_array(&mut n_vec, 0);
 
-            println!("before: {:?}", n_vec);
-
             let mut n_vec = n_vec.try_to_vec().unwrap();
             n_vec.reverse();
             n_vec.resize(32, 0);
 
-            println!("after: {:?}", n_vec);
             buffer.push(n_vec);
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());

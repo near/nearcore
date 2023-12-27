@@ -1062,7 +1062,7 @@ impl<'a> VMLogic<'a> {
 
             let mut pk_mul = blst::blst_p1::default();
             unsafe {
-                blst::blst_p1_mult(&mut pk_mul, &pk, data[i*128 + 96..(i + 1)*128].as_ptr(), 32 * 8);
+                blst::blst_p1_unchecked_mult(&mut pk_mul, &pk, data[(i*128 + 96)..((i + 1)*128)].as_ptr(), 32 * 8);
             }
 
             unsafe {
