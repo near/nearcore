@@ -175,8 +175,7 @@ impl Mmap {
         assert_lt!(start, self.len - len);
 
         // Commit the accessible size.
-        let ptr = self.ptr as *const u8;
-        unsafe { region::protect(ptr.add(start), len, region::Protection::READ_WRITE) }
+        unsafe { region::protect(self.as_ptr().add(start), len, region::Protection::READ_WRITE) }
             .map_err(|e| e.to_string())
     }
 
@@ -195,9 +194,10 @@ impl Mmap {
         assert_lt!(start, self.len - len);
 
         // Commit the accessible size.
-        let ptr = self.ptr as *const u8;
-        if unsafe { VirtualAlloc(ptr.add(start) as *mut c_void, len, MEM_COMMIT, PAGE_READWRITE) }
-            .is_null()
+        if unsafe {
+            VirtualAlloc(self.as_ptr().add(start) as *mut c_void, len, MEM_COMMIT, PAGE_READWRITE)
+        }
+        .is_null()
         {
             return Err(io::Error::last_os_error().to_string());
         }
@@ -207,12 +207,12 @@ impl Mmap {
 
     /// Return the allocated memory as a slice of u8.
     pub fn as_slice(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self.ptr as *const u8, self.len) }
+        unsafe { slice::from_raw_parts(self.as_ptr(), self.len) }
     }
 
     /// Return the allocated memory as a mutable slice of u8.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.ptr as *mut u8, self.len) }
+        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len) }
     }
 
     /// Return the allocated memory as a pointer to u8.

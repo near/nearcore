@@ -3,8 +3,7 @@ use super::store::{Store, StoreObject};
 use near_vm_engine::RuntimeError;
 use near_vm_types::Value;
 pub use near_vm_types::{
-    ExportType, ExternType, FunctionType, GlobalType, MemoryType, Mutability, TableType,
-    Type as ValType,
+    FunctionType, GlobalType, MemoryType, Mutability, TableType, Type as ValType,
 };
 use near_vm_vm::VMFuncRef;
 
