@@ -234,6 +234,23 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn get_g2_multiexp_small(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
+            let mut n_vec: [u8; 32] = [0u8; 32];
+            n_vec[0] = points[i].0;
+            buffer.push(n_vec.try_to_vec().unwrap());
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     fn get_g1_multiexp(points: &Vec<(Big, ECP)>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -252,6 +269,28 @@ mod tests {
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
+    fn get_g2_multiexp(points: &Vec<(Big, ECP2)>) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..points.len() {
+            buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
+            let mut n_vec: [u8; 48] = [0u8; 48];
+            points[i].0.to_byte_array(&mut n_vec, 0);
+
+            let mut n_vec = n_vec.try_to_vec().unwrap();
+            n_vec.reverse();
+            n_vec.resize(32, 0);
+
+            buffer.push(n_vec);
+        }
+        let input = logic.internal_mem_write(buffer.concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -1007,7 +1046,7 @@ mod tests {
         logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
     }
 
-    // Tests for multiplication
+    // Tests for P1 multiplication
     #[test]
     fn test_bls12381_p1_multiexp_mul() {
         let mut rnd = get_rnd();
@@ -1036,6 +1075,38 @@ mod tests {
             let res2 = p.mul(&n);
 
             assert_eq!(res1, serialize_uncompressed_g1(&res2));
+        }
+    }
+
+    // Tests for P1 multiplication
+    #[test]
+    fn test_bls12381_p2_multiexp_mul() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p = get_random_g2_curve_point(&mut rnd);
+            let n = rnd.getbyte();
+
+            let points: Vec<(u8, ECP2)> = vec![(0, p.clone()); n as usize];
+            let res1 = get_g2_sum_many_points(&points);
+            let res2 = get_g2_multiexp_small(&vec![(n, p.clone())]);
+
+            assert_eq!(res1, res2);
+
+            let res3 = p.mul(&Big::new_int(n as isize));
+
+            assert_eq!(res1, serialize_uncompressed_g2(&res3));
+        }
+
+        for _ in 0..100 {
+            let p = get_random_g2_curve_point(&mut rnd);
+            let mut n = Big::random(&mut rnd);
+            n.mod2m(32*8);
+
+            let res1 = get_g2_multiexp(&vec![(n.clone(), p.clone())]);
+            let res2 = p.mul(&n);
+            
+            assert_eq!(res1, serialize_uncompressed_g2(&res2));
         }
     }
 }

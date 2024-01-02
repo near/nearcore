@@ -1101,9 +1101,7 @@ impl<'a> VMLogic<'a> {
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
         self.gas_counter.pay_per(bls12381_p2_multiexp_element, elements_count as u64)?;
 
-        let mut blst_points: Vec<blst::blst_p2> = vec![];
-        let nbits = 32 * 8 * elements_count;
-        let mut scalars: Vec<u8> = vec![];
+        let mut res_pk = blst::blst_p2::default();
         for i in 0..elements_count {
             let mut pk_aff = blst::blst_p2_affine::default();
             unsafe {
@@ -1115,16 +1113,20 @@ impl<'a> VMLogic<'a> {
                 blst::blst_p2_from_affine(&mut pk, &pk_aff);
             }
 
-            blst_points.push(pk);
-            scalars.extend_from_slice(&data[(i*224 + 192)..(i + 1)*224]);
+            let mut pk_mul = blst::blst_p2::default();
+            unsafe {
+                blst::blst_p2_unchecked_mult(&mut pk_mul, &pk, data[(i*224 + 192)..(i + 1)*224].as_ptr(), 32 * 8);
+            }
+
+            unsafe {
+                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk_mul);
+            }
         }
 
-        let blst_p2s = blst::p2_affines::from(&blst_points);
-        let mul_res = blst_p2s.mult(&scalars, nbits);
         let mut mul_res_affine = blst::blst_p2_affine::default();
 
         unsafe {
-            blst::blst_p2_to_affine(&mut mul_res_affine, &mul_res);
+            blst::blst_p2_to_affine(&mut mul_res_affine, &res_pk);
         }
 
         let mut res = [0u8; 192];
