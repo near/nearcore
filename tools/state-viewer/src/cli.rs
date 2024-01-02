@@ -7,6 +7,7 @@ use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
+use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
@@ -667,17 +668,17 @@ impl clap::ValueEnum for ViewTrieFormat {
 
 /// Possible record types in a state trie.
 #[derive(Clone)]
+#[repr(u8)]
 pub enum RecordType {
-    Account,
-    ContractCode,
-    AccessKey,
-    ReceivedData,
-    PostponedReceiptId,
-    PendingDataCount,
-    PostponedReceipt,
-    DelayedReceiptIndices,
-    DelayedReceipt,
-    ContractData,
+    Account = col::ACCOUNT,
+    ContractCode = col::CONTRACT_CODE,
+    AccessKey = col::ACCESS_KEY,
+    ReceivedData = col::RECEIVED_DATA,
+    PostponedReceiptId = col::POSTPONED_RECEIPT_ID,
+    PendingDataCount = col::PENDING_DATA_COUNT,
+    PostponedReceipt = col::POSTPONED_RECEIPT,
+    DelayedReceiptOrIndices = col::DELAYED_RECEIPT_OR_INDICES,
+    ContractData = col::CONTRACT_DATA,
 }
 
 impl clap::ValueEnum for RecordType {
@@ -690,8 +691,7 @@ impl clap::ValueEnum for RecordType {
             Self::PostponedReceiptId,
             Self::PendingDataCount,
             Self::PostponedReceipt,
-            Self::DelayedReceiptIndices,
-            Self::DelayedReceipt,
+            Self::DelayedReceiptOrIndices,
             Self::ContractData,
         ]
     }
@@ -707,10 +707,9 @@ impl clap::ValueEnum for RecordType {
             }
             Self::PendingDataCount => Some(clap::builder::PossibleValue::new("pending-data-count")),
             Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
-            Self::DelayedReceiptIndices => {
-                Some(clap::builder::PossibleValue::new("delayed-receipt-indices"))
+            Self::DelayedReceiptOrIndices => {
+                Some(clap::builder::PossibleValue::new("delayed-receipt-or-indices"))
             }
-            Self::DelayedReceipt => Some(clap::builder::PossibleValue::new("delayed-receipt")),
             Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
         }
     }

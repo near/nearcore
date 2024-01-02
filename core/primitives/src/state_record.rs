@@ -94,12 +94,14 @@ impl StateRecord {
                 let receipt = Receipt::try_from_slice(&value)?;
                 Some(StateRecord::PostponedReceipt(Box::new(receipt)))
             }
-            col::DELAYED_RECEIPT if key.len() > TrieKey::DelayedReceiptIndices.len() => {
+            col::DELAYED_RECEIPT_OR_INDICES
+                if key.len() == TrieKey::DelayedReceiptIndices.len() =>
+            {
+                None
+            }
+            col::DELAYED_RECEIPT_OR_INDICES => {
                 let receipt = Receipt::try_from_slice(&value)?;
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
-            }
-            col::DELAYED_RECEIPT_INDICES if key.len() == TrieKey::DelayedReceiptIndices.len() => {
-                None
             }
             _ => {
                 println!("key[0]: {} is unreachable", key[0]);
