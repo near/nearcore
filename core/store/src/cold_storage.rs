@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
-use std::collections::{HashMap, hash_map};
+use std::collections::{hash_map, HashMap};
 use std::io;
 use strum::IntoEnumIterator;
 
@@ -634,7 +634,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHash, DBKeyType::BlockHeight]
+                &[DBKeyType::BlockHash, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![
                 vec![1, 2, 3, 0, 1],
@@ -647,7 +647,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHeight, DBKeyType::BlockHash, DBKeyType::BlockHeight]
+                &[DBKeyType::BlockHeight, DBKeyType::BlockHash, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![
                 vec![0, 1, 1, 2, 3, 0, 1],
@@ -664,7 +664,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::ShardId, DBKeyType::BlockHeight]
+                &[DBKeyType::ShardId, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![])
         );
@@ -672,13 +672,13 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHash, DBKeyType::ShardId]
+                &[DBKeyType::BlockHash, DBKeyType::ShardId]
             )),
             HashSet::<StoreKey>::from_iter(vec![])
         );
 
         assert_eq!(
-            HashSet::<StoreKey>::from_iter(combine_keys(&key_type_to_keys, &vec![])),
+            HashSet::<StoreKey>::from_iter(combine_keys(&key_type_to_keys, &[])),
             HashSet::<StoreKey>::from_iter(vec![vec![]])
         );
     }

@@ -11,6 +11,6 @@ impl<InnerData: AsRef<AccountId>> SupportsRoutingLookup for Vec<InnerData> {
     fn index_for_account(&self, account: &AccountId) -> usize {
         self.iter()
             .position(|data| data.as_ref() == account)
-            .expect(&format!("Account not found: {}", account))
+            .unwrap_or_else(|| panic!("Account not found: {}", account))
     }
 }

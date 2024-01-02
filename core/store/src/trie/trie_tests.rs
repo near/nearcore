@@ -239,7 +239,7 @@ mod trie_storage_tests {
         let trie_db_storage = TrieDBStorage::new(store, shard_uid);
         let key = hash(&value);
         assert_eq!(trie_db_storage.retrieve_raw_bytes(&key).unwrap().as_ref(), value);
-        let wrong_key = hash(&vec![2]);
+        let wrong_key = hash(&[2]);
         assert_matches!(trie_db_storage.retrieve_raw_bytes(&wrong_key), Err(_));
     }
 
@@ -292,7 +292,7 @@ mod trie_storage_tests {
     /// Check that large values does not fall into shard cache, but fall into accounting cache.
     #[test]
     fn test_large_value() {
-        let value = vec![1u8].repeat(TrieConfig::max_cached_value_size() + 1);
+        let value = [1u8].repeat(TrieConfig::max_cached_value_size() + 1);
         let values = vec![value.clone()];
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);

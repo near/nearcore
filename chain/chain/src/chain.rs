@@ -1177,9 +1177,9 @@ impl Chain {
                 let chunk_proof = ChunkProofs {
                     block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                     merkle_proof: merkle_paths[shard_id].clone(),
-                    chunk: MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
+                    chunk: Box::new(MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
-                    )),
+                    ))),
                 };
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
@@ -1739,10 +1739,12 @@ impl Chain {
     ) -> Result<AcceptedBlock, Error> {
         let timer = metrics::BLOCK_POSTPROCESSING_TIME.start_timer();
         let (block, block_preprocess_info) =
-            self.blocks_in_processing.remove(&block_hash).expect(&format!(
-                "block {:?} finished applying chunks but not in blocks_in_processing pool",
-                block_hash
-            ));
+            self.blocks_in_processing.remove(&block_hash).unwrap_or_else(|| {
+                panic!(
+                    "block {:?} finished applying chunks but not in blocks_in_processing pool",
+                    block_hash
+                )
+            });
         // We want to include block height here, so we didn't put this line at the beginning of the
         // function.
         let _span = tracing::debug_span!(
@@ -2841,7 +2843,7 @@ impl Chain {
             let chunk_proof = ChunkProofs {
                 block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
                 merkle_proof: merkle_paths[chunk.shard_id() as usize].clone(),
-                chunk: MaybeEncodedShardChunk::Decoded(chunk.clone()),
+                chunk: MaybeEncodedShardChunk::Decoded(chunk.clone()).into(),
             };
             return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
         }

@@ -690,7 +690,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
                     "{} ({})",
-                    self.client.sync_status.as_variant_name().to_string(),
+                    self.client.sync_status.as_variant_name(),
                     display_sync_status(
                         &self.client.sync_status,
                         &self.client.chain.head()?,

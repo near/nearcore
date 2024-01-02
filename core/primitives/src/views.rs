@@ -2389,7 +2389,7 @@ mod tests {
     #[test]
     #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
-        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }

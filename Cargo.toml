@@ -98,13 +98,17 @@ members = [
 warnings = "deny"
 
 [workspace.lints.clippy]
-all = { level = "allow", priority = -1 }
+all = { level = "allow", priority = -100 }
+correctness = { level = "deny", priority = -50 }
+suspicious = { level = "deny", priority = -50 }
+perf = { level = "deny", priority = -50 }
+# overrides clippy::perf = "deny": https://github.com/rust-lang/rust-clippy/issues/8111
+single_char_pattern = "allow"
 clone_on_copy = "deny"
-correctness = "deny"
 derivable_impls = "deny"
 redundant_clone = "deny"
-suspicious = "deny"
 len_zero = "deny"
+
 
 [workspace.dependencies]
 actix = "0.13.0"
