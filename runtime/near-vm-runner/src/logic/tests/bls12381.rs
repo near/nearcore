@@ -184,6 +184,19 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn pairing_check(p1: ECP, p2: ECP2, expected_result: u64) {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        buffer.push(serialize_uncompressed_g1(&p1).to_vec());
+        buffer.push(serialize_uncompressed_g2(&p2).to_vec());
+
+        let input = logic.internal_mem_write(&buffer.concat().as_slice());
+        let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+        assert_eq!(res, expected_result);
+    }
+
     fn get_g1_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
         let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
 
@@ -1234,6 +1247,18 @@ mod tests {
             let res1 = decompress_p2(p2.clone());
 
             assert_eq!(res1, serialize_uncompressed_g2(&p2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_pairing_check_one_point() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p1 = ECP::new();
+            let p2 = get_random_g2_point(&mut rnd);
+
+            pairing_check(p1.clone(), p2.clone(), 0);
         }
     }
 }

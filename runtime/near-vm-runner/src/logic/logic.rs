@@ -1244,7 +1244,7 @@ impl<'a> VMLogic<'a> {
             blst::blst_fp12_is_one(&pairing_fp12)
         };
 
-        if pairing_res { Ok(0) } else { Ok(5) }
+        if pairing_res { Ok(0) } else { Ok(2) }
     }
 
     pub fn bls12381_p1_decompress(
