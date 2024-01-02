@@ -11,7 +11,8 @@ mod tests {
     use amcl::bls381::bls381::utils::{subgroup_check_g1,
                                       subgroup_check_g2,
                                       serialize_uncompressed_g1,
-                                      serialize_uncompressed_g2};
+                                      serialize_uncompressed_g2,
+                                      serialize_g1, serialize_g2};
     use amcl::bls381::fp2::FP2;
     use amcl::bls381::fp::FP;
     use amcl::bls381::rom::H_EFF_G1;
@@ -130,6 +131,16 @@ mod tests {
         rnd.seed(100, &raw);
 
         rnd
+    }
+
+    fn decompress_p1(p1: ECP) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let input = logic.internal_mem_write(&serialize_g1(&p1));
+        let res = logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
     fn map_fp_to_g1(fp: FP) -> Vec<u8> {
@@ -1189,6 +1200,18 @@ mod tests {
             res2.clear_cofactor();
 
             assert_eq!(res1, serialize_uncompressed_g2(&res2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_p1_decompress() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p1 = get_random_g1_curve_point(&mut rnd);
+            let res1 = decompress_p1(p1.clone());
+
+            assert_eq!(res1, serialize_uncompressed_g1(&p1));
         }
     }
 }
