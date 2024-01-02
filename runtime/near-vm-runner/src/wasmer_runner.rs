@@ -117,7 +117,7 @@ impl IntoVMError for wasmer_runtime::error::RuntimeError {
                 InvokeError::UnknownTrap { address, signal } => {
                     panic!(
                         "Impossible UnknownTrap error (Cranelift only): signal {} at {}",
-                        signal.to_string(),
+                        signal,
                         address
                     );
                 }
