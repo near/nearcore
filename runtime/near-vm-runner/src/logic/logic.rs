@@ -900,17 +900,17 @@ impl<'a> VMLogic<'a> {
         Ok(res as u64)
     }
 
-    pub fn bls12381_g1_sum(
+    pub fn bls12381_p1_sum(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g1_sum_base)?;
+        self.gas_counter.pay_base(bls12381_p1_sum_base)?;
 
         if value_len % 97 != 0 {
             return Err(HostError::BLS12381InvalidInput {
-                msg: format!("Incorrect input length for bls12381_g1_sum: {} is not divisible by 97", value_len)
+                msg: format!("Incorrect input length for bls12381_p1_sum: {} is not divisible by 97", value_len)
             }.into());
         }
 
@@ -919,7 +919,7 @@ impl<'a> VMLogic<'a> {
         let mut res_pk = blst::blst_p1::default();
 
         let elements_count = data.len()/97;
-        self.gas_counter.pay_per(bls12381_g1_sum_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p1_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
             let sign = data[i * 97].clone();
@@ -966,16 +966,16 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
-    pub fn bls12381_g2_sum(
+    pub fn bls12381_p2_sum(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g2_sum_base)?;
+        self.gas_counter.pay_base(bls12381_p2_sum_base)?;
         if value_len % 193 != 0 {
             return Err(HostError::BLS12381InvalidInput {
-                msg: format!("Incorrect input length for bls12381_g2_sum: {} is not divisible by 193", value_len)
+                msg: format!("Incorrect input length for bls12381_p2_sum: {} is not divisible by 193", value_len)
             }.into());
         }
 
@@ -984,7 +984,7 @@ impl<'a> VMLogic<'a> {
         let mut res_pk = blst::blst_p2::default();
 
         let elements_count = data.len()/193;
-        self.gas_counter.pay_per(bls12381_g2_sum_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p2_sum_element, elements_count as u64)?;
 
         for i in 0..elements_count {
             let sign = data[i * 193].clone();
@@ -1031,13 +1031,13 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
-    pub fn bls12381_g1_multiexp(
+    pub fn bls12381_p1_multiexp(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g1_multiexp_base)?;
+        self.gas_counter.pay_base(bls12381_p1_multiexp_base)?;
 
         const POINT_BYTES_LEN: u64 = 96;
         const SCALAR_BYTES_LEN: u64 = 32;
@@ -1045,7 +1045,7 @@ impl<'a> VMLogic<'a> {
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
-        self.gas_counter.pay_per(bls12381_g1_multiexp_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p1_multiexp_element, elements_count as u64)?;
 
         let mut res_pk = blst::blst_p1::default();
 
@@ -1085,13 +1085,13 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
-    pub fn bls12381_g2_multiexp(
+    pub fn bls12381_p2_multiexp(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g2_multiexp_base)?;
+        self.gas_counter.pay_base(bls12381_p2_multiexp_base)?;
 
         const POINT_BYTES_LEN: u64 = 192;
         const SCALAR_BYTES_LEN: u64 = 32;
@@ -1099,7 +1099,7 @@ impl<'a> VMLogic<'a> {
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let elements_count = data.len() / ((POINT_BYTES_LEN + SCALAR_BYTES_LEN) as usize);
-        self.gas_counter.pay_per(bls12381_g2_multiexp_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p2_multiexp_element, elements_count as u64)?;
 
         let mut blst_points: Vec<blst::blst_p2> = vec![];
         let nbits = 32 * 8 * elements_count;
@@ -1245,19 +1245,19 @@ impl<'a> VMLogic<'a> {
         if pairing_res { Ok(0) } else { Ok(5) }
     }
 
-    pub fn bls12381_g1_decompress(
+    pub fn bls12381_p1_decompress(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g1_decompress_base)?;
+        self.gas_counter.pay_base(bls12381_p1_decompress_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res = Vec::<u8>::new();
 
         let elements_count = data.len()/48;
-        self.gas_counter.pay_per(bls12381_g1_decompress_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p1_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
             let pk = blst::min_pk::PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
@@ -1270,19 +1270,19 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
-    pub fn bls12381_g2_decompress(
+    pub fn bls12381_p2_decompress(
         &mut self,
         value_len: u64,
         value_ptr: u64,
         register_id: u64,
     ) -> Result<u64> {
-        self.gas_counter.pay_base(bls12381_g2_decompress_base)?;
+        self.gas_counter.pay_base(bls12381_p2_decompress_base)?;
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res = Vec::<u8>::new();
 
         let elements_count = data.len()/96;
-        self.gas_counter.pay_per(bls12381_g2_decompress_element, elements_count as u64)?;
+        self.gas_counter.pay_per(bls12381_p2_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
             let sig = blst::min_pk::Signature::uncompress(&data[i*96..(i + 1)*96]).unwrap();

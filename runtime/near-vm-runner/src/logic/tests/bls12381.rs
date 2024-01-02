@@ -115,7 +115,7 @@ mod tests {
         let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -124,7 +124,7 @@ mod tests {
         let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -133,7 +133,7 @@ mod tests {
         let buffer = vec![vec![1], p.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -142,7 +142,7 @@ mod tests {
         let buffer = vec![vec![1], p.to_vec()];
 
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -157,7 +157,7 @@ mod tests {
             buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -172,7 +172,7 @@ mod tests {
             buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -192,7 +192,7 @@ mod tests {
             }
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_multiexp(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -212,7 +212,7 @@ mod tests {
             }
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g2_multiexp(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -229,7 +229,7 @@ mod tests {
             buffer.push(n_vec.try_to_vec().unwrap());
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_multiexp(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -251,7 +251,7 @@ mod tests {
             buffer.push(n_vec);
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
-        let res = logic.bls12381_g1_multiexp(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -307,7 +307,7 @@ mod tests {
     //==== TESTS FOR G1_SUM
 
     #[test]
-    fn test_bls12381_g1_sum_edge_cases() {
+    fn test_bls12381_p1_sum_edge_cases() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g1_sum() {
+    fn test_bls12381_p1_sum() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g1_sum_not_g1_points() {
+    fn test_bls12381_p1_sum_not_g1_points() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g1_sum_inverse() {
+    fn test_bls12381_p1_sum_inverse() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -514,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g1_sum_many_points() {
+    fn test_bls12381_p1_sum_many_points() {
         let mut rnd = get_rnd();
 
         let mut zero: [u8; 96] = [0; 96];
@@ -549,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g1_crosscheck_sum_and_multiexp() {
+    fn test_bls12381_p1_crosscheck_sum_and_multiexp() {
         let mut rnd = get_rnd();
 
         const MAX_N: usize = 500;
@@ -570,18 +570,18 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_bls12381_g1_sum_incorrect_length() {
+    fn test_bls12381_p1_sum_incorrect_length() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
         let buffer = vec![0u8; 96];
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
-    fn test_bls12381_g1_sum_incorrect_input() {
+    fn test_bls12381_p1_sum_incorrect_input() {
         let mut rnd = get_rnd();
 
         let mut logic_builder = VMLogicBuilder::default();
@@ -592,7 +592,7 @@ mod tests {
         buffer[0] = 2;
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Incorrect encoding of the point at infinity
@@ -601,7 +601,7 @@ mod tests {
         zero[95] = 1;
 
         let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
@@ -609,7 +609,7 @@ mod tests {
         zero[0] = 192;
 
         let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         let p = get_random_g1_curve_point(&mut rnd);
@@ -617,7 +617,7 @@ mod tests {
         p_ser[0] |= 0x80;
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Point not on the curve
@@ -627,7 +627,7 @@ mod tests {
 
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
@@ -636,7 +636,7 @@ mod tests {
         p_ser[0] ^= 0x20;
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
@@ -647,27 +647,27 @@ mod tests {
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
     }
 
     // Input is beyond memory bounds.
     #[test]
     #[should_panic]
-    fn test_bls12381_g1_sum_too_big_input() {
+    fn test_bls12381_p1_sum_too_big_input() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
         let buffer = vec![0u8; 97 * 676];
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
     }
 
 
     //==== TESTS FOR G2_SUM
     #[test]
-    fn test_bls12381_g2_sum_edge_cases() {
+    fn test_bls12381_p2_sum_edge_cases() {
         const POINT_LEN: usize = 192;
 
         let mut logic_builder = VMLogicBuilder::default();
@@ -739,7 +739,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g2_sum() {
+    fn test_bls12381_p2_sum() {
         for _ in 0..100 {
             let mut logic_builder = VMLogicBuilder::default();
             let mut logic = logic_builder.build();
@@ -785,7 +785,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g2_sum_not_g2_points() {
+    fn test_bls12381_p2_sum_not_g2_points() {
         //points not from G2
         for _ in 0..100 {
             let mut logic_builder = VMLogicBuilder::default();
@@ -813,7 +813,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g2_sum_inverse() {
+    fn test_bls12381_p2_sum_inverse() {
         const POINT_LEN: usize = 192;
 
         let mut logic_builder = VMLogicBuilder::default();
@@ -854,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bls12381_g2_sum_many_points() {
+    fn test_bls12381_p2_sum_many_points() {
         const POINT_LEN: usize = 192;
 
         let mut rnd = get_rnd();
@@ -892,7 +892,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_bls12381_g2_crosscheck_sum_and_multiexp() {
+    fn test_bls12381_p2_crosscheck_sum_and_multiexp() {
         let mut rnd = get_rnd();
 
         const MAX_N: usize = 338;
@@ -911,7 +911,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_bls12381_g2_sum_incorrect_length() {
+    fn test_bls12381_p2_sum_incorrect_length() {
         const POINT_LEN: usize = 192;
 
         let mut logic_builder = VMLogicBuilder::default();
@@ -920,11 +920,11 @@ mod tests {
         let buffer = vec![0u8; POINT_LEN];
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
-    fn test_bls12381_g2_sum_incorrect_input() {
+    fn test_bls12381_p2_sum_incorrect_input() {
         let mut rnd = get_rnd();
 
         let mut logic_builder = VMLogicBuilder::default();
@@ -935,7 +935,7 @@ mod tests {
         buffer[0] = 2;
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Incorrect encoding of the point at infinity
@@ -944,7 +944,7 @@ mod tests {
         zero[191] = 1;
 
         let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
@@ -952,7 +952,7 @@ mod tests {
         zero[0] = 192;
 
         let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         let p = get_random_g2_curve_point(&mut rnd);
@@ -960,7 +960,7 @@ mod tests {
         p_ser[0] ^= 0x80;
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         // Point not on the curve
@@ -970,7 +970,7 @@ mod tests {
 
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
@@ -979,7 +979,7 @@ mod tests {
         p_ser[0] ^= 0x20;
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
@@ -990,26 +990,26 @@ mod tests {
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
 
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_g2_sum(input.len, input.ptr, 0).unwrap();
+        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
     }
 
     // Input is beyond memory bounds.
     #[test]
     #[should_panic]
-    fn test_bls12381_g2_sum_too_big_input() {
+    fn test_bls12381_p2_sum_too_big_input() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
         let buffer = vec![0u8; 193 * 339];
 
         let input = logic.internal_mem_write(buffer.as_slice());
-        logic.bls12381_g1_sum(input.len, input.ptr, 0).unwrap();
+        logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
     }
 
     // Tests for multiplication
     #[test]
-    fn test_bls12381_g1_multiexp_mul() {
+    fn test_bls12381_p1_multiexp_mul() {
         let mut rnd = get_rnd();
 
         for _ in 0..100 {
