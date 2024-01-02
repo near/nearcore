@@ -143,6 +143,16 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
+    fn decompress_p2(p2: ECP2) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let input = logic.internal_mem_write(&serialize_g2(&p2));
+        let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
     fn map_fp_to_g1(fp: FP) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -1212,6 +1222,18 @@ mod tests {
             let res1 = decompress_p1(p1.clone());
 
             assert_eq!(res1, serialize_uncompressed_g1(&p1));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_p2_decompress() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p2 = get_random_g2_curve_point(&mut rnd);
+            let res1 = decompress_p2(p2.clone());
+
+            assert_eq!(res1, serialize_uncompressed_g2(&p2));
         }
     }
 }
