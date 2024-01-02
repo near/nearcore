@@ -3,6 +3,7 @@ mod tests {
     use amcl::bls381::big::Big;
     use amcl::bls381::bls381::core::deserialize_g1;
     use amcl::bls381::bls381::core::deserialize_g2;
+    use amcl::bls381::bls381::core::map_to_curve_g1;
     use amcl::bls381::ecp::ECP;
     use amcl::bls381::ecp2::ECP2;
     use amcl::rand::RAND;
@@ -11,6 +12,8 @@ mod tests {
                                       serialize_uncompressed_g1,
                                       serialize_uncompressed_g2};
     use amcl::bls381::fp2::FP2;
+    use amcl::bls381::fp::FP;
+    use amcl::bls381::rom::H_EFF_G1;
     use borsh::BorshSerialize;
     use rand::thread_rng;
     use rand::seq::SliceRandom;
@@ -100,6 +103,13 @@ mod tests {
         p
     }
 
+    fn get_random_fp(rnd: &mut RAND) -> FP {
+        let mut c: Big = Big::random(rnd);
+        c.mod2m(381);
+
+        FP::new_big(c)
+    }
+
     fn get_rnd() -> RAND {
         let mut rnd: RAND = RAND::new();
         rnd.clean();
@@ -109,6 +119,21 @@ mod tests {
         rnd.seed(100, &raw);
 
         rnd
+    }
+
+    fn map_fp_to_g1(fp: FP) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut fp_vec: [u8; 48] = [0u8; 48];
+        fp.redc().to_byte_array(&mut fp_vec, 0);
+
+        let fp_vec = fp_vec.try_to_vec().unwrap();
+
+        let input = logic.internal_mem_write(fp_vec.as_slice());
+        let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
     fn get_g1_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
@@ -1105,8 +1130,25 @@ mod tests {
 
             let res1 = get_g2_multiexp(&vec![(n.clone(), p.clone())]);
             let res2 = p.mul(&n);
-            
+
             assert_eq!(res1, serialize_uncompressed_g2(&res2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_map_fp_to_g1() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let mut fp = get_random_fp(&mut rnd);
+            fp.one();
+
+            let res1 = map_fp_to_g1(fp.clone());
+
+            let mut res2 = map_to_curve_g1(fp);
+            res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+
+            assert_eq!(res1, serialize_uncompressed_g1(&res2));
         }
     }
 }
