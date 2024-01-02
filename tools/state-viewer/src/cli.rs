@@ -677,8 +677,7 @@ pub enum RecordType {
     PostponedReceiptId = col::POSTPONED_RECEIPT_ID,
     PendingDataCount = col::PENDING_DATA_COUNT,
     PostponedReceipt = col::POSTPONED_RECEIPT,
-    DelayedReceiptIndices = col::DELAYED_RECEIPT_INDICES,
-    DelayedReceipt = col::DELAYED_RECEIPT,
+    DelayedReceiptOrIndices = col::DELAYED_RECEIPT_OR_INDICES,
     ContractData = col::CONTRACT_DATA,
 }
 
@@ -692,8 +691,7 @@ impl clap::ValueEnum for RecordType {
             Self::PostponedReceiptId,
             Self::PendingDataCount,
             Self::PostponedReceipt,
-            Self::DelayedReceiptIndices,
-            Self::DelayedReceipt,
+            Self::DelayedReceiptOrIndices,
             Self::ContractData,
         ]
     }
@@ -709,10 +707,9 @@ impl clap::ValueEnum for RecordType {
             }
             Self::PendingDataCount => Some(clap::builder::PossibleValue::new("pending-data-count")),
             Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
-            Self::DelayedReceiptIndices => {
-                Some(clap::builder::PossibleValue::new("delayed-receipt-indices"))
+            Self::DelayedReceiptOrIndices => {
+                Some(clap::builder::PossibleValue::new("delayed-receipt-or-indices"))
             }
-            Self::DelayedReceipt => Some(clap::builder::PossibleValue::new("delayed-receipt")),
             Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
         }
     }
