@@ -4,6 +4,7 @@ mod tests {
     use amcl::bls381::bls381::core::deserialize_g1;
     use amcl::bls381::bls381::core::deserialize_g2;
     use amcl::bls381::bls381::core::map_to_curve_g1;
+    use amcl::bls381::bls381::core::map_to_curve_g2;
     use amcl::bls381::ecp::ECP;
     use amcl::bls381::ecp2::ECP2;
     use amcl::rand::RAND;
@@ -110,6 +111,16 @@ mod tests {
         FP::new_big(c)
     }
 
+    fn get_random_fp2(rnd: &mut RAND) -> FP2 {
+        let mut c: Big = Big::random(rnd);
+        c.mod2m(381);
+
+        let mut d: Big = Big::random(rnd);
+        d.mod2m(381);
+
+        FP2::new_bigs(c, d)
+    }
+
     fn get_rnd() -> RAND {
         let mut rnd: RAND = RAND::new();
         rnd.clean();
@@ -132,6 +143,22 @@ mod tests {
 
         let input = logic.internal_mem_write(fp_vec.as_slice());
         let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 0);
+        logic.registers().get_for_free(0).unwrap().to_vec()
+    }
+
+    fn map_fp2_to_g2(fp2: FP2) -> Vec<u8> {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut fp2_vec: [u8; 96] = [0u8; 96];
+        fp2.getb().to_byte_array(&mut fp2_vec, 0);
+        fp2.geta().to_byte_array(&mut fp2_vec, 48);
+
+        let fp2_vec = fp2_vec.try_to_vec().unwrap();
+
+        let input = logic.internal_mem_write(fp2_vec.as_slice());
+        let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
@@ -1140,15 +1167,28 @@ mod tests {
         let mut rnd = get_rnd();
 
         for _ in 0..100 {
-            let mut fp = get_random_fp(&mut rnd);
-            fp.one();
-
+            let fp = get_random_fp(&mut rnd);
             let res1 = map_fp_to_g1(fp.clone());
 
             let mut res2 = map_to_curve_g1(fp);
             res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
 
             assert_eq!(res1, serialize_uncompressed_g1(&res2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_map_fp2_to_g2() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let fp2 = get_random_fp2(&mut rnd);
+            let res1 = map_fp2_to_g2(fp2.clone());
+
+            let mut res2 = map_to_curve_g2(fp2);
+            res2.clear_cofactor();
+
+            assert_eq!(res1, serialize_uncompressed_g2(&res2));
         }
     }
 }
