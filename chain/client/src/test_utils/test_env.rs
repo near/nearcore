@@ -7,6 +7,7 @@ use crate::Client;
 use near_async::messaging::CanSend;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::{ChainGenesis, Provenance};
+use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -30,8 +31,10 @@ use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats}
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
+    StateItem,
 };
+use near_store::ShardUId;
 use once_cell::sync::OnceCell;
 
 use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
@@ -375,6 +378,21 @@ impl TestEnv {
             QueryResponseKind::ViewAccount(account_view) => account_view,
             _ => panic!("Wrong return value"),
         }
+    }
+
+    pub fn query_view(&mut self, request: QueryRequest) -> Result<QueryResponse, QueryError> {
+        let head = self.clients[0].chain.head().unwrap();
+        let head_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        self.clients[0].runtime_adapter.query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &request,
+        )
     }
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {

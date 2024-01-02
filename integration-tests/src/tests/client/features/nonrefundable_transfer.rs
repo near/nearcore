@@ -9,30 +9,301 @@
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
-use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::errors::{ActionsValidationError, InvalidTxError};
-use near_primitives::transaction::{Action, TransferActionV2};
+use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
+};
+use near_primitives::test_utils::near_implicit_test_account;
+use near_primitives::transaction::{
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
+    SignedTransaction, TransferActionV2,
+};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
-use near_primitives::views::FinalExecutionOutcomeView;
+use near_primitives::views::{
+    ExecutionStatusView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind,
+};
+use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
+use nearcore::NEAR_BASE;
+
+// Default sender to use in tests of this module.
+fn sender() -> AccountId {
+    "test0".parse().unwrap()
+}
+
+/// Default receiver to use in tests of this module.
+fn receiver() -> AccountId {
+    "test1".parse().unwrap()
+}
+
+/// Default signer (corresponding to the default sender) to use in tests of this module.
+fn signer() -> InMemorySigner {
+    InMemorySigner::from_seed(sender(), KeyType::ED25519, "test0")
+}
+
+/// Creates a test environment using given protocol version (if some).
+fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) -> TestEnv {
+    let mut genesis = Genesis::test(vec![sender(), receiver()], 1);
+    if let Some(protocol_version) = protocol_version {
+        genesis.config.protocol_version = protocol_version;
+    }
+    TestEnv::builder(ChainGenesis::test())
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .build()
+}
+
+/// Creates a test environment without modifying protocol version.
+fn setup_env() -> TestEnv {
+    setup_env_with_protocol_version(None)
+}
+
+fn get_nonce(env: &mut TestEnv, signer: &InMemorySigner) -> u64 {
+    let request = QueryRequest::ViewAccessKey {
+        account_id: signer.account_id.clone(),
+        public_key: signer.public_key.clone(),
+    };
+    match env.query_view(request).unwrap().kind {
+        QueryResponseKind::AccessKey(view) => view.nonce,
+        _ => panic!("wrong query response"),
+    }
+}
+
+fn account_exists(env: &mut TestEnv, account_id: AccountId) -> bool {
+    let request = QueryRequest::ViewAccount { account_id };
+    env.query_view(request).is_ok()
+}
+
+fn execute_transaction_from_actions(
+    env: &mut TestEnv,
+    actions: Vec<Action>,
+    signer: &InMemorySigner,
+    receiver: AccountId,
+) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+    let tip = env.clients[0].chain.head().unwrap();
+    let nonce = get_nonce(env, signer);
+    let tx = SignedTransaction::from_actions(
+        nonce + 1,
+        signer.account_id.clone(),
+        receiver,
+        signer,
+        actions,
+        tip.last_block_hash,
+    );
+    let tx_result = env.execute_tx(tx);
+    let height = env.clients[0].chain.head().unwrap().height;
+    for i in 0..2 {
+        env.produce_block(0, height + 1 + i);
+    }
+    tx_result
+}
+
+/// Submits a transfer V2 action.
+///
+/// This methods checks that the balance is subtracted from the sender and added
+/// to the receiver, if the status was ok. No checks are done on an error.
+fn exec_transfer_v2(
+    env: &mut TestEnv,
+    signer: InMemorySigner,
+    receiver: AccountId,
+    deposit: Balance,
+    nonrefundable: bool,
+    account_creation: bool,
+    implicit_account_creation: bool,
+    deploy_contract: bool,
+) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+    let sender_pre_balance = env.query_balance(sender());
+    let (receiver_before_amount, receiver_before_nonrefundable) = if account_creation {
+        (0, 0)
+    } else {
+        let receiver_before = env.query_account(receiver.clone());
+        (receiver_before.amount, receiver_before.nonrefundable)
+    };
+
+    let mut actions = vec![];
+    if account_creation && !implicit_account_creation {
+        actions.push(Action::CreateAccount(CreateAccountAction {}));
+        actions.push(Action::AddKey(Box::new(AddKeyAction {
+            public_key: PublicKey::from_seed(KeyType::ED25519, receiver.as_str()),
+            access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
+        })));
+    }
+    actions.push(Action::TransferV2(Box::new(TransferActionV2 { deposit, nonrefundable })));
+    if deploy_contract {
+        let contract = near_test_contracts::sized_contract(1500 as usize);
+        actions.push(Action::DeployContract(DeployContractAction { code: contract.to_vec() }))
+    }
+
+    let tx_result = execute_transaction_from_actions(env, actions, &signer, receiver.clone());
+
+    let outcome = match &tx_result {
+        Ok(outcome) => outcome,
+        _ => {
+            return tx_result;
+        }
+    };
+
+    if !matches!(outcome.status, near_primitives::views::FinalExecutionStatus::SuccessValue(_)) {
+        return tx_result;
+    }
+
+    let gas_cost = outcome.gas_cost();
+    assert_eq!(sender_pre_balance - deposit - gas_cost, env.query_balance(sender()));
+
+    let receiver_after = env.query_account(receiver);
+    let (receiver_expected_amount_after, receiver_expected_non_refundable_after) = if nonrefundable
+    {
+        (receiver_before_amount, receiver_before_nonrefundable + deposit)
+    } else {
+        (receiver_before_amount + deposit, receiver_before_nonrefundable)
+    };
+
+    assert_eq!(receiver_after.amount, receiver_expected_amount_after);
+    assert_eq!(receiver_after.nonrefundable, receiver_expected_non_refundable_after);
+
+    tx_result
+}
+
+fn delete_account(
+    env: &mut TestEnv,
+    signer: &InMemorySigner,
+) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
+    let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: receiver() })];
+    execute_transaction_from_actions(env, actions, &signer, signer.account_id.clone())
+}
+
+/// Can delete account with non-refundable storage.
+#[test]
+fn deleting_account_with_non_refundable_storage() {
+    let mut env = setup_env();
+    let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
+    let new_account = InMemorySigner::from_seed(
+        new_account_id.clone(),
+        KeyType::ED25519,
+        new_account_id.as_str(),
+    );
+    let create_account_tx_result = exec_transfer_v2(
+        &mut env,
+        signer(),
+        new_account_id.clone(),
+        NEAR_BASE,
+        true,
+        true,
+        false,
+        true,
+    );
+    create_account_tx_result.unwrap().assert_success();
+
+    let delete_account_tx_result = delete_account(&mut env, &new_account);
+    delete_account_tx_result.unwrap().assert_success();
+    assert!(!account_exists(&mut env, new_account_id));
+}
+
+/// Non-refundable balance cannot be transferred.
+#[test]
+fn non_refundable_balance_cannot_be_transferred() {
+    let mut env = setup_env();
+    let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
+    let new_account = InMemorySigner::from_seed(
+        new_account_id.clone(),
+        KeyType::ED25519,
+        new_account_id.as_str(),
+    );
+    // The `new_account` is created with `NEAR_BASE` non-refundable balance.
+    let create_account_tx_result = exec_transfer_v2(
+        &mut env,
+        signer(),
+        new_account_id.clone(),
+        NEAR_BASE,
+        true,
+        true,
+        false,
+        false,
+    );
+    create_account_tx_result.unwrap().assert_success();
+
+    // Although `new_account` has `NEAR_BASE` balance, it cannot make neither refundable nor non-refundable transfer of 1.
+    for nonrefundable in [false, true] {
+        let transfer_tx_result = exec_transfer_v2(
+            &mut env,
+            new_account.clone(),
+            receiver(),
+            1,
+            nonrefundable,
+            false,
+            false,
+            false,
+        );
+        assert_eq!(
+            transfer_tx_result,
+            Err(InvalidTxError::NotEnoughBalance {
+                signer_id: new_account_id.clone(),
+                balance: 0,
+                cost: 1,
+            }),
+        );
+    }
+}
+
+/// Non-refundable balance allows to have account with zero balance and more than 1kB of state.
+#[test]
+fn non_refundable_balance_allows_1kb_state_with_zero_balance() {
+    let mut env = setup_env();
+    let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
+    let tx_result = exec_transfer_v2(
+        &mut env,
+        signer(),
+        new_account_id,
+        NEAR_BASE / 5,
+        true,
+        true,
+        false,
+        true,
+    );
+    tx_result.unwrap().assert_success();
+}
+
+/// Non-refundable transfer successfully adds non-refundable balance when creating named account.
+#[test]
+fn non_refundable_transfer_create_named_account() {
+    let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
+    let tx_result =
+        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, false, false);
+    tx_result.unwrap().assert_success();
+}
+
+/// Non-refundable transfer successfully adds non-refundable balance when creating NEAR-implicit account.
+#[test]
+fn non_refundable_transfer_create_near_implicit_account() {
+    let new_account_id = near_implicit_test_account();
+    let tx_result =
+        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+    tx_result.unwrap().assert_success();
+}
+
+/// Non-refundable transfer is rejected on existing account.
+#[test]
+fn reject_non_refundable_transfer_existing_account() {
+    let tx_result =
+        exec_transfer_v2(&mut setup_env(), signer(), receiver(), 1, true, false, false, false);
+    let status = &tx_result.unwrap().receipts_outcome[0].outcome.status;
+    assert!(matches!(
+        status,
+        ExecutionStatusView::Failure(TxExecutionError::ActionError(
+            ActionError { kind: ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id }, .. }
+        )) if *account_id == receiver(),
+    ));
+}
 
 /// Refundable transfer V2 successfully adds balance like a transfer V1.
 #[test]
 fn transfer_v2() {
-    let protocol_version = ProtocolFeature::NonRefundableBalance.protocol_version();
-    exec_transfer_v2(protocol_version, 1, false)
+    exec_transfer_v2(&mut setup_env(), signer(), receiver(), 1, false, false, false, false)
         .expect("Transfer V2 should be accepted")
         .assert_success();
 }
-
-// TODO: Test non-refundable transfer is rejected on existing account
-// TODO: Test for non-refundable transfer V2 successfully adding non-refundable balance when creating implicit account
-// TODO: Test for non-refundable transfer V2 successfully adding non-refundable balance when creating named account
-// TODO: Test non-refundable balance allowing to have account with zero balance and more than 1kB of state
-// TODO: Test non-refundable balance cannot be transferred
-// TODO: Test for deleting an account with non-refundable storage (might rip up the balance checker)
 
 /// During the protocol upgrade phase, before the voting completes, we must not
 /// include transfer V2 actions on the chain.
@@ -42,79 +313,17 @@ fn transfer_v2() {
 /// returned for older protocol versions.
 #[test]
 fn reject_transfer_v2_in_older_versions() {
-    let protocol_version = ProtocolFeature::NonRefundableBalance.protocol_version() - 1;
-
-    let status = exec_transfer_v2(protocol_version, 1, false);
-    assert!(
-        matches!(
-                &status,
-                Err(
-                    InvalidTxError::ActionsValidation(
-                        ActionsValidationError::UnsupportedProtocolFeature{ protocol_feature, version }
-                    )
-                )
-                if protocol_feature == "NonRefundableBalance" && *version == ProtocolFeature::NonRefundableBalance.protocol_version()
-        ),
-        "{status:?}",
-    );
-}
-
-/// Sender implicitly used in all test of this module.
-fn sender() -> AccountId {
-    "test0".parse().unwrap()
-}
-
-/// Receiver implicitly used in all test of this module.
-fn receiver() -> AccountId {
-    "test1".parse().unwrap()
-}
-
-/// Creates a test environment and submits a transfer V2 action.
-///
-/// This methods checks that the balance is subtracted from the sender and added
-/// to the receiver, if the status was ok. No checks are done on an error.
-fn exec_transfer_v2(
-    protocol_version: ProtocolVersion,
-    deposit: Balance,
-    nonrefundable: bool,
-) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-    let mut genesis = Genesis::test(vec![sender(), receiver()], 1);
-    let signer = InMemorySigner::from_seed(sender(), KeyType::ED25519, "test0");
-
-    genesis.config.protocol_version = protocol_version;
-
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
-
-    let sender_pre_balance = env.query_balance(sender());
-    let receiver_before = env.query_account(receiver());
-
-    let transfer = Action::TransferV2(Box::new(TransferActionV2 { deposit, nonrefundable }));
-    let tx = env.tx_from_actions(vec![transfer], &signer, receiver());
-
-    let status = env.execute_tx(tx);
-    let height = env.clients[0].chain.head().unwrap().height;
-    for i in 0..2 {
-        env.produce_block(0, height + 1 + i);
-    }
-
-    if let Ok(outcome) = &status {
-        let gas_cost = outcome.gas_cost();
-        assert_eq!(sender_pre_balance - deposit - gas_cost, env.query_balance(sender()));
-
-        if matches!(outcome.status, near_primitives::views::FinalExecutionStatus::SuccessValue(_)) {
-            let receiver_after = env.query_account(receiver());
-            if nonrefundable {
-                assert_eq!(receiver_before.amount, receiver_after.amount);
-                assert_eq!(receiver_before.nonrefundable + deposit, receiver_after.nonrefundable);
-            } else {
-                assert_eq!(receiver_before.amount + deposit, receiver_after.amount);
-                assert_eq!(receiver_before.nonrefundable, receiver_after.nonrefundable);
+    let mut env = setup_env_with_protocol_version(Some(
+        ProtocolFeature::NonRefundableBalance.protocol_version() - 1,
+    ));
+    let tx_result = exec_transfer_v2(&mut env, signer(), receiver(), 1, false, false, false, false);
+    assert_eq!(
+        tx_result,
+        Err(InvalidTxError::ActionsValidation(
+            ActionsValidationError::UnsupportedProtocolFeature {
+                protocol_feature: "NonRefundableBalance".to_string(),
+                version: ProtocolFeature::NonRefundableBalance.protocol_version()
             }
-        }
-    }
-
-    status
+        ))
+    );
 }
