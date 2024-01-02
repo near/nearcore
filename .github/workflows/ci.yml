@@ -310,6 +310,7 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: coverage
+      # Keep in sync with codecov.yml
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
