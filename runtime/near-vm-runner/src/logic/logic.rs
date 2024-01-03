@@ -1193,6 +1193,12 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
+        if value_len % 96 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_map_fp2_to_g2: {} is not divisible by 96", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut c_fp1 = [blst::blst_fp::default(); 2];
 
