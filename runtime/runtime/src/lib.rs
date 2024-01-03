@@ -24,9 +24,11 @@ pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
-    SignedTransaction, TransferAction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
+    ExecutionStatus, LogEntry, SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
@@ -468,6 +470,10 @@ impl Runtime {
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = &receipt.receiver_id;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let account_before_update = get_account(state_update, account_id)?;
+
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -543,6 +549,21 @@ impl Runtime {
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
                 break;
+            }
+
+            // We update `other_burnt_amount` statistic with the non-refundable amount being burnt on account deletion.
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            if matches!(action, Action::DeleteAccount(DeleteAccountAction { beneficiary_id: _ })) {
+                debug_assert!(
+                    account_before_update.is_some(),
+                    "Missing account state from before deletion."
+                );
+                if let Some(ref account_before_deletion) = account_before_update {
+                    stats.other_burnt_amount = safe_add_balance(
+                        stats.other_burnt_amount,
+                        account_before_deletion.nonrefundable(),
+                    )?
+                }
             }
         }
 

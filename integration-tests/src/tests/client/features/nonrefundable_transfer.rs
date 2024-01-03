@@ -28,7 +28,7 @@ use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 
-// Default sender to use in tests of this module.
+/// Default sender to use in tests of this module.
 fn sender() -> AccountId {
     "test0".parse().unwrap()
 }
@@ -49,7 +49,7 @@ fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) ->
     if let Some(protocol_version) = protocol_version {
         genesis.config.protocol_version = protocol_version;
     }
-    TestEnv::builder(ChainGenesis::test())
+    TestEnv::builder(ChainGenesis::new(&genesis))
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build()
@@ -184,6 +184,8 @@ fn deleting_account_with_non_refundable_storage() {
         KeyType::ED25519,
         new_account_id.as_str(),
     );
+    // Create account with non-refundable storage.
+    // Deploy a contract that does not fit within Zero-balance account limit.
     let create_account_tx_result = exec_transfer_v2(
         &mut env,
         signer(),
@@ -196,6 +198,20 @@ fn deleting_account_with_non_refundable_storage() {
     );
     create_account_tx_result.unwrap().assert_success();
 
+    // Send some NEAR (refundable) so that the new account is able to pay the gas for its deletion in the next transaction.
+    let send_money_tx_result = exec_transfer_v2(
+        &mut env,
+        signer(),
+        new_account_id.clone(),
+        10u128.pow(20),
+        false,
+        false,
+        false,
+        false,
+    );
+    send_money_tx_result.unwrap().assert_success();
+
+    // Delete the new account (that has 1 NEAR of non-refundable balance).
     let delete_account_tx_result = delete_account(&mut env, &new_account);
     delete_account_tx_result.unwrap().assert_success();
     assert!(!account_exists(&mut env, new_account_id));
