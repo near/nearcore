@@ -1344,6 +1344,16 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn test_bls12381_map_fp_to_g1_incorrect_input_length() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let input = logic.internal_mem_write(vec![0u8; 49].as_slice());
+        logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
     fn test_bls12381_map_fp2_to_g2() {
         let mut rnd = get_rnd();
 
