@@ -1264,6 +1264,71 @@ mod tests {
     }
 
     #[test]
+    fn test_bls12381_p2_multiexp_incorrect_input() {
+        let mut rnd = get_rnd();
+
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let zero_scalar = vec![0u8; 32];
+
+        // Incorrect encoding of the point at infinity
+        let mut zero = vec![0u8; 192];
+        zero[0] = 64;
+        zero[191] = 1;
+
+        let input = logic.internal_mem_write(vec![zero, zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
+        let mut zero = vec![0u8; 192];
+        zero[0] = 192;
+
+        let input = logic.internal_mem_write(vec![zero, zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g2(&p);
+        p_ser[0] ^= 0x80;
+
+        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        // Point not on the curve
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g2(&p);
+        p_ser[191] ^= 0x01;
+
+
+        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g2(&p);
+        p_ser[0] ^= 0x20;
+
+        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut yabig = p.gety().geta();
+        yabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        let mut p_ser = serialize_uncompressed_g2(&p);
+        yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
+
+        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+    }
+
+    #[test]
     fn test_bls12381_map_fp_to_g1() {
         let mut rnd = get_rnd();
 

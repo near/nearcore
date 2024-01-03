@@ -1108,8 +1108,12 @@ impl<'a> VMLogic<'a> {
         let mut res_pk = blst::blst_p2::default();
         for i in 0..elements_count {
             let mut pk_aff = blst::blst_p2_affine::default();
-            unsafe {
-                blst::blst_p2_deserialize(&mut pk_aff, data[i*224..(i*224 + 192)].as_ptr());
+            let error_code = unsafe {
+                blst::blst_p2_deserialize(&mut pk_aff, data[i*224..(i*224 + 192)].as_ptr())
+            };
+
+            if (error_code != BLST_SUCCESS) || (data[i*224] & 0x80 != 0) {
+                return Ok(1);
             }
 
             let mut pk = blst::blst_p2::default();
