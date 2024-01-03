@@ -1298,6 +1298,12 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p1_decompress_base)?;
+        if value_len % 48 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_p1_decompress: {} is not divisible by 48", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res = Vec::<u8>::new();
@@ -1323,6 +1329,12 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p2_decompress_base)?;
+        if value_len % 96 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_p2_decompress: {} is not divisible by 96", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
 
         let mut res = Vec::<u8>::new();
@@ -1331,8 +1343,12 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_p2_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let sig = blst::min_pk::Signature::uncompress(&data[i*96..(i + 1)*96]).unwrap();
-            let sig_ser = sig.serialize();
+            let sig_res = blst::min_pk::Signature::uncompress(&data[i*96..(i + 1)*96]);
+            let sig_ser = if let Ok(sig) = sig_res {
+                sig.serialize()
+            } else {
+                return Ok(1);
+            };
 
             res.extend_from_slice(sig_ser.as_slice());
         }

@@ -1430,6 +1430,50 @@ mod tests {
     }
 
     #[test]
+    fn test_bls12381_p2_decompress_incorrect_input() {
+        let mut rnd = get_rnd();
+
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        // Incorrect encoding of the point at infinity
+        let mut zero = vec![0u8; 96];
+        zero[0] = 0x80 | 0x40;
+        zero[95] = 1;
+
+        let input = logic.internal_mem_write(zero.as_slice());
+        let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
+        let mut zero = vec![0u8; 96];
+        zero[0] = 0x40;
+
+        let input = logic.internal_mem_write(zero.as_slice());
+        let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut p_ser = serialize_g2(&p);
+        p_ser[0] ^= 0x80;
+
+        let input = logic.internal_mem_write(p_ser.as_slice());
+        let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+
+        //Point with a coordinate larger than 'p'.
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut xabig = p.getx().geta();
+        xabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        let mut p_ser = serialize_g2(&p);
+        xabig.to_byte_array(&mut p_ser[0..96], 48);
+
+        let input = logic.internal_mem_write(p_ser.as_slice());
+        let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+        assert_eq!(res, 1);
+    }
+
+    #[test]
     #[should_panic]
     fn test_bls12381_p2_decompress_incorrect_input_length() {
         let mut logic_builder = VMLogicBuilder::default();
