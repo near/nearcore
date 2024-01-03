@@ -1312,8 +1312,12 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_per(bls12381_p1_decompress_element, elements_count as u64)?;
 
         for i in 0..elements_count {
-            let pk = blst::min_pk::PublicKey::uncompress(&data[i*48..(i + 1)*48]).unwrap();
-            let pk_ser = pk.serialize();
+            let pk_res = blst::min_pk::PublicKey::uncompress(&data[i*48..(i + 1)*48]);
+            let pk_ser = if let Ok(pk) = pk_res {
+                pk.serialize()
+            } else {
+                return Ok(1);
+            };
 
             res.extend_from_slice(pk_ser.as_slice());
         }
