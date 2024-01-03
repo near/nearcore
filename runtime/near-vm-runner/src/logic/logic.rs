@@ -1266,11 +1266,25 @@ impl<'a> VMLogic<'a> {
                 return Ok(1);
             }
 
+            let g1_check = unsafe {
+                blst::blst_p1_affine_in_g1(&g1_aff)
+            };
+            if g1_check == false {
+                return Ok(1);
+            }
+
             let mut g2_aff = blst::blst_p2_affine::default();
             let error_code = unsafe {
                 blst::blst_p2_deserialize(&mut g2_aff, data[(i*288+96) .. ((i + 1)*288)].as_ptr())
             };
             if (error_code != BLST_SUCCESS) || (data[i*288 + 96] & 0x80 != 0) {
+                return Ok(1);
+            }
+
+            let g2_check = unsafe {
+                blst::blst_p2_affine_in_g2(&g2_aff)
+            };
+            if g2_check == false {
                 return Ok(1);
             }
 

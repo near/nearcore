@@ -198,6 +198,17 @@ mod tests {
         return res;
     }
 
+    fn pairing_check_vec(p1: Vec<u8>, p2: Vec<u8>) -> u64 {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![p1, p2];
+
+        let input = logic.internal_mem_write(&buffer.concat().as_slice());
+        let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+        return res;
+    }
+
     fn get_g1_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
         let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
 
@@ -1551,6 +1562,60 @@ mod tests {
             assert_eq!(pairing_check(p1.clone(), zero2.clone()), 0);
             assert_eq!(pairing_check(p1.clone(), p2.clone()), 2);
         }
+    }
+
+    #[test]
+    fn test_bls12381_pairing_incorrect_input_point() {
+        let mut rnd = get_rnd();
+
+        let p1_not_from_g1 = get_random_not_g1_curve_point(&mut rnd);
+        let p2 = get_random_g2_point(&mut rnd);
+
+        let p1 = get_random_g1_point(&mut rnd);
+        let p2_not_from_g2 = get_random_not_g2_curve_point(&mut rnd);
+
+        assert_eq!(pairing_check(p1_not_from_g1.clone(), p2.clone()), 1);
+        assert_eq!(pairing_check(p1.clone(), p2_not_from_g2.clone()), 1);
+
+        // Incorrect encoding of the point at infinity
+        let mut zero = vec![0u8; 96];
+        zero[0] = 64;
+        zero[95] = 1;
+        assert_eq!(pairing_check_vec(zero.clone(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
+        let mut zero = vec![0u8; 96];
+        zero[0] = 192;
+        assert_eq!(pairing_check_vec(zero.clone(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        let p = get_random_g1_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[0] |= 0x80;
+
+        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        // Point not on the curve
+        let p = get_random_g1_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[95] ^= 0x01;
+
+        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
+        let p = get_random_g1_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        p_ser[0] ^= 0x20;
+
+        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
+        let p = get_random_g1_curve_point(&mut rnd);
+        let mut ybig = p.gety();
+        ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        let mut p_ser = serialize_uncompressed_g1(&p);
+        ybig.to_byte_array(&mut p_ser[0..96], 48);
+
+        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
     }
 
     #[test]
