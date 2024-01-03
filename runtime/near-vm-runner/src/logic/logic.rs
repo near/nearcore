@@ -1038,6 +1038,11 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p1_multiexp_base)?;
+        if value_len % 128 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_p1_multiexp: {} is not divisible by 128", value_len)
+            }.into());
+        }
 
         const POINT_BYTES_LEN: u64 = 96;
         const SCALAR_BYTES_LEN: u64 = 32;
@@ -1096,6 +1101,11 @@ impl<'a> VMLogic<'a> {
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_p2_multiexp_base)?;
+        if value_len % 224 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_p2_multiexp: {} is not divisible by 224", value_len)
+            }.into());
+        }
 
         const POINT_BYTES_LEN: u64 = 192;
         const SCALAR_BYTES_LEN: u64 = 32;
@@ -1233,6 +1243,12 @@ impl<'a> VMLogic<'a> {
                                   value_len: u64,
                                   value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_pairing_base)?;
+        if value_len % 288 != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!("Incorrect input length for bls12381_pairing_check: {} is not divisible by 288", value_len)
+            }.into());
+        }
+
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let elements_count = data.len() / 288;
 
