@@ -540,11 +540,18 @@ impl Signature {
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
-                let rsig = secp256k1::ecdsa::RecoverableSignature::from_compact(
+                let rec_id =
+                    match secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])) {
+                        Ok(r) => r,
+                        Err(_) => return false,
+                    };
+                let rsig = match secp256k1::ecdsa::RecoverableSignature::from_compact(
                     &signature.0[0..64],
-                    secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
-                )
-                .unwrap();
+                    rec_id,
+                ) {
+                    Ok(r) => r,
+                    Err(_) => return false,
+                };
                 let sig = rsig.to_standard();
                 let pdata: [u8; 65] = {
                     // code borrowed from https://github.com/openethereum/openethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
@@ -556,13 +563,11 @@ impl Signature {
                     Ok(m) => m,
                     Err(_) => return false,
                 };
-                SECP256K1
-                    .verify_ecdsa(
-                        &message,
-                        &sig,
-                        &secp256k1::PublicKey::from_slice(&pdata).unwrap(),
-                    )
-                    .is_ok()
+                let pub_key = match secp256k1::PublicKey::from_slice(&pdata) {
+                    Ok(p) => p,
+                    Err(_) => return false,
+                };
+                SECP256K1.verify_ecdsa(&message, &sig, &pub_key).is_ok()
             }
             _ => false,
         }
