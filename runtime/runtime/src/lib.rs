@@ -27,8 +27,8 @@ use near_primitives::state_record::StateRecord;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
-    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId,
-    ExecutionStatus, LogEntry, SignedTransaction, TransferAction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+    SignedTransaction, TransferAction,
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{

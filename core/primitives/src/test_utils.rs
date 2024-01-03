@@ -570,7 +570,7 @@ impl FinalExecutionOutcomeView {
     #[track_caller]
     /// Check transaction and all transitive receipts for success status.
     pub fn assert_success(&self) {
-        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)), "{:?}", self.status);
+        assert!(matches!(self.status, FinalExecutionStatus::SuccessValue(_)));
         for (i, receipt) in self.receipts_outcome.iter().enumerate() {
             assert!(
                 matches!(

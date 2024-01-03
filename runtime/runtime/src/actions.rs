@@ -481,6 +481,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
 ) {
     *actor_id = account_id.clone();
 
+    let (refundable_balance, nonrefundable_balance) =
+        if nonrefundable { (0, deposit) } else { (deposit, 0) };
+
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
             let mut access_key = AccessKey::full_access();
@@ -497,17 +500,6 @@ pub(crate) fn action_implicit_account_creation_transfer(
 
             // unwrap: here it's safe because the `account_id` has already been determined to be implicit by `get_account_type`
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
-
-            // TODO(jakmeier): feature flag?
-            let refundable_balance;
-            let nonrefundable_balance;
-            if nonrefundable {
-                refundable_balance = 0;
-                nonrefundable_balance = deposit;
-            } else {
-                refundable_balance = deposit;
-                nonrefundable_balance = 0;
-            }
 
             *account = Some(Account::new(
                 refundable_balance,
@@ -535,7 +527,13 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                *account = Some(Account::new(deposit, 0, 0, *magic_bytes.hash(), storage_usage));
+                *account = Some(Account::new(
+                    refundable_balance,
+                    0,
+                    nonrefundable_balance,
+                    *magic_bytes.hash(),
+                    storage_usage,
+                ));
                 set_code(state_update, account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.

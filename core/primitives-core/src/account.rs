@@ -143,7 +143,6 @@ impl Account {
 
     #[inline]
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-
     pub fn set_nonrefundable(&mut self, nonrefundable: Balance) {
         self.nonrefundable = nonrefundable;
     }
@@ -191,10 +190,10 @@ impl BorshDeserialize for Account {
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             // Account v2 or newer
             let version_byte = u8::deserialize_reader(rd)?;
-            // TODO(jakmeier): return proper error instead of panic
+            // TODO(nonrefundable-transfer) Return proper error instead of panic
             debug_assert_eq!(version_byte, 2);
-            // TODO(jakmeier): return proper error instead of panic
-            let version = AccountVersion::try_from(version_byte).expect("TODO(jakmeier)");
+            // TODO(nonrefundable-transfer) Return proper error instead of panic
+            let version = AccountVersion::try_from(version_byte).expect("");
             let amount = u128::deserialize_reader(rd)?;
             let locked = u128::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
@@ -251,7 +250,7 @@ impl BorshSerialize for Account {
                 // while serializing. But that would break the borsh assumptions
                 // of unique binary representation.
                 AccountVersion::V1 => legacy_account.serialize(writer),
-                // TODO(jakmeier): Can we do better than this?
+                // TODO(nonrefundable-transfer): Can we do better than this?
                 // Context: These accounts are serialized in merklized state. I
                 // would really like to avoid migration of the MPT. This here would
                 // keep old accounts in the old format and only allow nonrefundable
@@ -263,7 +262,7 @@ impl BorshSerialize for Account {
                     let version = 2u8;
                     BorshSerialize::serialize(&sentinel, writer)?;
                     BorshSerialize::serialize(&version, writer)?;
-                    // TODO(jakmeier): Consider wrapping this in a struct and derive BorshSerialize for it.
+                    // TODO(nonrefundable-transfer): Consider wrapping this in a struct and derive BorshSerialize for it.
                     BorshSerialize::serialize(&self.amount, writer)?;
                     BorshSerialize::serialize(&self.locked, writer)?;
                     BorshSerialize::serialize(&self.code_hash, writer)?;

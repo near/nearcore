@@ -437,7 +437,8 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        // u128::MAX is used as a sentinel value for account version 2 or higher, see https://github.com/near/NEPs/pull/491.
+        // We use `u128::MAX - 1`, because `u128::MAX` is used as a sentinel value for accounts version 2 or higher.
+        // See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
         let alice = account_new(u128::MAX - 1, hash(&[]));
         let bob = account_new(2u128, hash(&[]));
 
@@ -448,7 +449,7 @@ mod tests {
         let signer =
             InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
 
-        // Sending 2, so that we have an overflow when adding to alice's balance.
+        // Sending 2 yoctoNEAR, so that we have an overflow when adding to alice's balance.
         let tx =
             SignedTransaction::send_money(0, alice_id, bob_id, &signer, 2, CryptoHash::default());
 
@@ -480,9 +481,9 @@ mod tests {
         );
     }
 
-    /// This tests shows what would happen if the total balance becomes u128::MAX,
-    /// a sentinel value use to distinguish between accounts version 1 and 2+,
-    /// see https://github.com/near/NEPs/pull/491.
+    /// This tests shows what would happen if the total balance becomes u128::MAX
+    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher
+    /// See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
     #[test]
     fn test_total_balance_u128_max() {
         let tries = TestTriesBuilder::new().build();

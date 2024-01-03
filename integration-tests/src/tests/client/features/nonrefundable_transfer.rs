@@ -13,7 +13,7 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidTxError, TxExecutionError,
 };
-use near_primitives::test_utils::near_implicit_test_account;
+use near_primitives::test_utils::{eth_implicit_test_account, near_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
     SignedTransaction, TransferActionV2,
@@ -55,7 +55,7 @@ fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) ->
         .build()
 }
 
-/// Creates a test environment without modifying protocol version.
+/// Creates a test environment using default protocol version.
 fn setup_env() -> TestEnv {
     setup_env_with_protocol_version(None)
 }
@@ -227,7 +227,7 @@ fn non_refundable_balance_cannot_be_transferred() {
         KeyType::ED25519,
         new_account_id.as_str(),
     );
-    // The `new_account` is created with `NEAR_BASE` non-refundable balance.
+    // The `new_account` is created with 1 NEAR non-refundable balance.
     let create_account_tx_result = exec_transfer_v2(
         &mut env,
         signer(),
@@ -240,7 +240,7 @@ fn non_refundable_balance_cannot_be_transferred() {
     );
     create_account_tx_result.unwrap().assert_success();
 
-    // Although `new_account` has `NEAR_BASE` balance, it cannot make neither refundable nor non-refundable transfer of 1.
+    // Although `new_account` has 1 NEAR balance, it cannot make neither refundable nor non-refundable transfer of 1 yoctoNEAR.
     for nonrefundable in [false, true] {
         let transfer_tx_result = exec_transfer_v2(
             &mut env,
@@ -294,6 +294,15 @@ fn non_refundable_transfer_create_named_account() {
 #[test]
 fn non_refundable_transfer_create_near_implicit_account() {
     let new_account_id = near_implicit_test_account();
+    let tx_result =
+        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+    tx_result.unwrap().assert_success();
+}
+
+/// Non-refundable transfer successfully adds non-refundable balance when creating ETH-implicit account.
+#[test]
+fn non_refundable_transfer_create_eth_implicit_account() {
+    let new_account_id = eth_implicit_test_account();
     let tx_result =
         exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
     tx_result.unwrap().assert_success();

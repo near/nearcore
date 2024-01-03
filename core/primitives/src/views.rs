@@ -1241,7 +1241,7 @@ impl From<Action> for ActionView {
                 nonrefundable: false,
             },
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            // TODO: We lose the information if it was a deprecated
+            // TODO(nonrefundable-transfer): We lose the information if it was a deprecated
             // TransferAction or an equivalent refundable TransferActionV2.
             // Is this good enough? Arguably, the view shouldn't care about it
             // but this needs to be discussed with consumers of the view.
@@ -1287,7 +1287,7 @@ impl TryFrom<ActionView> for Action {
             }
             #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
-            // TODO: We always return the new TransferActionV2.
+            // TODO(nonrefundable-transfer): We always return the new TransferActionV2.
             // Is this good enough? Must the Action -> View -> Action conversion be lossless?
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ActionView::Transfer { deposit, nonrefundable } => {
