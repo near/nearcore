@@ -1223,21 +1223,29 @@ impl<'a> VMLogic<'a> {
 
         for i in 0..elements_count {
             let mut g1_aff = blst::blst_p1_affine::default();
-            unsafe {
-                blst::blst_p1_deserialize(&mut g1_aff, data[i*288..i*288 + 96].as_ptr());
+            let error_code = unsafe {
+                blst::blst_p1_deserialize(&mut g1_aff, data[(i*288) .. (i*288+96)].as_ptr())
+            };
+            if (error_code != BLST_SUCCESS) || (data[i*288] & 0x80 != 0) {
+                return Ok(1);
             }
 
             let mut g2_aff = blst::blst_p2_affine::default();
-            unsafe {
-                blst::blst_p2_deserialize(&mut g2_aff, data[i*288 + 96..(i + 1)*288].as_ptr());
+            let error_code = unsafe {
+                blst::blst_p2_deserialize(&mut g2_aff, data[(i*288+96) .. ((i + 1)*288)].as_ptr())
+            };
+            if (error_code != BLST_SUCCESS) || (data[i*288 + 96] & 0x80 != 0) {
+                return Ok(1);
             }
 
             blst_g1_list.push(g1_aff);
             blst_g2_list.push(g2_aff);
         }
 
-
-        let mut pairing_fp12 = blst::blst_fp12::miller_loop_n(&blst_g2_list, &blst_g1_list);
+        let mut pairing_fp12 = blst::blst_fp12::default();
+        for i in 0..elements_count {
+            pairing_fp12 *= blst::blst_fp12::miller_loop(&blst_g2_list[i], &blst_g1_list[i]);
+        }
         pairing_fp12 = pairing_fp12.final_exp();
 
         let pairing_res = unsafe {

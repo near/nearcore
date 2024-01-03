@@ -7,6 +7,7 @@ mod tests {
     use amcl::bls381::bls381::core::map_to_curve_g2;
     use amcl::bls381::ecp::ECP;
     use amcl::bls381::ecp2::ECP2;
+    use amcl::bls381::pair;
     use amcl::rand::RAND;
     use amcl::bls381::bls381::utils::{subgroup_check_g1,
                                       subgroup_check_g2,
@@ -184,7 +185,7 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn pairing_check(p1: ECP, p2: ECP2, expected_result: u64) {
+    fn pairing_check(p1: ECP, p2: ECP2) -> u64 {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -194,7 +195,7 @@ mod tests {
 
         let input = logic.internal_mem_write(&buffer.concat().as_slice());
         let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
-        assert_eq!(res, expected_result);
+        return res;
     }
 
     fn get_g1_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8], logic: &mut TestVMLogic) -> Vec<u8> {
@@ -1255,10 +1256,23 @@ mod tests {
         let mut rnd = get_rnd();
 
         for _ in 0..100 {
-            let p1 = ECP::new();
+            let p1 = get_random_g1_point(&mut rnd);
             let p2 = get_random_g2_point(&mut rnd);
 
-            pairing_check(p1.clone(), p2.clone(), 0);
+            let zero1 = ECP::new();
+            let zero2 = ECP2::new();
+
+            let mut r = pair::initmp();
+            pair::another(&mut r, &zero2, &p1);
+            let mut v = pair::miller(&r);
+
+            v = pair::fexp(&v);
+            assert!(v.is_unity());
+
+            assert_eq!(pairing_check(zero1.clone(), zero2.clone()), 0);
+            assert_eq!(pairing_check(zero1.clone(), p2.clone()), 0);
+            assert_eq!(pairing_check(p1.clone(), zero2.clone()), 0);
+            assert_eq!(pairing_check(p1.clone(), p2.clone()), 2);
         }
     }
 }
