@@ -548,9 +548,13 @@ impl Signature {
                     temp[1..65].copy_from_slice(&public_key.0);
                     temp
                 };
+                let message = match secp256k1::Message::from_slice(data) {
+                    Ok(m) => m,
+                    Err(_) => return false,
+                };
                 SECP256K1
                     .verify_ecdsa(
-                        &secp256k1::Message::from_slice(data).expect("32 bytes"),
+                        &message,
                         &sig,
                         &secp256k1::PublicKey::from_slice(&pdata).unwrap(),
                     )
