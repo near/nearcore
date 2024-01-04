@@ -1176,6 +1176,17 @@ impl<'a> VMLogic<'a> {
             blst::blst_fp_from_bendian(&mut fp_point, data.as_ptr());
         }
 
+        let mut fp_row: [u8; 48] = [0u8; 48];
+        unsafe {
+            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
+        }
+
+        for i in 0..48 {
+            if fp_row[i] != data[i] {
+                return Ok(1);
+            }
+        }
+
         let mut g1_point = blst::blst_p1::default();
         unsafe {
             blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
@@ -1215,6 +1226,27 @@ impl<'a> VMLogic<'a> {
         unsafe {
             blst::blst_fp_from_bendian(&mut c_fp1[1], data[..48].as_ptr());
             blst::blst_fp_from_bendian(&mut c_fp1[0], data[48..].as_ptr());
+        }
+
+        let mut fp_row: [u8; 48] = [0u8; 48];
+        unsafe {
+            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
+        }
+
+        for i in 48..96 {
+            if fp_row[i - 48] != data[i] {
+                return Ok(1);
+            }
+        }
+
+        unsafe {
+            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
+        }
+
+        for i in 0..48 {
+            if fp_row[i] != data[i] {
+                return Ok(1);
+            }
         }
 
         let fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};

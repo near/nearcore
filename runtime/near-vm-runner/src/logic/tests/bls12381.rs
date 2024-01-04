@@ -202,7 +202,7 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let mut buffer: Vec<Vec<u8>> = vec![p1, p2];
+        let buffer: Vec<Vec<u8>> = vec![p1, p2];
 
         let input = logic.internal_mem_write(&buffer.concat().as_slice());
         let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
@@ -1382,6 +1382,19 @@ mod tests {
     }
 
     #[test]
+    fn test_bls12381_map_fp_to_g1_incorrect_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let p = hex::decode("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab").unwrap();
+
+        let input = logic.internal_mem_write(p.as_slice());
+        let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+
+        assert_eq!(res, 1);
+    }
+
+    #[test]
     fn test_bls12381_map_fp2_to_g2() {
         let mut rnd = get_rnd();
 
@@ -1405,6 +1418,25 @@ mod tests {
         let input = logic.internal_mem_write(vec![0u8; 97].as_slice());
         logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
     }
+
+    #[test]
+    fn test_bls12381_map_fp2_to_g2_incorrect_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let p = hex::decode("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab").unwrap();
+
+        let input = logic.internal_mem_write(vec![p.clone(), vec![0u8; 48]].concat().as_slice());
+        let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
+
+        assert_eq!(res, 1);
+
+        let input = logic.internal_mem_write(vec![vec![0u8; 48], p.clone()].concat().as_slice());
+        let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
+
+        assert_eq!(res, 1);
+    }
+
 
     #[test]
     fn test_bls12381_p1_decompress() {
