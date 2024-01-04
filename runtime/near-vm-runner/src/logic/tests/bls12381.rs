@@ -203,13 +203,15 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn pairing_check(p1: ECP, p2: ECP2) -> u64 {
+    fn pairing_check(p1s: Vec<ECP>, p2s: Vec<ECP2>) -> u64 {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
         let mut buffer: Vec<Vec<u8>> = vec![];
-        buffer.push(serialize_uncompressed_g1(&p1).to_vec());
-        buffer.push(serialize_uncompressed_g2(&p2).to_vec());
+        for i in 0..p1s.len() {
+            buffer.push(serialize_uncompressed_g1(&p1s[i]).to_vec());
+            buffer.push(serialize_uncompressed_g2(&p2s[i]).to_vec());
+        }
 
         let input = logic.internal_mem_write(&buffer.concat().as_slice());
         let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
@@ -1744,10 +1746,54 @@ mod tests {
             v = pair::fexp(&v);
             assert!(v.is_unity());
 
-            assert_eq!(pairing_check(zero1.clone(), zero2.clone()), 0);
-            assert_eq!(pairing_check(zero1.clone(), p2.clone()), 0);
-            assert_eq!(pairing_check(p1.clone(), zero2.clone()), 0);
-            assert_eq!(pairing_check(p1.clone(), p2.clone()), 2);
+            assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_pairing_check_many_points() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 10;
+        let r = Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string());
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N + 1;
+
+            let mut scalars_1: Vec<Big> = vec![];
+            let mut scalars_2: Vec<Big> = vec![];
+
+            let g1: ECP = ECP::generator();
+            let g2: ECP2 = ECP2::generator();
+
+            let mut g1s: Vec<ECP> = vec![];
+            let mut g2s: Vec<ECP2> = vec![];
+
+            for i in 0..n {
+                scalars_1.push(Big::random(&mut rnd));
+                scalars_2.push(Big::random(&mut rnd));
+
+                scalars_1[i].rmod(&r);
+                scalars_2[i].rmod(&r);
+
+                g1s.push(g1.mul(&scalars_1[i]));
+                g2s.push(g2.mul(&scalars_2[i]));
+            }
+
+            assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
+
+            for i in 0..n {
+                let mut p2 =  g2.mul(&scalars_1[i]);
+                p2.neg();
+
+                g1s.push(g1.mul(&scalars_2[i]));
+                g2s.push(p2);
+            }
+
+            assert_eq!(pairing_check(g1s, g2s), 0);
         }
     }
 
@@ -1761,8 +1807,8 @@ mod tests {
         let p1 = get_random_g1_point(&mut rnd);
         let p2_not_from_g2 = get_random_not_g2_curve_point(&mut rnd);
 
-        assert_eq!(pairing_check(p1_not_from_g1.clone(), p2.clone()), 1);
-        assert_eq!(pairing_check(p1.clone(), p2_not_from_g2.clone()), 1);
+        assert_eq!(pairing_check(vec![p1_not_from_g1.clone()], vec![p2.clone()]), 1);
+        assert_eq!(pairing_check(vec![p1.clone()], vec![p2_not_from_g2.clone()]), 1);
 
         // Incorrect encoding of the point at infinity
         let mut zero = vec![0u8; 96];
