@@ -154,32 +154,40 @@ mod tests {
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn map_fp_to_g1(fp: FP) -> Vec<u8> {
+    fn map_fp_to_g1(fps: Vec<FP>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let mut fp_vec: [u8; 48] = [0u8; 48];
-        fp.redc().to_byte_array(&mut fp_vec, 0);
+        let mut fp_vec: Vec<Vec<u8>> = vec![vec![]];
 
-        let fp_vec = fp_vec.try_to_vec().unwrap();
+        for i in 0..fps.len() {
+            let mut fp_slice: [u8; 48] = [0u8; 48];
+            fps[i].redc().to_byte_array(&mut fp_slice, 0);
 
-        let input = logic.internal_mem_write(fp_vec.as_slice());
+            fp_vec.push(fp_slice.to_vec());
+        }
+
+        let input = logic.internal_mem_write(fp_vec.concat().as_slice());
         let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn map_fp2_to_g2(fp2: FP2) -> Vec<u8> {
+    fn map_fp2_to_g2(fp2: Vec<FP2>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let mut fp2_vec: [u8; 96] = [0u8; 96];
-        fp2.getb().to_byte_array(&mut fp2_vec, 0);
-        fp2.geta().to_byte_array(&mut fp2_vec, 48);
+        let mut fp2_vec: Vec<Vec<u8>> = vec![vec![]];
 
-        let fp2_vec = fp2_vec.try_to_vec().unwrap();
+        for i in 0..fp2.len() {
+            let mut fp2_res: [u8; 96] = [0u8; 96];
+            fp2[i].getb().to_byte_array(&mut fp2_res, 0);
+            fp2[i].geta().to_byte_array(&mut fp2_res, 48);
 
-        let input = logic.internal_mem_write(fp2_vec.as_slice());
+            fp2_vec.push(fp2_res.to_vec());
+        }
+
+        let input = logic.internal_mem_write(fp2_vec.concat().as_slice());
         let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
@@ -1409,12 +1417,37 @@ mod tests {
 
         for _ in 0..100 {
             let fp = get_random_fp(&mut rnd);
-            let res1 = map_fp_to_g1(fp.clone());
+            let res1 = map_fp_to_g1(vec![fp.clone()]);
 
             let mut res2 = map_to_curve_g1(fp);
             res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
 
             assert_eq!(res1, serialize_uncompressed_g1(&res2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_map_fp_to_g1_many_points() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 500;
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+
+            let mut fps: Vec<FP> = vec![];
+            let mut res2_mul: Vec<u8> = vec![];
+            for i in 0..n {
+                fps.push(get_random_fp(&mut rnd));
+
+                let mut res2 = map_to_curve_g1(fps[i].clone());
+                res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+
+                res2_mul.append(&mut serialize_uncompressed_g1(&res2).to_vec());
+            }
+
+            let res1 = map_fp_to_g1(fps);
+            assert_eq!(res1, res2_mul);
         }
     }
 
@@ -1447,12 +1480,37 @@ mod tests {
 
         for _ in 0..100 {
             let fp2 = get_random_fp2(&mut rnd);
-            let res1 = map_fp2_to_g2(fp2.clone());
+            let res1 = map_fp2_to_g2(vec![fp2.clone()]);
 
             let mut res2 = map_to_curve_g2(fp2);
             res2.clear_cofactor();
 
             assert_eq!(res1, serialize_uncompressed_g2(&res2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_map_fp_to_g2_many_points() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 250;
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+
+            let mut fps: Vec<FP2> = vec![];
+            let mut res2_mul: Vec<u8> = vec![];
+            for i in 0..n {
+                fps.push(get_random_fp2(&mut rnd));
+
+                let mut res2 = map_to_curve_g2(fps[i].clone());
+                res2.clear_cofactor();
+
+                res2_mul.append(&mut serialize_uncompressed_g2(&res2).to_vec());
+            }
+
+            let res1 = map_fp2_to_g2(fps);
+            assert_eq!(res1, res2_mul);
         }
     }
 
