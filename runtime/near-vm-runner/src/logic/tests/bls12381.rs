@@ -134,21 +134,31 @@ mod tests {
         rnd
     }
 
-    fn decompress_p1(p1: ECP) -> Vec<u8> {
+    fn decompress_p1(p1: Vec<ECP>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let input = logic.internal_mem_write(&serialize_g1(&p1));
+        let mut p1s_vec: Vec<Vec<u8>> = vec![vec![]];
+        for i in 0..p1.len() {
+            p1s_vec.push(serialize_g1(&p1[i]).to_vec());
+        }
+
+        let input = logic.internal_mem_write(p1s_vec.concat().as_slice());
         let res = logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
     }
 
-    fn decompress_p2(p2: ECP2) -> Vec<u8> {
+    fn decompress_p2(p2: Vec<ECP2>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let input = logic.internal_mem_write(&serialize_g2(&p2));
+        let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
+        for i in 0..p2.len() {
+            p2s_vec.push(serialize_g2(&p2[i]).to_vec());
+        }
+
+        let input = logic.internal_mem_write(p2s_vec.concat().as_slice());
         let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 0);
         logic.registers().get_for_free(0).unwrap().to_vec()
@@ -1549,9 +1559,29 @@ mod tests {
 
         for _ in 0..100 {
             let p1 = get_random_g1_curve_point(&mut rnd);
-            let res1 = decompress_p1(p1.clone());
+            let res1 = decompress_p1(vec![p1.clone()]);
 
             assert_eq!(res1, serialize_uncompressed_g1(&p1));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_p1_decompress_many_points() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 500;
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+
+            let mut p1s: Vec<ECP> = vec![];
+            let mut res2: Vec<u8> = vec![];
+            for i in 0..n {
+                p1s.push(get_random_g1_curve_point(&mut rnd));
+                res2.append(&mut serialize_uncompressed_g1(&p1s[i]).to_vec());
+            }
+            let res1 = decompress_p1(p1s.clone());
+            assert_eq!(res1, res2);
         }
     }
 
@@ -1616,9 +1646,29 @@ mod tests {
 
         for _ in 0..100 {
             let p2 = get_random_g2_curve_point(&mut rnd);
-            let res1 = decompress_p2(p2.clone());
+            let res1 = decompress_p2(vec![p2.clone()]);
 
             assert_eq!(res1, serialize_uncompressed_g2(&p2));
+        }
+    }
+
+    #[test]
+    fn test_bls12381_p2_decompress_many_points() {
+        let mut rnd = get_rnd();
+
+        const MAX_N: usize = 250;
+
+        for _ in 0..10 {
+            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+
+            let mut p2s: Vec<ECP2> = vec![];
+            let mut res2: Vec<u8> = vec![];
+            for i in 0..n {
+                p2s.push(get_random_g2_curve_point(&mut rnd));
+                res2.append(&mut serialize_uncompressed_g2(&p2s[i]).to_vec());
+            }
+            let res1 = decompress_p2(p2s.clone());
+            assert_eq!(res1, res2);
         }
     }
 
