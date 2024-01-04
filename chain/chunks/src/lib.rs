@@ -111,8 +111,8 @@ use near_primitives::merkle::{verify_path, MerklePath};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, EncodedShardChunkBody, PartialEncodedChunk,
-    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptList, ReceiptProof, ReedSolomonWrapper,
-    ShardChunk, ShardChunkHeader, ShardProof,
+    PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk,
+    ShardChunkHeader, ShardProof,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
@@ -1469,14 +1469,7 @@ impl ShardsManager {
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
             // because prev_block_hash may not be ready
-            let shard_id = proof.1.to_shard_id;
-            let ReceiptProof(shard_receipts, receipt_proof) = proof;
-            let receipt_hash = CryptoHash::hash_borsh(ReceiptList(shard_id, shard_receipts));
-            if !verify_path(
-                header.prev_outgoing_receipts_root(),
-                &receipt_proof.proof,
-                &receipt_hash,
-            ) {
+            if !proof.verify_against_receipt_root(header.prev_outgoing_receipts_root()) {
                 byzantine_assert!(false);
                 return Err(Error::ChainError(near_chain::Error::InvalidReceiptsProof));
             }

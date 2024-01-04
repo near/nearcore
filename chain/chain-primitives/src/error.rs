@@ -135,7 +135,7 @@ pub enum Error {
     #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
     #[error("Invalid Chunk State Witness")]
-    InvalidChunkStateWitness,
+    InvalidChunkStateWitness(String),
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -270,7 +270,7 @@ impl Error {
             | Error::InvalidChunk
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
-            | Error::InvalidChunkStateWitness
+            | Error::InvalidChunkStateWitness(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -343,7 +343,7 @@ impl Error {
             Error::InvalidChunk => "invalid_chunk",
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
-            Error::InvalidChunkStateWitness => "invalid_chunk_state_witness",
+            Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",
