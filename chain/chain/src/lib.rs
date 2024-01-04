@@ -1,5 +1,6 @@
 pub use block_processing_utils::{BlockProcessingArtifact, DoneApplyChunkCallback};
-pub use chain::{check_known, collect_receipts, Chain, ChainUpdate};
+pub use chain::{check_known, collect_receipts, Chain};
+pub use chain_update::ChainUpdate;
 pub use doomslug::{Doomslug, DoomslugBlockProductionReadiness, DoomslugThresholdMode};
 pub use lightclient::{create_light_client_block_view, get_epoch_block_producers_view};
 pub use near_chain_primitives::{self, Error};
@@ -11,6 +12,7 @@ pub use types::{Block, BlockHeader, BlockStatus, ChainGenesis, Provenance};
 mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
+mod chain_update;
 pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;
