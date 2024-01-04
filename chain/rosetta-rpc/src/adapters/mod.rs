@@ -326,8 +326,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                // Note: Both refundable and non-refundable transfers are considered as available balance.
-                // (TODO: ensure final decision for NEP-491 aligns with that!)
                 near_primitives::transaction::Action::Transfer(TransferAction { deposit }) => {
                     let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
 
@@ -354,9 +352,10 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         ),
                     );
                 }
+
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                near_primitives::transaction::Action::TransferV2(action) => {
-                    // TODO(protocol_feature_nonrefundable_transfer_nep491): merge with branch above on stabilization
+                // Note: Both refundable and non-refundable transfers are considered as available balance.
+                near_primitives::transaction::Action::ReserveStorage(action) => {
                     let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
 
                     let sender_transfer_operation_id =
@@ -382,6 +381,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                         ),
                     );
                 }
+
                 near_primitives::transaction::Action::Stake(action) => {
                     operations.push(
                         validated_operations::StakeOperation {

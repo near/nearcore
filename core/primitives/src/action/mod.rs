@@ -163,11 +163,9 @@ pub struct TransferAction {
     serde::Deserialize,
 )]
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub struct TransferActionV2 {
+pub struct ReserveStorageAction {
     #[serde(with = "dec_format")]
     pub deposit: Balance,
-    /// If this flag is set, the balance will be added to the receiver's non-refundable balance.
-    pub nonrefundable: bool,
 }
 
 #[derive(
@@ -189,7 +187,6 @@ pub enum Action {
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(Box<FunctionCallAction>),
-    /// To be deprecated with NEP-491 but kept for backwards-compatibility.
     Transfer(TransferAction),
     Stake(Box<StakeAction>),
     AddKey(Box<AddKeyAction>),
@@ -197,7 +194,7 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    TransferV2(Box<TransferActionV2>),
+    ReserveStorage(ReserveStorageAction),
 }
 const _: () = assert!(
     cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
@@ -216,7 +213,7 @@ impl Action {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::TransferV2(a) => a.deposit,
+            Action::ReserveStorage(a) => a.deposit,
             _ => 0,
         }
     }

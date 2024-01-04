@@ -2,7 +2,7 @@
 //! accounts storage staking balance without that someone being able to run off
 //! with the money.
 //!
-//! This feature introduces TransferV2
+//! This feature introduces the ReserveStorage action.
 //!
 //! NEP: https://github.com/near/NEPs/pull/491
 
@@ -16,7 +16,7 @@ use near_primitives::errors::{
 use near_primitives::test_utils::{eth_implicit_test_account, near_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
-    SignedTransaction, TransferActionV2,
+    ReserveStorageAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -100,11 +100,11 @@ fn execute_transaction_from_actions(
     tx_result
 }
 
-/// Submits a transfer V2 action.
+/// Submits a transfer (either regular or non-refundable).
 ///
 /// This methods checks that the balance is subtracted from the sender and added
 /// to the receiver, if the status was ok. No checks are done on an error.
-fn exec_transfer_v2(
+fn exec_transfer(
     env: &mut TestEnv,
     signer: InMemorySigner,
     receiver: AccountId,
@@ -123,6 +123,7 @@ fn exec_transfer_v2(
     };
 
     let mut actions = vec![];
+
     if account_creation && !implicit_account_creation {
         actions.push(Action::CreateAccount(CreateAccountAction {}));
         actions.push(Action::AddKey(Box::new(AddKeyAction {
@@ -130,7 +131,13 @@ fn exec_transfer_v2(
             access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
         })));
     }
-    actions.push(Action::TransferV2(Box::new(TransferActionV2 { deposit, nonrefundable })));
+
+    if nonrefundable {
+        actions.push(Action::ReserveStorage(ReserveStorageAction { deposit }));
+    } else {
+        actions.push(Action::Transfer(TransferAction { deposit }));
+    }
+
     if deploy_contract {
         let contract = near_test_contracts::sized_contract(1500 as usize);
         actions.push(Action::DeployContract(DeployContractAction { code: contract.to_vec() }))
@@ -186,7 +193,7 @@ fn deleting_account_with_non_refundable_storage() {
     );
     // Create account with non-refundable storage.
     // Deploy a contract that does not fit within Zero-balance account limit.
-    let create_account_tx_result = exec_transfer_v2(
+    let create_account_tx_result = exec_transfer(
         &mut env,
         signer(),
         new_account_id.clone(),
@@ -199,7 +206,7 @@ fn deleting_account_with_non_refundable_storage() {
     create_account_tx_result.unwrap().assert_success();
 
     // Send some NEAR (refundable) so that the new account is able to pay the gas for its deletion in the next transaction.
-    let send_money_tx_result = exec_transfer_v2(
+    let send_money_tx_result = exec_transfer(
         &mut env,
         signer(),
         new_account_id.clone(),
@@ -228,7 +235,7 @@ fn non_refundable_balance_cannot_be_transferred() {
         new_account_id.as_str(),
     );
     // The `new_account` is created with 1 NEAR non-refundable balance.
-    let create_account_tx_result = exec_transfer_v2(
+    let create_account_tx_result = exec_transfer(
         &mut env,
         signer(),
         new_account_id.clone(),
@@ -240,9 +247,9 @@ fn non_refundable_balance_cannot_be_transferred() {
     );
     create_account_tx_result.unwrap().assert_success();
 
-    // Although `new_account` has 1 NEAR balance, it cannot make neither refundable nor non-refundable transfer of 1 yoctoNEAR.
+    // Although `new_account` has 1 NEAR non-refundable balance, it cannot make neither refundable nor non-refundable transfer of 1 yoctoNEAR.
     for nonrefundable in [false, true] {
-        let transfer_tx_result = exec_transfer_v2(
+        let transfer_tx_result = exec_transfer(
             &mut env,
             new_account.clone(),
             receiver(),
@@ -252,14 +259,13 @@ fn non_refundable_balance_cannot_be_transferred() {
             false,
             false,
         );
-        assert_eq!(
-            transfer_tx_result,
-            Err(InvalidTxError::NotEnoughBalance {
-                signer_id: new_account_id.clone(),
-                balance: 0,
-                cost: 1,
-            }),
-        );
+        match transfer_tx_result {
+            Err(InvalidTxError::NotEnoughBalance { signer_id, balance, .. }) => {
+                assert_eq!(signer_id, new_account_id);
+                assert_eq!(balance, 0);
+            }
+            _ => panic!("Expected NotEnoughBalance error"),
+        }
     }
 }
 
@@ -268,16 +274,8 @@ fn non_refundable_balance_cannot_be_transferred() {
 fn non_refundable_balance_allows_1kb_state_with_zero_balance() {
     let mut env = setup_env();
     let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
-    let tx_result = exec_transfer_v2(
-        &mut env,
-        signer(),
-        new_account_id,
-        NEAR_BASE / 5,
-        true,
-        true,
-        false,
-        true,
-    );
+    let tx_result =
+        exec_transfer(&mut env, signer(), new_account_id, NEAR_BASE / 5, true, true, false, true);
     tx_result.unwrap().assert_success();
 }
 
@@ -286,7 +284,7 @@ fn non_refundable_balance_allows_1kb_state_with_zero_balance() {
 fn non_refundable_transfer_create_named_account() {
     let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
     let tx_result =
-        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, false, false);
+        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, false, false);
     tx_result.unwrap().assert_success();
 }
 
@@ -295,7 +293,7 @@ fn non_refundable_transfer_create_named_account() {
 fn non_refundable_transfer_create_near_implicit_account() {
     let new_account_id = near_implicit_test_account();
     let tx_result =
-        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
     tx_result.unwrap().assert_success();
 }
 
@@ -304,7 +302,7 @@ fn non_refundable_transfer_create_near_implicit_account() {
 fn non_refundable_transfer_create_eth_implicit_account() {
     let new_account_id = eth_implicit_test_account();
     let tx_result =
-        exec_transfer_v2(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
     tx_result.unwrap().assert_success();
 }
 
@@ -312,7 +310,7 @@ fn non_refundable_transfer_create_eth_implicit_account() {
 #[test]
 fn reject_non_refundable_transfer_existing_account() {
     let tx_result =
-        exec_transfer_v2(&mut setup_env(), signer(), receiver(), 1, true, false, false, false);
+        exec_transfer(&mut setup_env(), signer(), receiver(), 1, true, false, false, false);
     let status = &tx_result.unwrap().receipts_outcome[0].outcome.status;
     assert!(matches!(
         status,
@@ -322,26 +320,18 @@ fn reject_non_refundable_transfer_existing_account() {
     ));
 }
 
-/// Refundable transfer V2 successfully adds balance like a transfer V1.
-#[test]
-fn transfer_v2() {
-    exec_transfer_v2(&mut setup_env(), signer(), receiver(), 1, false, false, false, false)
-        .expect("Transfer V2 should be accepted")
-        .assert_success();
-}
-
 /// During the protocol upgrade phase, before the voting completes, we must not
-/// include transfer V2 actions on the chain.
+/// include non-refundable transfer actions on the chain.
 ///
 /// The correct way to handle it is to reject transaction before they even get
 /// into the transaction pool. Hence, we check that an `InvalidTxError` error is
 /// returned for older protocol versions.
 #[test]
-fn reject_transfer_v2_in_older_versions() {
+fn reject_non_refundable_transfer_in_older_versions() {
     let mut env = setup_env_with_protocol_version(Some(
         ProtocolFeature::NonRefundableBalance.protocol_version() - 1,
     ));
-    let tx_result = exec_transfer_v2(&mut env, signer(), receiver(), 1, false, false, false, false);
+    let tx_result = exec_transfer(&mut env, signer(), receiver(), 1, true, false, false, false);
     assert_eq!(
         tx_result,
         Err(InvalidTxError::ActionsValidation(

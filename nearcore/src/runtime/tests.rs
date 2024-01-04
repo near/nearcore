@@ -1437,7 +1437,7 @@ fn test_genesis_hash() {
 
     #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
     let block_expected_hash = "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H";
-    // TODO(nonrefundable-transfer) Discuss the problem of the changed genesis hash.
+    // TODO(nonrefundable-storage) Discuss the problem of the changed genesis hash.
     // We probably should not change it.
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     let block_expected_hash = "3Cm2e8aZQuZbbnwWMNES6WnuszR7r2zzhdDhBK1Ft3f1";

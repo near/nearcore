@@ -955,7 +955,7 @@ pub(crate) fn check_actor_permissions(
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::TransferV2(_) => (),
+        Action::ReserveStorage(_) => (),
     };
     Ok(())
 }
@@ -1003,28 +1003,16 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if config.wasm_config.implicit_account_creation
-                    && is_the_only_action
-                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
-                    && !is_refund
-                {
-                    // OK. It's implicit account creation.
-                    // Notes:
-                    // - The transfer action has to be the only action in the transaction to avoid
-                    // abuse by hijacking this account with other public keys or contracts.
-                    // - Refunds don't automatically create accounts, because refunds are free and
-                    // we don't want some type of abuse.
-                    // - Account deletion with beneficiary creates a refund, so it'll not create a
-                    // new account.
-                    Ok(())
-                } else {
-                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
-                        .into())
-                };
+                return check_transfer_to_nonexisting_account(
+                    config,
+                    is_the_only_action,
+                    account_id,
+                    is_refund,
+                );
             }
         }
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::TransferV2(transfer) => {
+        Action::ReserveStorage(_) => {
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,
@@ -1032,7 +1020,7 @@ pub(crate) fn check_account_existence(
                     account_id,
                     is_refund,
                 );
-            } else if transfer.nonrefundable && !receipt_starts_with_create_account {
+            } else if !receipt_starts_with_create_account {
                 // If the account already existed before the current receipt,
                 // non-refundable transfer is not allowed. But for named
                 // accounts, it could be that the account was created in this
@@ -1073,7 +1061,6 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 fn check_transfer_to_nonexisting_account(
     config: &RuntimeConfig,
     is_the_only_action: bool,

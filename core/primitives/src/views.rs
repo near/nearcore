@@ -23,13 +23,13 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
 };
-#[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-use crate::transaction::TransferAction;
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use crate::transaction::ReserveStorageAction;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
     ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
-    SignedTransaction, StakeAction,
+    SignedTransaction, StakeAction, TransferAction,
 };
 
 use crate::types::{
@@ -1196,9 +1196,11 @@ pub enum ActionView {
     Transfer {
         #[serde(with = "dec_format")]
         deposit: Balance,
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        #[cfg_attr(feature = "protocol_feature_nonrefundable_transfer_nep491", serde(default))]
-        nonrefundable: bool,
+    },
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    ReserveStorage {
+        #[serde(with = "dec_format")]
+        deposit: Balance,
     },
     Stake {
         #[serde(with = "dec_format")]
@@ -1235,20 +1237,11 @@ impl From<Action> for ActionView {
                 gas: action.gas,
                 deposit: action.deposit,
             },
-            Action::Transfer(action) => ActionView::Transfer {
-                deposit: action.deposit,
-                #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                nonrefundable: false,
-            },
+            Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            // TODO(nonrefundable-transfer): We lose the information if it was a deprecated
-            // TransferAction or an equivalent refundable TransferActionV2.
-            // Is this good enough? Arguably, the view shouldn't care about it
-            // but this needs to be discussed with consumers of the view.
-            Action::TransferV2(action) => ActionView::Transfer {
-                deposit: action.deposit,
-                nonrefundable: action.nonrefundable,
-            },
+            Action::ReserveStorage(action) => {
+                ActionView::ReserveStorage { deposit: action.deposit }
+            }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
@@ -1285,16 +1278,10 @@ impl TryFrom<ActionView> for Action {
                     deposit,
                 }))
             }
-            #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
-            // TODO(nonrefundable-transfer): We always return the new TransferActionV2.
-            // Is this good enough? Must the Action -> View -> Action conversion be lossless?
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ActionView::Transfer { deposit, nonrefundable } => {
-                Action::TransferV2(Box::new(crate::transaction::TransferActionV2 {
-                    deposit,
-                    nonrefundable,
-                }))
+            ActionView::ReserveStorage { deposit } => {
+                Action::ReserveStorage(ReserveStorageAction { deposit })
             }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))

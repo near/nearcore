@@ -24,12 +24,12 @@ pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use near_primitives::transaction::DeleteAccountAction;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
     SignedTransaction, TransferAction,
 };
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use near_primitives::transaction::{DeleteAccountAction, ReserveStorageAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
@@ -370,11 +370,10 @@ impl Runtime {
                 )?;
             }
             Action::Transfer(TransferAction { deposit }) => {
-                let nonrefundable = false;
                 action_transfer_or_implicit_account_creation(
                     account,
                     *deposit,
-                    nonrefundable,
+                    false,
                     is_refund,
                     action_receipt,
                     receipt,
@@ -384,11 +383,11 @@ impl Runtime {
                 )?;
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::TransferV2(transfer) => {
+            Action::ReserveStorage(ReserveStorageAction { deposit }) => {
                 action_transfer_or_implicit_account_creation(
                     account,
-                    transfer.deposit,
-                    transfer.nonrefundable,
+                    *deposit,
+                    true,
                     is_refund,
                     action_receipt,
                     receipt,
@@ -554,14 +553,12 @@ impl Runtime {
             // We update `other_burnt_amount` statistic with the non-refundable amount being burnt on account deletion.
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             if matches!(action, Action::DeleteAccount(DeleteAccountAction { beneficiary_id: _ })) {
-                debug_assert!(
-                    account_before_update.is_some(),
-                    "Missing account state from before deletion."
-                );
-                if let Some(ref account_before_deletion) = account_before_update {
+                // The `account_before_update` can be None if the account is both created and deleted within
+                // a single action receipt (see `test_create_account_add_key_call_delete_key_delete_account`).
+                if let Some(ref account_before_update) = account_before_update {
                     stats.other_burnt_amount = safe_add_balance(
                         stats.other_burnt_amount,
-                        account_before_deletion.nonrefundable(),
+                        account_before_update.nonrefundable(),
                     )?
                 }
             }

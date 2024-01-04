@@ -182,6 +182,15 @@ struct LegacyAccount {
     storage_usage: StorageUsage,
 }
 
+#[derive(BorshSerialize)]
+struct AccountV2 {
+    amount: Balance,
+    locked: Balance,
+    code_hash: CryptoHash,
+    storage_usage: StorageUsage,
+    nonrefundable: Balance,
+}
+
 impl BorshDeserialize for Account {
     fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // The first value of all Account serialization formats is a u128,
@@ -190,10 +199,26 @@ impl BorshDeserialize for Account {
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             // Account v2 or newer
             let version_byte = u8::deserialize_reader(rd)?;
-            // TODO(nonrefundable-transfer) Return proper error instead of panic
-            debug_assert_eq!(version_byte, 2);
-            // TODO(nonrefundable-transfer) Return proper error instead of panic
-            let version = AccountVersion::try_from(version_byte).expect("");
+            if version_byte != 2 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Error deserializing account: version {} does not equal 2",
+                        version_byte
+                    ),
+                ));
+            }
+
+            let version = AccountVersion::try_from(version_byte).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "Error deserializing account: invalid account version {}",
+                        version_byte
+                    ),
+                )
+            })?;
+
             let amount = u128::deserialize_reader(rd)?;
             let locked = u128::deserialize_reader(rd)?;
             let code_hash = CryptoHash::deserialize_reader(rd)?;
@@ -246,29 +271,29 @@ impl BorshSerialize for Account {
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         {
             match self.version {
-                // Note: It might be tempting to lazily convert old V1 to V2
+                // Note(jakmeier): It might be tempting to lazily convert old V1 to V2
                 // while serializing. But that would break the borsh assumptions
                 // of unique binary representation.
                 AccountVersion::V1 => legacy_account.serialize(writer),
-                // TODO(nonrefundable-transfer): Can we do better than this?
-                // Context: These accounts are serialized in merklized state. I
-                // would really like to avoid migration of the MPT. This here would
-                // keep old accounts in the old format and only allow nonrefundable
-                // storage on new accounts.
+                // Note(jakmeier): These accounts are serialized in merklized state.
+                // I would really like to avoid migration of the MPT.
+                // This here would keep old accounts in the old format
+                // and only allow nonrefundable storage on new accounts.
                 AccountVersion::V2 => {
+                    let account = AccountV2 {
+                        amount: self.amount,
+                        locked: self.locked,
+                        code_hash: self.code_hash,
+                        storage_usage: self.storage_usage,
+                        nonrefundable: self.nonrefundable,
+                    };
                     let sentinel = Account::SERIALIZATION_SENTINEL;
                     // For now a constant, but if we need V3 later we can use this
                     // field instead of sentinel magic.
                     let version = 2u8;
                     BorshSerialize::serialize(&sentinel, writer)?;
                     BorshSerialize::serialize(&version, writer)?;
-                    // TODO(nonrefundable-transfer): Consider wrapping this in a struct and derive BorshSerialize for it.
-                    BorshSerialize::serialize(&self.amount, writer)?;
-                    BorshSerialize::serialize(&self.locked, writer)?;
-                    BorshSerialize::serialize(&self.code_hash, writer)?;
-                    BorshSerialize::serialize(&self.storage_usage, writer)?;
-                    BorshSerialize::serialize(&self.nonrefundable, writer)?;
-                    Ok(())
+                    account.serialize(writer)
                 }
             }
         }
