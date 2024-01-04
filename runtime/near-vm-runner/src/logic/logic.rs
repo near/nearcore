@@ -1172,38 +1172,45 @@ impl<'a> VMLogic<'a> {
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut fp_point = blst::blst_fp::default();
 
-        unsafe {
-            blst::blst_fp_from_bendian(&mut fp_point, data.as_ptr());
-        }
+        let element_count: usize = (value_len / 48) as usize;
+        let mut res_concat: Vec<u8> = vec![];
 
-        let mut fp_row: [u8; 48] = [0u8; 48];
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
-        }
-
-        for i in 0..48 {
-            if fp_row[i] != data[i] {
-                return Ok(1);
+        for i in 0..element_count {
+            unsafe {
+                blst::blst_fp_from_bendian(&mut fp_point, data[i*48..(i + 1)*48].as_ptr());
             }
+
+            let mut fp_row: [u8; 48] = [0u8; 48];
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
+            }
+
+            for j in 0..48 {
+                if fp_row[j] != data[i*48 + j] {
+                    return Ok(1);
+                }
+            }
+
+            let mut g1_point = blst::blst_p1::default();
+            unsafe {
+                blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
+            }
+
+            let mut mul_res_affine = blst::blst_p1_affine::default();
+
+            unsafe {
+                blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
+            }
+
+            let mut res = [0u8; 96];
+            unsafe {
+                blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+            }
+
+            res_concat.append(&mut res.to_vec());
         }
 
-        let mut g1_point = blst::blst_p1::default();
-        unsafe {
-            blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
-        }
-
-        let mut mul_res_affine = blst::blst_p1_affine::default();
-
-        unsafe {
-            blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
-        }
-
-        let mut res = [0u8; 96];
-        unsafe {
-            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-        }
-
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_concat.as_slice())?;
         Ok(0)
     }
 
