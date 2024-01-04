@@ -1221,53 +1221,61 @@ impl<'a> VMLogic<'a> {
         }
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
-        let mut c_fp1 = [blst::blst_fp::default(); 2];
+        let element_count: usize = (value_len / 96) as usize;
 
-        unsafe {
-            blst::blst_fp_from_bendian(&mut c_fp1[1], data[..48].as_ptr());
-            blst::blst_fp_from_bendian(&mut c_fp1[0], data[48..].as_ptr());
-        }
+        let mut res_concat: Vec<u8> = vec![];
 
-        let mut fp_row: [u8; 48] = [0u8; 48];
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
-        }
+        for i in 0..element_count {
+            let mut c_fp1 = [blst::blst_fp::default(); 2];
 
-        for i in 48..96 {
-            if fp_row[i - 48] != data[i] {
-                return Ok(1);
+            unsafe {
+                blst::blst_fp_from_bendian(&mut c_fp1[1], data[i*96..i*96 + 48].as_ptr());
+                blst::blst_fp_from_bendian(&mut c_fp1[0], data[i*96 + 48..(i + 1)*96].as_ptr());
             }
-        }
 
-        unsafe {
-            blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
-        }
-
-        for i in 0..48 {
-            if fp_row[i] != data[i] {
-                return Ok(1);
+            let mut fp_row: [u8; 48] = [0u8; 48];
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
             }
+
+            for j in 48..96 {
+                if fp_row[j - 48] != data[96 * i + j] {
+                    return Ok(1);
+                }
+            }
+
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
+            }
+
+            for j in 0..48 {
+                if fp_row[j] != data[96 * i + j] {
+                    return Ok(1);
+                }
+            }
+
+            let fp2_point: blst::blst_fp2 = blst::blst_fp2 { fp: c_fp1 };
+
+            let mut g2_point = blst::blst_p2::default();
+            unsafe {
+                blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
+            }
+
+            let mut mul_res_affine = blst::blst_p2_affine::default();
+
+            unsafe {
+                blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
+            }
+
+            let mut res = [0u8; 192];
+            unsafe {
+                blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+            }
+
+            res_concat.append(&mut res.to_vec());
         }
 
-        let fp2_point: blst::blst_fp2 = blst::blst_fp2 {fp: c_fp1};
-
-        let mut g2_point = blst::blst_p2::default();
-        unsafe {
-            blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
-        }
-
-        let mut mul_res_affine = blst::blst_p2_affine::default();
-
-        unsafe {
-            blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
-        }
-
-        let mut res = [0u8; 192];
-        unsafe {
-            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
-        }
-
-        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res.as_slice())?;
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res_concat.as_slice())?;
         Ok(0)
     }
 
