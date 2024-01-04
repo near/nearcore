@@ -370,6 +370,7 @@ yansi = "0.5.1"
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
+protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.
