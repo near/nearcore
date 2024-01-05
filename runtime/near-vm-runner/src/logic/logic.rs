@@ -1001,6 +1001,42 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+    /// Calculates the sum of signed elements on the twisted BLS12-381 curve.
+    /// It accepts an arbitrary number of pairs (sign_i, p_i),
+    /// where p_i from E'(Fp^2) and sign_i is 0 or 1.
+    /// It calculates sum_i (-1)^{sign_i} * p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (sign:bool, p:E'(Fp^2)), where
+    ///    p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[(u8, ([u8;96], [u8;96]))]` slice.
+    ///   `0u8` is positive sign, `1u8` -- negative.
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///    where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192 bytes represent
+    /// the resulting points from E'(Fp^2) will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve,
+    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
     pub fn bls12381_p2_sum(
         &mut self,
         value_len: u64,
