@@ -1486,6 +1486,43 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+    /// Computes pairing check on BLS12-381 curve.
+    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is pairing
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (g1:G1, g2:G2), where
+    ///    g1 is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///    g2 is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[(([u8;48], [u8;48]), ([u8;96], [u8;96]))]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///    where c1 and c0 from Fp.
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct and
+    /// the pairing result equals the multiplicative identity returns 0.
+    ///
+    /// If one of the points not on the curve, not from G1/G2 or
+    /// incorrectly encoded then 1 will be returned
+    ///
+    /// If the input data is correct and
+    /// the pairing result NOT equals the multiplicative identity returns 2.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
     pub fn bls12381_pairing_check(&mut self,
                                   value_len: u64,
                                   value_ptr: u64) -> Result<u64> {
