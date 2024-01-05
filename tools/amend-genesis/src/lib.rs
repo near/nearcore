@@ -254,6 +254,8 @@ pub struct GenesisChanges {
     pub protocol_reward_rate: Option<Rational32>,
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
+    pub min_gas_price: Option<Balance>,
+    pub max_gas_price: Option<Balance>,
 }
 
 /// Amend a genesis/records file created by `dump-state`.
@@ -376,6 +378,12 @@ pub fn amend_genesis(
     }
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
+    }
+    if let Some(p) = genesis_changes.min_gas_price {
+        genesis.config.min_gas_price = p;
+    }
+    if let Some(p) = genesis_changes.max_gas_price {
+        genesis.config.max_gas_price = p;
     }
     genesis.to_file(genesis_file_out);
     records_seq.end()?;
