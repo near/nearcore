@@ -900,6 +900,41 @@ impl<'a> VMLogic<'a> {
         Ok(res as u64)
     }
 
+    /// Calculates the sum of signed elements on the BLS12-381 curve.
+    /// It accepts an arbitrary number of pairs (sign_i, p_i),
+    /// where p_i from E(Fp) and sign_i is 0 or 1.
+    /// It calculates sum_i (-1)^{sign_i} * p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (sign:bool, p:E(Fp)), where
+    ///    p is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[(u8, ([u8;48], [u8;48]))]` slice.
+    ///   `0u8` is positive sign, `1u8` -- negative.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// the resulting points from E(Fp) will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve,
+    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
     pub fn bls12381_p1_sum(
         &mut self,
         value_len: u64,
