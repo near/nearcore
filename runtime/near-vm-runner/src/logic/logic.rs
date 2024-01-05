@@ -1102,6 +1102,42 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+
+    /// Calculates multiexp on BLS12-381 curve:
+    /// accepts an arbitrary number of pairs (p_i, s_i),
+    /// where p_i from E(Fp) and s_i is a scalar and
+    /// calculates sum_i s_i*p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (p:E(Fp), s:u256), where
+    ///    p is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[(([u8;48], [u8;48]), [u8;32])]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///    Scalars encoded as little-endian [u8;32].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// the resulting points from E(Fp) will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve,
+    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p1_multiexp_base + bls12381_p1_multiexp_element * num_elements`
     pub fn bls12381_p1_multiexp(
         &mut self,
         value_len: u64,
