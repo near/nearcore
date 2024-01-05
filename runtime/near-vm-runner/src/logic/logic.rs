@@ -1385,6 +1385,35 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+    /// Maps elements from Fp^2 to the G2 subgroup of twisted BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p from Fp^2.
+    ///
+    ///   `value` is encoded as packed `[[u8;96]]` slice.
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///     where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192 bytes represent
+    /// the resulting points from G2 which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the element not valid Fp^2, then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_map_fp_to_g2_base + bls12381_map_fp_to_g2_element * num_elements`
     pub fn bls12381_map_fp2_to_g2(
         &mut self,
         value_len: u64,
