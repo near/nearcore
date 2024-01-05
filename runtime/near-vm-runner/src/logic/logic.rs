@@ -1659,6 +1659,44 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+    /// Decompress points from twisted BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p:E'(Fp^2), where
+    ///    p is point in compressed format on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[[u8;96]]` slice.
+    ///    Where points (x: Fp^2, y: Fp^2) from E'(Fp^2) encoded as
+    ///    [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4)
+    ///
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    //     where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    ///    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+    ///    The third-highest bit represent the sign of y (0 for positive).
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192*num_elements bytes represent
+    /// the resulting uncompressed points from E'(Fp^2) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///  bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
     pub fn bls12381_p2_decompress(
         &mut self,
         value_len: u64,
