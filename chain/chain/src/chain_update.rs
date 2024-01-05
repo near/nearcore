@@ -40,10 +40,10 @@ use tracing::{debug, info, warn};
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
-    pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub(crate) chain_store_update: ChainStoreUpdate<'a>,
+    chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
