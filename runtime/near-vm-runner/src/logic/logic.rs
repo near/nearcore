@@ -1343,10 +1343,12 @@ impl<'a> VMLogic<'a> {
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
         let mut fp_point = blst::blst_fp::default();
 
-        let element_count: usize = (value_len / 48) as usize;
+        let elements_count: usize = (value_len / 48) as usize;
+        self.gas_counter.pay_per(bls12381_map_fp_to_g1_element, elements_count as u64)?;
+
         let mut res_concat: Vec<u8> = vec![];
 
-        for i in 0..element_count {
+        for i in 0..elements_count {
             unsafe {
                 blst::blst_fp_from_bendian(&mut fp_point, data[i*48..(i + 1)*48].as_ptr());
             }
@@ -1413,7 +1415,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
-    ///   bls12381_map_fp_to_g2_base + bls12381_map_fp_to_g2_element * num_elements`
+    ///   bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
     pub fn bls12381_map_fp2_to_g2(
         &mut self,
         value_len: u64,
@@ -1428,11 +1430,12 @@ impl<'a> VMLogic<'a> {
         }
 
         let data = get_memory_or_register!(self, value_ptr, value_len)?;
-        let element_count: usize = (value_len / 96) as usize;
+        let elements_count: usize = (value_len / 96) as usize;
+        self.gas_counter.pay_per(bls12381_map_fp2_to_g2_element, elements_count as u64)?;
 
         let mut res_concat: Vec<u8> = vec![];
 
-        for i in 0..element_count {
+        for i in 0..elements_count {
             let mut c_fp1 = [blst::blst_fp::default(); 2];
 
             unsafe {

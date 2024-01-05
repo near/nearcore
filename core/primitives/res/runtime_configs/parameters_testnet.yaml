@@ -173,12 +173,12 @@ wasm_bls12381_p2_sum_base: 0
 wasm_bls12381_p2_sum_element: 0
 wasm_bls12381_p1_multiexp_base: 0
 wasm_bls12381_p1_multiexp_element: 0
-wasm_bls12381_p1_multiexp_element_div_log: 0
 wasm_bls12381_p2_multiexp_base: 0
 wasm_bls12381_p2_multiexp_element: 0
-wasm_bls12381_p2_multiexp_element_div_log: 0
 wasm_bls12381_map_fp_to_g1_base: 0
+wasm_bls12381_map_fp_to_g1_element: 0
 wasm_bls12381_map_fp2_to_g2_base: 0
+wasm_bls12381_map_fp2_to_g2_element: 0
 wasm_bls12381_pairing_base: 0
 wasm_bls12381_pairing_element: 0
 wasm_bls12381_p1_decompress_base: 0
