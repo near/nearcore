@@ -1310,7 +1310,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Output
     ///
-    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// If the input data is correct returns 0 and the 96*num_elements bytes represent
     /// the resulting points from G1 which will be written to the register with
     /// the register_id identifier
     ///
@@ -1397,7 +1397,7 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Output
     ///
-    /// If the input data is correct returns 0 and the 192 bytes represent
+    /// If the input data is correct returns 0 and the 192*num_elements bytes represent
     /// the resulting points from G2 which will be written to the register with
     /// the register_id identifier
     ///
@@ -1589,6 +1589,41 @@ impl<'a> VMLogic<'a> {
         if pairing_res { Ok(0) } else { Ok(2) }
     }
 
+    /// Decompress points from BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p:E(Fp), where
+    ///    p is point in compressed format on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[[u8;48]]` slice.
+    ///    Where points (x: Fp, y: Fp) from E(Fp) encoded as
+    ///    [u8; 48] -- big-endian x: Fp. y determined by the formula y=+-sqrt(x^3 + 4)
+    ///
+    ///    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+    ///    The third-highest bit represent the sign of y (0 for positive).
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96*num_elements bytes represent
+    /// the resulting uncompressed points from E(Fp) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///  bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
     pub fn bls12381_p1_decompress(
         &mut self,
         value_len: u64,
