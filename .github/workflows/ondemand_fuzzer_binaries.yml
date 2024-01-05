@@ -30,6 +30,11 @@ jobs:
       id-token: "write"
 
     steps:
+      - run: sudo fallocate -l 128G /swap-file
+      - run: sudo chmod 600 /swap-file
+      - run: sudo mkswap /swap-file
+      - run: sudo swapon /swap-file
+
       - id: "auth"
         uses: "google-github-actions/auth@v1"
         with:
