@@ -1111,7 +1111,7 @@ fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp_to_g1_1_100", ExtCosts::bls12381_map_fp_to_g1_element, 100)
+    fn_cost(ctx, "bls12381_map_fp_to_g1_500_100", ExtCosts::bls12381_map_fp_to_g1_element, 500*100)
 }
 
 fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -1119,7 +1119,7 @@ fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp2_to_g2_1_100", ExtCosts::bls12381_map_fp2_to_g2_element, 100)
+    fn_cost(ctx, "bls12381_map_fp2_to_g2_100_100", ExtCosts::bls12381_map_fp2_to_g2_element, 100*100)
 }
 
 fn bls12381_pairing_base(ctx: &mut EstimatorContext) -> GasCost {
@@ -1145,7 +1145,6 @@ fn bls12381_p2_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
 fn bls12381_p2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost(ctx, "bls12381_p2_decompress_500_100", ExtCosts::bls12381_p2_decompress_element, 50000)
 }
-
 
 fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
