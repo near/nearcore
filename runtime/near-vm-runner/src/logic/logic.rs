@@ -918,7 +918,7 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 96 bytes represent
-    /// the resulting points from E(Fp) will be written to the register with
+    /// the resulting points from E(Fp) which will be written to the register with
     /// the register_id identifier
     ///
     /// If one of the points not on the curve,
@@ -1020,7 +1020,7 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 192 bytes represent
-    /// the resulting points from E'(Fp^2) will be written to the register with
+    /// the resulting points from E'(Fp^2) which will be written to the register with
     /// the register_id identifier
     ///
     /// If one of the points not on the curve,
@@ -1121,11 +1121,11 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 96 bytes represent
-    /// the resulting points from E(Fp) will be written to the register with
+    /// the resulting points from E(Fp) which will be written to the register with
     /// the register_id identifier
     ///
-    /// If one of the points not on the curve,
-    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
     /// and nothing will be written to the register.
     ///
     /// # Errors
@@ -1220,11 +1220,11 @@ impl<'a> VMLogic<'a> {
     /// # Output
     ///
     /// If the input data is correct returns 0 and the 192 bytes represent
-    /// the resulting points from E'(Fp^2) will be written to the register with
+    /// the resulting points from E'(Fp^2) which will be written to the register with
     /// the register_id identifier
     ///
-    /// If one of the points not on the curve,
-    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
     /// and nothing will be written to the register.
     ///
     /// # Errors
@@ -1299,6 +1299,34 @@ impl<'a> VMLogic<'a> {
         Ok(0)
     }
 
+    /// Maps elements from Fp to the G1 subgroup of BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p from Fp.
+    ///
+    ///   `value` is encoded as packed `[[u8;48]]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// the resulting points from G1 which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the element >= p, then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
     pub fn bls12381_map_fp_to_g1(
         &mut self,
         value_len: u64,
