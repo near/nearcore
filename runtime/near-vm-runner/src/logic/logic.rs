@@ -1541,42 +1541,37 @@ impl<'a> VMLogic<'a> {
 
         self.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
 
-        let mut blst_g1_list: Vec<blst::blst_p1_affine> = vec![];
-        let mut blst_g2_list: Vec<blst::blst_p2_affine> = vec![];
+        let mut blst_g1_list: Vec<blst::blst_p1_affine> = vec![blst::blst_p1_affine::default(); elements_count];
+        let mut blst_g2_list: Vec<blst::blst_p2_affine> = vec![blst::blst_p2_affine::default(); elements_count];
 
         for i in 0..elements_count {
-            let mut g1_aff = blst::blst_p1_affine::default();
             let error_code = unsafe {
-                blst::blst_p1_deserialize(&mut g1_aff, data[(i*288) .. (i*288+96)].as_ptr())
+                blst::blst_p1_deserialize(&mut blst_g1_list[i], data[(i*288) .. (i*288+96)].as_ptr())
             };
             if (error_code != BLST_SUCCESS) || (data[i*288] & 0x80 != 0) {
                 return Ok(1);
             }
 
             let g1_check = unsafe {
-                blst::blst_p1_affine_in_g1(&g1_aff)
+                blst::blst_p1_affine_in_g1(&blst_g1_list[i])
             };
             if g1_check == false {
                 return Ok(1);
             }
 
-            let mut g2_aff = blst::blst_p2_affine::default();
             let error_code = unsafe {
-                blst::blst_p2_deserialize(&mut g2_aff, data[(i*288+96) .. ((i + 1)*288)].as_ptr())
+                blst::blst_p2_deserialize(&mut blst_g2_list[i], data[(i*288+96) .. ((i + 1)*288)].as_ptr())
             };
             if (error_code != BLST_SUCCESS) || (data[i*288 + 96] & 0x80 != 0) {
                 return Ok(1);
             }
 
             let g2_check = unsafe {
-                blst::blst_p2_affine_in_g2(&g2_aff)
+                blst::blst_p2_affine_in_g2(&blst_g2_list[i])
             };
             if g2_check == false {
                 return Ok(1);
             }
-
-            blst_g1_list.push(g1_aff);
-            blst_g2_list.push(g2_aff);
         }
 
         let mut pairing_fp12 = blst::blst_fp12::default();
