@@ -323,7 +323,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     this.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
                 }
                 let start_height =
-                    this.client.chain.mut_store().get_latest_known().unwrap().height + 1;
+                    this.client.chain.mut_chain_store().get_latest_known().unwrap().height + 1;
                 let mut blocks_produced = 0;
                 for height in start_height.. {
                     let block = this
@@ -354,7 +354,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height {:?}", height);
-                let mut chain_store_update = this.client.chain.mut_store().store_update();
+                let mut chain_store_update = this.client.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
                     .adv_save_latest_known(height)
@@ -364,7 +364,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
             }
             NetworkAdversarialMessage::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
-                let store = this.client.chain.store().store();
+                let store = this.client.chain.chain_store().store();
                 let mut num_blocks = 0;
                 for _ in store.iter(DBCol::Block) {
                     num_blocks += 1;
@@ -376,14 +376,14 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 let timeout = 1500;
                 info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
                 let mut genesis = near_chain_configs::GenesisConfig::default();
-                genesis.genesis_height = this.client.chain.store().get_genesis_height();
+                genesis.genesis_height = this.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
                     this.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                     genesis,
                     this.client.epoch_manager.clone(),
                     this.client.shard_tracker.clone(),
                     this.client.runtime_adapter.clone(),
-                    this.client.chain.store().store().clone(),
+                    this.client.chain.chain_store().store().clone(),
                     this.adv.is_archival(),
                 );
                 store_validator.set_timeout(timeout);
@@ -972,11 +972,11 @@ impl ClientActor {
     fn pre_block_production(&mut self) -> Result<(), Error> {
         #[cfg(feature = "sandbox")]
         {
-            let latest_known = self.client.chain.mut_store().get_latest_known()?;
+            let latest_known = self.client.chain.mut_chain_store().get_latest_known()?;
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known.clone())?;
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }
