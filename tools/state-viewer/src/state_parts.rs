@@ -269,7 +269,8 @@ impl EpochSelection {
             }
             EpochSelection::BlockHeight { block_height } => {
                 // Fetch an epoch containing the given block height.
-                let block_hash = chain.store().get_block_hash_by_height(*block_height).unwrap();
+                let block_hash =
+                    chain.chain_store().get_block_hash_by_height(*block_height).unwrap();
                 chain.epoch_manager.get_epoch_id(&block_hash).unwrap()
             }
         }
@@ -278,7 +279,7 @@ impl EpochSelection {
 
 /// Returns block hash of some block of the given `epoch_info` epoch.
 fn get_any_block_hash_of_epoch(epoch_info: &EpochInfo, chain: &Chain) -> CryptoHash {
-    let head = chain.store().head().unwrap();
+    let head = chain.chain_store().head().unwrap();
     let mut cur_block_info = chain.epoch_manager.get_block_info(&head.last_block_hash).unwrap();
     // EpochManager doesn't have an API that maps EpochId to Blocks, and this function works
     // around that limitation by iterating over the epochs.
@@ -515,7 +516,7 @@ fn read_state_header(
     let sync_hash = get_any_block_hash_of_epoch(&epoch, chain);
     let sync_hash = StateSync::get_epoch_start_sync_hash(chain, &sync_hash).unwrap();
 
-    let state_header = chain.store().get_state_header(shard_id, sync_hash);
+    let state_header = chain.chain_store().get_state_header(shard_id, sync_hash);
     tracing::info!(target: "state-parts", ?epoch_id, ?sync_hash, ?state_header);
 }
 
