@@ -27,7 +27,7 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
 };
-use near_chain::resharding::{StateSplitRequest, StateSplitResponse};
+use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -37,7 +37,7 @@ use near_chain::{
     byzantine_assert, near_chain_primitives, Block, BlockHeader, BlockProcessingArtifact,
     ChainGenesis, DoneApplyChunkCallback, Provenance,
 };
-use near_chain_configs::{ClientConfig, LogSummaryStyle, StateSplitHandle};
+use near_chain_configs::{ClientConfig, LogSummaryStyle, ReshardingHandle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -116,7 +116,7 @@ pub struct ClientActor {
     sync_started: bool,
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
-    state_split_scheduler: Box<dyn Fn(StateSplitRequest)>,
+    resharding_scheduler: Box<dyn Fn(ReshardingRequest)>,
     state_parts_client_arbiter: Arbiter,
 
     #[cfg(feature = "sandbox")]
@@ -212,7 +212,7 @@ impl ClientActor {
             block_catch_up_scheduler: create_sync_job_scheduler::<BlockCatchUpRequest>(
                 sync_jobs_actor_addr.clone(),
             ),
-            state_split_scheduler: create_sync_job_scheduler::<StateSplitRequest>(
+            resharding_scheduler: create_sync_job_scheduler::<ReshardingRequest>(
                 sync_jobs_actor_addr,
             ),
             state_parts_client_arbiter: state_parts_arbiter,
@@ -323,7 +323,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                     this.client.adv_produce_blocks = Some(AdvProduceBlocksMode::All);
                 }
                 let start_height =
-                    this.client.chain.mut_store().get_latest_known().unwrap().height + 1;
+                    this.client.chain.mut_chain_store().get_latest_known().unwrap().height + 1;
                 let mut blocks_produced = 0;
                 for height in start_height.. {
                     let block = this
@@ -354,7 +354,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height {:?}", height);
-                let mut chain_store_update = this.client.chain.mut_store().store_update();
+                let mut chain_store_update = this.client.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
                     .adv_save_latest_known(height)
@@ -364,7 +364,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
             }
             NetworkAdversarialMessage::AdvGetSavedBlocks => {
                 info!(target: "adversary", "Requested number of saved blocks");
-                let store = this.client.chain.store().store();
+                let store = this.client.chain.chain_store().store();
                 let mut num_blocks = 0;
                 for _ in store.iter(DBCol::Block) {
                     num_blocks += 1;
@@ -376,14 +376,14 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ClientActor {
                 let timeout = 1500;
                 info!(target: "adversary", "Check Storage Consistency, timeout set to {:?} milliseconds", timeout);
                 let mut genesis = near_chain_configs::GenesisConfig::default();
-                genesis.genesis_height = this.client.chain.store().get_genesis_height();
+                genesis.genesis_height = this.client.chain.chain_store().get_genesis_height();
                 let mut store_validator = near_chain::store_validator::StoreValidator::new(
                     this.client.validator_signer.as_ref().map(|x| x.validator_id().clone()),
                     genesis,
                     this.client.epoch_manager.clone(),
                     this.client.shard_tracker.clone(),
                     this.client.runtime_adapter.clone(),
-                    this.client.chain.store().store().clone(),
+                    this.client.chain.chain_store().store().clone(),
                     this.adv.is_archival(),
                 );
                 store_validator.set_timeout(timeout);
@@ -426,7 +426,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
             let blocks_at_height = this
                 .client
                 .chain
-                .store()
+                .chain_store()
                 .get_all_block_hashes_by_height(block.header().height());
             if was_requested || blocks_at_height.is_err() || blocks_at_height.as_ref().unwrap().is_empty() {
                 // This is a very sneaky piece of logic.
@@ -972,11 +972,11 @@ impl ClientActor {
     fn pre_block_production(&mut self) -> Result<(), Error> {
         #[cfg(feature = "sandbox")]
         {
-            let latest_known = self.client.chain.mut_store().get_latest_known()?;
+            let latest_known = self.client.chain.mut_chain_store().get_latest_known()?;
             if let Some(new_latest_known) =
                 self.sandbox_process_fast_forward(latest_known.height)?
             {
-                self.client.chain.mut_store().save_latest_known(new_latest_known.clone())?;
+                self.client.chain.mut_chain_store().save_latest_known(new_latest_known.clone())?;
                 self.client.sandbox_update_tip(new_latest_known.height)?;
             }
         }
@@ -1008,7 +1008,7 @@ impl ClientActor {
 
         self.pre_block_production()?;
         let head = self.client.chain.head()?;
-        let latest_known = self.client.chain.store().get_latest_known()?;
+        let latest_known = self.client.chain.chain_store().get_latest_known()?;
 
         assert!(
             head.height <= latest_known.height,
@@ -1236,7 +1236,7 @@ impl ClientActor {
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
-        let mut chain_store_update = self.client.chain.mut_store().store_update();
+        let mut chain_store_update = self.client.chain.mut_chain_store().store_update();
         chain_store_update
             .save_largest_target_height(self.client.doomslug.get_largest_target_height());
 
@@ -1514,7 +1514,7 @@ impl ClientActor {
                 &self.network_info.highest_height_peers,
                 &self.state_parts_task_scheduler,
                 &self.block_catch_up_scheduler,
-                &self.state_split_scheduler,
+                &self.resharding_scheduler,
                 self.get_apply_chunks_done_callback(),
                 &self.state_parts_client_arbiter.handle(),
             ) {
@@ -1748,7 +1748,7 @@ impl ClientActor {
                         &self.network_info.highest_height_peers,
                         shards_to_sync,
                         &self.state_parts_task_scheduler,
-                        &self.state_split_scheduler,
+                        &self.resharding_scheduler,
                         &self.state_parts_client_arbiter.handle(),
                         use_colour,
                         self.client.runtime_adapter.clone(),
@@ -1912,22 +1912,22 @@ impl Handler<WithSpanContext<BlockCatchUpResponse>> for ClientActor {
     }
 }
 
-impl Handler<WithSpanContext<StateSplitResponse>> for ClientActor {
+impl Handler<WithSpanContext<ReshardingResponse>> for ClientActor {
     type Result = ();
 
     #[perf]
     fn handle(
         &mut self,
-        msg: WithSpanContext<StateSplitResponse>,
+        msg: WithSpanContext<ReshardingResponse>,
         _: &mut Self::Context,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
-            sync.set_split_result(msg.shard_id, msg.new_state_roots);
+            sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         } else {
-            self.client.state_sync.set_split_result(msg.shard_id, msg.new_state_roots);
+            self.client.state_sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         }
     }
 }
@@ -2031,7 +2031,7 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-) -> (Addr<ClientActor>, ArbiterHandle, StateSplitHandle) {
+) -> (Addr<ClientActor>, ArbiterHandle, ReshardingHandle) {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
 
@@ -2051,7 +2051,7 @@ pub fn start_client(
         snapshot_callbacks,
     )
     .unwrap();
-    let state_split_handle = client.chain.state_split_handle.clone();
+    let resharding_handle = client.chain.resharding_handle.clone();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             client,
@@ -2068,5 +2068,5 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter_handle, state_split_handle)
+    (client_addr, client_arbiter_handle, resharding_handle)
 }

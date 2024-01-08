@@ -6,7 +6,7 @@ use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
     BlockCatchUpResponse,
 };
-use near_chain::resharding::StateSplitRequest;
+use near_chain::resharding::ReshardingRequest;
 use near_chain::Chain;
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
@@ -147,39 +147,39 @@ impl actix::Handler<WithSpanContext<BlockCatchUpRequest>> for SyncJobsActor {
     }
 }
 
-impl actix::Handler<WithSpanContext<StateSplitRequest>> for SyncJobsActor {
+impl actix::Handler<WithSpanContext<ReshardingRequest>> for SyncJobsActor {
     type Result = ();
 
     #[perf]
     fn handle(
         &mut self,
-        msg: WithSpanContext<StateSplitRequest>,
+        msg: WithSpanContext<ReshardingRequest>,
         context: &mut Self::Context,
     ) -> Self::Result {
-        let (_span, mut state_split_request) = handler_debug_span!(target: "resharding", msg);
-        let config = state_split_request.config.get();
+        let (_span, mut resharding_request) = handler_debug_span!(target: "resharding", msg);
+        let config = resharding_request.config.get();
 
         // Wait for the initial delay. It should only be used in tests.
         let initial_delay = config.initial_delay;
-        if state_split_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
-            tracing::debug!(target: "resharding", ?state_split_request, ?initial_delay, "Waiting for the initial delay");
-            state_split_request.curr_poll_time += initial_delay;
-            context.notify_later(state_split_request.with_span_context(), initial_delay);
+        if resharding_request.curr_poll_time == Duration::ZERO && initial_delay > Duration::ZERO {
+            tracing::debug!(target: "resharding", ?resharding_request, ?initial_delay, "Waiting for the initial delay");
+            resharding_request.curr_poll_time += initial_delay;
+            context.notify_later(resharding_request.with_span_context(), initial_delay);
             return;
         }
 
-        if Chain::retry_build_state_for_split_shards(&state_split_request) {
+        if Chain::retry_build_state_for_split_shards(&resharding_request) {
             // Actix implementation let's us send message to ourselves with a delay.
             // In case snapshots are not ready yet, we will retry resharding later.
             let retry_delay = config.retry_delay;
-            tracing::debug!(target: "resharding", ?state_split_request, ?retry_delay, "Snapshot missing, retrying resharding later");
-            state_split_request.curr_poll_time += retry_delay;
-            context.notify_later(state_split_request.with_span_context(), retry_delay);
+            tracing::debug!(target: "resharding", ?resharding_request, ?retry_delay, "Snapshot missing, retrying resharding later");
+            resharding_request.curr_poll_time += retry_delay;
+            context.notify_later(resharding_request.with_span_context(), retry_delay);
             return;
         }
 
-        tracing::debug!(target: "resharding", ?state_split_request, "Starting resharding");
-        let response = Chain::build_state_for_split_shards(state_split_request);
+        tracing::debug!(target: "resharding", ?resharding_request, "Starting resharding");
+        let response = Chain::build_state_for_split_shards(resharding_request);
         self.client_addr.do_send(response.with_span_context());
     }
 }

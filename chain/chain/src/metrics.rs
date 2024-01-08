@@ -143,7 +143,7 @@ pub(crate) static LARGEST_FINAL_HEIGHT: Lazy<IntGauge> = Lazy::new(|| {
 });
 
 pub(crate) enum ReshardingStatus {
-    /// The StateSplitRequest was send to the SyncJobsActor.
+    /// The ReshardingRequest was send to the SyncJobsActor.
     Scheduled,
     /// The SyncJobsActor is performing the resharding.
     BuildingState,

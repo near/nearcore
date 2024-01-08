@@ -1,6 +1,6 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
     ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
@@ -32,7 +32,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -1377,14 +1377,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(false)
     }
 
-    fn apply_update_to_split_states(
+    fn apply_update_to_children_states(
         &self,
         _block_hash: &CryptoHash,
         _block_height: BlockHeight,
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
-        _state_changes: StateChangesForSplitStates,
-    ) -> Result<Vec<ApplySplitStateResult>, Error> {
+        _state_changes: StateChangesForResharding,
+    ) -> Result<Vec<ApplyResultForResharding>, Error> {
         Ok(vec![])
     }
 

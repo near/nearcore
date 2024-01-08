@@ -648,11 +648,6 @@ fn test_verify_validator_signature() {
         .unwrap());
 }
 
-#[test]
-fn test_split_states() {
-    init_test_logger();
-}
-
 // TODO (#7327): enable test when flat storage will support state sync.
 #[ignore]
 #[test]

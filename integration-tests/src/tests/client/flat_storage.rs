@@ -314,7 +314,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let store = create_test_store();
 
     // Process some blocks with flat storage.
-    // Split state into two parts and return trie keys corresponding to each part.
+    // Reshard into two parts and return trie keys corresponding to each part.
     const NUM_PARTS: u64 = 2;
     let trie_keys: Vec<_> = {
         let mut env = setup_env(&genesis, store.clone());

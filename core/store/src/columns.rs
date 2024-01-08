@@ -247,9 +247,11 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<HeaderHashes (CryptoHash)>
     HeaderHashesByHeight,
-    /// State changes made by a chunk, used for splitting states
+    /// State changes made by a chunk, used for resharding. Historically
+    /// resharding was also called State Splitting since the name.
+    /// TODO(resharding) rename to StateChangesForResharding if safe.
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
-    /// - *Column type*: StateChangesForSplitStates
+    /// - *Column type*: StateChangesForResharding
     StateChangesForSplitStates,
     /// Transaction or receipt outcome, by outcome ID (transaction or receipt hash) and block
     /// hash. Multiple outcomes may be stored for the same outcome ID in case of forks.

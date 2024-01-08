@@ -68,6 +68,12 @@ pub struct AmendGenesisCommand {
     /// on accounts in the output state
     #[clap(long)]
     num_extra_bytes_record: Option<u64>,
+    /// min_gas_price to set in the output genesis file
+    #[clap(long)]
+    min_gas_price: Option<u128>,
+    /// max_gas_price to set in the output genesis file
+    #[clap(long)]
+    max_gas_price: Option<u128>,
 }
 
 impl AmendGenesisCommand {
@@ -81,6 +87,8 @@ impl AmendGenesisCommand {
             protocol_reward_rate: self.protocol_reward_rate,
             block_producer_kickout_threshold: self.block_producer_kickout_threshold,
             chunk_producer_kickout_threshold: self.chunk_producer_kickout_threshold,
+            min_gas_price: self.min_gas_price,
+            max_gas_price: self.max_gas_price,
         };
         crate::amend_genesis(
             &self.genesis_file_in,

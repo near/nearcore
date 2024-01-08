@@ -104,9 +104,9 @@ fn retrieve_starting_chunk_hash(
     let mut last_err = None;
     for height in (chain.tail().context("failed fetching chain tail")? + 1..=head_height).rev() {
         match chain
-            .store()
+            .chain_store()
             .get_block_hash_by_height(height)
-            .and_then(|hash| chain.store().get_block(&hash))
+            .and_then(|hash| chain.chain_store().get_block(&hash))
             .map(|block| block.chunks().iter().next().unwrap().chunk_hash())
         {
             Ok(hash) => return Ok(hash),
@@ -462,7 +462,7 @@ fn retrieve_partial_encoded_chunk(
     request: &PartialEncodedChunkRequestMsg,
 ) -> Result<PartialEncodedChunkResponseMsg, Error> {
     let num_total_parts = chain.epoch_manager.num_total_parts();
-    let partial_chunk = chain.store().get_partial_chunk(&request.chunk_hash)?;
+    let partial_chunk = chain.chain_store().get_partial_chunk(&request.chunk_hash)?;
     let present_parts: HashMap<u64, _> =
         partial_chunk.parts().iter().map(|part| (part.part_ord, part)).collect();
     assert_eq!(

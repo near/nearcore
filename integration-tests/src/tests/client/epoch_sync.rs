@@ -116,13 +116,13 @@ fn test_continuous_epoch_sync_info_population() {
             continue;
         }
         let last_final_header =
-            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+            env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
             let epoch_id = last_epoch_id.clone();
 
             tracing::debug!("Checking epoch: {:?}", &epoch_id);
-            assert!(env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).is_ok());
+            assert!(env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).is_ok());
             tracing::debug!("OK");
         }
 
@@ -274,13 +274,13 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             continue;
         }
         let last_final_header =
-            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+            env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
             let epoch_id = last_epoch_id.clone();
 
             let epoch_sync_info =
-                env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).unwrap();
+                env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).unwrap();
 
             tracing::debug!("Checking epoch sync info: {:?}", &epoch_sync_info);
 
@@ -289,7 +289,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             for hash in &epoch_sync_info.headers_to_save {
                 let block_info = env.clients[0]
                     .chain
-                    .store()
+                    .chain_store()
                     .store()
                     .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
                     .unwrap()
@@ -372,7 +372,8 @@ fn test_node_after_simulated_sync() {
     while epoch_id1 != epoch_id0 {
         tracing::debug!("Syncing epoch {:?}", epoch_id1);
 
-        let epoch_sync_data = env.clients[0].chain.store().get_epoch_sync_info(&epoch_id1).unwrap();
+        let epoch_sync_data =
+            env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id1).unwrap();
         env.clients[1].chain.validate_and_record_epoch_sync_info(&epoch_sync_data).unwrap();
 
         epoch_id1 = env.clients[1]
@@ -399,7 +400,7 @@ fn test_node_after_simulated_sync() {
     // Do "state sync" for the last epoch
     // write last block of prev epoch
     {
-        let mut store_update = env.clients[1].chain.store().store().store_update();
+        let mut store_update = env.clients[1].chain.chain_store().store().store_update();
 
         let mut last_block = &blocks[0];
         for block in &blocks {

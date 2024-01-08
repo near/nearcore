@@ -5,7 +5,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::MutableConfigValue;
-use near_chain_configs::StateSplitConfig;
+use near_chain_configs::ReshardingConfig;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
@@ -26,7 +26,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    StateChangesForResharding, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -79,25 +79,24 @@ pub struct AcceptedBlock {
 }
 
 #[derive(Debug)]
-pub struct ApplySplitStateResult {
+pub struct ApplyResultForResharding {
     pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
 }
 
-// This struct captures two cases
-// when apply transactions, split states may or may not be ready
-// if it's ready, apply transactions also apply updates to split states and this enum will be
-//    ApplySplitStateResults
-// otherwise, it simply returns the state changes needed to be applied to split states
+// ReshardingResults contains the results of applying depending on whether
+// resharding is finished.
+// If resharding is finished the results should be applied immediately.
+// If resharding is not finished the results should be stored and applied later.
 #[derive(Debug)]
-pub enum ApplySplitStateResultOrStateChanges {
-    /// Immediately apply the split state result.
+pub enum ReshardingResults {
+    /// Immediately apply the resharding result.
     /// Happens during IsCaughtUp and CatchingUp
-    ApplySplitStateResults(Vec<ApplySplitStateResult>),
-    /// Store the split state results so that they can be applied later.
+    ApplyReshardingResults(Vec<ApplyResultForResharding>),
+    /// Store the resharding results so that they can be applied later.
     /// Happens during NotCaughtUp.
-    StateChangesForSplitStates(StateChangesForSplitStates),
+    StoreReshardingResults(StateChangesForResharding),
 }
 
 #[derive(Debug)]
@@ -214,7 +213,7 @@ pub struct ChainConfig {
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
     /// The resharding configuration.
-    pub state_split_config: MutableConfigValue<StateSplitConfig>,
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
 }
 
 impl ChainConfig {
@@ -222,9 +221,9 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
         }
     }
@@ -427,14 +426,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns false if the resulting part doesn't match the expected one.
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
-    fn apply_update_to_split_states(
+    fn apply_update_to_children_states(
         &self,
         block_hash: &CryptoHash,
         block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
-        state_changes: StateChangesForSplitStates,
-    ) -> Result<Vec<ApplySplitStateResult>, Error>;
+        state_changes: StateChangesForResharding,
+    ) -> Result<Vec<ApplyResultForResharding>, Error>;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(

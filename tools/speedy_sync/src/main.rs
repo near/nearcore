@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::{GenesisValidationMode, MutableConfigValue, StateSplitConfig};
+use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::types::EpochInfoAggregator;
 use near_epoch_manager::EpochManager;
@@ -243,9 +243,9 @@ fn load_snapshot(load_cmd: LoadCmd) {
         ChainConfig {
             save_trie_changes: config.client_config.save_trie_changes,
             background_migration_threads: 1,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
         },
         None,
