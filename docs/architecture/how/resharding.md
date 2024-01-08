@@ -58,11 +58,11 @@ about to preprocess is the first block of the epoch (X+1)  - it calls
 ``get_state_sync_info``, which is responsible for figuring out which shards will 
 be needed in next epoch (X+2).
 
-This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from state splitting.
+This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from resharding.
 
-StateSync in this phase would send the ``StateSplitRequest`` to the ``SyncJobsActor`` (you can think about the ``SyncJobsActor`` as a background thread).
+StateSync in this phase would send the ``ReshardingRequest`` to the ``SyncJobsActor`` (you can think about the ``SyncJobsActor`` as a background thread).
 
-We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
+We'd use the background thread to perform resharding: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).
 
 In order to split a trie into children tries we use a snapshot of the flat storage. We iterate over all of the entries in the flat storage and we build the children tries by inserting the parent entry into either of the children tries. 
 
@@ -145,16 +145,16 @@ Here is an example of what that may look like in a grafana dashboard. Please kee
 
 ### Throttling
 
-The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the state_split_config in the node config file. 
+The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. 
 
 * batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.
 * batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. 
 
-The remainig fields in the StateSplitConfig are only intended for testing purposes and should remain set to their default values. 
+The remainig fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. 
 
-The default configuration for StateSplitConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. 
+The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. 
 
-The state split config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. 
+The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. 
 
 ## Future possibilities
 

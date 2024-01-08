@@ -157,7 +157,7 @@ impl DropChunkCondition {
 
 /// Test environment prepared for testing the sharding upgrade.
 /// Epoch 0, blocks 1-5  : genesis shard layout
-/// Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+/// Epoch 1, blocks 6-10 : genesis shard layout, resharding happens
 /// Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
 /// Epoch 3: blocks 16-20: target shard layout,
 ///
@@ -364,7 +364,7 @@ impl TestReshardingEnv {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
-        // after state split, check chunk extra exists and the states are correct
+        // after resharding, check chunk extra exists and the states are correct
         for account_id in self.initial_accounts.iter() {
             check_account(env, account_id, &block);
         }
@@ -484,7 +484,7 @@ impl TestReshardingEnv {
                         .get_shard_layout_from_prev_block(&last_block_hash)
                         .unwrap();
 
-                    shard_layout.get_split_shard_ids(shard_id as ShardId).unwrap()
+                    shard_layout.get_children_shards_ids(shard_id as ShardId).unwrap()
                 };
 
                 for target_shard_id in target_shard_ids {
@@ -608,9 +608,9 @@ impl TestReshardingEnv {
         }
     }
 
-    /// Check that after split state is finished, the artifacts stored in storage is removed
-    fn check_split_states_artifacts(&mut self) {
-        tracing::debug!(target: "test", "checking split states artifacts");
+    /// Check that after resharding is finished, the artifacts stored in storage is removed
+    fn check_resharding_artifacts(&mut self) {
+        tracing::debug!(target: "test", "checking resharding artifacts");
 
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -623,7 +623,7 @@ impl TestReshardingEnv {
                 let res = env.clients[0]
                     .chain
                     .chain_store()
-                    .get_state_changes_for_split_states(&block_hash, shard_id);
+                    .get_state_changes_for_resharding(&block_hash, shard_id);
                 assert_matches!(res, Err(error) => {
                     assert_matches!(error, Error::DBNotFoundErr(_));
                 })
@@ -982,7 +982,7 @@ fn test_shard_layout_upgrade_simple_impl(
 
     test_env.check_tx_outcomes(false);
     test_env.check_accounts(accounts_to_check.iter().collect());
-    test_env.check_split_states_artifacts();
+    test_env.check_resharding_artifacts();
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
 }
@@ -1036,7 +1036,7 @@ fn test_shard_layout_upgrade_gc_impl(resharding_type: ReshardingType, rng_seed: 
 
     // GC period is about 5 epochs. We should expect to see state deleted at the end of the 7th epoch
     // Epoch 0, blocks 1-5  : genesis shard layout
-    // Epoch 1, blocks 6-10 : genesis shard layout, state split happens
+    // Epoch 1, blocks 6-10 : genesis shard layout, resharding happens
     // Epoch 2: blocks 10-15: target shard layout, shard layout is upgraded
     // Epoch 3-7: target shard layout, waiting for GC to happen
     // Epoch 8: block 37: GC happens, state is deleted
@@ -1323,7 +1323,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     test_env.check_accounts(new_accounts);
 
-    test_env.check_split_states_artifacts();
+    test_env.check_resharding_artifacts();
 }
 
 // Test cross contract calls
@@ -1397,7 +1397,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
-    test_env.check_split_states_artifacts();
+    test_env.check_resharding_artifacts();
 }
 
 // This test doesn't make much sense for the V1 resharding. That is because in
@@ -1470,7 +1470,7 @@ fn test_missing_chunks(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 
-    test_env.check_split_states_artifacts();
+    test_env.check_resharding_artifacts();
 }
 
 fn test_shard_layout_upgrade_missing_chunks(

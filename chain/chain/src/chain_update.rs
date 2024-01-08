@@ -4,11 +4,11 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplySplitStateResultOrStateChanges, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
+    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{
-    NewChunkResult, OldChunkResult, ShardBlockUpdateResult, ShardUpdateResult, StateSplitResult,
+    NewChunkResult, OldChunkResult, ReshardingResult, ShardBlockUpdateResult, ShardUpdateResult,
 };
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
@@ -172,29 +172,30 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Postprocess split state results or state changes, do the necessary update on chain
-    /// for split state results: store the chunk extras and trie changes for the split states
-    /// for state changes, store the state changes for splitting states
-    fn process_split_state(
+    /// Postprocess resharding results and do the necessary update on chain for
+    /// resharding results.
+    /// - Store the chunk extras and trie changes for the apply results.
+    /// - Store the state changes to be applided later for the store results.
+    fn process_resharding_results(
         &mut self,
         block: &Block,
         shard_uid: &ShardUId,
-        apply_results_or_state_changes: ApplySplitStateResultOrStateChanges,
+        resharding_results: ReshardingResults,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
-        match apply_results_or_state_changes {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(mut results) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
+        match resharding_results {
+            ReshardingResults::ApplyReshardingResults(mut results) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results apply");
 
                 // Sort the results so that the gas reassignment is deterministic.
                 results.sort_unstable_by_key(|r| r.shard_uid);
                 // Drop the mutability as we no longer need it.
                 let results = results;
 
-                // Split validator_proposals, gas_burnt, balance_burnt to each split shard
-                // and store the chunk extra for split shards
+                // Split validator_proposals, gas_burnt, balance_burnt to each child shard
+                // and store the chunk extra for children shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
                 // the outcome_root from the parent shard. This is because outcome proofs are
                 // generated per shard using the old shard layout and stored in the database.
@@ -220,24 +221,24 @@ impl<'a> ChainUpdate<'a> {
                 }
 
                 let num_split_shards = next_epoch_shard_layout
-                    .get_split_shard_uids(shard_uid.shard_id())
+                    .get_children_shards_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
 
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
 
-                // The gas remainder, the split shards will be reassigned one
+                // The gas remainder, the children shards will be reassigned one
                 // unit each until its depleted.
                 let mut gas_res = total_gas_used % num_split_shards;
-                // The gas quotient, the split shards will be reassigned the
+                // The gas quotient, the children shards will be reassigned the
                 // full value each.
                 let gas_split = total_gas_used / num_split_shards;
 
-                // The balance remainder, the split shards will be reassigned one
+                // The balance remainder, the children shards will be reassigned one
                 // unit each until its depleted.
                 let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
-                // The balance quotient, the split shards will be reassigned the
+                // The balance quotient, the children shards will be reassigned the
                 // full value each.
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
 
@@ -300,9 +301,9 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(sum_gas_used, total_gas_used);
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
-            ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state store");
-                self.chain_store_update.add_state_changes_for_split_states(
+            ReshardingResults::StoreReshardingResults(state_changes) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results store");
+                self.chain_store_update.add_state_changes_for_resharding(
                     *block_hash,
                     shard_uid.shard_id(),
                     state_changes,
@@ -312,7 +313,7 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Processed results of applying chunk
+    /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
         block: &Block,
@@ -326,7 +327,7 @@ impl<'a> ChainUpdate<'a> {
                 gas_limit,
                 shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results,
             }) => {
                 let (outcome_root, outcome_paths) =
                     ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
@@ -369,14 +370,14 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
-                if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                if let Some(resharding_results) = resharding_results {
+                    self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
             }
             ShardBlockUpdateResult::OldChunk(OldChunkResult {
                 shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results,
             }) => {
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
@@ -396,17 +397,17 @@ impl<'a> ChainUpdate<'a> {
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
 
-                if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                if let Some(resharding_config) = resharding_results {
+                    self.process_resharding_results(block, &shard_uid, resharding_config)?;
                 }
             }
-            ShardBlockUpdateResult::StateSplit(StateSplitResult { shard_uid, results }) => {
+            ShardBlockUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
                 self.chain_store_update
-                    .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
-                self.process_split_state(
+                    .remove_state_changes_for_resharding(*block.hash(), shard_uid.shard_id());
+                self.process_resharding_results(
                     block,
                     &shard_uid,
-                    ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results),
+                    ReshardingResults::ApplyReshardingResults(results),
                 )?;
             }
         };

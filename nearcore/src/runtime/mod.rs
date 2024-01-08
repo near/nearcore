@@ -5,7 +5,7 @@ use crate::NearConfig;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
-    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
     ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use near_chain::Error;
@@ -30,7 +30,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
-    ShardId, StateChangeCause, StateChangesForSplitStates, StateRoot, StateRootNode,
+    ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -1085,24 +1085,24 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn apply_update_to_split_states(
+    fn apply_update_to_children_states(
         &self,
         block_hash: &CryptoHash,
         block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_epoch_shard_layout: &ShardLayout,
-        state_changes_for_split_states: StateChangesForSplitStates,
-    ) -> Result<Vec<ApplySplitStateResult>, Error> {
-        let trie_updates = self.tries.apply_state_changes_to_split_states(
+        state_changes_for_resharding: StateChangesForResharding,
+    ) -> Result<Vec<ApplyResultForResharding>, Error> {
+        let trie_updates = self.tries.apply_state_changes_to_children_states(
             &state_roots,
-            state_changes_for_split_states,
+            state_changes_for_resharding,
             &|account_id| account_id_to_shard_uid(account_id, next_epoch_shard_layout),
         )?;
 
-        let mut applied_split_state_results: Vec<_> = vec![];
+        let mut applied_resharding_results: Vec<_> = vec![];
         for (shard_uid, trie_update) in trie_updates {
             let (_, trie_changes, state_changes) = trie_update.finalize()?;
-            // All state changes that are related to split state should have StateChangeCause as Resharding
+            // All state changes that are related to resharding should have StateChangeCause as Resharding
             // We do not want to commit the state_changes from resharding as they are already handled while
             // processing parent shard
             debug_assert!(state_changes.iter().all(|raw_state_changes| raw_state_changes
@@ -1118,14 +1118,14 @@ impl RuntimeAdapter for NightshadeRuntime {
                 *block_hash,
                 block_height,
             );
-            applied_split_state_results.push(ApplySplitStateResult {
+            applied_resharding_results.push(ApplyResultForResharding {
                 shard_uid,
                 new_root,
                 trie_changes: wrapped_trie_changes,
             });
         }
 
-        Ok(applied_split_state_results)
+        Ok(applied_resharding_results)
     }
 
     fn apply_state_part(

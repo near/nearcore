@@ -33,7 +33,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesForResharding, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -520,11 +520,11 @@ impl ChainStore {
             .collect()
     }
 
-    pub fn get_state_changes_for_split_states(
+    pub fn get_state_changes_for_resharding(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<StateChangesForSplitStates, Error> {
+    ) -> Result<StateChangesForResharding, Error> {
         let key = &get_block_shard_id(block_hash, shard_id);
         option_to_not_found(
             self.store.get_ser(DBCol::StateChangesForSplitStates, key),
@@ -645,7 +645,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        let split_shard_ids = shard_layout.get_split_shard_ids(receipts_shard_id);
+        let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =
             split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
 
@@ -1438,9 +1438,11 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
-    // All state changes made by a chunk, this is only used for splitting states
-    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
-    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
+
+    // All state changes made by a chunk, this is only used for resharding.
+    add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
+    remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
+
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1465,8 +1467,8 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
-            add_state_changes_for_split_states: HashMap::new(),
-            remove_state_changes_for_split_states: HashSet::new(),
+            add_state_changes_for_resharding: HashMap::new(),
+            remove_state_changes_for_resharding: HashSet::new(),
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -2075,26 +2077,26 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
-    pub fn add_state_changes_for_split_states(
+    pub fn add_state_changes_for_resharding(
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
-        state_changes: StateChangesForSplitStates,
+        state_changes: StateChangesForResharding,
     ) {
         let prev =
-            self.add_state_changes_for_split_states.insert((block_hash, shard_id), state_changes);
+            self.add_state_changes_for_resharding.insert((block_hash, shard_id), state_changes);
         // We should not save state changes for the same chunk twice
         assert!(prev.is_none());
     }
 
-    pub fn remove_state_changes_for_split_states(
+    pub fn remove_state_changes_for_resharding(
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
     ) {
         // We should not remove state changes for the same chunk twice
         let value_not_present =
-            self.remove_state_changes_for_split_states.insert((block_hash, shard_id));
+            self.remove_state_changes_for_resharding.insert((block_hash, shard_id));
         assert!(value_not_present);
     }
 
@@ -2524,8 +2526,7 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        for ((block_hash, shard_id), state_changes) in
-            self.add_state_changes_for_split_states.drain()
+        for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()
         {
             store_update.set_ser(
                 DBCol::StateChangesForSplitStates,
@@ -2533,7 +2534,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
+        for (block_hash, shard_id) in self.remove_state_changes_for_resharding.drain() {
             store_update.delete(
                 DBCol::StateChangesForSplitStates,
                 &get_block_shard_id(&block_hash, shard_id),

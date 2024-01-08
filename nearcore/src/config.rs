@@ -11,7 +11,7 @@ use near_chain_configs::{
     default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
     default_tx_routing_height_horizon, default_view_client_threads,
     default_view_client_throttle_period, get_initial_supply, ClientConfig, GCConfig, Genesis,
-    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, StateSplitConfig,
+    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig,
     StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
@@ -307,7 +307,7 @@ pub struct Config {
     /// chunks and underutilizing the capacity of the network.
     pub transaction_pool_size_limit: Option<u64>,
     // Configuration for resharding.
-    pub state_split_config: StateSplitConfig,
+    pub resharding_config: ReshardingConfig,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -356,7 +356,7 @@ impl Default for Config {
             state_sync_enabled: default_state_sync_enabled(),
             transaction_pool_size_limit: default_transaction_pool_size_limit(),
             enable_multiline_logging: default_enable_multiline_logging(),
-            state_split_config: StateSplitConfig::default(),
+            resharding_config: ReshardingConfig::default(),
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
@@ -656,9 +656,9 @@ impl NearConfig {
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
                 enable_multiline_logging: config.enable_multiline_logging.unwrap_or(true),
-                state_split_config: MutableConfigValue::new(
-                    config.state_split_config,
-                    "state_split_config",
+                resharding_config: MutableConfigValue::new(
+                    config.resharding_config,
+                    "resharding_config",
                 ),
                 tx_routing_height_horizon: config.tx_routing_height_horizon,
                 produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
