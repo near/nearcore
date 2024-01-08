@@ -184,9 +184,9 @@ for the desired protocol version in the <code>AllEpochConfig</code>.</p>
 about to preprocess is the first block of the epoch (X+1)  - it calls
 <code>get_state_sync_info</code>, which is responsible for figuring out which shards will 
 be needed in next epoch (X+2).</p>
-<p>This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from state splitting.</p>
-<p>StateSync in this phase would send the <code>StateSplitRequest</code> to the <code>SyncJobsActor</code> (you can think about the <code>SyncJobsActor</code> as a background thread).</p>
-<p>We'd use the background thread to do the state splitting: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).</p>
+<p>This is the moment, when node can request new shards that it didn't track before (using StateSync) - and if it detects that the shard layout would change in the next epoch, it also involves the StateSync - but skips the download part (as it already has the data) - and starts from resharding.</p>
+<p>StateSync in this phase would send the <code>ReshardingRequest</code> to the <code>SyncJobsActor</code> (you can think about the <code>SyncJobsActor</code> as a background thread).</p>
+<p>We'd use the background thread to perform resharding: the goal is to change the one trie (that represents the state of the current shard) - to multiple tries (one for each of the new shards).</p>
 <p>In order to split a trie into children tries we use a snapshot of the flat storage. We iterate over all of the entries in the flat storage and we build the children tries by inserting the parent entry into either of the children tries. </p>
 <p>Extracting of the account from the key happens in <code>parse_account_id_from_raw_key</code> - and we do it for all types of data that we store in the trie (contract code, keys, account info etc) EXCEPT for Delayed receipts. Then, we figure out the shard that this account is going to belong to, and we add this key/value to that new trie.</p>
 <p>This way, after going over all the key/values from the original trie, we end up with X new tries (one for each new shard).</p>
@@ -248,14 +248,14 @@ be needed in next epoch (X+2).</p>
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 50" src="https://github.com/near/nearcore/assets/1555986/06a2c6f1-1daf-4220-b3fe-e21992e2d62c">
 <img width="941" alt="Screenshot 2023-12-01 at 10 10 42" src="https://github.com/near/nearcore/assets/1555986/fea2ad6b-2fa4-4862-875e-a3ca5d61d849">
 <h3 id="throttling"><a class="header" href="#throttling">Throttling</a></h3>
-<p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the state_split_config in the node config file. </p>
+<p>The resharding process can be quite resource intensive and affect the regular operation of a node. In order to mitigate that as well as limit any need for increasing hardware specifications of the nodes throttling was added. Throttling slows down resharding to not have it impact other node operations. Throttling can be configured by adjusting the resharding_config in the node config file. </p>
 <ul>
 <li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.</li>
 <li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. </li>
 </ul>
-<p>The remainig fields in the StateSplitConfig are only intended for testing purposes and should remain set to their default values. </p>
-<p>The default configuration for StateSplitConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
-<p>The state split config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. </p>
+<p>The remainig fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
+<p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
+<p>The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. </p>
 <h2 id="future-possibilities"><a class="header" href="#future-possibilities">Future possibilities</a></h2>
 <h3 id="localize-resharding-to-a-single-shard"><a class="header" href="#localize-resharding-to-a-single-shard">Localize resharding to a single shard</a></h3>
 <p>Currently when resharding we need to move the data for all shards even if only a single shard is being split. That is due to having the version field in the storage key that needs to be updated when changing shard layout version. </p>
