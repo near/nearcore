@@ -592,7 +592,7 @@ impl TestReshardingEnv {
 
                 let outgoing_receipts = client
                     .chain
-                    .mut_store()
+                    .mut_chain_store()
                     .get_outgoing_receipts(&head.last_block_hash, shard_id)
                     .unwrap()
                     .clone();
@@ -622,7 +622,7 @@ impl TestReshardingEnv {
             for shard_id in 0..num_shards {
                 let res = env.clients[0]
                     .chain
-                    .store()
+                    .chain_store()
                     .get_state_changes_for_split_states(&block_hash, shard_id);
                 assert_matches!(res, Err(error) => {
                     assert_matches!(error, Error::DBNotFoundErr(_));

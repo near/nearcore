@@ -149,7 +149,7 @@ impl BlockSync {
         // Then go forward for as long as we know the next block
         let mut hash = *header.hash();
         loop {
-            match chain.store().get_next_block_hash(&hash) {
+            match chain.chain_store().get_next_block_hash(&hash) {
                 Ok(got_hash) => {
                     if chain.block_exists(&got_hash)? {
                         hash = got_hash;
@@ -188,7 +188,7 @@ impl BlockSync {
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
-            match chain.store().get_next_block_hash(&next_hash) {
+            match chain.chain_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,

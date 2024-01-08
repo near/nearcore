@@ -1040,7 +1040,7 @@ pub fn setup_synchronous_shards_manager(
         shard_tracker,
         network_adapter.request_sender,
         client_adapter,
-        chain.store().new_read_only_chunks_store(),
+        chain.chain_store().new_read_only_chunks_store(),
         chain_head,
         chain_header_head,
     );

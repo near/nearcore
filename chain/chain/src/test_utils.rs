@@ -228,7 +228,7 @@ pub fn format_hash(hash: CryptoHash) -> String {
 /// Displays chain from given store.
 pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
     let epoch_manager = chain.epoch_manager.clone();
-    let chain_store = chain.mut_store();
+    let chain_store = chain.mut_chain_store();
     let head = chain_store.head().unwrap();
     debug!(
         "{:?} Chain head ({}): {} / {}",

@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn test_io_error() {
         let (chain, mut sv) = init();
-        let mut store_update = chain.store().store().store_update();
+        let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::Block).is_ok());
         // Use `set_raw` to ruthlessly override block data with some garbage,
         // simulating IO error.
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_db_corruption() {
         let (chain, mut sv) = init();
-        let mut store_update = chain.store().store().store_update();
+        let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
         store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
         store_update.commit().unwrap();

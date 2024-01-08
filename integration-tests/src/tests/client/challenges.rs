@@ -82,7 +82,7 @@ fn test_invalid_chunk_state() {
         let mut chunk_extra = ChunkExtra::clone(
             &env.clients[0].chain.get_chunk_extra(&block_hash, &ShardUId::single_shard()).unwrap(),
         );
-        let store = env.clients[0].chain.mut_store();
+        let store = env.clients[0].chain.mut_chain_store();
         let mut store_update = store.store_update();
         assert_ne!(chunk_extra.state_root(), &Trie::EMPTY_ROOT);
         *chunk_extra.state_root_mut() = Trie::EMPTY_ROOT;
@@ -417,7 +417,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         }
     }
     let block_merkle_tree =
-        client.chain.mut_store().get_block_merkle_tree(last_block.hash()).unwrap();
+        client.chain.mut_chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(

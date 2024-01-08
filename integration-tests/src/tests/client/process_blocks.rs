@@ -1373,7 +1373,7 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             );
             assert!(env.clients[0]
                 .chain
-                .mut_store()
+                .mut_chain_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty());
@@ -1382,13 +1382,13 @@ fn test_gc_with_epoch_length_common(epoch_length: NumBlocks) {
             assert!(env.clients[0].chain.get_block_by_height(i).is_ok());
             assert!(!env.clients[0]
                 .chain
-                .mut_store()
+                .mut_chain_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty());
         }
     }
-    assert_eq!(env.clients[0].chain.store().chunk_tail().unwrap(), epoch_length - 1);
+    assert_eq!(env.clients[0].chain.chain_store().chunk_tail().unwrap(), epoch_length - 1);
 }
 
 #[test]
@@ -1421,7 +1421,7 @@ fn test_archival_save_trie_changes() {
         .save_trie_changes(true)
         .build();
 
-    env.clients[0].chain.store().store().set_db_kind(DbKind::Archive).unwrap();
+    env.clients[0].chain.chain_store().store().set_db_kind(DbKind::Archive).unwrap();
 
     let mut blocks = vec![];
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -1435,7 +1435,7 @@ fn test_archival_save_trie_changes() {
     for i in 0..=epoch_length * (DEFAULT_GC_NUM_EPOCHS_TO_KEEP + 1) {
         let client = &env.clients[0];
         let chain = &client.chain;
-        let store = chain.store();
+        let store = chain.chain_store();
         let block = &blocks[i as usize];
         let header = block.header();
         let epoch_id = header.epoch_id();
@@ -1444,7 +1444,7 @@ fn test_archival_save_trie_changes() {
         assert!(chain.get_block(block.hash()).is_ok());
         assert!(chain.get_block_by_height(i).is_ok());
         assert!(!chain
-            .store()
+            .chain_store()
             .get_all_block_hashes_by_height(i as BlockHeight)
             .unwrap()
             .is_empty());
@@ -1540,7 +1540,7 @@ fn test_archival_gc_common(
             assert!(chain.get_block(block.hash()).is_ok());
             assert!(chain.get_block_by_height(i).is_ok());
             assert!(!chain
-                .store()
+                .chain_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty());
@@ -1627,7 +1627,7 @@ fn test_gc_chunk_tail() {
     let mut chunk_tail = 0;
     for i in (1..10).chain(101..epoch_length * 6) {
         env.produce_block(0, i);
-        let cur_chunk_tail = env.clients[0].chain.store().chunk_tail().unwrap();
+        let cur_chunk_tail = env.clients[0].chain.chain_store().chunk_tail().unwrap();
         assert!(cur_chunk_tail >= chunk_tail);
         chunk_tail = cur_chunk_tail;
     }
@@ -1792,8 +1792,8 @@ fn test_gc_fork_tail() {
     assert!(
         env.clients[1].runtime_adapter.get_gc_stop_height(&head.last_block_hash) > epoch_length
     );
-    let tail = env.clients[1].chain.store().tail().unwrap();
-    let fork_tail = env.clients[1].chain.store().fork_tail().unwrap();
+    let tail = env.clients[1].chain.chain_store().tail().unwrap();
+    let fork_tail = env.clients[1].chain.chain_store().fork_tail().unwrap();
     assert!(tail <= fork_tail && fork_tail < second_epoch_start.unwrap());
 }
 
@@ -1943,7 +1943,7 @@ fn test_gc_tail_update() {
     let sync_block = blocks[blocks.len() - 2].clone();
     env.clients[1].chain.reset_data_pre_state_sync(*sync_block.hash()).unwrap();
     env.clients[1].chain.save_block(prev_sync_block.into()).unwrap();
-    let mut store_update = env.clients[1].chain.mut_store().store_update();
+    let mut store_update = env.clients[1].chain.mut_chain_store().store_update();
     store_update.inc_block_refcount(&prev_sync_hash).unwrap();
     store_update.save_block(sync_block.clone());
     store_update.commit().unwrap();
@@ -1957,7 +1957,7 @@ fn test_gc_tail_update() {
         )
         .unwrap();
     env.process_block(1, blocks.pop().unwrap(), Provenance::NONE);
-    assert_eq!(env.clients[1].chain.store().tail().unwrap(), prev_sync_height);
+    assert_eq!(env.clients[1].chain.chain_store().tail().unwrap(), prev_sync_height);
 }
 
 /// Test that transaction does not become invalid when there is some gas price change.
@@ -2117,11 +2117,15 @@ fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
     for h in 0..head.header().height() {
         if let Ok(block) = env.clients[0].chain.get_block_by_height(h) {
             let block_hash = *block.hash();
-            let block_ordinal =
-                env.clients[0].chain.mut_store().get_block_merkle_tree(&block_hash).unwrap().size();
+            let block_ordinal = env.clients[0]
+                .chain
+                .mut_chain_store()
+                .get_block_merkle_tree(&block_hash)
+                .unwrap()
+                .size();
             let block_hash1 = env.clients[0]
                 .chain
-                .mut_store()
+                .mut_chain_store()
                 .get_block_hash_from_ordinal(block_ordinal)
                 .unwrap();
             assert_eq!(block_hash, block_hash1);
@@ -2251,7 +2255,7 @@ fn test_block_height_processed_orphan() {
     let block_height = orphan_block.header().height();
     let res = env.clients[0].process_block_test(orphan_block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::Orphan);
-    assert!(env.clients[0].chain.mut_store().is_height_processed(block_height).unwrap());
+    assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height).unwrap());
 }
 
 // Disabled until stateless validation release, because the test relies on
@@ -2360,7 +2364,7 @@ fn test_validate_chunk_extra() {
     env.pause_block_processing(&mut capture, block2.hash());
 
     let mut chain_store =
-        ChainStore::new(env.clients[0].chain.store().store().clone(), genesis_height, true);
+        ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
     let chunk_header = encoded_chunk.cloned_header();
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
@@ -2554,7 +2558,7 @@ fn test_block_execution_outcomes() {
     assert_eq!(chunk.transactions().len(), 3);
     let execution_outcomes_from_block = env.clients[0]
         .chain
-        .store()
+        .chain_store()
         .get_block_execution_outcomes(block.hash())
         .unwrap()
         .remove(&0)
@@ -2575,7 +2579,7 @@ fn test_block_execution_outcomes() {
     assert!(next_chunk.prev_outgoing_receipts().is_empty());
     let execution_outcomes_from_block = env.clients[0]
         .chain
-        .store()
+        .chain_store()
         .get_block_execution_outcomes(next_block.hash())
         .unwrap()
         .remove(&0)
@@ -2645,7 +2649,7 @@ fn test_refund_receipts_processing() {
             );
             let execution_outcomes_from_block = env.clients[0]
                 .chain
-                .store()
+                .chain_store()
                 .get_block_execution_outcomes(&receipt_outcome.block_hash)
                 .unwrap()
                 .remove(&0)
@@ -2892,7 +2896,7 @@ fn test_discard_non_finalizable_block() {
     let non_finalizable_block = env.clients[0].produce_block(6).unwrap().unwrap();
     env.clients[0]
         .chain
-        .mut_store()
+        .mut_chain_store()
         .save_latest_known(LatestKnown {
             height: first_block.header().height(),
             seen: first_block.header().raw_timestamp(),
@@ -2905,7 +2909,7 @@ fn test_discard_non_finalizable_block() {
     let finalizable_block = env.clients[0].produce_block(7).unwrap().unwrap();
     env.clients[0]
         .chain
-        .mut_store()
+        .mut_chain_store()
         .save_latest_known(LatestKnown {
             height: second_block.header().height(),
             seen: second_block.header().raw_timestamp(),
@@ -2971,7 +2975,7 @@ fn test_query_final_state() {
 
     let query_final_state =
         |chain: &mut near_chain::Chain, runtime: Arc<dyn RuntimeAdapter>, account_id: AccountId| {
-            let final_head = chain.store().final_head().unwrap();
+            let final_head = chain.chain_store().final_head().unwrap();
             let last_final_block = chain.get_block(&final_head.last_block_hash).unwrap();
             let response = runtime
                 .query(
@@ -2994,7 +2998,7 @@ fn test_query_final_state() {
     let fork1_block = env.clients[0].produce_block(5).unwrap().unwrap();
     env.clients[0]
         .chain
-        .mut_store()
+        .mut_chain_store()
         .save_latest_known(LatestKnown {
             height: blocks.last().unwrap().header().height(),
             seen: blocks.last().unwrap().header().raw_timestamp(),
@@ -3062,7 +3066,7 @@ fn test_fork_receipt_ids() {
     env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
     let transaction_execution_outcome =
-        env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
+        env.clients[0].chain.mut_chain_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 2);
     let receipt_id0 = transaction_execution_outcome[0].outcome_with_id.outcome.receipt_ids[0];
     let receipt_id1 = transaction_execution_outcome[1].outcome_with_id.outcome.receipt_ids[0];
@@ -3117,11 +3121,11 @@ fn test_fork_execution_outcome() {
     env.clients[0].process_block_test(block4.into(), Provenance::NONE).unwrap();
 
     let transaction_execution_outcome =
-        env.clients[0].chain.mut_store().get_outcomes_by_id(&tx_hash).unwrap();
+        env.clients[0].chain.mut_chain_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert_eq!(transaction_execution_outcome.len(), 1);
     let receipt_id = transaction_execution_outcome[0].outcome_with_id.outcome.receipt_ids[0];
     let receipt_execution_outcomes =
-        env.clients[0].chain.mut_store().get_outcomes_by_id(&receipt_id).unwrap();
+        env.clients[0].chain.mut_chain_store().get_outcomes_by_id(&receipt_id).unwrap();
     assert_eq!(receipt_execution_outcomes.len(), 2);
     let canonical_chain_outcome = env.clients[0].chain.get_execution_outcome(&receipt_id).unwrap();
     assert_eq!(canonical_chain_outcome.block_hash, *block2.hash());
@@ -3132,10 +3136,10 @@ fn test_fork_execution_outcome() {
         env.produce_block(0, i);
     }
     let transaction_execution_outcome =
-        env.clients[0].chain.store().get_outcomes_by_id(&tx_hash).unwrap();
+        env.clients[0].chain.chain_store().get_outcomes_by_id(&tx_hash).unwrap();
     assert!(transaction_execution_outcome.is_empty());
     let receipt_execution_outcomes =
-        env.clients[0].chain.store().get_outcomes_by_id(&receipt_id).unwrap();
+        env.clients[0].chain.chain_store().get_outcomes_by_id(&receipt_id).unwrap();
     assert!(receipt_execution_outcomes.is_empty());
 }
 
@@ -3288,7 +3292,7 @@ fn test_block_ordinal() {
     let fork1_block = env.clients[0].produce_block(100).unwrap().unwrap();
     env.clients[0]
         .chain
-        .mut_store()
+        .mut_chain_store()
         .save_latest_known(LatestKnown {
             height: last_block.header().height(),
             seen: last_block.header().raw_timestamp(),
@@ -3313,7 +3317,7 @@ fn test_block_ordinal() {
 
     // make sure that the old ordinal maps to what is on the canonical chain
     let fork_ordinal_block_hash =
-        env.clients[0].chain.mut_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
+        env.clients[0].chain.mut_chain_store().get_block_hash_from_ordinal(fork_ordinal).unwrap();
     assert_eq!(fork_ordinal_block_hash, *fork1_block.hash());
 }
 
@@ -3428,9 +3432,13 @@ fn test_catchup_no_sharding_change() {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         let _ =
             env.clients[0].process_block_test(block.clone().into(), Provenance::PRODUCED).unwrap();
-        assert_eq!(env.clients[0].chain.store().iterate_state_sync_infos().unwrap(), vec![]);
+        assert_eq!(env.clients[0].chain.chain_store().iterate_state_sync_infos().unwrap(), vec![]);
         assert_eq!(
-            env.clients[0].chain.store().get_blocks_to_catchup(block.header().prev_hash()).unwrap(),
+            env.clients[0]
+                .chain
+                .chain_store()
+                .get_blocks_to_catchup(block.header().prev_hash())
+                .unwrap(),
             vec![]
         );
     }
@@ -3472,7 +3480,7 @@ fn test_long_chain_with_restart_from_snapshot() {
     }
 
     let mut env2 = TestEnv::builder(chain_genesis)
-        .stores(vec![env1.clients[0].chain.store().store().clone()])
+        .stores(vec![env1.clients[0].chain.chain_store().store().clone()])
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .archive(false)
@@ -3553,7 +3561,7 @@ mod contract_precompilation_tests {
         let mut caches: Vec<StoreCompiledContractCache> = env
             .clients
             .iter()
-            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
             .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let epoch_id = env.clients[0]
@@ -3661,7 +3669,7 @@ mod contract_precompilation_tests {
         let caches: Vec<StoreCompiledContractCache> = env
             .clients
             .iter()
-            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
             .collect();
         let epoch_id = env.clients[0]
             .chain
@@ -3743,7 +3751,7 @@ mod contract_precompilation_tests {
         let caches: Vec<StoreCompiledContractCache> = env
             .clients
             .iter()
-            .map(|client| StoreCompiledContractCache::new(client.chain.store().store()))
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
             .collect();
 
         let epoch_id = env.clients[0]
