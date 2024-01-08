@@ -14,6 +14,7 @@ pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
@@ -65,6 +66,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
@@ -86,6 +88,7 @@ impl std::fmt::Debug for Secp256K1PublicKey {
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -108,6 +111,7 @@ impl std::fmt::Debug for ED25519PublicKey {
 
 /// Public key container supporting different curves.
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
@@ -775,6 +779,25 @@ mod tests {
             let signature = secret_key.sign(&data);
             assert!(signature.verify(&data, &public_key));
         }
+    }
+
+    #[test]
+    fn signature_verify_fuzzer() {
+        bolero::check!()
+            .with_type()
+            .for_each(|(key_type, sign, data, public_key): &(KeyType, [u8; 65], Vec<u8>, PublicKey)| {
+                let signature = match key_type {
+                    KeyType::ED25519 => Signature::from_parts(KeyType::ED25519, &sign[..64]).unwrap(),
+                    KeyType::SECP256K1 => Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap(),
+                };
+                let _ = signature.verify(&data, &public_key);
+            });
+    }
+
+    #[test]
+    fn regression_signature_verification_originally_failed() {
+        let signature = Signature::from_parts(KeyType::SECP256K1, &[4; 65]).unwrap();
+        let _ = signature.verify(&[], &PublicKey::empty(KeyType::SECP256K1));
     }
 
     #[test]

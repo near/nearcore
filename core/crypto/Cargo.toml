@@ -33,6 +33,7 @@ thiserror.workspace = true
 near-config-utils.workspace = true
 
 [dev-dependencies]
+bolero.workspace = true
 hex-literal.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
