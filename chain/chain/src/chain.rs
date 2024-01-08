@@ -1441,17 +1441,17 @@ impl Chain {
             }
 
             self.validate_header(header, &Provenance::SYNC, challenges)?;
-            let mut chain_update = self.chain_update();
-            chain_update.chain_store_update.save_block_header(header.clone())?;
+            let mut chain_store_update = self.store.store_update();
+            chain_store_update.save_block_header(header.clone())?;
 
             // Add validator proposals for given header.
             let last_finalized_height =
-                chain_update.chain_store_update.get_block_height(header.last_final_block())?;
-            let epoch_manager_update = chain_update
+                chain_store_update.get_block_height(header.last_final_block())?;
+            let epoch_manager_update = self
                 .epoch_manager
                 .add_validator_proposals(BlockHeaderInfo::new(header, last_finalized_height))?;
-            chain_update.chain_store_update.merge(epoch_manager_update);
-            chain_update.commit()?;
+            chain_store_update.merge(epoch_manager_update);
+            chain_store_update.commit()?;
 
             #[cfg(feature = "new_epoch_sync")]
             {
@@ -4471,8 +4471,9 @@ impl Chain {
         epoch_sync_info: &EpochSyncInfo,
     ) -> Result<(), EpochSyncInfoError> {
         let store = self.store().store().clone();
-        let mut chain_update = self.chain_update();
-        let mut store_update = chain_update.chain_store_update.store().store_update();
+        let epoch_manager = self.epoch_manager.clone();
+        let mut chain_store_update = self.store.store_update();
+        let mut store_update = store.store_update();
 
         let epoch_id = epoch_sync_info.get_epoch_id()?;
         // save EpochSyncInfo
@@ -4495,16 +4496,13 @@ impl Chain {
 
         // construct and save all new BlockMerkleTree's
 
-        let mut cur_block_merkle_tree = (*chain_update
-            .chain_store_update
+        let mut cur_block_merkle_tree = (*chain_store_update
             .get_block_merkle_tree(epoch_sync_info.get_epoch_first_header()?.prev_hash())?)
         .clone();
         let mut prev_hash = epoch_sync_info.get_epoch_first_header()?.prev_hash();
         for hash in &epoch_sync_info.all_block_hashes {
             cur_block_merkle_tree.insert(*prev_hash);
-            chain_update
-                .chain_store_update
-                .save_block_merkle_tree(*hash, cur_block_merkle_tree.clone());
+            chain_store_update.save_block_merkle_tree(*hash, cur_block_merkle_tree.clone());
             prev_hash = hash;
         }
 
@@ -4542,21 +4540,18 @@ impl Chain {
         }
 
         // save header head, final head, update epoch_manager aggregator
-
-        chain_update
-            .chain_store_update
+        chain_store_update
             .force_save_header_head(&Tip::from_header(epoch_sync_info.get_epoch_last_header()?))?;
-        chain_update.chain_store_update.save_final_head(&Tip::from_header(
+        chain_store_update.save_final_head(&Tip::from_header(
             epoch_sync_info.get_epoch_last_finalised_header()?,
         ))?;
-        chain_update
-            .epoch_manager
+        epoch_manager
             .force_update_aggregator(epoch_id, epoch_sync_info.get_epoch_last_finalised_hash()?);
 
         // TODO(posvyatokum): add EpochSyncInfo validation.
 
-        chain_update.chain_store_update.merge(store_update);
-        chain_update.commit()?;
+        chain_store_update.merge(store_update);
+        chain_store_update.commit()?;
         Ok(())
     }
 }
