@@ -26,7 +26,7 @@ use near_chain::chain::{
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
-use near_chain::resharding::StateSplitRequest;
+use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
@@ -193,7 +193,7 @@ pub struct Client {
 impl Client {
     pub(crate) fn update_client_config(&self, update_client_config: UpdateableClientConfig) {
         self.config.expected_shutdown.update(update_client_config.expected_shutdown);
-        self.config.state_split_config.update(update_client_config.state_split_config);
+        self.config.resharding_config.update(update_client_config.resharding_config);
         self.config
             .produce_chunk_add_transactions_time_limit
             .update(update_client_config.produce_chunk_add_transactions_time_limit);
@@ -247,7 +247,7 @@ impl Client {
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,
-            state_split_config: config.state_split_config.clone(),
+            resharding_config: config.resharding_config.clone(),
         };
         let chain = Chain::new(
             epoch_manager.clone(),
@@ -2276,7 +2276,7 @@ impl Client {
         highest_height_peers: &[HighestHeightPeerInfo],
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
+        resharding_scheduler: &dyn Fn(ReshardingRequest),
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) -> Result<(), Error> {
@@ -2348,7 +2348,7 @@ impl Client {
                 highest_height_peers,
                 tracking_shards,
                 state_parts_task_scheduler,
-                state_split_scheduler,
+                resharding_scheduler,
                 state_parts_arbiter_handle,
                 use_colour,
                 self.runtime_adapter.clone(),
@@ -2399,10 +2399,10 @@ impl Client {
         me: &Option<AccountId>,
     ) -> Result<HashMap<u64, ShardSyncDownload>, Error> {
         let prev_hash = *self.chain.get_block(&sync_hash)?.header().prev_hash();
-        let need_to_split_states = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
+        let need_to_reshard = self.epoch_manager.will_shard_layout_change(&prev_hash)?;
 
-        if !need_to_split_states {
-            debug!(target: "catchup", "do not need to split states for shards");
+        if !need_to_reshard {
+            debug!(target: "catchup", "do not need to reshard");
             return Ok(HashMap::new());
         }
 
@@ -2427,7 +2427,7 @@ impl Client {
         if self.shard_tracker.care_about_shard(me.as_ref(), &prev_hash, shard_id, true) {
             let shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
-                status: ShardSyncStatus::StateSplitScheduling,
+                status: ShardSyncStatus::ReshardingScheduling,
             };
             Some((shard_id, shard_sync_download))
         } else {

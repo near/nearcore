@@ -143,7 +143,7 @@ def get_epoch_offset(binary_protocol_version):
 def get_client_config_changes(num_nodes, initial_delay=None):
     single = {
         "tracked_shards": [0],
-        "state_split_config": {
+        "resharding_config": {
             "batch_size": 1000000,
             # don't throttle resharding
             "batch_delay": {
@@ -158,7 +158,7 @@ def get_client_config_changes(num_nodes, initial_delay=None):
         }
     }
     if initial_delay is not None:
-        single["state_split_config"]["initial_delay"] = {
+        single["resharding_config"]["initial_delay"] = {
             "secs": initial_delay,
             "nanos": 0
         }

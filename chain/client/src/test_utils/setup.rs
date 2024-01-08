@@ -21,7 +21,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::{ClientConfig, MutableConfigValue, StateSplitConfig};
+use near_chain_configs::{ClientConfig, MutableConfigValue, ReshardingConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -114,9 +114,9 @@ pub fn setup(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
         },
         None,
@@ -242,9 +242,9 @@ pub fn setup_only_view(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
         },
         None,
@@ -1023,9 +1023,9 @@ pub fn setup_synchronous_shards_manager(
         ChainConfig {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
         }, // irrelevant
         None,

@@ -1,8 +1,8 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplySplitStateResult, ApplySplitStateResultOrStateChanges, ApplyTransactionResult,
-    ApplyTransactionsBlockContext, ApplyTransactionsChunkContext, RuntimeAdapter,
-    RuntimeStorageConfig, StorageDataSource,
+    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
+    ApplyTransactionsChunkContext, ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -12,7 +12,7 @@ use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{BlockHeight, Gas, StateChangesForSplitStates, StateRoot};
+use near_primitives::types::{BlockHeight, Gas, StateChangesForResharding, StateRoot};
 use std::collections::HashMap;
 
 /// Result of updating a shard for some block when it has a new chunk for this
@@ -22,7 +22,7 @@ pub struct NewChunkResult {
     pub(crate) shard_uid: ShardUId,
     pub(crate) gas_limit: Gas,
     pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+    pub(crate) resharding_results: Option<ReshardingResults>,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
@@ -33,16 +33,16 @@ pub struct OldChunkResult {
     /// Note that despite the naming, no transactions are applied in this case.
     /// TODO(logunov): exclude receipts/txs context from all related types.
     pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) apply_split_result_or_state_changes: Option<ApplySplitStateResultOrStateChanges>,
+    pub(crate) resharding_results: Option<ReshardingResults>,
 }
 
-/// Result of updating a shard for some block when we apply only split state
+/// Result of updating a shard for some block when we apply only resharding
 /// changes due to resharding.
 #[derive(Debug)]
-pub struct StateSplitResult {
-    // parent shard of the split states
+pub struct ReshardingResult {
+    // parent shard of the
     pub(crate) shard_uid: ShardUId,
-    pub(crate) results: Vec<ApplySplitStateResult>,
+    pub(crate) results: Vec<ApplyResultForResharding>,
 }
 
 /// Result of processing shard update, covering both stateful and stateless scenarios.
@@ -61,16 +61,16 @@ pub enum ShardUpdateResult {
 pub enum ShardBlockUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
-    StateSplit(StateSplitResult),
+    Resharding(ReshardingResult),
 }
 
-/// State roots of split shards which are ready.
-type SplitStateRoots = HashMap<ShardUId, StateRoot>;
+/// State roots of children shards which are ready.
+type ReshardingStateRoots = HashMap<ShardUId, StateRoot>;
 
 pub(crate) struct NewChunkData {
     pub chunk: ShardChunk,
     pub receipts: Vec<Receipt>,
-    pub split_state_roots: Option<SplitStateRoots>,
+    pub resharding_state_roots: Option<ReshardingStateRoots>,
     pub block: ApplyTransactionsBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
     pub storage_context: StorageContext,
@@ -78,20 +78,20 @@ pub(crate) struct NewChunkData {
 
 pub(crate) struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
-    pub split_state_roots: Option<SplitStateRoots>,
+    pub resharding_state_roots: Option<ReshardingStateRoots>,
     pub block: ApplyTransactionsBlockContext,
     pub storage_context: StorageContext,
 }
 
-pub(crate) struct StateSplitData {
-    pub split_state_roots: SplitStateRoots,
-    pub state_changes: StateChangesForSplitStates,
+pub(crate) struct ReshardingData {
+    pub resharding_state_roots: ReshardingStateRoots,
+    pub state_changes: StateChangesForResharding,
     pub block_height: BlockHeight,
     pub block_hash: CryptoHash,
 }
 
 /// Reason to update a shard when new block appears on chain.
-/// All types include state roots for split shards in case of resharding.
+/// All types include state roots for children shards in case of resharding.
 pub(crate) enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
@@ -100,9 +100,9 @@ pub(crate) enum ShardUpdateReason {
     /// Instead, previous chunk header is copied.
     /// Contains result of shard update for previous block.
     OldChunk(OldChunkData),
-    /// See comment to `split_state_roots` in `Chain::get_update_shard_job`.
+    /// See comment to `resharding_state_roots` in `Chain::get_update_shard_job`.
     /// Process only state changes caused by resharding.
-    StateSplit(StateSplitData),
+    Resharding(ReshardingData),
 }
 
 /// Information about shard to update.
@@ -115,7 +115,7 @@ pub(crate) struct ShardContext {
     /// Whether transactions should be applied.
     pub should_apply_transactions: bool,
     /// See comment in `get_update_shard_job`.
-    pub need_to_split_states: bool,
+    pub need_to_reshard: bool,
 }
 
 /// Information about storage used for applying txs and receipts.
@@ -149,8 +149,8 @@ pub(crate) fn process_shard_update(
             runtime,
             epoch_manager,
         )?),
-        ShardUpdateReason::StateSplit(data) => ShardBlockUpdateResult::StateSplit(
-            apply_state_split(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)?,
+        ShardUpdateReason::Resharding(data) => ShardBlockUpdateResult::Resharding(
+            apply_resharding(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)?,
         ),
     })
 }
@@ -169,22 +169,21 @@ pub(crate) fn process_missing_chunks_range(
 ) -> Result<Vec<(CryptoHash, ShardUId, ChunkExtra)>, Error> {
     let mut result = vec![];
     for (block_context, shard_context) in execution_contexts {
-        let OldChunkResult { shard_uid, apply_result, apply_split_result_or_state_changes: _ } =
-            apply_old_chunk(
-                parent_span,
-                OldChunkData {
-                    block: block_context.clone(),
-                    split_state_roots: None,
-                    prev_chunk_extra: current_chunk_extra.clone(),
-                    storage_context: StorageContext {
-                        storage_data_source: StorageDataSource::DbTrieOnly,
-                        state_patch: Default::default(),
-                    },
+        let OldChunkResult { shard_uid, apply_result, resharding_results: _ } = apply_old_chunk(
+            parent_span,
+            OldChunkData {
+                block: block_context.clone(),
+                resharding_state_roots: None,
+                prev_chunk_extra: current_chunk_extra.clone(),
+                storage_context: StorageContext {
+                    storage_data_source: StorageDataSource::DbTrieOnly,
+                    state_patch: Default::default(),
                 },
-                shard_context,
-                runtime,
-                epoch_manager,
-            )?;
+            },
+            shard_context,
+            runtime,
+            epoch_manager,
+        )?;
         *current_chunk_extra.state_root_mut() = apply_result.new_root;
         result.push((block_context.block_hash, shard_uid, current_chunk_extra.clone()));
     }
@@ -203,7 +202,7 @@ pub(crate) fn apply_new_chunk(
         block,
         chunk,
         receipts,
-        split_state_roots,
+        resharding_state_roots,
         is_first_block_with_chunk_of_version,
         storage_context,
     } = data;
@@ -240,12 +239,12 @@ pub(crate) fn apply_new_chunk(
     ) {
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
-                Some(apply_split_state_changes(
+                Some(apply_resharding_state_changes(
                     epoch_manager,
                     runtime,
                     block,
                     &apply_result,
-                    split_state_roots,
+                    resharding_state_roots,
                 )?)
             } else {
                 None
@@ -254,7 +253,7 @@ pub(crate) fn apply_new_chunk(
                 gas_limit,
                 shard_uid: shard_context.shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results: apply_split_result_or_state_changes,
             })
         }
         Err(err) => Err(err),
@@ -271,7 +270,7 @@ fn apply_old_chunk(
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<OldChunkResult, Error> {
-    let OldChunkData { prev_chunk_extra, split_state_roots, block, storage_context } = data;
+    let OldChunkData { prev_chunk_extra, resharding_state_roots, block, storage_context } = data;
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
@@ -302,12 +301,12 @@ fn apply_old_chunk(
     ) {
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
-                Some(apply_split_state_changes(
+                Some(apply_resharding_state_changes(
                     epoch_manager,
                     runtime,
                     block,
                     &apply_result,
-                    split_state_roots,
+                    resharding_state_roots,
                 )?)
             } else {
                 None
@@ -315,77 +314,76 @@ fn apply_old_chunk(
             Ok(OldChunkResult {
                 shard_uid: shard_context.shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results: apply_split_result_or_state_changes,
             })
         }
         Err(err) => Err(err),
     }
 }
 
-/// Applies only split state changes but not applies any transactions.
-fn apply_state_split(
+/// Applies only resharding changes but not applies any transactions.
+fn apply_resharding(
     parent_span: &tracing::Span,
-    data: StateSplitData,
+    data: ReshardingData,
     shard_uid: ShardUId,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<StateSplitResult, Error> {
-    let StateSplitData { split_state_roots, state_changes, block_height: height, block_hash } =
+) -> Result<ReshardingResult, Error> {
+    let ReshardingData { resharding_state_roots, state_changes, block_height: height, block_hash } =
         data;
     let shard_id = shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
         parent: parent_span,
-        "split_state",
+        "resharding",
         shard_id,
         ?shard_uid)
     .entered();
     let next_epoch_id = epoch_manager.get_next_epoch_id(&block_hash)?;
     let next_epoch_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
-    let results = runtime.apply_update_to_split_states(
+    let results = runtime.apply_update_to_children_states(
         &block_hash,
         height,
-        split_state_roots,
+        resharding_state_roots,
         &next_epoch_shard_layout,
         state_changes,
     )?;
-    Ok(StateSplitResult { shard_uid, results })
+    Ok(ReshardingResult { shard_uid, results })
 }
 
-/// Process ApplyTransactionResult to apply changes to split states
-/// When shards will change next epoch,
-///    if `split_state_roots` is not None, that means states for the split shards are ready
-///    this function updates these states and return apply results for these states
-///    otherwise, this function returns state changes needed to be applied to split
-///    states. These state changes will be stored in the database by `process_split_state`
-fn apply_split_state_changes(
+/// Process ApplyTransactionResult to apply changes to children shards. When
+/// shards will change next epoch,
+///  - if `resharding_state_roots` is not None, that means states for the
+///    children shards are ready this function updates these states and returns
+///    apply results for these states
+///  - otherwise, this function returns state changes needed to be applied to
+///    children shards. These state changes will be stored in the database by
+///    `process_resharding_results`
+fn apply_resharding_state_changes(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
     block: ApplyTransactionsBlockContext,
     apply_result: &ApplyTransactionResult,
-    split_state_roots: Option<SplitStateRoots>,
-) -> Result<ApplySplitStateResultOrStateChanges, Error> {
-    let state_changes = StateChangesForSplitStates::from_raw_state_changes(
+    resharding_state_roots: Option<ReshardingStateRoots>,
+) -> Result<ReshardingResults, Error> {
+    let state_changes = StateChangesForResharding::from_raw_state_changes(
         apply_result.trie_changes.state_changes(),
         apply_result.processed_delayed_receipts.clone(),
     );
-    let next_epoch_shard_layout = {
-        let next_epoch_id =
-            epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
-        epoch_manager.get_shard_layout(&next_epoch_id)?
-    };
-    // split states are ready, apply update to them now
-    if let Some(state_roots) = split_state_roots {
-        let split_state_results = runtime_adapter.apply_update_to_split_states(
+    let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
+    let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;
+    if let Some(state_roots) = resharding_state_roots {
+        // children states are ready, apply update to them now
+        let resharding_results = runtime_adapter.apply_update_to_children_states(
             &block.block_hash,
             block.height,
             state_roots,
-            &next_epoch_shard_layout,
+            &next_shard_layout,
             state_changes,
         )?;
-        Ok(ApplySplitStateResultOrStateChanges::ApplySplitStateResults(split_state_results))
+        Ok(ReshardingResults::ApplyReshardingResults(resharding_results))
     } else {
-        // split states are not ready yet, store state changes in consolidated_state_changes
-        Ok(ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes))
+        // children states are not ready yet, store state changes in consolidated_state_changes
+        Ok(ReshardingResults::StoreReshardingResults(state_changes))
     }
 }

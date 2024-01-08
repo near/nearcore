@@ -1,5 +1,5 @@
 /// Implementation for all resharding logic.
-/// StateSplitRequest and StateSplitResponse are exchanged across the client_actor and SyncJobsActor.
+/// ReshardingRequest and ReshardingResponse are exchanged across the client_actor and SyncJobsActor.
 /// build_state_for_split_shards_preprocessing and build_state_for_split_shards_postprocessing are handled
 /// by the client_actor while the heavy resharding build_state_for_split_shards is done by SyncJobsActor
 /// so as to not affect client.
@@ -10,7 +10,7 @@ use crate::metrics::{
 };
 use crate::Chain;
 use itertools::Itertools;
-use near_chain_configs::{MutableConfigValue, StateSplitConfig, StateSplitHandle};
+use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 use near_chain_primitives::error::Error;
 use near_primitives::errors::StorageError::StorageInconsistentState;
 use near_primitives::hash::CryptoHash;
@@ -22,7 +22,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageError, FlatStorageManager, FlatStorageReadyStatus,
     FlatStorageStatus,
 };
-use near_store::split_state::get_delayed_receipts;
+use near_store::resharding::get_delayed_receipts;
 use near_store::trie::SnapshotError;
 use near_store::{ShardTries, ShardUId, StorageError, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
@@ -31,12 +31,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
-/// StateSplitRequest has all the information needed to start a resharding job. This message is sent
+/// ReshardingRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
 /// resharding job. The SyncJobsActor is helpful for handling such long running jobs.
 #[derive(actix::Message)]
 #[rtype(result = "()")]
-pub struct StateSplitRequest {
+pub struct ReshardingRequest {
     pub tries: Arc<ShardTries>,
     // The block hash of the first block of the epoch.
     pub sync_hash: CryptoHash,
@@ -53,17 +53,17 @@ pub struct StateSplitRequest {
     // Time we've spent polling for the state snapshot to be ready. We autofail after a certain time.
     pub curr_poll_time: Duration,
     // Configuration for resharding. Can be used to throttle resharding if needed.
-    pub config: MutableConfigValue<StateSplitConfig>,
+    pub config: MutableConfigValue<ReshardingConfig>,
     // A handle that allows the main process to interrupt resharding if needed.
     // This typically happens when the main process is interrupted.
-    pub handle: StateSplitHandle,
+    pub handle: ReshardingHandle,
 }
 
 // Skip `runtime_adapter`, because it's a complex object that has complex logic
 // and many fields.
-impl Debug for StateSplitRequest {
+impl Debug for ReshardingRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateSplitRequest")
+        f.debug_struct("ReshardingRequest")
             .field("tries", &"<not shown>")
             .field("sync_hash", &self.sync_hash)
             .field("prev_hash", &self.prev_hash)
@@ -76,10 +76,10 @@ impl Debug for StateSplitRequest {
     }
 }
 
-// StateSplitResponse is the response sent from SyncJobsActor to ClientActor once resharding is completed.
+// ReshardingResponse is the response sent from SyncJobsActor to ClientActor once resharding is completed.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub struct StateSplitResponse {
+pub struct ReshardingResponse {
     pub sync_hash: CryptoHash,
     pub shard_id: ShardId,
     pub new_state_roots: Result<HashMap<ShardUId, StateRoot>, Error>,
@@ -106,7 +106,7 @@ fn get_checked_account_id_to_shard_uid_fn(
     }
 }
 
-// Format of the trie key, value pair that is used in tries.add_values_to_split_states() function
+// Format of the trie key, value pair that is used in tries.add_values_to_children_states() function
 type TrieEntry = (Vec<u8>, Option<Vec<u8>>);
 
 struct TrieUpdateBatch {
@@ -117,7 +117,7 @@ struct TrieUpdateBatch {
 // Function to return batches of trie key, value pairs from flat storage iter. We return None at the end of iter.
 // The batch size is roughly batch_memory_limit.
 fn get_trie_update_batch(
-    config: &StateSplitConfig,
+    config: &ReshardingConfig,
     iter: &mut impl Iterator<Item = Result<(Vec<u8>, Option<Vec<u8>>), FlatStorageError>>,
 ) -> Result<Option<TrieUpdateBatch>, FlatStorageError> {
     let mut size: u64 = 0;
@@ -138,7 +138,7 @@ fn get_trie_update_batch(
 }
 
 fn apply_delayed_receipts<'a>(
-    config: &StateSplitConfig,
+    config: &ReshardingConfig,
     tries: &ShardTries,
     orig_shard_uid: ShardUId,
     orig_state_root: StateRoot,
@@ -152,7 +152,7 @@ fn apply_delayed_receipts<'a>(
     while let Some((next_index, receipts)) =
         get_delayed_receipts(&orig_trie_update, start_index, config.batch_size)?
     {
-        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_split_states(
+        let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_children_states(
             &new_state_roots,
             &receipts,
             account_id_to_shard_uid,
@@ -197,11 +197,11 @@ fn read_flat_state_value(
 }
 
 impl Chain {
-    pub fn build_state_for_split_shards_preprocessing(
+    pub fn build_state_for_resharding_preprocessing(
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
+        resharding_scheduler: &dyn Fn(ReshardingRequest),
     ) -> Result<(), Error> {
         tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
         let block_header = self.get_block_header(sync_hash)?;
@@ -216,7 +216,7 @@ impl Chain {
         let prev_prev_hash = prev_block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
 
-        state_split_scheduler(StateSplitRequest {
+        resharding_scheduler(ReshardingRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
             prev_hash: *prev_hash,
@@ -225,8 +225,8 @@ impl Chain {
             state_root,
             next_epoch_shard_layout,
             curr_poll_time: Duration::ZERO,
-            config: self.state_split_config.clone(),
-            handle: self.state_split_handle.clone(),
+            config: self.resharding_config.clone(),
+            handle: self.resharding_handle.clone(),
         });
 
         RESHARDING_STATUS
@@ -237,15 +237,15 @@ impl Chain {
 
     /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not
     /// ready and we need to retry/reschedule the resharding job.
-    pub fn retry_build_state_for_split_shards(state_split_request: &StateSplitRequest) -> bool {
-        let StateSplitRequest { tries, prev_prev_hash, curr_poll_time, config, .. } =
-            state_split_request;
+    pub fn retry_build_state_for_split_shards(resharding_request: &ReshardingRequest) -> bool {
+        let ReshardingRequest { tries, prev_prev_hash, curr_poll_time, config, .. } =
+            resharding_request;
         let config = config.get();
 
         // Do not retry if we have spent more than max_poll_time
         // The error would be caught in build_state_for_split_shards and propagated to client actor
         if curr_poll_time > &config.max_poll_time {
-            tracing::warn!(target: "resharding", ?curr_poll_time, ?config.max_poll_time, "exceeded max poll time while waiting for snapsthot");
+            tracing::warn!(target: "resharding", ?curr_poll_time, ?config.max_poll_time, "exceeded max poll time while waiting for snapshot");
             return false;
         }
 
@@ -265,12 +265,12 @@ impl Chain {
     }
 
     pub fn build_state_for_split_shards(
-        state_split_request: StateSplitRequest,
-    ) -> StateSplitResponse {
-        let shard_uid = state_split_request.shard_uid;
+        resharding_request: ReshardingRequest,
+    ) -> ReshardingResponse {
+        let shard_uid = resharding_request.shard_uid;
         let shard_id = shard_uid.shard_id();
-        let sync_hash = state_split_request.sync_hash;
-        let new_state_roots = Self::build_state_for_split_shards_impl(state_split_request);
+        let sync_hash = resharding_request.sync_hash;
+        let new_state_roots = Self::build_state_for_split_shards_impl(resharding_request);
         match &new_state_roots {
             Ok(_) => {}
             Err(err) => {
@@ -280,13 +280,13 @@ impl Chain {
                     .set(ReshardingStatus::Failed.into());
             }
         }
-        StateSplitResponse { shard_id, sync_hash, new_state_roots }
+        ReshardingResponse { shard_id, sync_hash, new_state_roots }
     }
 
     fn build_state_for_split_shards_impl(
-        state_split_request: StateSplitRequest,
+        resharding_request: ReshardingRequest,
     ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
-        let StateSplitRequest {
+        let ReshardingRequest {
             tries,
             prev_hash,
             prev_prev_hash,
@@ -296,12 +296,12 @@ impl Chain {
             config,
             handle,
             ..
-        } = state_split_request;
+        } = resharding_request;
         tracing::debug!(target: "resharding", config=?config.get(), ?shard_uid, "build_state_for_split_shards_impl starting");
 
         let shard_id = shard_uid.shard_id();
         let new_shards = next_epoch_shard_layout
-            .get_split_shard_uids(shard_id)
+            .get_children_shards_uids(shard_id)
             .ok_or(Error::InvalidShardId(shard_id))?;
         let mut state_roots: HashMap<_, _> =
             new_shards.iter().map(|shard_uid| (*shard_uid, Trie::EMPTY_ROOT)).collect();
@@ -376,14 +376,14 @@ impl Chain {
                 batch
             };
 
-            // Apply the batch - add values to the split states.
+            // Apply the batch - add values to the children shards.
             let TrieUpdateBatch { entries, size } = batch;
             let store_update = {
                 let histogram = RESHARDING_BATCH_APPLY_TIME.with_label_values(&metrics_labels);
                 let _timer = histogram.start_timer();
                 // TODO(#9435): This is highly inefficient as for each key in the batch, we are parsing the account_id
                 // A better way would be to use the boundary account to construct the from and to key range for flat storage iterator
-                let (store_update, new_state_roots) = tries.add_values_to_split_states(
+                let (store_update, new_state_roots) = tries.add_values_to_children_states(
                     &state_roots,
                     entries,
                     &checked_account_id_to_shard_uid,
@@ -437,7 +437,7 @@ impl Chain {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);
             chain_store_update.save_chunk_extra(&prev_hash, &shard_uid, chunk_extra);
-            debug!(target:"resharding", "Finish building split state for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
+            debug!(target:"resharding", "Finish building resharding for shard {:?} {:?} {:?} ", shard_uid, prev_hash, state_root);
         }
         chain_store_update.commit()?;
 
