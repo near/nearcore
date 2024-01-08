@@ -432,7 +432,7 @@ impl Chain {
         let child_shard_uids = state_roots.keys().cloned().collect_vec();
         self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
 
-        let mut chain_store_update = self.mut_store().store_update();
+        let mut chain_store_update = self.mut_chain_store().store_update();
         for (shard_uid, state_root) in state_roots {
             // here we store the state roots in chunk_extra in the database for later use
             let chunk_extra = ChunkExtra::new_with_only_state_root(&state_root);

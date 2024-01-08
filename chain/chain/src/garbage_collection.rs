@@ -113,24 +113,24 @@ impl Chain {
     pub fn clear_data(&mut self, tries: ShardTries, gc_config: &GCConfig) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "garbage_collection", "clear_data").entered();
 
-        let head = self.store().head()?;
-        let tail = self.store().tail()?;
+        let head = self.chain_store().head()?;
+        let tail = self.chain_store().tail()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
         let prev_epoch_id = self.get_block_header(&head.prev_block_hash)?.epoch_id().clone();
         let epoch_change = prev_epoch_id != head.epoch_id;
-        let mut fork_tail = self.store().fork_tail()?;
+        let mut fork_tail = self.chain_store().fork_tail()?;
         metrics::TAIL_HEIGHT.set(tail as i64);
         metrics::FORK_TAIL_HEIGHT.set(fork_tail as i64);
-        metrics::CHUNK_TAIL_HEIGHT.set(self.store().chunk_tail()? as i64);
+        metrics::CHUNK_TAIL_HEIGHT.set(self.chain_store().chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
         if epoch_change && fork_tail < gc_stop_height {
             // if head doesn't change on the epoch boundary, we may update fork tail several times
             // but that is fine since it doesn't affect correctness and also we limit the number of
             // heights that fork cleaning goes through so it doesn't slow down client either.
-            let mut chain_store_update = self.mut_store().store_update();
+            let mut chain_store_update = self.mut_chain_store().store_update();
             chain_store_update.update_fork_tail(gc_stop_height);
             chain_store_update.commit()?;
             fork_tail = gc_stop_height;
@@ -145,7 +145,7 @@ impl Chain {
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }
-            let mut chain_store_update = self.mut_store().store_update();
+            let mut chain_store_update = self.mut_chain_store().store_update();
             chain_store_update.update_fork_tail(height);
             chain_store_update.commit()?;
         }
@@ -156,7 +156,7 @@ impl Chain {
                 return Ok(());
             }
             let blocks_current_height = self
-                .store()
+                .chain_store()
                 .get_all_block_hashes_by_height(height)?
                 .values()
                 .flatten()
@@ -164,7 +164,7 @@ impl Chain {
                 .collect::<Vec<_>>();
             let epoch_manager = self.epoch_manager.clone();
             let runtime = self.runtime_adapter.clone();
-            let mut chain_store_update = self.mut_store().store_update();
+            let mut chain_store_update = self.mut_chain_store().store_update();
             if let Some(block_hash) = blocks_current_height.first() {
                 let prev_hash = *chain_store_update.get_block_header(block_hash)?.prev_hash();
                 let prev_block_refcount = chain_store_update.get_block_refcount(&prev_hash)?;
@@ -208,13 +208,13 @@ impl Chain {
     pub fn clear_archive_data(&mut self, gc_height_limit: BlockHeightDelta) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "clear_archive_data").entered();
 
-        let head = self.store().head()?;
+        let head = self.chain_store().head()?;
         let gc_stop_height = self.runtime_adapter.get_gc_stop_height(&head.last_block_hash);
         if gc_stop_height > head.height {
             return Err(Error::GCError("gc_stop_height cannot be larger than head.height".into()));
         }
 
-        let mut chain_store_update = self.mut_store().store_update();
+        let mut chain_store_update = self.mut_chain_store().store_update();
         chain_store_update.clear_redundant_chunk_data(gc_stop_height, gc_height_limit)?;
         metrics::CHUNK_TAIL_HEIGHT.set(chain_store_update.chunk_tail()? as i64);
         metrics::GC_STOP_HEIGHT.set(gc_stop_height as i64);
@@ -228,7 +228,7 @@ impl Chain {
         gc_blocks_remaining: &mut NumBlocks,
     ) -> Result<(), Error> {
         let blocks_current_height = self
-            .store()
+            .chain_store()
             .get_all_block_hashes_by_height(height)?
             .values()
             .flatten()
@@ -245,7 +245,7 @@ impl Chain {
                 // and it may be safely deleted
                 // and all its ancestors while there are no other sibling blocks rely on it.
                 let epoch_manager = self.epoch_manager.clone();
-                let mut chain_store_update = self.mut_store().store_update();
+                let mut chain_store_update = self.mut_chain_store().store_update();
                 if chain_store_update.get_block_refcount(&current_hash)? == 0 {
                     let prev_hash =
                         *chain_store_update.get_block_header(&current_hash)?.prev_hash();
@@ -281,11 +281,11 @@ impl Chain {
 
         // GC all the data from current tail up to `gc_height`. In case tail points to a height where
         // there is no block, we need to make sure that the last block before tail is cleaned.
-        let tail = self.store().tail()?;
+        let tail = self.chain_store().tail()?;
         let mut tail_prev_block_cleaned = false;
         for height in tail..gc_height {
             let blocks_current_height = self
-                .store()
+                .chain_store()
                 .get_all_block_hashes_by_height(height)?
                 .values()
                 .flatten()
@@ -293,7 +293,7 @@ impl Chain {
                 .collect::<Vec<_>>();
             for block_hash in blocks_current_height {
                 let epoch_manager = self.epoch_manager.clone();
-                let mut chain_store_update = self.mut_store().store_update();
+                let mut chain_store_update = self.mut_chain_store().store_update();
                 if !tail_prev_block_cleaned {
                     let prev_block_hash =
                         *chain_store_update.get_block_header(&block_hash)?.prev_hash();
@@ -316,7 +316,7 @@ impl Chain {
         }
 
         // Clear Chunks data
-        let mut chain_store_update = self.mut_store().store_update();
+        let mut chain_store_update = self.mut_chain_store().store_update();
         // The largest height of chunk we have in storage is head.height + 1
         let chunk_height = std::cmp::min(head.height + 2, sync_height);
         chain_store_update.clear_chunk_data_and_headers(chunk_height)?;
@@ -325,7 +325,7 @@ impl Chain {
         // clear all trie data
 
         let tries = self.runtime_adapter.get_tries();
-        let mut chain_store_update = self.mut_store().store_update();
+        let mut chain_store_update = self.mut_chain_store().store_update();
         let mut store_update = tries.store_update();
         store_update.delete_all(DBCol::State);
         chain_store_update.merge(store_update);

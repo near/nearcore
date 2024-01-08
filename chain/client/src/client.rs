@@ -262,7 +262,7 @@ impl Client {
         let flat_storage_creator = FlatStorageCreator::new(
             epoch_manager.clone(),
             runtime_adapter.clone(),
-            chain.store(),
+            chain.chain_store(),
             chain_config.background_migration_threads,
         )?;
         let sharded_tx_pool =
@@ -299,7 +299,7 @@ impl Client {
         );
         // Start one actor per shard.
         if config.state_sync_enabled {
-            let epoch_id = chain.store().head().expect("Cannot get chain head.").epoch_id;
+            let epoch_id = chain.chain_store().head().expect("Cannot get chain head.").epoch_id;
             let shard_layout =
                 epoch_manager.get_shard_layout(&epoch_id).expect("Cannot get shard layout.");
             match state_sync_adapter.write() {
@@ -324,7 +324,7 @@ impl Client {
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
-            chain.store().largest_target_height()?,
+            chain.chain_store().largest_target_height()?,
             config.min_block_production_delay,
             config.max_block_production_delay,
             config.max_block_production_delay / 10,
@@ -500,7 +500,7 @@ impl Client {
         }
 
         // If height is known already, don't produce new block for this height.
-        let known_height = self.chain.store().get_latest_known()?.height;
+        let known_height = self.chain.chain_store().get_latest_known()?.height;
         if height <= known_height {
             return Ok(false);
         }
@@ -713,7 +713,7 @@ impl Client {
         let timestamp_override = None;
 
         // Get block extra from previous block.
-        let block_merkle_tree = self.chain.store().get_block_merkle_tree(&prev_hash)?;
+        let block_merkle_tree = self.chain.chain_store().get_block_merkle_tree(&prev_hash)?;
         let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
         block_merkle_tree.insert(prev_hash);
         let block_merkle_root = block_merkle_tree.root();
@@ -795,7 +795,7 @@ impl Client {
 
         // Update latest known even before returning block out, to prevent race conditions.
         self.chain
-            .mut_store()
+            .mut_chain_store()
             .save_latest_known(LatestKnown { height, seen: block.header().raw_timestamp() })?;
 
         metrics::BLOCK_PRODUCED_TOTAL.inc();
@@ -989,7 +989,7 @@ impl Client {
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
-                        .store()
+                        .chain_store()
                         .check_transaction_validity_period(
                             prev_block_header,
                             &tx.transaction.block_hash,
@@ -1392,7 +1392,7 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_store())
+        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
@@ -1403,7 +1403,7 @@ impl Client {
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
     /// is invalid.
     pub fn on_invalid_chunk(&mut self, encoded_chunk: EncodedShardChunk) {
-        let mut update = self.chain.mut_store().store_update();
+        let mut update = self.chain.mut_chain_store().store_update();
         update.save_invalid_chunk(encoded_chunk);
         if let Err(err) = update.commit() {
             error!(target: "client", ?err, "Error saving invalid chunk");
@@ -1779,7 +1779,7 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
-        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_store())?;
+        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_chain_store())?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
@@ -1919,7 +1919,7 @@ impl Client {
         let parent_hash = match inner {
             ApprovalInner::Endorsement(parent_hash) => *parent_hash,
             ApprovalInner::Skip(parent_height) => {
-                match self.chain.store().get_all_block_hashes_by_height(*parent_height) {
+                match self.chain.chain_store().get_all_block_hashes_by_height(*parent_height) {
                     Ok(hashes) => {
                         // If there is more than one block at the height, all of them will be
                         // eligible to build the next block on, so we just pick one.
@@ -2137,7 +2137,7 @@ impl Client {
         // here it is fine to use `cur_block_header` as it is a best effort estimate. If the transaction
         // were to be included, the block that the chunk points to will have height >= height of
         // `cur_block_header`.
-        if let Err(e) = self.chain.store().check_transaction_validity_period(
+        if let Err(e) = self.chain.chain_store().check_transaction_validity_period(
             &cur_block_header,
             &tx.transaction.block_hash,
             transaction_validity_period,
@@ -2283,7 +2283,7 @@ impl Client {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
-        for (sync_hash, state_sync_info) in self.chain.store().iterate_state_sync_infos()? {
+        for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter = self.network_adapter.clone();
 
@@ -2467,7 +2467,9 @@ impl Client {
     /// creation is not needed.
     pub fn run_flat_storage_creation_step(&mut self) -> Result<bool, Error> {
         let result = match &mut self.flat_storage_creator {
-            Some(flat_storage_creator) => flat_storage_creator.update_status(self.chain.store())?,
+            Some(flat_storage_creator) => {
+                flat_storage_creator.update_status(self.chain.chain_store())?
+            }
             None => true,
         };
         Ok(result)
@@ -2484,7 +2486,7 @@ impl Client {
         // on the hot storage. In order to determine if split storage is enabled
         // *and* that the migration to split storage is finished we can check
         // the store kind. It's only set to hot after the migration is finished.
-        let store = self.chain.store().store();
+        let store = self.chain.chain_store().store();
         let kind = store.get_db_kind()?;
         if kind == Some(DbKind::Hot) {
             let tries = self.runtime_adapter.get_tries();

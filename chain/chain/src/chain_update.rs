@@ -51,14 +51,14 @@ pub struct ChainUpdate<'a> {
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        store: &'a mut ChainStore,
+        chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
     ) -> Self {
-        let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
+        let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
         Self::new_impl(
             epoch_manager,
             shard_tracker,

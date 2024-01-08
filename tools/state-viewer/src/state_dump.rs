@@ -365,7 +365,7 @@ mod test {
         )
         .unwrap();
 
-        let store = env.clients[0].chain.store().store().clone();
+        let store = env.clients[0].chain.chain_store().store().clone();
         (store, genesis, env, near_config)
     }
 

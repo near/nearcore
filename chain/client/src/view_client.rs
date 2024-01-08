@@ -662,7 +662,7 @@ impl Handler<WithSpanContext<GetBlockWithMerkleTree>> for ViewClientActor {
             .start_timer();
         let block_view = self.handle(GetBlock(msg.0).with_span_context(), ctx)?;
         self.chain
-            .store()
+            .chain_store()
             .get_block_merkle_tree(&block_view.header.hash)
             .map(|merkle_tree| (block_view, merkle_tree))
             .map_err(|e| e.into())
@@ -772,7 +772,7 @@ impl Handler<WithSpanContext<GetValidatorInfo>> for ViewClientActor {
                     BlockId::Height(h) => self.chain.get_block_header_by_height(h)?,
                 };
                 let next_block_hash =
-                    self.chain.store().get_next_block_hash(block_header.hash())?;
+                    self.chain.chain_store().get_next_block_hash(block_header.hash())?;
                 let next_block_header = self.chain.get_block_header(&next_block_hash)?;
                 if block_header.epoch_id() != next_block_header.epoch_id()
                     && block_header.next_epoch_id() == next_block_header.epoch_id()
@@ -831,7 +831,7 @@ impl Handler<WithSpanContext<GetStateChangesInBlock>> for ViewClientActor {
             .start_timer();
         Ok(self
             .chain
-            .store()
+            .chain_store()
             .get_state_changes_in_block(&msg.block_hash)?
             .into_iter()
             .map(Into::into)
@@ -855,7 +855,7 @@ impl Handler<WithSpanContext<GetStateChanges>> for ViewClientActor {
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetStateChanges"]).start_timer();
         Ok(self
             .chain
-            .store()
+            .chain_store()
             .get_state_changes(&msg.block_hash, &msg.state_changes_request.into())?
             .into_iter()
             .map(Into::into)
@@ -880,7 +880,7 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlock>> for ViewClientAct
             .start_timer();
         Ok(self
             .chain
-            .store()
+            .chain_store()
             .get_state_changes_with_cause_in_block(&msg.block_hash)?
             .into_iter()
             .map(Into::into)
@@ -905,7 +905,7 @@ impl Handler<WithSpanContext<GetStateChangesWithCauseInBlockForTrackedShards>> f
             .with_label_values(&["GetStateChangesWithCauseInBlockForTrackedShards"])
             .start_timer();
         let state_changes_with_cause_in_block =
-            self.chain.store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
+            self.chain.chain_store().get_state_changes_with_cause_in_block(&msg.block_hash)?;
 
         let mut state_changes_with_cause_split_by_shard_id: HashMap<ShardId, StateChangesView> =
             HashMap::new();
@@ -963,7 +963,7 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
             let ret = Chain::create_light_client_block(
                 &head_header,
                 self.epoch_manager.as_ref(),
-                self.chain.store(),
+                self.chain.chain_store(),
             )?;
 
             if ret.inner_lite.height <= last_height {
@@ -972,7 +972,7 @@ impl Handler<WithSpanContext<GetNextLightClientBlock>> for ViewClientActor {
                 Ok(Some(Arc::new(ret)))
             }
         } else {
-            match self.chain.store().get_epoch_light_client_block(&last_next_epoch_id.0) {
+            match self.chain.chain_store().get_epoch_light_client_block(&last_next_epoch_id.0) {
                 Ok(light_block) => Ok(Some(light_block)),
                 Err(e) => {
                     if let near_chain::Error::DBNotFoundErr(_) = e {
@@ -1092,7 +1092,7 @@ impl Handler<WithSpanContext<GetExecutionOutcomesForBlock>> for ViewClientActor 
             .start_timer();
         Ok(self
             .chain
-            .store()
+            .chain_store()
             .get_block_execution_outcomes(&msg.block_hash)
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -1112,7 +1112,7 @@ impl Handler<WithSpanContext<GetReceipt>> for ViewClientActor {
             metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetReceipt"]).start_timer();
         Ok(self
             .chain
-            .store()
+            .chain_store()
             .get_receipt(&msg.receipt_id)?
             .map(|receipt| Receipt::clone(&receipt).into()))
     }
@@ -1194,7 +1194,7 @@ impl Handler<WithSpanContext<NetworkAdversarialMessage>> for ViewClientActor {
             }
             NetworkAdversarialMessage::AdvSwitchToHeight(height) => {
                 info!(target: "adversary", "Switching to height");
-                let mut chain_store_update = self.chain.mut_store().store_update();
+                let mut chain_store_update = self.chain.mut_chain_store().store_update();
                 chain_store_update.save_largest_target_height(height);
                 chain_store_update
                     .adv_save_latest_known(height)
@@ -1571,7 +1571,7 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         tracing::debug!(target: "client", ?msg);
 
-        let store = self.chain.store().store();
+        let store = self.chain.chain_store().store();
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
         let final_head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
         let cold_head = store.get_ser::<Tip>(DBCol::BlockMisc, COLD_HEAD_KEY)?;

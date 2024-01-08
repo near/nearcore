@@ -87,7 +87,7 @@ fn do_fork(
         }
 
         let head = chain.head().unwrap();
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         if i == 0 {
             store_update.save_block_merkle_tree(*prev_block.hash(), PartialMerkleTree::default());
         }
@@ -727,14 +727,14 @@ fn test_clear_old_data() {
         if i < 8 {
             assert!(chain.get_block(blocks[i].hash()).is_err());
             assert!(chain
-                .mut_store()
+                .mut_chain_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty());
         } else {
             assert!(chain.get_block(blocks[i].hash()).is_ok());
             assert!(!chain
-                .mut_store()
+                .mut_chain_store()
                 .get_all_block_hashes_by_height(i as BlockHeight)
                 .unwrap()
                 .is_empty());
@@ -754,7 +754,7 @@ fn add_block(
     let next_epoch_id = epoch_manager
         .get_next_epoch_id_from_prev_block(prev_block.hash())
         .expect("block must exist");
-    let mut store_update = chain.mut_store().store_update();
+    let mut store_update = chain.mut_chain_store().store_update();
 
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
         TestBlockBuilder::new(&prev_block, signer).height(height).build()
@@ -814,7 +814,7 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert_eq!(
         chain
-            .mut_store()
+            .mut_chain_store()
             .get_all_block_hashes_by_height(5)
             .unwrap()
             .values()
@@ -822,10 +822,10 @@ fn test_clear_old_data_fixed_height() {
             .collect::<Vec<_>>(),
         vec![blocks[5].hash()]
     );
-    assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
+    assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
 
     let trie = chain.runtime_adapter.get_tries();
-    let mut store_update = chain.mut_store().store_update();
+    let mut store_update = chain.mut_chain_store().store_update();
     assert!(store_update
         .clear_block_data(epoch_manager.as_ref(), *blocks[5].hash(), GCMode::Canonical(trie))
         .is_ok());
@@ -838,12 +838,12 @@ fn test_clear_old_data_fixed_height() {
     assert!(chain.get_block_header(blocks[4].hash()).is_ok());
     assert!(chain.get_block_header(blocks[5].hash()).is_ok());
     assert!(chain.get_block_header(blocks[6].hash()).is_ok());
-    assert!(chain.mut_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
-    assert!(!chain.mut_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
-    assert!(!chain.mut_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
-    assert!(chain.mut_store().get_next_block_hash(blocks[4].hash()).is_err());
-    assert!(chain.mut_store().get_next_block_hash(blocks[5].hash()).is_ok());
-    assert!(chain.mut_store().get_next_block_hash(blocks[6].hash()).is_ok());
+    assert!(chain.mut_chain_store().get_all_block_hashes_by_height(4).unwrap().is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(5).unwrap().is_empty());
+    assert!(!chain.mut_chain_store().get_all_block_hashes_by_height(6).unwrap().is_empty());
+    assert!(chain.mut_chain_store().get_next_block_hash(blocks[4].hash()).is_err());
+    assert!(chain.mut_chain_store().get_next_block_hash(blocks[5].hash()).is_ok());
+    assert!(chain.mut_chain_store().get_next_block_hash(blocks[6].hash()).is_ok());
 }
 
 /// Test that `gc_blocks_limit` works properly
@@ -866,7 +866,7 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
     let mut prev_block = genesis;
     let mut blocks = vec![prev_block.clone()];
     {
-        let mut store_update = chain.store().store().store_update();
+        let mut store_update = chain.chain_store().store().store_update();
         let block_info = BlockInfo::default();
         store_update.insert_ser(DBCol::BlockInfo, prev_block.hash().as_ref(), &block_info).unwrap();
         store_update.commit().unwrap();
@@ -875,7 +875,7 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
         blocks.push(block.clone());
 
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block(block.clone());
         store_update.inc_block_refcount(block.header().prev_hash()).unwrap();
         store_update.save_block_header(block.header().clone()).unwrap();
@@ -909,14 +909,14 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
             if i < (iter + 1) * gc_blocks_limit as usize {
                 assert!(chain.get_block(&blocks[i].hash()).is_err());
                 assert!(chain
-                    .mut_store()
+                    .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .unwrap()
                     .is_empty());
             } else {
                 assert!(chain.get_block(&blocks[i].hash()).is_ok());
                 assert!(!chain
-                    .mut_store()
+                    .mut_chain_store()
                     .get_all_block_hashes_by_height(i as BlockHeight)
                     .unwrap()
                     .is_empty());
@@ -930,7 +930,7 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
             chain.epoch_manager.clone(),
             chain.shard_tracker.clone(),
             chain.runtime_adapter.clone(),
-            chain.store().store().clone(),
+            chain.chain_store().store().clone(),
             false,
         );
         store_validator.validate();
@@ -960,30 +960,30 @@ fn test_fork_chunk_tail_updates() {
     assert_eq!(chain.tail().unwrap(), 0);
 
     {
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         assert_eq!(store_update.tail().unwrap(), 0);
         store_update.update_tail(1).unwrap();
         store_update.commit().unwrap();
     }
     // Chunk tail should be auto updated to genesis (if not set) and fork_tail to the tail.
     {
-        let store_update = chain.mut_store().store_update();
+        let store_update = chain.mut_chain_store().store_update();
         assert_eq!(store_update.tail().unwrap(), 1);
         assert_eq!(store_update.fork_tail().unwrap(), 1);
         assert_eq!(store_update.chunk_tail().unwrap(), 0);
     }
     {
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.update_fork_tail(3);
         store_update.commit().unwrap();
     }
     {
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.update_tail(2).unwrap();
         store_update.commit().unwrap();
     }
     {
-        let store_update = chain.mut_store().store_update();
+        let store_update = chain.mut_chain_store().store_update();
         assert_eq!(store_update.tail().unwrap(), 2);
         assert_eq!(store_update.fork_tail().unwrap(), 3);
         assert_eq!(store_update.chunk_tail().unwrap(), 0);
