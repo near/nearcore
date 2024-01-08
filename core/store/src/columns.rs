@@ -249,6 +249,7 @@ pub enum DBCol {
     HeaderHashesByHeight,
     /// State changes made by a chunk, used for resharding. Historically
     /// resharding was also called State Splitting since the name.
+    /// TODO(resharding) rename to StateChangesForResharding if safe.
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
     /// - *Column type*: StateChangesForResharding
     StateChangesForSplitStates,
