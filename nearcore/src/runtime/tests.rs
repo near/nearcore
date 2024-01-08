@@ -67,16 +67,16 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
     ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
         let mut result = self
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals,
                     gas_limit,
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version: false,
                 },
-                ApplyTransactionsBlockContext {
+                ApplyChunkBlockContext {
                     height,
                     block_hash: *block_hash,
                     prev_block_hash: *prev_block_hash,

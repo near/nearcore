@@ -13,8 +13,8 @@ use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    AcceptedBlock, ApplyTransactionResult, ApplyTransactionsBlockContext, BlockEconomicsConfig,
-    ChainConfig, RuntimeAdapter, StorageDataSource,
+    AcceptedBlock, ApplyChunkBlockContext, ApplyChunkResult, BlockEconomicsConfig, ChainConfig,
+    RuntimeAdapter, StorageDataSource,
 };
 use crate::update_shard::{
     apply_new_chunk, process_missing_chunks_range, process_shard_update, NewChunkData,
@@ -2878,12 +2878,12 @@ impl Chain {
 
     /// For given pair of block headers and shard id, return information about
     /// block necessary for processing shard update.
-    fn get_apply_transactions_block_context(
+    fn get_apply_chunk_block_context(
         &self,
         block_header: &BlockHeader,
         prev_block_header: &BlockHeader,
         is_new_chunk: bool,
-    ) -> Result<ApplyTransactionsBlockContext, Error> {
+    ) -> Result<ApplyChunkBlockContext, Error> {
         let epoch_id = block_header.epoch_id();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         // Before `FixApplyChunks` feature, gas price was taken from current
@@ -2896,7 +2896,7 @@ impl Chain {
             prev_block_header.next_gas_price()
         };
 
-        Ok(ApplyTransactionsBlockContext::from_header(block_header, gas_price))
+        Ok(ApplyChunkBlockContext::from_header(block_header, gas_price))
     }
 
     fn block_catch_up_postprocess(
@@ -3296,7 +3296,7 @@ impl Chain {
         let cares_about_shard_next_epoch =
             self.shard_tracker.will_care_about_shard(me.as_ref(), prev_hash, shard_id, true);
         let will_shard_layout_change = self.epoch_manager.will_shard_layout_change(prev_hash)?;
-        let should_apply_transactions = get_should_apply_transactions(
+        let should_apply_chunk = get_should_apply_chunk(
             mode,
             cares_about_shard_this_epoch,
             cares_about_shard_next_epoch,
@@ -3307,7 +3307,7 @@ impl Chain {
             shard_uid,
             cares_about_shard_this_epoch,
             will_shard_layout_change,
-            should_apply_transactions,
+            should_apply_chunk,
             need_to_reshard,
         })
     }
@@ -3330,16 +3330,16 @@ impl Chain {
         let shard_context = self.get_shard_context(me, block.header(), shard_id, mode)?;
 
         // We can only perform resharding when states are ready, i.e., mode != ApplyChunksMode::NotCaughtUp
-        // 1) if should_apply_transactions == true && resharding_state_roots.is_some(),
+        // 1) if should_apply_chunk == true && resharding_state_roots.is_some(),
         //     that means children shards are ready.
         //    `apply_resharding_state_changes` will apply updates to the children shards
-        // 2) if should_apply_transactions == true && resharding_state_roots.is_none(),
+        // 2) if should_apply_chunk == true && resharding_state_roots.is_none(),
         //     that means children shards are not ready yet.
         //    `apply_resharding_state_changes` will return `state_changes_for_resharding`,
         //     which will be stored to the database in `process_apply_chunks`
-        // 3) if should_apply_transactions == false && resharding_state_roots.is_some()
+        // 3) if should_apply_chunk == false && resharding_state_roots.is_some()
         //    This implies mode == CatchingUp and cares_about_shard_this_epoch == true,
-        //    otherwise should_apply_transactions will be true
+        //    otherwise should_apply_chunk will be true
         //    That means transactions have already been applied last time when apply_chunks are
         //    called with mode NotCaughtUp, therefore `state_changes_for_resharding` have been
         //    stored in the database. Then we can safely read that and apply that to the split
@@ -3352,8 +3352,8 @@ impl Chain {
             };
 
         let is_new_chunk = chunk_header.height_included() == block.header().height();
-        let shard_update_reason = if shard_context.should_apply_transactions {
-            let block_context = self.get_apply_transactions_block_context(
+        let shard_update_reason = if shard_context.should_apply_chunk {
+            let block_context = self.get_apply_chunk_block_context(
                 block.header(),
                 prev_block.header(),
                 is_new_chunk,
@@ -3490,11 +3490,10 @@ impl Chain {
         shard_id: ShardId,
         mode: ApplyChunksMode,
         return_chunk_extra: bool,
-    ) -> Result<(Vec<(ApplyTransactionsBlockContext, ShardContext)>, Option<ChunkExtra>), Error>
-    {
+    ) -> Result<(Vec<(ApplyChunkBlockContext, ShardContext)>, Option<ChunkExtra>), Error> {
         let blocks_to_execute =
             self.get_blocks_until_height(chunk_prev_hash, prev_chunk_height_included, false)?;
-        let mut execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)> = vec![];
+        let mut execution_contexts: Vec<(ApplyChunkBlockContext, ShardContext)> = vec![];
         for block_hash in blocks_to_execute {
             let block_header = self.get_block_header(&block_hash)?;
             let prev_block_header = self.get_previous_header(&block_header)?;
@@ -3505,11 +3504,7 @@ impl Chain {
                 )));
             }
             execution_contexts.push((
-                self.get_apply_transactions_block_context(
-                    &block_header,
-                    &prev_block_header,
-                    false,
-                )?,
+                self.get_apply_chunk_block_context(&block_header, &prev_block_header, false)?,
                 shard_context,
             ));
         }
@@ -3565,7 +3560,7 @@ impl Chain {
         let is_new_chunk = chunk_header.height_included() == block.header().height();
 
         // If we don't track a shard or there is no chunk, there is nothing to validate.
-        if !last_shard_context.should_apply_transactions || !is_new_chunk {
+        if !last_shard_context.should_apply_chunk || !is_new_chunk {
             return Ok(None);
         }
 
@@ -3667,7 +3662,7 @@ impl Chain {
                 return Ok(None);
             }
             (
-                self.get_apply_transactions_block_context(&block_header, &prev_block_header, true)?,
+                self.get_apply_chunk_block_context(&block_header, &prev_block_header, true)?,
                 shard_context,
             )
         };
@@ -3729,7 +3724,7 @@ impl Chain {
                         epoch_manager.as_ref(),
                     )?;
                 let (outcome_root, _) =
-                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 current_chunk_extra = ChunkExtra::new(
                     &apply_result.new_root,
                     outcome_root,
@@ -3865,7 +3860,7 @@ fn sync_hash_not_first_hash(sync_hash: CryptoHash) -> Error {
 /// ApplyChunksMode::NotCaughtUp once with ApplyChunksMode::CatchingUp. Note
 /// that it does not guard whether the children shards are ready or not, see the
 /// comments before `need_to_reshard`
-fn get_should_apply_transactions(
+fn get_should_apply_chunk(
     mode: ApplyChunksMode,
     cares_about_shard_this_epoch: bool,
     cares_about_shard_next_epoch: bool,
