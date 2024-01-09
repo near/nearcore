@@ -5,21 +5,20 @@ mod tests {
     use amcl::bls381::bls381::core::deserialize_g2;
     use amcl::bls381::bls381::core::map_to_curve_g1;
     use amcl::bls381::bls381::core::map_to_curve_g2;
+    use amcl::bls381::bls381::utils::{
+        serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
+        subgroup_check_g1, subgroup_check_g2,
+    };
     use amcl::bls381::ecp::ECP;
     use amcl::bls381::ecp2::ECP2;
-    use amcl::bls381::pair;
-    use amcl::rand::RAND;
-    use amcl::bls381::bls381::utils::{subgroup_check_g1,
-                                      subgroup_check_g2,
-                                      serialize_uncompressed_g1,
-                                      serialize_uncompressed_g2,
-                                      serialize_g1, serialize_g2};
-    use amcl::bls381::fp2::FP2;
     use amcl::bls381::fp::FP;
+    use amcl::bls381::fp2::FP2;
+    use amcl::bls381::pair;
     use amcl::bls381::rom::H_EFF_G1;
+    use amcl::rand::RAND;
     use borsh::BorshSerialize;
-    use rand::thread_rng;
     use rand::seq::SliceRandom;
+    use rand::thread_rng;
     use rand::RngCore;
 
     fn get_random_g1_point(rnd: &mut RAND) -> ECP {
@@ -127,7 +126,9 @@ mod tests {
         let mut rnd: RAND = RAND::new();
         rnd.clean();
         let mut raw: [u8; 100] = [0; 100];
-        for i in 0..100 { raw[i] = i as u8 }
+        for i in 0..100 {
+            raw[i] = i as u8
+        }
 
         rnd.seed(100, &raw);
 
@@ -306,7 +307,13 @@ mod tests {
                 buffer.push(vec![vec![1], vec![0; 31]].concat());
             } else {
                 //r - 1
-                buffer.push(hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000").unwrap().into_iter().rev().collect());
+                buffer.push(
+                    hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000")
+                        .unwrap()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
@@ -326,7 +333,13 @@ mod tests {
                 buffer.push(vec![vec![1], vec![0; 31]].concat());
             } else {
                 // r - 1
-                buffer.push(hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000").unwrap().into_iter().rev().collect());
+                buffer.push(
+                    hex::decode("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000")
+                        .unwrap()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
@@ -501,7 +514,6 @@ mod tests {
             let got = get_g1_sum(0, &p_ser, 0, &p_neg_ser, &mut logic);
             assert_eq!(zero.to_vec(), got);
         }
-
 
         // P + P&mut
         for _ in 0..10 {
@@ -782,7 +794,6 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[95] ^= 0x01;
 
-
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
         let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
@@ -821,7 +832,6 @@ mod tests {
         logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
     }
 
-
     //==== TESTS FOR G2_SUM
     #[test]
     fn test_bls12381_p2_sum_edge_cases() {
@@ -835,7 +845,6 @@ mod tests {
         zero[0] = 64;
         let got = get_g2_sum(0, &zero, 0, &zero, &mut logic);
         assert_eq!(zero.to_vec(), got);
-
 
         // 0 + P = P + 0 = P
         let mut rnd = get_rnd();
@@ -864,7 +873,6 @@ mod tests {
             let got = get_g2_sum(0, &p_ser, 0, &p_neg_ser, &mut logic);
             assert_eq!(zero.to_vec(), got);
         }
-
 
         // P + P&mutg1
         for _ in 0..10 {
@@ -1122,7 +1130,6 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g2(&p);
         p_ser[191] ^= 0x01;
 
-
         let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
         let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
@@ -1184,7 +1191,7 @@ mod tests {
         for _ in 0..100 {
             let p = get_random_g1_curve_point(&mut rnd);
             let mut n = Big::random(&mut rnd);
-            n.mod2m(32*8);
+            n.mod2m(32 * 8);
 
             let res1 = get_g1_multiexp(&vec![(n.clone(), p.clone())]);
             let res2 = p.mul(&n);
@@ -1207,7 +1214,7 @@ mod tests {
             let mut points: Vec<(Big, ECP)> = vec![];
             for i in 0..n {
                 let mut scalar = Big::random(&mut rnd);
-                scalar.mod2m(32*8);
+                scalar.mod2m(32 * 8);
                 points.push((scalar, get_random_g1_curve_point(&mut rnd)));
                 res2.add(&points[i].1.mul(&points[i].0));
             }
@@ -1247,7 +1254,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[0] |= 0x80;
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1256,8 +1264,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[95] ^= 0x01;
 
-
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1266,7 +1274,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[0] ^= 0x20;
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1277,7 +1286,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g1(&p);
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
     }
@@ -1315,7 +1325,7 @@ mod tests {
         for _ in 0..100 {
             let p = get_random_g2_curve_point(&mut rnd);
             let mut n = Big::random(&mut rnd);
-            n.mod2m(32*8);
+            n.mod2m(32 * 8);
 
             let res1 = get_g2_multiexp(&vec![(n.clone(), p.clone())]);
             let res2 = p.mul(&n);
@@ -1338,7 +1348,7 @@ mod tests {
             let mut points: Vec<(Big, ECP2)> = vec![];
             for i in 0..n {
                 let mut scalar = Big::random(&mut rnd);
-                scalar.mod2m(32*8);
+                scalar.mod2m(32 * 8);
                 points.push((scalar, get_random_g2_curve_point(&mut rnd)));
                 res2.add(&points[i].1.mul(&points[i].0));
             }
@@ -1388,7 +1398,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g2(&p);
         p_ser[0] ^= 0x80;
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1397,8 +1408,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g2(&p);
         p_ser[191] ^= 0x01;
 
-
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1407,7 +1418,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g2(&p);
         p_ser[0] ^= 0x20;
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
 
@@ -1418,7 +1430,8 @@ mod tests {
         let mut p_ser = serialize_uncompressed_g2(&p);
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
 
-        let input = logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
+        let input =
+            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
     }
@@ -1553,7 +1566,6 @@ mod tests {
 
         assert_eq!(res, 1);
     }
-
 
     #[test]
     fn test_bls12381_p1_decompress() {
@@ -1786,7 +1798,7 @@ mod tests {
             assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
 
             for i in 0..n {
-                let mut p2 =  g2.mul(&scalars_1[i]);
+                let mut p2 = g2.mul(&scalars_1[i]);
                 p2.neg();
 
                 g1s.push(g1.mul(&scalars_2[i]));
