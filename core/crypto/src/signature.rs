@@ -783,15 +783,19 @@ mod tests {
 
     #[test]
     fn signature_verify_fuzzer() {
-        bolero::check!()
-            .with_type()
-            .for_each(|(key_type, sign, data, public_key): &(KeyType, [u8; 65], Vec<u8>, PublicKey)| {
+        bolero::check!().with_type().for_each(
+            |(key_type, sign, data, public_key): &(KeyType, [u8; 65], Vec<u8>, PublicKey)| {
                 let signature = match key_type {
-                    KeyType::ED25519 => Signature::from_parts(KeyType::ED25519, &sign[..64]).unwrap(),
-                    KeyType::SECP256K1 => Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap(),
+                    KeyType::ED25519 => {
+                        Signature::from_parts(KeyType::ED25519, &sign[..64]).unwrap()
+                    }
+                    KeyType::SECP256K1 => {
+                        Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap()
+                    }
                 };
                 let _ = signature.verify(&data, &public_key);
-            });
+            },
+        );
     }
 
     #[test]
