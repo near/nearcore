@@ -60,7 +60,7 @@ pub fn update_cold_db(
     shard_layout: &ShardLayout,
     height: &BlockHeight,
 ) -> io::Result<bool> {
-    let _span = tracing::debug_span!(target: "store", "update cold db", height = height);
+    let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
 
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
@@ -71,14 +71,12 @@ pub fn update_cold_db(
 
     let key_type_to_keys = get_keys_from_store(&mut store_with_cache, shard_layout, height)?;
     for col in DBCol::iter() {
-        if col.is_cold() {
-            copy_from_store(
-                cold_db,
-                &mut store_with_cache,
-                col,
-                combine_keys(&key_type_to_keys, &col.key_type()),
-            )?;
+        if !col.is_cold() {
+            continue;
         }
+
+        let keys = combine_keys(&key_type_to_keys, &col.key_type());
+        copy_from_store(cold_db, &mut store_with_cache, col, keys)?;
     }
 
     Ok(true)
@@ -118,9 +116,12 @@ fn copy_from_store(
     col: DBCol,
     keys: Vec<StoreKey>,
 ) -> io::Result<()> {
-    let _span = tracing::debug_span!(target: "store", "create and write transaction to cold db", col = %col);
+    let _span = tracing::debug_span!(target: "cold_store", "create and write transaction to cold db", col = %col);
+    let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
+    let mut good_keys = 0;
+    let total_keys = keys.len();
     for key in keys {
         // TODO: Look into using RocksDB’s multi_key function.  It
         // might speed things up.  Currently our Database abstraction
@@ -135,10 +136,19 @@ fn copy_from_store(
             // write raw bytes. This would also allow us to bypass stripping and
             // re-adding the reference count.
 
+            good_keys += 1;
             rc_aware_set(&mut transaction, col, key, value);
         }
     }
+
+    let read_duration = instant.elapsed();
+
+    let instant = std::time::Instant::now();
     cold_db.write(transaction)?;
+    let write_duration = instant.elapsed();
+
+    tracing::debug!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?read_duration, ?write_duration, "copy from store");
+
     return Ok(());
 }
 
@@ -155,7 +165,7 @@ pub fn update_cold_head(
     hot_store: &Store,
     height: &BlockHeight,
 ) -> io::Result<()> {
-    tracing::debug!(target: "store", "update HEAD of cold db to {}", height);
+    tracing::debug!(target: "cold_store", "update HEAD of cold db to {}", height);
 
     let mut store = StoreWithCache { store: hot_store, cache: StoreCache::new() };
 
