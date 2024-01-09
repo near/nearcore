@@ -1,10 +1,10 @@
-use near_primitives::shard_layout::ShardUId;
-use std::time::Duration;
-use std::{collections::HashMap, iter::FromIterator};
-
 use crate::trie::{
     DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY, DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
 };
+use crate::DBCol;
+use near_primitives::shard_layout::ShardUId;
+use std::time::Duration;
+use std::{collections::HashMap, iter::FromIterator};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -31,11 +31,13 @@ pub struct StoreConfig {
     pub max_open_files: u32,
 
     /// Cache size for DBCol::State column.
-    /// Default value: 512MiB.
     /// Increasing DBCol::State cache size helps making storage more efficient. On the other hand we
     /// don't want to increase hugely requirements for running a node so currently we use a small
     /// default value for it.
     pub col_state_cache_size: bytesize::ByteSize,
+
+    /// Cache size for DBCol::FlatState column.
+    pub col_flat_state_cache_size: bytesize::ByteSize,
 
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
@@ -57,6 +59,13 @@ pub struct StoreConfig {
     /// List of allowed predecessor accounts for SWEAT prefetching.
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_senders: Vec<String>,
+
+    /// List of shard UIDs for which we should load the tries in memory.
+    /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
+    /// strategy for that.
+    pub load_mem_tries_for_shards: Vec<ShardUId>,
+    /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
+    pub load_mem_tries_for_all_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -85,23 +94,50 @@ pub struct StoreConfig {
     /// Number of threads to execute storage background migrations.
     /// Needed to create flat storage which need to happen in parallel
     /// with block processing.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub background_migration_threads: usize,
 
     /// Enables background flat storage creation.
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_enabled: bool,
 
     /// Duration to perform background flat storage creation step. Defines how
     /// frequently we check creation status and execute work related to it in
     /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
+    /// TODO (#8826): remove, because creation successfully happened in 1.34.
     pub flat_storage_creation_period: Duration,
 
-    /// Enables state snapshot at the beginning of epochs.
-    /// Needed if a node wants to be able to respond to state part requests.
+    /// State Snapshot configuration
+    pub state_snapshot_config: StateSnapshotConfig,
+
+    // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
 
-    // State Snapshot compaction usually is a good thing.
-    // It makes state snapshots tiny (10GB) over the course of an epoch.
+    // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_compaction_enabled: bool,
+}
+
+/// Config used to control state snapshot creation. This is used for state sync and resharding.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct StateSnapshotConfig {
+    pub state_snapshot_type: StateSnapshotType,
+    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
+    /// amount of time.
+    /// It makes state snapshots tiny (10GB) over the course of an epoch.
+    /// We may want to disable it for archival nodes during resharding
+    pub compaction_enabled: bool,
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum StateSnapshotType {
+    /// Consider this as the default "disabled" option. We need to have snapshotting enabled for resharding
+    /// State snapshots involve filesystem operations and costly IO operations.
+    #[default]
+    ForReshardingOnly,
+    /// This is the "enabled" option where we create a snapshot at the beginning of every epoch.
+    /// Needed if a node wants to be able to respond to state part requests.
+    EveryEpoch,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -161,10 +197,10 @@ impl StoreConfig {
     }
 
     /// Returns cache size for given column.
-    pub const fn col_cache_size(&self, col: crate::DBCol) -> bytesize::ByteSize {
+    pub const fn col_cache_size(&self, col: DBCol) -> bytesize::ByteSize {
         match col {
-            crate::DBCol::State => self.col_state_cache_size,
-            crate::DBCol::FlatState => self.col_state_cache_size,
+            DBCol::State => self.col_state_cache_size,
+            DBCol::FlatState => self.col_flat_state_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -185,14 +221,19 @@ impl Default for StoreConfig {
             // max_open_files led to performance improvement of ~11%.
             max_open_files: 10_000,
 
-            // We used to have the same cache size for all columns, 32 MiB.
+            // We used to have the same cache size for all columns, 32 MiB.
             // When some RocksDB inefficiencies were found [`DBCol::State`]
-            // cache size was increased up to 512 MiB.  This was done on 13th of
+            // cache size was increased up to 512 MiB.  This was done on 13th of
             // Nov 2021 and we consider increasing the value.  Tests have shown
-            // that increase to 25 GiB (we've used this big value to estimate
+            // that increase to 25 GiB (we've used this big value to estimate
             // performance improvement headroom) having `max_open_files` at 10k
             // improved performance of state viewer by 60%.
             col_state_cache_size: bytesize::ByteSize::mib(512),
+
+            // This value was tuned in after we removed filter and index block from block cache
+            // and slightly improved read speed for FlatState and reduced memory footprint in
+            // #9389.
+            col_flat_state_cache_size: bytesize::ByteSize::mib(128),
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
@@ -227,6 +268,14 @@ impl Default for StoreConfig {
                 "sweat_the_oracle.testnet".to_owned(),
             ],
 
+            // TODO(#9511): Consider adding here shard id 3 or all shards after
+            // this feature will be tested. Until that, use at your own risk.
+            // Doesn't work for resharding.
+            // It will speed up processing of shards where it is enabled, but
+            // requires more RAM and takes several minutes on startup.
+            load_mem_tries_for_shards: Default::default(),
+            load_mem_tries_for_all_shards: false,
+
             migration_snapshot: Default::default(),
 
             // We checked that this number of threads doesn't impact
@@ -241,11 +290,12 @@ impl Default for StoreConfig {
             // flat storage head quickly. State read work is much more expensive.
             flat_storage_creation_period: Duration::from_secs(1),
 
-            // State Snapshots involve filesystem operations and costly IO operations.
-            // Let's keep it disabled by default for now.
+            state_snapshot_config: Default::default(),
+
+            // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
 
-            // Compaction involves a lot of IO and takes considerable amount of time.
+            // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_compaction_enabled: false,
         }
     }

@@ -4,20 +4,20 @@
 //! type gets changed, the view should preserve the old shape and only re-map the necessary bits
 //! from the source structure in the relevant `From<SourceStruct>` impl.
 use crate::account::{AccessKey, AccessKeyPermission, Account, FunctionCallPermission};
+use crate::action::delegate::{DelegateAction, SignedDelegateAction};
 use crate::block::{Block, BlockHeader, Tip};
 use crate::block_header::{
     BlockHeaderInnerLite, BlockHeaderInnerRest, BlockHeaderInnerRestV2, BlockHeaderInnerRestV3,
     BlockHeaderV1, BlockHeaderV2, BlockHeaderV3,
 };
+use crate::block_header::{BlockHeaderInnerRestV4, BlockHeaderV4};
 use crate::challenge::{Challenge, ChallengesResult};
-use crate::contract::ContractCode;
-use crate::delegate_action::{DelegateAction, SignedDelegateAction};
+use crate::checked_feature;
 use crate::errors::TxExecutionError;
 use crate::hash::{hash, CryptoHash};
 use crate::merkle::{combine_hash, MerklePath};
 use crate::network::PeerId;
 use crate::receipt::{ActionReceipt, DataReceipt, DataReceiver, Receipt, ReceiptEnum};
-use crate::runtime::config::RuntimeConfig;
 use crate::serialize::dec_format;
 use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
@@ -40,10 +40,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
-use near_primitives_core::config::{ActionCosts, ExtCosts, ParameterCost, VMConfig};
-use near_primitives_core::runtime::fees::Fee;
+use near_parameters::{ActionCosts, ExtCosts};
 use near_vm_runner::logic::CompiledContractCache;
-use num_rational::Rational32;
+use near_vm_runner::ContractCode;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -283,6 +282,15 @@ pub struct ConnectionInfoView {
 }
 
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct SnapshotHostInfoView {
+    pub peer_id: PeerId,
+    pub sync_hash: CryptoHash,
+    pub epoch_height: u64,
+    pub shards: Vec<u64>,
+}
+
+#[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum QueryResponseKind {
     ViewAccount(AccountView),
@@ -430,8 +438,12 @@ pub enum SyncStatusView {
     StateSync(CryptoHash, HashMap<ShardId, ShardSyncDownloadView>),
     /// Sync state across all shards is done.
     StateSyncDone,
-    /// Catch up on blocks.
-    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+    /// Download and process blocks until the head reaches the head of the network.
+    BlockSync {
+        start_height: BlockHeight,
+        current_height: BlockHeight,
+        highest_height: BlockHeight,
+    },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -445,6 +457,11 @@ pub struct RecentOutboundConnectionsView {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct SnapshotHostsView {
+    pub hosts: Vec<SnapshotHostInfoView>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct EdgeView {
     pub peer0: PeerId,
     pub peer1: PeerId,
@@ -455,6 +472,33 @@ pub struct EdgeView {
 pub struct NetworkGraphView {
     pub edges: Vec<EdgeView>,
     pub next_hops: HashMap<PeerId, Vec<PeerId>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct LabeledEdgeView {
+    pub peer0: u32,
+    pub peer1: u32,
+    pub nonce: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct EdgeCacheView {
+    pub peer_labels: HashMap<PeerId, u32>,
+    pub spanning_trees: HashMap<u32, Vec<LabeledEdgeView>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct PeerDistancesView {
+    pub distance: Vec<Option<u32>>,
+    pub min_nonce: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub struct NetworkRoutesView {
+    pub edge_cache: EdgeCacheView,
+    pub local_edges: HashMap<PeerId, EdgeView>,
+    pub peer_distances: HashMap<PeerId, PeerDistancesView>,
+    pub my_distances: HashMap<PeerId, u32>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -697,6 +741,7 @@ pub struct BlockHeaderView {
     pub hash: CryptoHash,
     pub prev_hash: CryptoHash,
     pub prev_state_root: CryptoHash,
+    pub block_body_hash: Option<CryptoHash>,
     pub chunk_receipts_root: CryptoHash,
     pub chunk_headers_root: CryptoHash,
     pub chunk_tx_root: CryptoHash,
@@ -727,7 +772,7 @@ pub struct BlockHeaderView {
     pub next_bp_hash: CryptoHash,
     pub block_merkle_root: CryptoHash,
     pub epoch_sync_data_hash: Option<CryptoHash>,
-    pub approvals: Vec<Option<Signature>>,
+    pub approvals: Vec<Option<Box<Signature>>>,
     pub signature: Signature,
     pub latest_protocol_version: ProtocolVersion,
 }
@@ -742,7 +787,8 @@ impl From<BlockHeader> for BlockHeaderView {
             hash: *header.hash(),
             prev_hash: *header.prev_hash(),
             prev_state_root: *header.prev_state_root(),
-            chunk_receipts_root: *header.chunk_receipts_root(),
+            block_body_hash: header.block_body_hash(),
+            chunk_receipts_root: *header.prev_chunk_outgoing_receipts_root(),
             chunk_headers_root: *header.chunk_headers_root(),
             chunk_tx_root: *header.chunk_tx_root(),
             chunks_included: header.chunks_included(),
@@ -751,14 +797,14 @@ impl From<BlockHeader> for BlockHeaderView {
             timestamp: header.raw_timestamp(),
             timestamp_nanosec: header.raw_timestamp(),
             random_value: *header.random_value(),
-            validator_proposals: header.validator_proposals().map(Into::into).collect(),
+            validator_proposals: header.prev_validator_proposals().map(Into::into).collect(),
             chunk_mask: header.chunk_mask().to_vec(),
             block_ordinal: if header.block_ordinal() != 0 {
                 Some(header.block_ordinal())
             } else {
                 None
             },
-            gas_price: header.gas_price(),
+            gas_price: header.next_gas_price(),
             rent_paid: 0,
             validator_reward: 0,
             total_supply: header.total_supply(),
@@ -782,7 +828,7 @@ impl From<BlockHeaderView> for BlockHeader {
             epoch_id: EpochId(view.epoch_id),
             next_epoch_id: EpochId(view.next_epoch_id),
             prev_state_root: view.prev_state_root,
-            outcome_root: view.outcome_root,
+            prev_outcome_root: view.outcome_root,
             timestamp: view.timestamp,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
@@ -799,15 +845,15 @@ impl From<BlockHeaderView> for BlockHeader {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRest {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     chunks_included: view.chunks_included,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -830,14 +876,14 @@ impl From<BlockHeaderView> for BlockHeader {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRestV2 {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals,
+                    prev_validator_proposals: validator_proposals,
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
                     last_final_block: view.last_final_block,
@@ -850,23 +896,23 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV2(Arc::new(header))
-        } else {
+        } else if !checked_feature!("stable", BlockHeaderV4, view.latest_protocol_version) {
             let mut header = BlockHeaderV3 {
                 prev_hash: view.prev_hash,
                 inner_lite,
                 inner_rest: BlockHeaderInnerRestV3 {
-                    chunk_receipts_root: view.chunk_receipts_root,
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
                     chunk_headers_root: view.chunk_headers_root,
                     chunk_tx_root: view.chunk_tx_root,
                     challenges_root: view.challenges_root,
                     random_value: view.random_value,
-                    validator_proposals: view
+                    prev_validator_proposals: view
                         .validator_proposals
                         .into_iter()
                         .map(Into::into)
                         .collect(),
                     chunk_mask: view.chunk_mask,
-                    gas_price: view.gas_price,
+                    next_gas_price: view.gas_price,
                     block_ordinal: view.block_ordinal.unwrap_or(0),
                     total_supply: view.total_supply,
                     challenges_result: view.challenges_result,
@@ -882,6 +928,39 @@ impl From<BlockHeaderView> for BlockHeader {
             };
             header.init();
             BlockHeader::BlockHeaderV3(Arc::new(header))
+        } else {
+            let mut header = BlockHeaderV4 {
+                prev_hash: view.prev_hash,
+                inner_lite,
+                inner_rest: BlockHeaderInnerRestV4 {
+                    block_body_hash: view.block_body_hash.unwrap_or_default(),
+                    prev_chunk_outgoing_receipts_root: view.chunk_receipts_root,
+                    chunk_headers_root: view.chunk_headers_root,
+                    chunk_tx_root: view.chunk_tx_root,
+                    challenges_root: view.challenges_root,
+                    random_value: view.random_value,
+                    prev_validator_proposals: view
+                        .validator_proposals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                    chunk_mask: view.chunk_mask,
+                    next_gas_price: view.gas_price,
+                    block_ordinal: view.block_ordinal.unwrap_or(0),
+                    total_supply: view.total_supply,
+                    challenges_result: view.challenges_result,
+                    last_final_block: view.last_final_block,
+                    last_ds_final_block: view.last_ds_final_block,
+                    prev_height: view.prev_height.unwrap_or_default(),
+                    epoch_sync_data_hash: view.epoch_sync_data_hash,
+                    approvals: view.approvals.clone(),
+                    latest_protocol_version: view.latest_protocol_version,
+                },
+                signature: view.signature,
+                hash: CryptoHash::default(),
+            };
+            header.init();
+            BlockHeader::BlockHeaderV4(Arc::new(header))
         }
     }
 }
@@ -916,13 +995,14 @@ impl From<BlockHeader> for BlockHeaderInnerLiteView {
             BlockHeader::BlockHeaderV1(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV2(header) => &header.inner_lite,
             BlockHeader::BlockHeaderV3(header) => &header.inner_lite,
+            BlockHeader::BlockHeaderV4(header) => &header.inner_lite,
         };
         BlockHeaderInnerLiteView {
             height: inner_lite.height,
             epoch_id: inner_lite.epoch_id.0,
             next_epoch_id: inner_lite.next_epoch_id.0,
             prev_state_root: inner_lite.prev_state_root,
-            outcome_root: inner_lite.outcome_root,
+            outcome_root: inner_lite.prev_outcome_root,
             timestamp: inner_lite.timestamp,
             timestamp_nanosec: inner_lite.timestamp,
             next_bp_hash: inner_lite.next_bp_hash,
@@ -938,7 +1018,7 @@ impl From<BlockHeaderInnerLiteView> for BlockHeaderInnerLite {
             epoch_id: EpochId(view.epoch_id),
             next_epoch_id: EpochId(view.next_epoch_id),
             prev_state_root: view.prev_state_root,
-            outcome_root: view.outcome_root,
+            prev_outcome_root: view.outcome_root,
             timestamp: view.timestamp_nanosec,
             next_bp_hash: view.next_bp_hash,
             block_merkle_root: view.block_merkle_root,
@@ -982,21 +1062,21 @@ impl From<ShardChunkHeader> for ChunkHeaderView {
         ChunkHeaderView {
             chunk_hash: hash.0,
             prev_block_hash: *inner.prev_block_hash(),
-            outcome_root: *inner.outcome_root(),
+            outcome_root: *inner.prev_outcome_root(),
             prev_state_root: *inner.prev_state_root(),
             encoded_merkle_root: *inner.encoded_merkle_root(),
             encoded_length: inner.encoded_length(),
             height_created: inner.height_created(),
             height_included,
             shard_id: inner.shard_id(),
-            gas_used: inner.gas_used(),
+            gas_used: inner.prev_gas_used(),
             gas_limit: inner.gas_limit(),
             rent_paid: 0,
             validator_reward: 0,
-            balance_burnt: inner.balance_burnt(),
-            outgoing_receipts_root: *inner.outgoing_receipts_root(),
+            balance_burnt: inner.prev_balance_burnt(),
+            outgoing_receipts_root: *inner.prev_outgoing_receipts_root(),
             tx_root: *inner.tx_root(),
-            validator_proposals: inner.validator_proposals().map(Into::into).collect(),
+            validator_proposals: inner.prev_validator_proposals().map(Into::into).collect(),
             signature,
         }
     }
@@ -1008,17 +1088,21 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
             inner: ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
                 prev_block_hash: view.prev_block_hash,
                 prev_state_root: view.prev_state_root,
-                outcome_root: view.outcome_root,
+                prev_outcome_root: view.outcome_root,
                 encoded_merkle_root: view.encoded_merkle_root,
                 encoded_length: view.encoded_length,
                 height_created: view.height_created,
                 shard_id: view.shard_id,
-                gas_used: view.gas_used,
+                prev_gas_used: view.gas_used,
                 gas_limit: view.gas_limit,
-                balance_burnt: view.balance_burnt,
-                outgoing_receipts_root: view.outgoing_receipts_root,
+                prev_balance_burnt: view.balance_burnt,
+                prev_outgoing_receipts_root: view.outgoing_receipts_root,
                 tx_root: view.tx_root,
-                validator_proposals: view.validator_proposals.into_iter().map(Into::into).collect(),
+                prev_validator_proposals: view
+                    .validator_proposals
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
             }),
             height_included: view.height_included,
             signature: view.signature,
@@ -1061,13 +1145,13 @@ impl ChunkView {
                 author,
                 header: ShardChunkHeader::V1(chunk.header).into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
             ShardChunk::V2(chunk) => Self {
                 author,
                 header: chunk.header.into(),
                 transactions: chunk.transactions.into_iter().map(Into::into).collect(),
-                receipts: chunk.receipts.into_iter().map(Into::into).collect(),
+                receipts: chunk.prev_outgoing_receipts.into_iter().map(Into::into).collect(),
             },
         }
     }
@@ -1166,31 +1250,28 @@ impl TryFrom<ActionView> for Action {
                 Action::DeployContract(DeployContractAction { code })
             }
             ActionView::FunctionCall { method_name, args, gas, deposit } => {
-                Action::FunctionCall(FunctionCallAction {
+                Action::FunctionCall(Box::new(FunctionCallAction {
                     method_name,
                     args: args.into(),
                     gas,
                     deposit,
-                })
+                }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             ActionView::Stake { stake, public_key } => {
-                Action::Stake(StakeAction { stake, public_key })
+                Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
             ActionView::AddKey { public_key, access_key } => {
-                Action::AddKey(AddKeyAction { public_key, access_key: access_key.into() })
+                Action::AddKey(Box::new(AddKeyAction { public_key, access_key: access_key.into() }))
             }
             ActionView::DeleteKey { public_key } => {
-                Action::DeleteKey(DeleteKeyAction { public_key })
+                Action::DeleteKey(Box::new(DeleteKeyAction { public_key }))
             }
             ActionView::DeleteAccount { beneficiary_id } => {
                 Action::DeleteAccount(DeleteAccountAction { beneficiary_id })
             }
             ActionView::Delegate { delegate_action, signature } => {
-                Action::Delegate(SignedDelegateAction {
-                    delegate_action: delegate_action,
-                    signature,
-                })
+                Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
             }
         })
     }
@@ -1586,8 +1667,44 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
+#[derive(Clone)]
+pub struct TxStatusView {
+    pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
+    pub status: TxExecutionStatus,
+}
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TxExecutionStatus {
+    /// Transaction is waiting to be included into the block
+    None,
+    /// Transaction is included into the block. The block may be not finalised yet
+    Included,
+    /// Transaction is included into finalised block
+    IncludedFinal,
+    /// Transaction is included into finalised block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for each receipt may be not finalised yet
+    Executed,
+    /// Transaction is included into finalised block +
+    /// Execution of transaction receipts is finalised
+    #[default]
+    Final,
+}
+
+#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum FinalExecutionOutcomeViewEnum {
     FinalExecutionOutcome(FinalExecutionOutcomeView),
@@ -1603,12 +1720,28 @@ impl FinalExecutionOutcomeViewEnum {
     }
 }
 
-/// Final execution outcome of the transaction and all of subsequent the receipts.
+impl TxStatusView {
+    pub fn into_outcome(self) -> Option<FinalExecutionOutcomeView> {
+        self.execution_outcome.map(|outcome| match outcome {
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(outcome) => outcome,
+            FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(outcome) => {
+                outcome.final_outcome
+            }
+        })
+    }
+}
+
+/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
 )]
 pub struct FinalExecutionOutcomeView {
-    /// Execution status. Contains the result in case of successful execution.
+    /// Execution status defined by chain.rs:get_final_transaction_result
+    /// FinalExecutionStatus::NotStarted - the tx is not converted to the receipt yet
+    /// FinalExecutionStatus::Started - we have at least 1 receipt, but the first leaf receipt_id (using dfs) hasn't finished the execution
+    /// FinalExecutionStatus::Failure - the result of the first leaf receipt_id
+    /// FinalExecutionStatus::SuccessValue - the result of the first leaf receipt_id
     pub status: FinalExecutionStatus,
     /// Signed Transaction
     pub transaction: SignedTransactionView,
@@ -1949,7 +2082,7 @@ pub struct LightClientBlockView {
     pub inner_lite: BlockHeaderInnerLiteView,
     pub inner_rest_hash: CryptoHash,
     pub next_bps: Option<Vec<ValidatorStakeView>>,
-    pub approvals_after_next: Vec<Option<Signature>>,
+    pub approvals_after_next: Vec<Option<Box<Signature>>>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, BorshDeserialize, BorshSerialize)]
@@ -1973,7 +2106,7 @@ impl LightClientBlockLiteView {
         let block_header_inner_lite: BlockHeaderInnerLite = self.inner_lite.clone().into();
         combine_hash(
             &combine_hash(
-                &hash(&block_header_inner_lite.try_to_vec().unwrap()),
+                &hash(&borsh::to_vec(&block_header_inner_lite).unwrap()),
                 &self.inner_rest_hash,
             ),
             &self.prev_block_hash,
@@ -2204,128 +2337,6 @@ pub type StateChangesView = Vec<StateChangeWithCauseView>;
 /// Maintenance windows view are a vector of maintenance window.
 pub type MaintenanceWindowsView = Vec<Range<BlockHeight>>;
 
-/// View that preserves JSON format of the runtime config.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct RuntimeConfigView {
-    /// Amount of yN per byte required to have on the account.  See
-    /// <https://nomicon.io/Economics/Economic#state-stake> for details.
-    #[serde(with = "dec_format")]
-    pub storage_amount_per_byte: Balance,
-    /// Costs of different actions that need to be performed when sending and
-    /// processing transaction and receipts.
-    pub transaction_costs: RuntimeFeesConfigView,
-    /// Config of wasm operations.
-    pub wasm_config: VMConfigView,
-    /// Config that defines rules for account creation.
-    pub account_creation_config: AccountCreationConfigView,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct RuntimeFeesConfigView {
-    /// Describes the cost of creating an action receipt, `ActionReceipt`, excluding the actual cost
-    /// of actions.
-    /// - `send` cost is burned when a receipt is created using `promise_create` or
-    ///     `promise_batch_create`
-    /// - `exec` cost is burned when the receipt is being executed.
-    pub action_receipt_creation_config: Fee,
-    /// Describes the cost of creating a data receipt, `DataReceipt`.
-    pub data_receipt_creation_config: DataReceiptCreationConfigView,
-    /// Describes the cost of creating a certain action, `Action`. Includes all variants.
-    pub action_creation_config: ActionCreationConfigView,
-    /// Describes fees for storage.
-    pub storage_usage_config: StorageUsageConfigView,
-
-    /// Fraction of the burnt gas to reward to the contract account for execution.
-    pub burnt_gas_reward: Rational32,
-
-    /// Pessimistic gas price inflation ratio.
-    pub pessimistic_gas_price_inflation_ratio: Rational32,
-}
-
-/// The structure describes configuration for creation of new accounts.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct AccountCreationConfigView {
-    /// The minimum length of the top-level account ID that is allowed to be created by any account.
-    pub min_allowed_top_level_account_length: u8,
-    /// The account ID of the account registrar. This account ID allowed to create top-level
-    /// accounts of any valid length.
-    pub registrar_account_id: AccountId,
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct DataReceiptCreationConfigView {
-    /// Base cost of creating a data receipt.
-    /// Both `send` and `exec` costs are burned when a new receipt has input dependencies. The gas
-    /// is charged for each input dependency. The dependencies are specified when a receipt is
-    /// created using `promise_then` and `promise_batch_then`.
-    /// NOTE: Any receipt with output dependencies will produce data receipts. Even if it fails.
-    /// Even if the last action is not a function call (in case of success it will return empty
-    /// value).
-    pub base_cost: Fee,
-    /// Additional cost per byte sent.
-    /// Both `send` and `exec` costs are burned when a function call finishes execution and returns
-    /// `N` bytes of data to every output dependency. For each output dependency the cost is
-    /// `(send(sir) + exec()) * N`.
-    pub cost_per_byte: Fee,
-}
-
-/// Describes the cost of creating a specific action, `Action`. Includes all variants.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct ActionCreationConfigView {
-    /// Base cost of creating an account.
-    pub create_account_cost: Fee,
-
-    /// Base cost of deploying a contract.
-    pub deploy_contract_cost: Fee,
-    /// Cost per byte of deploying a contract.
-    pub deploy_contract_cost_per_byte: Fee,
-
-    /// Base cost of calling a function.
-    pub function_call_cost: Fee,
-    /// Cost per byte of method name and arguments of calling a function.
-    pub function_call_cost_per_byte: Fee,
-
-    /// Base cost of making a transfer.
-    pub transfer_cost: Fee,
-
-    /// Base cost of staking.
-    pub stake_cost: Fee,
-
-    /// Base cost of adding a key.
-    pub add_key_cost: AccessKeyCreationConfigView,
-
-    /// Base cost of deleting a key.
-    pub delete_key_cost: Fee,
-
-    /// Base cost of deleting an account.
-    pub delete_account_cost: Fee,
-
-    /// Base cost for processing a delegate action.
-    ///
-    /// This is on top of the costs for the actions inside the delegate action.
-    pub delegate_cost: Fee,
-}
-
-/// Describes the cost of creating an access key.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct AccessKeyCreationConfigView {
-    /// Base cost of creating a full access access-key.
-    pub full_access_cost: Fee,
-    /// Base cost of creating an access-key restricted to specific functions.
-    pub function_call_cost: Fee,
-    /// Cost per byte of method_names of creating a restricted access-key.
-    pub function_call_cost_per_byte: Fee,
-}
-
-/// Describes cost of storage per block
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct StorageUsageConfigView {
-    /// Number of bytes for an account record, including rounding up for account id.
-    pub num_bytes_account: u64,
-    /// Additional number of bytes for a k/v record
-    pub num_extra_bytes_record: u64,
-}
-
 /// Contains the split storage information.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct SplitStorageInfoView {
@@ -2336,505 +2347,29 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
-impl From<RuntimeConfig> for RuntimeConfigView {
-    fn from(config: RuntimeConfig) -> Self {
-        Self {
-            storage_amount_per_byte: config.storage_amount_per_byte(),
-            transaction_costs: RuntimeFeesConfigView {
-                action_receipt_creation_config: config
-                    .fees
-                    .fee(ActionCosts::new_action_receipt)
-                    .clone(),
-                data_receipt_creation_config: DataReceiptCreationConfigView {
-                    base_cost: config.fees.fee(ActionCosts::new_data_receipt_base).clone(),
-                    cost_per_byte: config.fees.fee(ActionCosts::new_data_receipt_byte).clone(),
-                },
-                action_creation_config: ActionCreationConfigView {
-                    create_account_cost: config.fees.fee(ActionCosts::create_account).clone(),
-                    deploy_contract_cost: config
-                        .fees
-                        .fee(ActionCosts::deploy_contract_base)
-                        .clone(),
-                    deploy_contract_cost_per_byte: config
-                        .fees
-                        .fee(ActionCosts::deploy_contract_byte)
-                        .clone(),
-                    function_call_cost: config.fees.fee(ActionCosts::function_call_base).clone(),
-                    function_call_cost_per_byte: config
-                        .fees
-                        .fee(ActionCosts::function_call_byte)
-                        .clone(),
-                    transfer_cost: config.fees.fee(ActionCosts::transfer).clone(),
-                    stake_cost: config.fees.fee(ActionCosts::stake).clone(),
-                    add_key_cost: AccessKeyCreationConfigView {
-                        full_access_cost: config.fees.fee(ActionCosts::add_full_access_key).clone(),
-                        function_call_cost: config
-                            .fees
-                            .fee(ActionCosts::add_function_call_key_base)
-                            .clone(),
-                        function_call_cost_per_byte: config
-                            .fees
-                            .fee(ActionCosts::add_function_call_key_byte)
-                            .clone(),
-                    },
-                    delete_key_cost: config.fees.fee(ActionCosts::delete_key).clone(),
-                    delete_account_cost: config.fees.fee(ActionCosts::delete_account).clone(),
-                    delegate_cost: config.fees.fee(ActionCosts::delegate).clone(),
-                },
-                storage_usage_config: StorageUsageConfigView {
-                    num_bytes_account: config.fees.storage_usage_config.num_bytes_account,
-                    num_extra_bytes_record: config.fees.storage_usage_config.num_extra_bytes_record,
-                },
-                burnt_gas_reward: config.fees.burnt_gas_reward,
-                pessimistic_gas_price_inflation_ratio: config
-                    .fees
-                    .pessimistic_gas_price_inflation_ratio,
-            },
-            wasm_config: VMConfigView::from(config.wasm_config),
-            account_creation_config: AccountCreationConfigView {
-                min_allowed_top_level_account_length: config
-                    .account_creation_config
-                    .min_allowed_top_level_account_length,
-                registrar_account_id: config.account_creation_config.registrar_account_id,
-            },
-        }
-    }
-}
-
-#[derive(Clone, Debug, Hash, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct VMConfigView {
-    /// Costs for runtime externals
-    pub ext_costs: ExtCostsConfigView,
-
-    /// Gas cost of a growing memory by single page.
-    pub grow_mem_cost: u32,
-    /// Gas cost of a regular operation.
-    pub regular_op_cost: u32,
-
-    /// Describes limits for VM and Runtime.
-    ///
-    /// TODO: Consider changing this to `VMLimitConfigView` to avoid dependency
-    /// on runtime.
-    pub limit_config: near_primitives_core::config::VMLimitConfig,
-}
-
-impl From<VMConfig> for VMConfigView {
-    fn from(config: VMConfig) -> Self {
-        Self {
-            ext_costs: ExtCostsConfigView::from(config.ext_costs),
-            grow_mem_cost: config.grow_mem_cost,
-            regular_op_cost: config.regular_op_cost,
-            limit_config: config.limit_config,
-        }
-    }
-}
-
-impl From<VMConfigView> for VMConfig {
-    fn from(view: VMConfigView) -> Self {
-        Self {
-            ext_costs: near_primitives_core::config::ExtCostsConfig::from(view.ext_costs),
-            grow_mem_cost: view.grow_mem_cost,
-            regular_op_cost: view.regular_op_cost,
-            limit_config: view.limit_config,
-        }
-    }
-}
-
-/// Typed view of ExtCostsConfig to preserve JSON output field names in protocol
-/// config RPC output.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Hash, PartialEq, Eq)]
-pub struct ExtCostsConfigView {
-    /// Base cost for calling a host function.
-    pub base: Gas,
-
-    /// Base cost of loading a pre-compiled contract
-    pub contract_loading_base: Gas,
-    /// Cost per byte of loading a pre-compiled contract
-    pub contract_loading_bytes: Gas,
-
-    /// Base cost for guest memory read
-    pub read_memory_base: Gas,
-    /// Cost for guest memory read
-    pub read_memory_byte: Gas,
-
-    /// Base cost for guest memory write
-    pub write_memory_base: Gas,
-    /// Cost for guest memory write per byte
-    pub write_memory_byte: Gas,
-
-    /// Base cost for reading from register
-    pub read_register_base: Gas,
-    /// Cost for reading byte from register
-    pub read_register_byte: Gas,
-
-    /// Base cost for writing into register
-    pub write_register_base: Gas,
-    /// Cost for writing byte into register
-    pub write_register_byte: Gas,
-
-    /// Base cost of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    pub utf8_decoding_base: Gas,
-    /// Cost per byte of decoding utf8. It's used for `log_utf8` and `panic_utf8`.
-    pub utf8_decoding_byte: Gas,
-
-    /// Base cost of decoding utf16. It's used for `log_utf16`.
-    pub utf16_decoding_base: Gas,
-    /// Cost per byte of decoding utf16. It's used for `log_utf16`.
-    pub utf16_decoding_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub sha256_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub sha256_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub keccak256_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub keccak256_byte: Gas,
-
-    /// Cost of getting sha256 base
-    pub keccak512_base: Gas,
-    /// Cost of getting sha256 per byte
-    pub keccak512_byte: Gas,
-
-    /// Cost of getting ripemd160 base
-    pub ripemd160_base: Gas,
-    /// Cost of getting ripemd160 per message block
-    pub ripemd160_block: Gas,
-
-    /// Cost of getting ed25519 base
-    pub ed25519_verify_base: Gas,
-    /// Cost of getting ed25519 per byte
-    pub ed25519_verify_byte: Gas,
-
-    /// Cost of calling ecrecover
-    pub ecrecover_base: Gas,
-
-    /// Cost for calling logging.
-    pub log_base: Gas,
-    /// Cost for logging per byte
-    pub log_byte: Gas,
-
-    // ###############
-    // # Storage API #
-    // ###############
-    /// Storage trie write key base cost
-    pub storage_write_base: Gas,
-    /// Storage trie write key per byte cost
-    pub storage_write_key_byte: Gas,
-    /// Storage trie write value per byte cost
-    pub storage_write_value_byte: Gas,
-    /// Storage trie write cost per byte of evicted value.
-    pub storage_write_evicted_byte: Gas,
-
-    /// Storage trie read key base cost
-    pub storage_read_base: Gas,
-    /// Storage trie read key per byte cost
-    pub storage_read_key_byte: Gas,
-    /// Storage trie read value cost per byte cost
-    pub storage_read_value_byte: Gas,
-
-    /// Remove key from trie base cost
-    pub storage_remove_base: Gas,
-    /// Remove key from trie per byte cost
-    pub storage_remove_key_byte: Gas,
-    /// Remove key from trie ret value byte cost
-    pub storage_remove_ret_value_byte: Gas,
-
-    /// Storage trie check for key existence cost base
-    pub storage_has_key_base: Gas,
-    /// Storage trie check for key existence per key byte
-    pub storage_has_key_byte: Gas,
-
-    /// Create trie prefix iterator cost base
-    pub storage_iter_create_prefix_base: Gas,
-    /// Create trie prefix iterator cost per byte.
-    pub storage_iter_create_prefix_byte: Gas,
-
-    /// Create trie range iterator cost base
-    pub storage_iter_create_range_base: Gas,
-    /// Create trie range iterator cost per byte of from key.
-    pub storage_iter_create_from_byte: Gas,
-    /// Create trie range iterator cost per byte of to key.
-    pub storage_iter_create_to_byte: Gas,
-
-    /// Trie iterator per key base cost
-    pub storage_iter_next_base: Gas,
-    /// Trie iterator next key byte cost
-    pub storage_iter_next_key_byte: Gas,
-    /// Trie iterator next key byte cost
-    pub storage_iter_next_value_byte: Gas,
-
-    /// Cost per reading trie node from DB
-    pub touching_trie_node: Gas,
-    /// Cost for reading trie node from memory
-    pub read_cached_trie_node: Gas,
-
-    // ###############
-    // # Promise API #
-    // ###############
-    /// Cost for calling `promise_and`
-    pub promise_and_base: Gas,
-    /// Cost for calling `promise_and` for each promise
-    pub promise_and_per_promise: Gas,
-    /// Cost for calling `promise_return`
-    pub promise_return: Gas,
-
-    // ###############
-    // # Validator API #
-    // ###############
-    /// Cost of calling `validator_stake`.
-    pub validator_stake_base: Gas,
-    /// Cost of calling `validator_total_stake`.
-    pub validator_total_stake_base: Gas,
-
-    // Removed parameters, only here for keeping the output backward-compatible.
-    pub contract_compile_base: Gas,
-    pub contract_compile_bytes: Gas,
-
-    // #############
-    // # Alt BN128 #
-    // #############
-    /// Base cost for multiexp
-    pub alt_bn128_g1_multiexp_base: Gas,
-    /// Per element cost for multiexp
-    pub alt_bn128_g1_multiexp_element: Gas,
-    /// Base cost for sum
-    pub alt_bn128_g1_sum_base: Gas,
-    /// Per element cost for sum
-    pub alt_bn128_g1_sum_element: Gas,
-    /// Base cost for pairing check
-    pub alt_bn128_pairing_check_base: Gas,
-    /// Per element cost for pairing check
-    pub alt_bn128_pairing_check_element: Gas,
-    pub bls12381_p1_sum_base: Gas,
-    pub bls12381_p1_sum_element: Gas,
-    pub bls12381_p2_sum_base: Gas,
-    pub bls12381_p2_sum_element: Gas,
-    pub bls12381_p1_multiexp_base: Gas,
-    pub bls12381_p1_multiexp_element: Gas,
-    pub bls12381_p2_multiexp_base: Gas,
-    pub bls12381_p2_multiexp_element: Gas,
-    pub bls12381_map_fp_to_g1_base: Gas,
-    pub bls12381_map_fp_to_g1_element: Gas,
-    pub bls12381_map_fp2_to_g2_base: Gas,
-    pub bls12381_map_fp2_to_g2_element: Gas,
-    pub bls12381_pairing_base: Gas,
-    pub bls12381_pairing_element: Gas,
-    pub bls12381_p1_decompress_base: Gas,
-    pub bls12381_p1_decompress_element: Gas,
-    pub bls12381_p2_decompress_base: Gas,
-    pub bls12381_p2_decompress_element: Gas,
-}
-
-impl From<near_primitives_core::config::ExtCostsConfig> for ExtCostsConfigView {
-    fn from(config: near_primitives_core::config::ExtCostsConfig) -> Self {
-        Self {
-            base: config.gas_cost(ExtCosts::base),
-            contract_loading_base: config.gas_cost(ExtCosts::contract_loading_base),
-            contract_loading_bytes: config.gas_cost(ExtCosts::contract_loading_bytes),
-            read_memory_base: config.gas_cost(ExtCosts::read_memory_base),
-            read_memory_byte: config.gas_cost(ExtCosts::read_memory_byte),
-            write_memory_base: config.gas_cost(ExtCosts::write_memory_base),
-            write_memory_byte: config.gas_cost(ExtCosts::write_memory_byte),
-            read_register_base: config.gas_cost(ExtCosts::read_register_base),
-            read_register_byte: config.gas_cost(ExtCosts::read_register_byte),
-            write_register_base: config.gas_cost(ExtCosts::write_register_base),
-            write_register_byte: config.gas_cost(ExtCosts::write_register_byte),
-            utf8_decoding_base: config.gas_cost(ExtCosts::utf8_decoding_base),
-            utf8_decoding_byte: config.gas_cost(ExtCosts::utf8_decoding_byte),
-            utf16_decoding_base: config.gas_cost(ExtCosts::utf16_decoding_base),
-            utf16_decoding_byte: config.gas_cost(ExtCosts::utf16_decoding_byte),
-            sha256_base: config.gas_cost(ExtCosts::sha256_base),
-            sha256_byte: config.gas_cost(ExtCosts::sha256_byte),
-            keccak256_base: config.gas_cost(ExtCosts::keccak256_base),
-            keccak256_byte: config.gas_cost(ExtCosts::keccak256_byte),
-            keccak512_base: config.gas_cost(ExtCosts::keccak512_base),
-            keccak512_byte: config.gas_cost(ExtCosts::keccak512_byte),
-            ripemd160_base: config.gas_cost(ExtCosts::ripemd160_base),
-            ripemd160_block: config.gas_cost(ExtCosts::ripemd160_block),
-            ed25519_verify_base: config.gas_cost(ExtCosts::ed25519_verify_base),
-            ed25519_verify_byte: config.gas_cost(ExtCosts::ed25519_verify_byte),
-            ecrecover_base: config.gas_cost(ExtCosts::ecrecover_base),
-            log_base: config.gas_cost(ExtCosts::log_base),
-            log_byte: config.gas_cost(ExtCosts::log_byte),
-            storage_write_base: config.gas_cost(ExtCosts::storage_write_base),
-            storage_write_key_byte: config.gas_cost(ExtCosts::storage_write_key_byte),
-            storage_write_value_byte: config.gas_cost(ExtCosts::storage_write_value_byte),
-            storage_write_evicted_byte: config.gas_cost(ExtCosts::storage_write_evicted_byte),
-            storage_read_base: config.gas_cost(ExtCosts::storage_read_base),
-            storage_read_key_byte: config.gas_cost(ExtCosts::storage_read_key_byte),
-            storage_read_value_byte: config.gas_cost(ExtCosts::storage_read_value_byte),
-            storage_remove_base: config.gas_cost(ExtCosts::storage_remove_base),
-            storage_remove_key_byte: config.gas_cost(ExtCosts::storage_remove_key_byte),
-            storage_remove_ret_value_byte: config.gas_cost(ExtCosts::storage_remove_ret_value_byte),
-            storage_has_key_base: config.gas_cost(ExtCosts::storage_has_key_base),
-            storage_has_key_byte: config.gas_cost(ExtCosts::storage_has_key_byte),
-            storage_iter_create_prefix_base: config
-                .gas_cost(ExtCosts::storage_iter_create_prefix_base),
-            storage_iter_create_prefix_byte: config
-                .gas_cost(ExtCosts::storage_iter_create_prefix_byte),
-            storage_iter_create_range_base: config
-                .gas_cost(ExtCosts::storage_iter_create_range_base),
-            storage_iter_create_from_byte: config.gas_cost(ExtCosts::storage_iter_create_from_byte),
-            storage_iter_create_to_byte: config.gas_cost(ExtCosts::storage_iter_create_to_byte),
-            storage_iter_next_base: config.gas_cost(ExtCosts::storage_iter_next_base),
-            storage_iter_next_key_byte: config.gas_cost(ExtCosts::storage_iter_next_key_byte),
-            storage_iter_next_value_byte: config.gas_cost(ExtCosts::storage_iter_next_value_byte),
-            touching_trie_node: config.gas_cost(ExtCosts::touching_trie_node),
-            read_cached_trie_node: config.gas_cost(ExtCosts::read_cached_trie_node),
-            promise_and_base: config.gas_cost(ExtCosts::promise_and_base),
-            promise_and_per_promise: config.gas_cost(ExtCosts::promise_and_per_promise),
-            promise_return: config.gas_cost(ExtCosts::promise_return),
-            validator_stake_base: config.gas_cost(ExtCosts::validator_stake_base),
-            validator_total_stake_base: config.gas_cost(ExtCosts::validator_total_stake_base),
-            alt_bn128_g1_multiexp_base: config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_base),
-            alt_bn128_g1_multiexp_element: config.gas_cost(ExtCosts::alt_bn128_g1_multiexp_element),
-            alt_bn128_g1_sum_base: config.gas_cost(ExtCosts::alt_bn128_g1_sum_base),
-            alt_bn128_g1_sum_element: config.gas_cost(ExtCosts::alt_bn128_g1_sum_element),
-            alt_bn128_pairing_check_base: config.gas_cost(ExtCosts::alt_bn128_pairing_check_base),
-            alt_bn128_pairing_check_element: config
-                .gas_cost(ExtCosts::alt_bn128_pairing_check_element),
-            bls12381_p1_sum_base: config.gas_cost(ExtCosts::bls12381_p1_sum_base),
-            bls12381_p1_sum_element: config.gas_cost(ExtCosts::bls12381_p1_sum_element),
-            bls12381_p2_sum_base: config.gas_cost(ExtCosts::bls12381_p2_sum_base),
-            bls12381_p2_sum_element: config.gas_cost(ExtCosts::bls12381_p2_sum_element),
-            bls12381_p1_multiexp_base: config.gas_cost(ExtCosts::bls12381_p1_multiexp_base),
-            bls12381_p1_multiexp_element: config.gas_cost(ExtCosts::bls12381_p1_multiexp_element),
-            bls12381_p2_multiexp_base: config.gas_cost(ExtCosts::bls12381_p2_multiexp_base),
-            bls12381_p2_multiexp_element: config.gas_cost(ExtCosts::bls12381_p2_multiexp_element),
-            bls12381_map_fp_to_g1_base: config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_base),
-            bls12381_map_fp_to_g1_element: config.gas_cost(ExtCosts::bls12381_map_fp_to_g1_element),
-            bls12381_map_fp2_to_g2_base: config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_base),
-            bls12381_map_fp2_to_g2_element: config.gas_cost(ExtCosts::bls12381_map_fp2_to_g2_element),
-            bls12381_pairing_base: config.gas_cost(ExtCosts::bls12381_pairing_base),
-            bls12381_pairing_element: config.gas_cost(ExtCosts::bls12381_pairing_element),
-            bls12381_p1_decompress_base: config.gas_cost(ExtCosts::bls12381_p1_decompress_base),
-            bls12381_p1_decompress_element: config.gas_cost(ExtCosts::bls12381_p1_decompress_element),
-            bls12381_p2_decompress_base: config.gas_cost(ExtCosts::bls12381_p2_decompress_base),
-            bls12381_p2_decompress_element: config.gas_cost(ExtCosts::bls12381_p2_decompress_element),
-            // removed parameters
-            contract_compile_base: 0,
-            contract_compile_bytes: 0,
-        }
-    }
-}
-
-impl From<ExtCostsConfigView> for near_primitives_core::config::ExtCostsConfig {
-    fn from(view: ExtCostsConfigView) -> Self {
-        let costs = enum_map::enum_map! {
-                ExtCosts::base => view.base,
-                ExtCosts::contract_loading_base => view.contract_loading_base,
-                ExtCosts::contract_loading_bytes => view.contract_loading_bytes,
-                ExtCosts::read_memory_base => view.read_memory_base,
-                ExtCosts::read_memory_byte => view.read_memory_byte,
-                ExtCosts::write_memory_base => view.write_memory_base,
-                ExtCosts::write_memory_byte => view.write_memory_byte,
-                ExtCosts::read_register_base => view.read_register_base,
-                ExtCosts::read_register_byte => view.read_register_byte,
-                ExtCosts::write_register_base => view.write_register_base,
-                ExtCosts::write_register_byte => view.write_register_byte,
-                ExtCosts::utf8_decoding_base => view.utf8_decoding_base,
-                ExtCosts::utf8_decoding_byte => view.utf8_decoding_byte,
-                ExtCosts::utf16_decoding_base => view.utf16_decoding_base,
-                ExtCosts::utf16_decoding_byte => view.utf16_decoding_byte,
-                ExtCosts::sha256_base => view.sha256_base,
-                ExtCosts::sha256_byte => view.sha256_byte,
-                ExtCosts::keccak256_base => view.keccak256_base,
-                ExtCosts::keccak256_byte => view.keccak256_byte,
-                ExtCosts::keccak512_base => view.keccak512_base,
-                ExtCosts::keccak512_byte => view.keccak512_byte,
-                ExtCosts::ripemd160_base => view.ripemd160_base,
-                ExtCosts::ripemd160_block => view.ripemd160_block,
-                ExtCosts::ed25519_verify_base => view.ed25519_verify_base,
-                ExtCosts::ed25519_verify_byte => view.ed25519_verify_byte,
-                ExtCosts::ecrecover_base => view.ecrecover_base,
-                ExtCosts::log_base => view.log_base,
-                ExtCosts::log_byte => view.log_byte,
-                ExtCosts::storage_write_base => view.storage_write_base,
-                ExtCosts::storage_write_key_byte => view.storage_write_key_byte,
-                ExtCosts::storage_write_value_byte => view.storage_write_value_byte,
-                ExtCosts::storage_write_evicted_byte => view.storage_write_evicted_byte,
-                ExtCosts::storage_read_base => view.storage_read_base,
-                ExtCosts::storage_read_key_byte => view.storage_read_key_byte,
-                ExtCosts::storage_read_value_byte => view.storage_read_value_byte,
-                ExtCosts::storage_remove_base => view.storage_remove_base,
-                ExtCosts::storage_remove_key_byte => view.storage_remove_key_byte,
-                ExtCosts::storage_remove_ret_value_byte => view.storage_remove_ret_value_byte,
-                ExtCosts::storage_has_key_base => view.storage_has_key_base,
-                ExtCosts::storage_has_key_byte => view.storage_has_key_byte,
-                ExtCosts::storage_iter_create_prefix_base => view.storage_iter_create_prefix_base,
-                ExtCosts::storage_iter_create_prefix_byte => view.storage_iter_create_prefix_byte,
-                ExtCosts::storage_iter_create_range_base => view.storage_iter_create_range_base,
-                ExtCosts::storage_iter_create_from_byte => view.storage_iter_create_from_byte,
-                ExtCosts::storage_iter_create_to_byte => view.storage_iter_create_to_byte,
-                ExtCosts::storage_iter_next_base => view.storage_iter_next_base,
-                ExtCosts::storage_iter_next_key_byte => view.storage_iter_next_key_byte,
-                ExtCosts::storage_iter_next_value_byte => view.storage_iter_next_value_byte,
-                ExtCosts::touching_trie_node => view.touching_trie_node,
-                ExtCosts::read_cached_trie_node => view.read_cached_trie_node,
-                ExtCosts::promise_and_base => view.promise_and_base,
-                ExtCosts::promise_and_per_promise => view.promise_and_per_promise,
-                ExtCosts::promise_return => view.promise_return,
-                ExtCosts::validator_stake_base => view.validator_stake_base,
-                ExtCosts::validator_total_stake_base => view.validator_total_stake_base,
-                ExtCosts::alt_bn128_g1_multiexp_base => view.alt_bn128_g1_multiexp_base,
-                ExtCosts::alt_bn128_g1_multiexp_element => view.alt_bn128_g1_multiexp_element,
-                ExtCosts::alt_bn128_g1_sum_base => view.alt_bn128_g1_sum_base,
-                ExtCosts::alt_bn128_g1_sum_element => view.alt_bn128_g1_sum_element,
-                ExtCosts::alt_bn128_pairing_check_base => view.alt_bn128_pairing_check_base,
-                ExtCosts::alt_bn128_pairing_check_element => view.alt_bn128_pairing_check_element,
-                ExtCosts::bls12381_p1_sum_base => view.bls12381_p1_sum_base,
-                ExtCosts::bls12381_p1_sum_element => view.bls12381_p1_sum_element,
-                ExtCosts::bls12381_p2_sum_base => view.bls12381_p2_sum_base,
-                ExtCosts::bls12381_p2_sum_element => view.bls12381_p2_sum_element,
-                ExtCosts::bls12381_p1_multiexp_base => view.bls12381_p1_multiexp_base,
-                ExtCosts::bls12381_p1_multiexp_element => view.bls12381_p1_multiexp_element,
-                ExtCosts::bls12381_p2_multiexp_base => view.bls12381_p2_multiexp_base,
-                ExtCosts::bls12381_p2_multiexp_element => view.bls12381_p2_multiexp_element,
-                ExtCosts::bls12381_map_fp_to_g1_base => view.bls12381_map_fp_to_g1_base,
-                ExtCosts::bls12381_map_fp_to_g1_element => view.bls12381_map_fp_to_g1_element,
-                ExtCosts::bls12381_map_fp2_to_g2_base => view.bls12381_map_fp2_to_g2_base,
-                ExtCosts::bls12381_map_fp2_to_g2_element => view.bls12381_map_fp2_to_g2_element,
-                ExtCosts::bls12381_pairing_base => view.bls12381_pairing_base,
-                ExtCosts::bls12381_pairing_element => view.bls12381_pairing_element,
-                ExtCosts::bls12381_p1_decompress_base => view.bls12381_p1_decompress_base,
-                ExtCosts::bls12381_p1_decompress_element => view.bls12381_p1_decompress_element,
-                ExtCosts::bls12381_p2_decompress_base => view.bls12381_p2_decompress_base,
-                ExtCosts::bls12381_p2_decompress_element => view.bls12381_p2_decompress_element,
-        }
-        .map(|_, value| ParameterCost { gas: value, compute: value });
-        Self { costs }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "nightly"))]
     use super::ExecutionMetadataView;
-    #[cfg(not(feature = "nightly"))]
     use crate::transaction::ExecutionMetadata;
-    #[cfg(not(feature = "nightly"))]
-    use near_primitives_core::profile::{ProfileDataV2, ProfileDataV3};
+    use near_vm_runner::{ProfileDataV2, ProfileDataV3};
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
-        use crate::runtime::config::RuntimeConfig;
-        use crate::views::RuntimeConfigView;
+        use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
+        use near_primitives_core::version::PROTOCOL_VERSION;
 
-        // FIXME(#8202): This is snapshotting a config used for *tests*, rather than proper
-        // production configurations. That seems… subpar?
-        let config = RuntimeConfig::test();
-        let view = RuntimeConfigView::from(config);
-        insta::assert_json_snapshot!(&view);
+        let config_store = RuntimeConfigStore::new(None);
+        let config = config_store.get_config(PROTOCOL_VERSION);
+        let view = RuntimeConfigView::from(RuntimeConfig::clone(config));
+        insta::assert_json_snapshot!(&view, { ".wasm_config.vm_kind" => "<REDACTED>"});
     }
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2843,7 +2378,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2852,7 +2387,7 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg(not(feature = "nightly"))]
+    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
         let view = ExecutionMetadataView::from(metadata);

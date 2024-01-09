@@ -9,6 +9,8 @@ use near_network::types::PartialEncodedChunkRequestMsg;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::hash::CryptoHash;
 
+// TODO(#8269) Enable test after fixing the issue related to KeyValueRuntime. See env.restart()
+#[ignore]
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();

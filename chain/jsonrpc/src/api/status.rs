@@ -67,6 +67,12 @@ impl RpcFrom<near_network::debug::DebugStatus>
             near_network::debug::DebugStatus::RecentOutboundConnections(x) => {
                 near_jsonrpc_primitives::types::status::DebugStatusResponse::RecentOutboundConnections(x)
             }
+            near_network::debug::DebugStatus::Routes(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::Routes(x)
+            }
+            near_network::debug::DebugStatus::SnapshotHosts(x) => {
+                near_jsonrpc_primitives::types::status::DebugStatusResponse::SnapshotHosts(x)
+            }
         }
     }
 }

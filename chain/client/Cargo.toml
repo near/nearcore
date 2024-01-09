@@ -8,33 +8,40 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix-rt.workspace = true
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 borsh.workspace = true
 chrono.workspace = true
+cloud-storage.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 itertools.workspace = true
 lru.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
+percent-encoding.workspace = true
 rand.workspace = true
+rayon.workspace = true
 reed-solomon-erasure.workspace = true
 regex.workspace = true
+reqwest.workspace = true
 rust-s3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 sysinfo.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
-delay-detector.workspace = true
 near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
@@ -49,6 +56,7 @@ near-o11y.workspace = true
 near-performance-metrics-macros.workspace = true
 near-performance-metrics.workspace = true
 near-pool.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-telemetry.workspace = true
@@ -66,11 +74,6 @@ test_features = [
   "near-chain/test_features",
   "near-chunks/test_features",
 ]
-delay_detector = [
-  "near-chain/delay_detector",
-  "near-network/delay_detector",
-  "delay-detector/delay_detector",
-]
 nightly_protocol = [
   "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
@@ -81,6 +84,7 @@ nightly_protocol = [
   "near-epoch-manager/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-pool/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-store/nightly_protocol",
@@ -97,6 +101,7 @@ nightly = [
   "near-epoch-manager/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
@@ -105,4 +110,7 @@ nightly = [
 sandbox = [
   "near-client-primitives/sandbox",
   "near-chain/sandbox",
+]
+new_epoch_sync = [
+  "near-chain/new_epoch_sync"
 ]

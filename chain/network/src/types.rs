@@ -1,9 +1,16 @@
 /// Type that belong to the network protocol.
 pub use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage,
-    RoutingTableUpdate, SignedAccountData,
+    Disconnect, Encoding, Handshake, HandshakeFailureReason, PeerMessage, RoutingTableUpdate,
+    SignedAccountData,
+};
+/// Exported types, which are part of network protocol.
+pub use crate::network_protocol::{
+    Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, SnapshotHostInfo, StateResponseInfo,
+    StateResponseInfoV1, StateResponseInfoV2,
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
+pub use crate::state_sync::{StateSync, StateSyncResponse};
 use near_async::messaging::{
     AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
 };
@@ -11,23 +18,16 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::{ChunkEndorsementMessage, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::BlockHeight;
-use near_primitives::types::{AccountId, ShardId};
+use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
-/// Exported types, which are part of network protocol.
-pub use crate::network_protocol::{
-    Edge, PartialEdgeInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
-    PartialEncodedChunkResponseMsg, PeerChainInfoV2, PeerInfo, StateResponseInfo,
-    StateResponseInfoV1, StateResponseInfoV2,
-};
 
 /// Number of hops a message is allowed to travel before being dropped.
 /// This is used to avoid infinite loop because of inconsistent view of the network
@@ -53,6 +53,7 @@ pub struct KnownProducer {
 
 /// Ban reason.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Debug, Clone, PartialEq, Eq, Copy)]
+#[borsh(use_discriminant = false)]
 pub enum ReasonForBan {
     None = 0,
     BadBlock = 1,
@@ -65,7 +66,9 @@ pub enum ReasonForBan {
     InvalidPeerId = 8,
     InvalidHash = 9,
     InvalidEdge = 10,
+    InvalidDistanceVector = 11,
     Blacklisted = 14,
+    ProvidedNotEnoughHeaders = 15,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -223,20 +226,15 @@ pub enum NetworkRequests {
     /// Request given block headers.
     BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
     /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, target: AccountOrPeerIdOrHash },
+    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
     /// Request state part for given shard at given state root.
-    StateRequestPart {
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        part_id: u64,
-        target: AccountOrPeerIdOrHash,
-    },
-    /// Response to state request.
-    StateResponse { route_back: CryptoHash, response: StateResponseInfo },
+    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
     /// Ban given peer.
     BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
+    /// Broadcast information about a hosted snapshot.
+    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
@@ -260,6 +258,11 @@ pub enum NetworkRequests {
     TxStatus(AccountId, AccountId, CryptoHash),
     /// A challenge to invalidate a block.
     Challenge(Challenge),
+    /// A chunk's state witness.
+    ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
+    /// Message for a chunk endorsement, sent by a chunk validator to
+    /// the block producer.
+    ChunkEndorsement(ChunkEndorsementMessage),
 }
 
 /// Combines peer address info, chain.
@@ -395,8 +398,6 @@ impl<
 mod tests {
     use super::*;
     use crate::network_protocol::{RawRoutedMessage, RoutedMessage, RoutedMessageBody};
-    use borsh::BorshSerialize as _;
-    use near_primitives::syncing::ShardStateSyncResponseV1;
 
     const ALLOWED_SIZE: usize = 1 << 20;
     const NOTIFY_SIZE: usize = 1024;
@@ -456,7 +457,7 @@ mod tests {
     fn routed_message_body_compatibility_smoke_test() {
         #[track_caller]
         fn check(msg: RoutedMessageBody, expected: &[u8]) {
-            let actual = msg.try_to_vec().unwrap();
+            let actual = borsh::to_vec(&msg).unwrap();
             assert_eq!(actual.as_slice(), expected);
         }
 
@@ -466,18 +467,6 @@ mod tests {
                 2, 6, 0, 0, 0, 116, 101, 115, 116, 95, 120, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
                 42,
-            ],
-        );
-
-        check(
-            RoutedMessageBody::VersionedStateResponse(StateResponseInfo::V1(StateResponseInfoV1 {
-                shard_id: 62,
-                sync_hash: CryptoHash([92; 32]),
-                state_response: ShardStateSyncResponseV1 { header: None, part: None },
-            })),
-            &[
-                17, 0, 62, 0, 0, 0, 0, 0, 0, 0, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92,
-                92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 92, 0, 0,
             ],
         );
     }

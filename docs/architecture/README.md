@@ -255,7 +255,7 @@ starting point when reading the code base.
 
 The [tracing](https://tracing.rs) crate is used for structured, hierarchical
 event output and logging. We also integrate [Prometheus](https://prometheus.io)
-for light-weight metric output. See the [style](./style.md) documentation for
+for light-weight metric output. See the [style](../practices/style.md) documentation for
 more information on the usage.
 
 ### Testing
@@ -296,7 +296,7 @@ expensive --timeout=1800 near-client near_client tests::catching_up::test_catchu
 For more details regarding nightly tests see `nightly/README.md`.
 
 Note that what counts as a slow test isn’t exactly defined as of now.
-If it takes just a couple seconds than it’s probably fine.  Anything
+If it takes just a couple seconds then it’s probably fine.  Anything
 slower should probably be classified as an expensive test.  In
 particular, if libtest complains the test takes more than 60 seconds
-than it definitely is and expensive test.
+then it definitely is and expensive test.

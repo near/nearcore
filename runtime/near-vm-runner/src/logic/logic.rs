@@ -2,27 +2,31 @@ use super::context::VMContext;
 use super::dependencies::{External, MemSlice, MemoryLike};
 use super::errors::{FunctionCallError, InconsistentStateError};
 use super::gas_counter::{FastGasCounter, GasCounter};
-use super::receipt_manager::ReceiptManager;
 use super::types::{PromiseIndex, PromiseResult, ReceiptIndex, ReturnData};
 use super::utils::split_method_names;
+use super::ValuePtr;
 use super::{HostError, VMLogicError};
-use super::{ReceiptMetadata, StorageGetMode, ValuePtr};
+use crate::ProfileDataV3;
 use near_crypto::Secp256K1Signature;
-use near_primitives_core::checked_feature;
-use near_primitives_core::config::ExtCosts::*;
+use near_parameters::vm::{Config, StorageGetMode};
+use near_parameters::{
+    transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
+};
 use near_primitives_core::config::ViewConfig;
-use near_primitives_core::config::{ActionCosts, ExtCosts, VMConfig};
-use near_primitives_core::profile::ProfileDataV3;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-use near_primitives_core::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives_core::types::{
-    AccountId, Balance, Compute, EpochHeight, Gas, GasDistribution, GasWeight, ProtocolVersion,
-    StorageUsage,
+    AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
 use std::ptr::null;
+use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
+
+#[cfg(feature = "io_trace")]
+fn base64(s: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
+}
 
 pub struct VMLogic<'a> {
     /// Provides access to the components outside the Wasm runtime for operations on the trie and
@@ -31,7 +35,7 @@ pub struct VMLogic<'a> {
     /// Part of Context API and Economics API that was extracted from the receipt.
     context: VMContext,
     /// All gas and economic parameters required during contract execution.
-    config: &'a VMConfig,
+    pub(crate) config: &'a Config,
     /// Fees for creating (async) actions on runtime.
     fees_config: &'a RuntimeFeesConfig,
     /// If this method execution is invoked directly as a callback by one or more contract calls the
@@ -61,12 +65,6 @@ pub struct VMLogic<'a> {
     promises: Vec<Promise>,
     /// Tracks the total log length. The sum of length of all logs.
     total_log_length: u64,
-
-    /// Current protocol version that is used for the function call.
-    current_protocol_version: ProtocolVersion,
-
-    /// Handles the receipts generated through execution.
-    receipt_manager: ReceiptManager,
 
     /// Stores the amount of stack space remaining
     remaining_stack: u64,
@@ -128,14 +126,13 @@ impl PublicKeyBuffer {
 }
 
 impl<'a> VMLogic<'a> {
-    pub fn new_with_protocol_version(
+    pub fn new(
         ext: &'a mut dyn External,
         context: VMContext,
-        config: &'a VMConfig,
+        config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
         memory: &'a mut dyn MemoryLike,
-        current_protocol_version: ProtocolVersion,
     ) -> Self {
         // Overflow should be checked before calling VMLogic.
         let current_account_balance = context.account_balance + context.attached_deposit;
@@ -169,8 +166,6 @@ impl<'a> VMLogic<'a> {
             registers: Default::default(),
             promises: vec![],
             total_log_length: 0,
-            current_protocol_version,
-            receipt_manager: ReceiptManager::default(),
             remaining_stack: u64::from(config.limit_config.max_stack_height),
         }
     }
@@ -180,23 +175,13 @@ impl<'a> VMLogic<'a> {
         &self.logs
     }
 
-    /// Returns receipt metadata for created receipts
-    pub fn action_receipts(&self) -> &[(AccountId, ReceiptMetadata)] {
-        &self.receipt_manager.action_receipts
-    }
-
-    #[cfg(test)]
-    pub(super) fn receipt_manager(&self) -> &ReceiptManager {
-        &self.receipt_manager
-    }
-
     #[cfg(test)]
     pub(super) fn gas_counter(&self) -> &GasCounter {
         &self.gas_counter
     }
 
     #[cfg(test)]
-    pub(super) fn config(&self) -> &VMConfig {
+    pub(super) fn config(&self) -> &Config {
         &self.config
     }
 
@@ -492,12 +477,11 @@ impl<'a> VMLogic<'a> {
     /// `base + write_register_base + write_register_byte * num_bytes`
     pub fn current_account_id(&mut self, register_id: u64) -> Result<()> {
         self.gas_counter.pay_base(base)?;
-
         self.registers.set(
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.current_account_id.as_ref().as_bytes(),
+            self.context.current_account_id.as_bytes(),
         )
     }
 
@@ -527,7 +511,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.signer_account_id.as_ref().as_bytes(),
+            self.context.signer_account_id.as_bytes(),
         )
     }
 
@@ -585,7 +569,7 @@ impl<'a> VMLogic<'a> {
             &mut self.gas_counter,
             &self.config.limit_config,
             register_id,
-            self.context.predecessor_account_id.as_ref().as_bytes(),
+            self.context.predecessor_account_id.as_bytes(),
         )
     }
 
@@ -2140,28 +2124,32 @@ impl<'a> VMLogic<'a> {
 
         let signature: ed25519_dalek::Signature = {
             let vec = get_memory_or_register!(self, signature_ptr, signature_len)?;
-            if vec.len() != ed25519_dalek::SIGNATURE_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+            let b = <&[u8; ed25519_dalek::SIGNATURE_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
                     msg: "invalid signature length".to_string(),
-                }));
+                })
+            })?;
+            // Sanity-check that was performed by ed25519-dalek in from_bytes before version 2,
+            // but was removed with version 2. It is not actually any good a check, but we need
+            // it to avoid costs changing.
+            if b[ed25519_dalek::SIGNATURE_LENGTH - 1] & 0b1110_0000 != 0 {
+                return Ok(false as u64);
             }
-            match ed25519_dalek::Signature::from_bytes(&vec) {
-                Ok(signature) => signature,
-                Err(_) => return Ok(false as u64),
-            }
+            ed25519_dalek::Signature::from_bytes(b)
         };
 
         let message = get_memory_or_register!(self, message_ptr, message_len)?;
         self.gas_counter.pay_per(ed25519_verify_byte, message.len() as u64)?;
 
-        let public_key: ed25519_dalek::PublicKey = {
+        let public_key: ed25519_dalek::VerifyingKey = {
             let vec = get_memory_or_register!(self, public_key_ptr, public_key_len)?;
-            if vec.len() != ed25519_dalek::PUBLIC_KEY_LENGTH {
-                return Err(VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
-                    msg: "invalid public key length".to_string(),
-                }));
-            }
-            match ed25519_dalek::PublicKey::from_bytes(&vec) {
+            let b =
+                <&[u8; ed25519_dalek::PUBLIC_KEY_LENGTH]>::try_from(&vec[..]).map_err(|_| {
+                    VMLogicError::HostError(HostError::Ed25519VerifyInvalidInput {
+                        msg: "invalid public key length".to_string(),
+                    })
+                })?;
+            match ed25519_dalek::VerifyingKey::from_bytes(b) {
                 Ok(public_key) => public_key,
                 Err(_) => return Ok(false as u64),
             }
@@ -2444,7 +2432,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.receipt_manager.create_receipt(self.ext, vec![], account_id)?;
+        let new_receipt_idx = self.ext.create_receipt(vec![], account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -2497,19 +2485,13 @@ impl<'a> VMLogic<'a> {
         let sir = account_id == self.context.current_account_id;
         let deps: Vec<_> = receipt_dependencies
             .iter()
-            .map(|&receipt_idx| self.get_account_by_receipt(receipt_idx) == &account_id)
+            .map(|&receipt_idx| self.ext.get_receipt_receiver(receipt_idx) == &account_id)
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
-        let new_receipt_idx =
-            self.receipt_manager.create_receipt(self.ext, receipt_dependencies, account_id)?;
+        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
-    }
-
-    /// Helper function to return the account id towards which the receipt is directed.
-    fn get_account_by_receipt(&self, receipt_idx: ReceiptIndex) -> &AccountId {
-        self.receipt_manager.get_receipt_receiver(receipt_idx)
     }
 
     /// Helper function to return the receipt index corresponding to the given promise index.
@@ -2528,7 +2510,7 @@ impl<'a> VMLogic<'a> {
             Promise::NotReceipt(_) => Err(HostError::CannotAppendActionToJointPromise),
         }?;
 
-        let account_id = self.get_account_by_receipt(receipt_idx);
+        let account_id = self.ext.get_receipt_receiver(receipt_idx);
         let sir = account_id == &self.context.current_account_id;
         Ok((receipt_idx, sir))
     }
@@ -2559,7 +2541,7 @@ impl<'a> VMLogic<'a> {
 
         self.pay_action_base(ActionCosts::create_account, sir)?;
 
-        self.receipt_manager.append_action_create_account(receipt_idx)?;
+        self.ext.append_action_create_account(receipt_idx)?;
         Ok(())
     }
 
@@ -2606,7 +2588,7 @@ impl<'a> VMLogic<'a> {
         self.pay_action_base(ActionCosts::deploy_contract_base, sir)?;
         self.pay_action_per_byte(ActionCosts::deploy_contract_byte, code_len, sir)?;
 
-        self.receipt_manager.append_action_deploy_contract(receipt_idx, code)?;
+        self.ext.append_action_deploy_contract(receipt_idx, code)?;
         Ok(())
     }
 
@@ -2724,7 +2706,7 @@ impl<'a> VMLogic<'a> {
 
         self.deduct_balance(amount)?;
 
-        self.receipt_manager.append_action_function_call_weight(
+        self.ext.append_action_function_call_weight(
             receipt_idx,
             method_name,
             arguments,
@@ -2765,20 +2747,27 @@ impl<'a> VMLogic<'a> {
         let amount = self.memory.get_u128(&mut self.gas_counter, amount_ptr)?;
 
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
-        let receiver_id = self.get_account_by_receipt(receipt_idx);
-        let is_receiver_implicit =
-            checked_feature!("stable", ImplicitAccountCreation, self.current_protocol_version)
-                && receiver_id.is_implicit();
-
-        let send_fee = transfer_send_fee(self.fees_config, sir, is_receiver_implicit);
-        let exec_fee = transfer_exec_fee(self.fees_config, is_receiver_implicit);
+        let receiver_id = self.ext.get_receipt_receiver(receipt_idx);
+        let send_fee = transfer_send_fee(
+            self.fees_config,
+            sir,
+            self.config.implicit_account_creation,
+            self.config.eth_implicit_accounts,
+            receiver_id.get_account_type(),
+        );
+        let exec_fee = transfer_exec_fee(
+            self.fees_config,
+            self.config.implicit_account_creation,
+            self.config.eth_implicit_accounts,
+            receiver_id.get_account_type(),
+        );
         let burn_gas = send_fee;
         let use_gas = burn_gas.checked_add(exec_fee).ok_or(HostError::IntegerOverflow)?;
         self.gas_counter.pay_action_accumulated(burn_gas, use_gas, ActionCosts::transfer)?;
 
         self.deduct_balance(amount)?;
 
-        self.receipt_manager.append_action_transfer(receipt_idx, amount)?;
+        self.ext.append_action_transfer(receipt_idx, amount)?;
         Ok(())
     }
 
@@ -2817,7 +2806,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::stake, sir)?;
-        self.receipt_manager.append_action_stake(receipt_idx, amount, public_key.decode()?);
+        self.ext.append_action_stake(receipt_idx, amount, public_key.decode()?);
         Ok(())
     }
 
@@ -2855,11 +2844,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::add_full_access_key, sir)?;
-        self.receipt_manager.append_action_add_key_with_full_access(
-            receipt_idx,
-            public_key.decode()?,
-            nonce,
-        );
+        self.ext.append_action_add_key_with_full_access(receipt_idx, public_key.decode()?, nonce);
         Ok(())
     }
 
@@ -2915,7 +2900,7 @@ impl<'a> VMLogic<'a> {
         self.pay_action_base(ActionCosts::add_function_call_key_base, sir)?;
         self.pay_action_per_byte(ActionCosts::add_function_call_key_byte, num_bytes, sir)?;
 
-        self.receipt_manager.append_action_add_key_with_function_call(
+        self.ext.append_action_add_key_with_function_call(
             receipt_idx,
             public_key.decode()?,
             nonce,
@@ -2959,7 +2944,7 @@ impl<'a> VMLogic<'a> {
         let public_key = self.get_public_key(public_key_ptr, public_key_len)?;
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_key, sir)?;
-        self.receipt_manager.append_action_delete_key(receipt_idx, public_key.decode()?);
+        self.ext.append_action_delete_key(receipt_idx, public_key.decode()?);
         Ok(())
     }
 
@@ -2998,7 +2983,7 @@ impl<'a> VMLogic<'a> {
         let (receipt_idx, sir) = self.promise_idx_to_receipt_idx_with_sir(promise_idx)?;
         self.pay_action_base(ActionCosts::delete_account, sir)?;
 
-        self.receipt_manager.append_action_delete_account(receipt_idx, beneficiary_id)?;
+        self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
     }
 
@@ -3382,7 +3367,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "write",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             size = value_len,
             evicted_len = evicted.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
@@ -3471,13 +3456,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_read_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode =
-            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
-                StorageGetMode::FlatStorage
-            } else {
-                StorageGetMode::Trie
-            };
-        let read = self.ext.storage_get(&key, read_mode);
+        let read = self.ext.storage_get(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -3490,7 +3469,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "read",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             size = read.as_ref().map(Vec::len),
             tn_db_reads = nodes_delta.db_reads,
             tn_mem_reads = nodes_delta.mem_reads,
@@ -3564,7 +3543,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "remove",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             evicted_len = removed.as_ref().map(Vec::len),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
@@ -3620,13 +3599,7 @@ impl<'a> VMLogic<'a> {
         }
         self.gas_counter.pay_per(storage_has_key_byte, key.len() as u64)?;
         let nodes_before = self.ext.get_trie_nodes_count();
-        let read_mode =
-            if checked_feature!("stable", FlatStorageReads, self.current_protocol_version) {
-                StorageGetMode::FlatStorage
-            } else {
-                StorageGetMode::Trie
-            };
-        let res = self.ext.storage_has_key(&key, read_mode);
+        let res = self.ext.storage_has_key(&key, self.config.storage_get_mode);
         let nodes_delta = self
             .ext
             .get_trie_nodes_count()
@@ -3637,7 +3610,7 @@ impl<'a> VMLogic<'a> {
         tracing::trace!(
             target = "io_tracer",
             storage_op = "exists",
-            key = %near_fmt::Bytes(&key),
+            key = base64(&key),
             tn_mem_reads = nodes_delta.mem_reads,
             tn_db_reads = nodes_delta.db_reads,
         );
@@ -3759,18 +3732,7 @@ impl<'a> VMLogic<'a> {
     /// If `FunctionCallWeight` protocol feature (127) is enabled, unused gas will be
     /// distributed to functions that specify a gas weight. If there are no functions with
     /// a gas weight, the outcome will contain unused gas as usual.
-    pub fn compute_outcome_and_distribute_gas(mut self) -> VMOutcome {
-        if !self.context.is_view() {
-            // Distribute unused gas to scheduled function calls
-            let unused_gas = self.gas_counter.unused_gas();
-
-            // Spend all remaining gas by distributing it among function calls that specify
-            // a gas weight
-            if let GasDistribution::All = self.receipt_manager.distribute_unused_gas(unused_gas) {
-                self.gas_counter.prepay_gas(unused_gas).unwrap();
-            }
-        }
-
+    pub fn compute_outcome(self) -> VMOutcome {
         let burnt_gas = self.gas_counter.burnt_gas();
         let used_gas = self.gas_counter.used_gas();
 
@@ -3787,7 +3749,6 @@ impl<'a> VMLogic<'a> {
             compute_usage,
             logs: self.logs,
             profile,
-            action_receipts: self.receipt_manager.action_receipts,
             aborted: None,
         }
     }
@@ -3851,7 +3812,6 @@ impl<'a> VMLogic<'a> {
     pub fn before_loading_executable(
         &mut self,
         method_name: &str,
-        current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if method_name.is_empty() {
@@ -3860,11 +3820,7 @@ impl<'a> VMLogic<'a> {
             );
             return Err(error);
         }
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if self.config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 let error =
                     super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
@@ -3877,14 +3833,9 @@ impl<'a> VMLogic<'a> {
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
     pub fn after_loading_executable(
         &mut self,
-        current_protocol_version: u32,
         wasm_code_bytes: usize,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
-        if !checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if !self.config.fix_contract_loading_cost {
             if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
                 return Err(super::errors::FunctionCallError::HostError(
                     super::HostError::GasExceeded,
@@ -3906,7 +3857,6 @@ pub struct VMOutcome {
     pub logs: Vec<String>,
     /// Data collected from making a contract call
     pub profile: ProfileDataV3,
-    pub action_receipts: Vec<(AccountId, ReceiptMetadata)>,
     pub aborted: Option<FunctionCallError>,
 }
 
@@ -3914,7 +3864,7 @@ impl VMOutcome {
     /// Consumes the `VMLogic` object and computes the final outcome with the
     /// given error that stopped execution from finishing successfully.
     pub fn abort(logic: VMLogic, error: FunctionCallError) -> VMOutcome {
-        let mut outcome = logic.compute_outcome_and_distribute_gas();
+        let mut outcome = logic.compute_outcome();
         outcome.aborted = Some(error);
         outcome
     }
@@ -3922,7 +3872,7 @@ impl VMOutcome {
     /// Consumes the `VMLogic` object and computes the final outcome for a
     /// successful execution.
     pub fn ok(logic: VMLogic) -> VMOutcome {
-        logic.compute_outcome_and_distribute_gas()
+        logic.compute_outcome()
     }
 
     /// Creates an outcome with a no-op outcome.
@@ -3939,7 +3889,6 @@ impl VMOutcome {
             compute_usage: 0,
             logs: Vec::new(),
             profile: ProfileDataV3::default(),
-            action_receipts: Vec::new(),
             aborted: Some(error),
         }
     }
@@ -3949,13 +3898,8 @@ impl VMOutcome {
     pub fn abort_but_nop_outcome_in_old_protocol(
         logic: VMLogic,
         error: FunctionCallError,
-        current_protocol_version: u32,
     ) -> VMOutcome {
-        if checked_feature!(
-            "protocol_feature_fix_contract_loading_cost",
-            FixContractLoadingCost,
-            current_protocol_version
-        ) {
+        if logic.config.fix_contract_loading_cost {
             Self::abort(logic, error)
         } else {
             Self::nop_outcome(error)

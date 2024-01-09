@@ -216,7 +216,7 @@ memory.
 
 Then the SDK reads the serialized contract state from the hardcoded key
 `"STATE"`. Note that we charge 20 `tn_db_reads` for it, since we missed the
-chunk cache, but we hit everything in the shard cache. Thus, there are no DB
+accounting cache, but we hit everything in the shard cache. Thus, there are no DB
 requests. If there were DB requests for this `tn_db_reads`, you would see them
 listed.
 
@@ -234,10 +234,10 @@ The `sha256` call here is used to shorten implicit account ids.
 
 Afterwards, a value with 16 bytes (a `u128`) is fetched from the trie state.
 To serve this, it required reading 30 trie nodes, 19 of them were cached in the
-chunk cache and were not charged the full gas cost. And the remaining 11 missed
-the chunk cache but they hit the shard cache. Nothing needed to be fetched from
-DB because the Sweatcoin specific prefetcher has already loaded everything into
-the shard cache.
+accounting cache and were not charged the full gas cost. And the remaining 11
+missed the accounting cache but they hit the shard cache. Nothing needed to be
+fetched from DB because the Sweatcoin specific prefetcher has already loaded
+everything into the shard cache.
 
 *Note: We see trie node requests despite flat state being used. This is because
 the trace was collected with a binary that performed a read on both the trie and
@@ -271,7 +271,7 @@ Run the following command to see an overview of available commands.
 
 ```bash
 # will print the help page for the IO trace replay command
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay --help
 ```
 
@@ -281,7 +281,7 @@ columns that were accessed and how many times, aggregated by chunk.
 
 
 ```bash
-cargo run --profile quick-release -p runtime-params-estimator -- \
+cargo run --profile dev-release -p runtime-params-estimator -- \
   replay  ./path/to/my.io_trace  chunk-db-stats
 ```
 

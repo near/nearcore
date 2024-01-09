@@ -247,9 +247,11 @@ pub enum DBCol {
     /// - *Rows*: height (u64)
     /// - *Column type*: Vec<HeaderHashes (CryptoHash)>
     HeaderHashesByHeight,
-    /// State changes made by a chunk, used for splitting states
+    /// State changes made by a chunk, used for resharding. Historically
+    /// resharding was also called State Splitting since the name.
+    /// TODO(resharding) rename to StateChangesForResharding if safe.
     /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
-    /// - *Column type*: StateChangesForSplitStates
+    /// - *Column type*: StateChangesForResharding
     StateChangesForSplitStates,
     /// Transaction or receipt outcome, by outcome ID (transaction or receipt hash) and block
     /// hash. Multiple outcomes may be stored for the same outcome ID in case of forks.
@@ -277,6 +279,12 @@ pub enum DBCol {
     /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
     /// - *Column type*: arbitrary bytes
     Misc,
+    /// Column to store data for Epoch Sync.
+    /// Does not contain data for genesis epoch.
+    /// - *Rows*: `epoch_id`
+    /// - *Column type*: `EpochSyncInfo
+    #[cfg(feature = "new_epoch_sync")]
+    EpochSyncInfo,
 }
 
 /// Defines different logical parts of a db key.
@@ -470,7 +478,9 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus => false,
+            | DBCol::FlatStorageStatus  => false,
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => false
         }
     }
 
@@ -539,6 +549,8 @@ impl DBCol {
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
+            #[cfg(feature = "new_epoch_sync")]
+            DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }
     }
 }

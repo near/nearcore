@@ -83,47 +83,44 @@ mod function_call;
 mod gas_metering;
 mod trie;
 
-use std::convert::TryFrom;
-use std::iter;
-use std::time::Instant;
-
+use crate::config::Config;
+pub use crate::cost::Cost;
+use crate::cost_table::format_gas;
+pub use crate::cost_table::CostTable;
+pub use crate::costs_to_runtime_config::costs_to_runtime_config;
+use crate::estimator_context::EstimatorContext;
+use crate::gas_cost::GasCost;
+pub use crate::qemu::QemuCommandBuilder;
+pub use crate::rocksdb::RocksDBTestConfig;
+use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
+use crate::transaction_builder::TransactionBuilder;
+use crate::vm_estimator::create_context;
 use estimator_params::sha256_cost;
 use gas_cost::{LeastSquaresTolerance, NonNegativeTolerance};
 use gas_metering::gas_metering_cost;
 use near_crypto::{KeyType, SecretKey};
+use near_parameters::{ExtCosts, RuntimeConfigStore, RuntimeFeesConfig};
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::contract::ContractCode;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, SignedTransaction, StakeAction, TransferAction,
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::{ExtCosts, VMConfig};
+use near_vm_runner::ContractCode;
 use near_vm_runner::MockCompiledContractCache;
 use serde_json::json;
+use std::convert::TryFrom;
+use std::iter;
+use std::time::Instant;
 use utils::{
     average_cost, fn_cost, fn_cost_count, fn_cost_in_contract, fn_cost_with_setup,
     generate_data_only_contract, generate_fn_name, noop_function_call_cost, read_resource,
     transaction_cost, transaction_cost_ext,
 };
 use vm_estimator::{compile_single_contract_cost, compute_compile_cost_vm};
-
-use crate::config::Config;
-use crate::cost_table::format_gas;
-use crate::estimator_context::EstimatorContext;
-use crate::gas_cost::GasCost;
-use crate::rocksdb::{rocks_db_inserts_cost, rocks_db_read_cost};
-use crate::transaction_builder::TransactionBuilder;
-use crate::vm_estimator::create_context;
-
-pub use crate::cost::Cost;
-pub use crate::cost_table::CostTable;
-pub use crate::costs_to_runtime_config::costs_to_runtime_config;
-pub use crate::qemu::QemuCommandBuilder;
-pub use crate::rocksdb::RocksDBTestConfig;
 
 static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::Bls12381MapFpToG1Base, bls12381_map_fp_to_g1_base),
@@ -262,8 +259,6 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::StorageRemoveRetValueByte, storage_remove_ret_value_byte),
     (Cost::TouchingTrieNode, touching_trie_node),
     (Cost::ReadCachedTrieNode, read_cached_trie_node),
-    (Cost::TouchingTrieNodeRead, touching_trie_node_read),
-    (Cost::TouchingTrieNodeWrite, touching_trie_node_write),
     (Cost::ApplyBlock, apply_block_cost),
     (Cost::ContractCompileBase, contract_compile_base),
     (Cost::ContractCompileBytes, contract_compile_bytes),
@@ -542,7 +537,7 @@ fn add_key_transaction(
     tb.transaction_from_actions(
         sender,
         receiver,
-        vec![Action::AddKey(AddKeyAction { public_key, access_key })],
+        vec![Action::AddKey(Box::new(AddKeyAction { public_key, access_key }))],
     )
 }
 
@@ -552,9 +547,9 @@ fn action_delete_key(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::DeleteKey(DeleteKeyAction {
+            let actions = vec![Action::DeleteKey(Box::new(DeleteKeyAction {
                 public_key: SecretKey::from_seed(KeyType::ED25519, sender.as_ref()).public_key(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
@@ -571,10 +566,10 @@ fn action_stake(ctx: &mut EstimatorContext) -> GasCost {
             let sender = tb.random_unused_account();
             let receiver = sender.clone();
 
-            let actions = vec![Action::Stake(StakeAction {
+            let actions = vec![Action::Stake(Box::new(StakeAction {
                 stake: 1,
                 public_key: "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap(),
-            })];
+            }))];
             tb.transaction_from_actions(sender, receiver, actions)
         };
         transaction_cost(ctx, &mut make_transaction)
@@ -729,8 +724,10 @@ fn contract_compile_base_per_byte_v2(ctx: &mut EstimatorContext) -> (GasCost, Ga
     ctx.cached.compile_cost_base_per_byte_v2 = Some(costs.clone());
     costs
 }
+
 fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
-    let vm_config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let small_code = generate_data_only_contract(0, &vm_config);
     let large_code = generate_data_only_contract(bytesize::mb(4u64) as usize, &vm_config);
     let small_code_len = small_code.len();
@@ -743,14 +740,17 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
-    let code = generate_data_only_contract(0, &VMConfig::test());
+    let code = generate_data_only_contract(0, &vm_config);
     // This returns a cost without block/transaction/receipt overhead.
     let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
     // Executable loading is a separately charged step, so it must be subtracted on the action cost.
     let executable_loading_cost = contract_loading_base(ctx);
     base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
 }
+
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
     // X values below 1M have a rather high variance. Therefore, use one small X
     // value and two larger values to fit a curve that gets the slope about
@@ -799,7 +799,8 @@ fn contract_loading_base_per_byte(ctx: &mut EstimatorContext) -> (GasCost, GasCo
     (base, per_byte)
 }
 fn function_call_per_storage_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let vm_config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 5;
 
     let small_code = generate_data_only_contract(0, &vm_config);
@@ -887,7 +888,8 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
 
     let code = ContractCode::new(code.to_vec(), None);
     let mut fake_external = MockedExternal::new();
-    let config = VMConfig::test();
+    let config_store = RuntimeConfigStore::new(None);
+    let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     let cache = MockCompiledContractCache::default();
@@ -904,7 +906,6 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
                 context,
                 &fees,
                 &promise_results,
-                PROTOCOL_VERSION,
                 Some(&cache),
             )
             .expect("fatal_error");
@@ -1258,24 +1259,9 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn touching_trie_node(ctx: &mut EstimatorContext) -> GasCost {
-    let read = touching_trie_node_read(ctx);
-    let write = touching_trie_node_write(ctx);
-    return std::cmp::max(read, write);
-}
-
-fn touching_trie_node_read(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.touching_trie_node_read.clone() {
-        return cost;
-    }
-    let warmup_iters = ctx.config.warmup_iters_per_block;
-    let measured_iters = ctx.config.iter_per_block;
-    // Number of bytes in the final key. Will create 2x that many nodes.
-    // Picked somewhat arbitrarily, balancing estimation time vs accuracy.
-    let final_key_len = 1000;
-    let cost = trie::read_node_from_db(ctx, warmup_iters, measured_iters, final_key_len);
-
-    ctx.cached.touching_trie_node_read = Some(cost.clone());
-    cost
+    // TTN write cost = TTN cost because we no longer charge it on reads since
+    // flat storage for reads was introduced
+    touching_trie_node_write(ctx)
 }
 
 fn touching_trie_node_write(ctx: &mut EstimatorContext) -> GasCost {
@@ -1299,7 +1285,7 @@ fn read_cached_trie_node(ctx: &mut EstimatorContext) -> GasCost {
     let mut testbed = ctx.testbed();
 
     let results = (0..(warmup_iters + iters))
-        .map(|_| trie::read_node_from_chunk_cache(&mut testbed))
+        .map(|_| trie::read_node_from_accounting_cache(&mut testbed))
         .skip(warmup_iters)
         .collect::<Vec<_>>();
     average_cost(results)

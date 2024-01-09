@@ -93,6 +93,8 @@ class ProxyHandler:
                     raw_message, PeerMessage)
             except IndexError:
                 # unparsable message, ignore.
+                logging.warn(
+                    f"Warning: could not proxy message {raw_message.hex()}")
                 return
             assert BinarySerializer(schema).serialize(message) == raw_message
 

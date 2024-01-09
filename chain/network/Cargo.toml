@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [build-dependencies]
 anyhow.workspace = true
 protobuf-codegen.workspace = true
@@ -48,7 +51,6 @@ tokio-util.workspace = true
 tracing.workspace = true
 time.workspace = true
 
-delay-detector.workspace = true
 near-async.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
@@ -83,7 +85,6 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
 ]
-delay_detector = ["delay-detector/delay_detector"]
 performance_stats = [
     "near-performance-metrics/performance_stats",
 ]

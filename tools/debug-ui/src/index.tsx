@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import './index.css';
+import 'react-tooltip/dist/react-tooltip.css';
 import '@patternfly/react-core/dist/styles/base.css';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from 'react-query';

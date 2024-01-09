@@ -63,7 +63,7 @@ pub(crate) struct TriePrefetcher {
 
 impl TriePrefetcher {
     pub(crate) fn new_if_enabled(trie: &Trie) -> Option<Self> {
-        if let Some(caching_storage) = trie.storage.as_caching_storage() {
+        if let Some(caching_storage) = trie.internal_get_storage_as_caching_storage() {
             if let Some(prefetch_api) = caching_storage.prefetch_api().clone() {
                 let trie_root = *trie.get_root();
                 let shard_uid = prefetch_api.shard_uid;
@@ -221,7 +221,7 @@ mod tests {
     use super::TriePrefetcher;
     use near_primitives::{trie_key::TrieKey, types::AccountId};
     use near_store::test_utils::{create_test_store, test_populate_trie};
-    use near_store::{ShardTries, ShardUId, Trie, TrieConfig};
+    use near_store::{ShardTries, ShardUId, StateSnapshotConfig, Trie, TrieConfig};
     use std::str::FromStr;
     use std::time::{Duration, Instant};
 
@@ -309,7 +309,13 @@ mod tests {
         let trie_config = TrieConfig { enable_receipt_prefetching: true, ..TrieConfig::default() };
         let store = create_test_store();
         let flat_storage_manager = near_store::flat::FlatStorageManager::new(store.clone());
-        let tries = ShardTries::new(store, trie_config, &shard_uids, flat_storage_manager);
+        let tries = ShardTries::new(
+            store,
+            trie_config,
+            &shard_uids,
+            flat_storage_manager,
+            StateSnapshotConfig::default(),
+        );
 
         let mut kvs = vec![];
 
@@ -320,7 +326,7 @@ mod tests {
         }
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, ShardUId::single_shard(), kvs);
         let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root);
-        trie.storage.as_caching_storage().unwrap().clear_cache();
+        trie.internal_get_storage_as_caching_storage().unwrap().clear_cache();
 
         let prefetcher =
             TriePrefetcher::new_if_enabled(&trie).expect("caching storage should have prefetcher");

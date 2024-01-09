@@ -12,7 +12,7 @@ per 1 Tgas of execution, we spend no more than 1ms wall-clock time.
 
 For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
-nearcore can serve requests fast enough prooves that it is possible to be at
+nearcore can serve requests fast enough proves that it is possible to be at
 least as fast. However, we should be careful to not couple costs too tightly
 with the specific implementation of nearcore to allow for innovation in new
 clients.
@@ -76,7 +76,7 @@ cloud-hosted VMs) and manual labor to set it up.
 
 The other supported metric `icount` is much more stable. It uses
 [qemu](https://www.qemu.org/) to emulate an x86 CPU. We then insert a custom
-[TCG plugin](https://qemu.readthedocs.io/en/latest/devel/tcg-plugins.html)
+[TCG plugin](https://www.qemu.org/docs/master/devel/tcg-plugins.html)
 ([counter.c](https://github.com/near/nearcore/blob/08c4a1bd4b16847eb1c2fccee36bf16f6efb71fd/runtime/runtime-params-estimator/emu-cost/counter_plugin/counter.c))
 that counts the number of executed x86 instructions. It also intercepts system
 calls and counts the number of bytes seen in `sys_read`, `sys_write` and their

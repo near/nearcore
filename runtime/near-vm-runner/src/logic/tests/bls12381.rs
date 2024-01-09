@@ -16,7 +16,6 @@ mod tests {
     use amcl::bls381::pair;
     use amcl::bls381::rom::H_EFF_G1;
     use amcl::rand::RAND;
-    use borsh::BorshSerialize;
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use rand::RngCore;
@@ -357,7 +356,7 @@ mod tests {
             buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
             let mut n_vec: [u8; 32] = [0u8; 32];
             n_vec[0] = points[i].0;
-            buffer.push(n_vec.try_to_vec().unwrap());
+            buffer.push(n_vec.to_vec());
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
@@ -374,7 +373,7 @@ mod tests {
             buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
             let mut n_vec: [u8; 32] = [0u8; 32];
             n_vec[0] = points[i].0;
-            buffer.push(n_vec.try_to_vec().unwrap());
+            buffer.push(n_vec.to_vec());
         }
         let input = logic.internal_mem_write(buffer.concat().as_slice());
         let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
@@ -392,7 +391,7 @@ mod tests {
             let mut n_vec: [u8; 48] = [0u8; 48];
             points[i].0.to_byte_array(&mut n_vec, 0);
 
-            let mut n_vec = n_vec.try_to_vec().unwrap();
+            let mut n_vec = n_vec.to_vec();
             n_vec.reverse();
             n_vec.resize(32, 0);
 
@@ -414,7 +413,7 @@ mod tests {
             let mut n_vec: [u8; 48] = [0u8; 48];
             points[i].0.to_byte_array(&mut n_vec, 0);
 
-            let mut n_vec = n_vec.try_to_vec().unwrap();
+            let mut n_vec = n_vec.to_vec();
             n_vec.reverse();
             n_vec.resize(32, 0);
 

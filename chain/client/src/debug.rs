@@ -2,7 +2,7 @@
 //! without backwards compatibility.
 use crate::ClientActor;
 use actix::{Context, Handler};
-use borsh::BorshSerialize;
+
 use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
@@ -18,11 +18,11 @@ use near_client_primitives::{
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::syncing::get_num_state_parts;
-use near_primitives::types::{AccountId, BlockHeight, ShardId, ValidatorInfoIdentifier};
+use near_primitives::state_sync::get_num_state_parts;
+use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
 use near_primitives::{
     hash::CryptoHash,
-    syncing::{ShardStateSyncResponseHeader, StateHeaderKey},
+    state_sync::{ShardStateSyncResponseHeader, StateHeaderKey},
     types::EpochId,
     views::ValidatorInfo,
 };
@@ -255,13 +255,13 @@ impl ClientActor {
 
         let state_header_exists: Vec<bool> = (0..block.chunks().len())
             .map(|shard_id| {
-                let key = StateHeaderKey(shard_id as u64, *block.hash()).try_to_vec();
+                let key = borsh::to_vec(&StateHeaderKey(shard_id as u64, *block.hash()));
                 match key {
                     Ok(key) => {
                         matches!(
                             self.client
                                 .chain
-                                .store()
+                                .chain_store()
                                 .store()
                                 .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
                             Ok(Some(_))
@@ -334,28 +334,25 @@ impl ClientActor {
         let epoch_id = self.client.chain.header_head()?.epoch_id;
         let fetch_hash = self.client.chain.header_head()?.last_block_hash;
         let me = self.client.validator_signer.as_ref().map(|x| x.validator_id().clone());
-
-        let tracked_shards: Vec<(bool, bool)> = (0..self
-            .client
-            .epoch_manager
-            .num_shards(&epoch_id)
-            .unwrap())
-            .map(|x| {
-                (
-                    self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, x, true),
-                    self.client.shard_tracker.will_care_about_shard(
-                        me.as_ref(),
-                        &fetch_hash,
-                        x,
-                        true,
-                    ),
+        let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id).unwrap();
+        let shards_tracked_this_epoch = shard_ids
+            .iter()
+            .map(|&shard_id| {
+                self.client.shard_tracker.care_about_shard(me.as_ref(), &fetch_hash, shard_id, true)
+            })
+            .collect();
+        let shards_tracked_next_epoch = shard_ids
+            .into_iter()
+            .map(|shard_id| {
+                self.client.shard_tracker.will_care_about_shard(
+                    me.as_ref(),
+                    &fetch_hash,
+                    shard_id,
+                    true,
                 )
             })
             .collect();
-        Ok(TrackedShardsView {
-            shards_tracked_this_epoch: tracked_shards.iter().map(|x| x.0).collect(),
-            shards_tracked_next_epoch: tracked_shards.iter().map(|x| x.1).collect(),
-        })
+        Ok(TrackedShardsView { shards_tracked_this_epoch, shards_tracked_next_epoch })
     }
 
     fn get_recent_epoch_info(
@@ -392,7 +389,7 @@ impl ClientActor {
         let mut blocks: HashMap<CryptoHash, DebugBlockStatus> = HashMap::new();
         let mut missed_heights: Vec<MissedHeightInfo> = Vec::new();
         let mut last_epoch_id = head.epoch_id;
-        let initial_gas_price = self.client.chain.genesis_block().header().gas_price();
+        let initial_gas_price = self.client.chain.genesis_block().header().next_gas_price();
 
         let mut height_to_fetch = starting_height.unwrap_or(header_head.height);
         let min_height_to_fetch =
@@ -403,7 +400,7 @@ impl ClientActor {
                 let block_hashes: Vec<CryptoHash> = self
                     .client
                     .chain
-                    .store()
+                    .chain_store()
                     .get_all_header_hashes_by_height(height_to_fetch)?
                     .into_iter()
                     .collect();
@@ -466,7 +463,7 @@ impl ClientActor {
                                     chunk.shard_id(),
                                 )
                                 .ok(),
-                            gas_used: chunk.gas_used(),
+                            gas_used: chunk.prev_gas_used(),
                             processing_time_ms: CryptoHashTimer::get_timer_value(
                                 chunk.chunk_hash().0,
                             )
@@ -489,7 +486,8 @@ impl ClientActor {
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
                             .map(|s| s.as_millis() as u64),
                         block_timestamp: block_header.raw_timestamp(),
-                        gas_price_ratio: block_header.gas_price() as f64 / initial_gas_price as f64,
+                        gas_price_ratio: block_header.next_gas_price() as f64
+                            / initial_gas_price as f64,
                     },
                 );
                 // TODO(robin): using last epoch id when iterating in reverse height direction is
@@ -558,7 +556,7 @@ impl ClientActor {
                     .map(|f| f.to_string())
                     .unwrap_or_default();
 
-                let num_chunks = self.client.epoch_manager.num_shards(&epoch_id)?;
+                let shard_ids = self.client.epoch_manager.shard_ids(&epoch_id)?;
 
                 if block_producer == validator_id {
                     // For each height - we want to collect information about received approvals.
@@ -569,7 +567,7 @@ impl ClientActor {
                     has_block_or_chunks_to_produce = true;
                 }
 
-                for shard_id in 0..num_chunks {
+                for shard_id in shard_ids {
                     let chunk_producer = self
                         .client
                         .epoch_manager
@@ -620,7 +618,8 @@ impl ClientActor {
                 })
                 .ok(),
             head_height: head.height,
-            shards: self.client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default(),
+            shards: self.client.epoch_manager.shard_ids(&head.epoch_id).unwrap_or_default().len()
+                as NumShards,
             approval_history: self.client.doomslug.get_approval_history(),
             production: productions,
             banned_chunk_producers: self
@@ -709,7 +708,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: chrono::DateTime::from_utc(
+                timestamp: chrono::DateTime::from_naive_utc_and_offset(
                     chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
                         .unwrap(),
                     chrono::Utc,

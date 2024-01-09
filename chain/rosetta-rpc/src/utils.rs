@@ -8,7 +8,7 @@ use futures::StreamExt;
 use near_chain_configs::ProtocolConfigView;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::{BorshDeserialize, BorshSerialize};
+use near_primitives::borsh::{self, BorshDeserialize, BorshSerialize};
 
 #[derive(Debug, Clone, PartialEq, derive_more::AsRef, derive_more::From)]
 pub(crate) struct BorshInHexString<T: BorshSerialize + BorshDeserialize>(T);
@@ -40,7 +40,7 @@ where
         S: serde::Serializer,
     {
         serializer.serialize_str(&hex::encode(
-            self.0.try_to_vec().expect("borsh serialization should never fail"),
+            borsh::to_vec(&self.0).expect("borsh serialization should never fail"),
         ))
     }
 }
@@ -163,6 +163,11 @@ impl From<u128> for SignedDiff<u128> {
     }
 }
 
+impl From<i64> for SignedDiff<u128> {
+    fn from(value: i64) -> Self {
+        Self { is_positive: value >= 0, absolute_difference: value.unsigned_abs() as u128 }
+    }
+}
 impl<T> SignedDiff<T>
 where
     T: Copy + PartialEq + std::ops::Sub<Output = T> + std::cmp::Ord,
@@ -301,7 +306,7 @@ impl RosettaAccountBalances {
 
     pub fn from_account<T: Into<near_primitives::account::Account>>(
         account: T,
-        runtime_config: &near_primitives::views::RuntimeConfigView,
+        runtime_config: &near_parameters::RuntimeConfigView,
     ) -> Self {
         let account = account.into();
         let amount = account.amount();

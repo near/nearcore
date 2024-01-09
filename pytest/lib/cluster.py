@@ -224,6 +224,13 @@ class BaseNode(object):
                              [base64.b64encode(signed_tx).decode('utf8')],
                              timeout=timeout)
 
+    def send_tx_rpc(self, signed_tx, timeout, wait_until='FINAL'):
+        return self.json_rpc('send_tx', {
+            'signed_tx_base64': base64.b64encode(signed_tx).decode('utf8'),
+            'wait_until': wait_until
+        },
+                             timeout=timeout)
+
     def get_status(self,
                    check_storage: bool = True,
                    timeout: float = 4,
@@ -320,6 +327,9 @@ class BaseNode(object):
 
     def get_block_by_height(self, block_height, **kwargs):
         return self.json_rpc('block', {'block_id': block_height}, **kwargs)
+
+    def get_final_block(self, **kwargs):
+        return self.json_rpc('block', {'finality': 'final'}, **kwargs)
 
     def get_chunk(self, chunk_id):
         return self.json_rpc('chunk', [chunk_id])
@@ -812,12 +822,19 @@ def apply_config_changes(node_dir, client_config_change):
     # when None.
     allowed_missing_configs = (
         'archive',
+        'consensus.block_fetch_horizon',
+        'consensus.min_block_production_delay',
+        'consensus.state_sync_timeout',
+        'expected_shutdown',
+        'log_summary_period',
         'max_gas_burnt_view',
         'rosetta_rpc',
         'save_trie_changes',
         'split_storage',
+        'state_sync',
         'state_sync_enabled',
         'store.state_snapshot_enabled',
+        'tracked_shard_schedule',
     )
 
     for k, v in client_config_change.items():
@@ -946,3 +963,47 @@ def load_config():
     else:
         logger.info(f"Use default config {config}")
     return config
+
+
+# Returns the protocol version of the binary.
+def get_binary_protocol_version(config) -> typing.Optional[int]:
+    binary_name = config.get('binary_name', 'neard')
+    near_root = config.get('near_root')
+    binary_path = os.path.join(near_root, binary_name)
+
+    # Get the protocol version of the binary
+    # The --version output looks like this:
+    # neard (release trunk) (build 1.1.0-3884-ge93793a61-modified) (rustc 1.71.0) (protocol 137) (db 37)
+    out = subprocess.check_output([binary_path, "--version"], text=True)
+    out = out.replace('(', '')
+    out = out.replace(')', '')
+    tokens = out.split()
+    n = len(tokens)
+    for i in range(n):
+        if tokens[i] == "protocol" and i + 1 < n:
+            return int(tokens[i + 1])
+    return None
+
+
+def corrupt_state_snapshot(config, node_dir, shard_layout_version):
+    near_root = config['near_root']
+    binary_name = config.get('binary_name', 'neard')
+    binary_path = os.path.join(near_root, binary_name)
+
+    cmd = [
+        binary_path,
+        "--home",
+        node_dir,
+        "database",
+        "corrupt-state-snapshot",
+        "--shard-layout-version",
+        str(shard_layout_version),
+    ]
+
+    env = os.environ.copy()
+    env["RUST_BACKTRACE"] = "1"
+    env["RUST_LOG"] = "db=warn,db_opener=warn," + env.get("RUST_LOG", "debug")
+
+    out = subprocess.check_output(cmd, text=True, env=env)
+
+    return out

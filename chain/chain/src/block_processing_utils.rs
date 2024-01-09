@@ -1,5 +1,6 @@
-use crate::chain::{BlockMissingChunks, OrphanMissingChunks};
+use crate::chain::BlockMissingChunks;
 use crate::near_chain_primitives::error::BlockKnownError::KnownInProcessing;
+use crate::orphan::OrphanMissingChunks;
 use crate::Provenance;
 use near_primitives::block::Block;
 use near_primitives::challenge::{ChallengeBody, ChallengesResult};
@@ -18,7 +19,7 @@ pub(crate) const MAX_PROCESSING_BLOCKS: usize = 5;
 /// Contains information from preprocessing a block
 pub(crate) struct BlockPreprocessInfo {
     pub(crate) is_caught_up: bool,
-    pub(crate) state_dl_info: Option<StateSyncInfo>,
+    pub(crate) state_sync_info: Option<StateSyncInfo>,
     pub(crate) incoming_receipts: HashMap<ShardId, Vec<ReceiptProof>>,
     pub(crate) challenges_result: ChallengesResult,
     pub(crate) challenged_blocks: Vec<CryptoHash>,
@@ -29,8 +30,6 @@ pub(crate) struct BlockPreprocessInfo {
     pub(crate) apply_chunks_done: Arc<OnceCell<()>>,
     /// This is used to calculate block processing time metric
     pub(crate) block_start_processing_time: Instant,
-    /// Whether needs to create a state snapshot after processing this block.
-    pub(crate) need_state_snapshot: bool,
 }
 
 /// Blocks which finished pre-processing and are now being applied asynchronously

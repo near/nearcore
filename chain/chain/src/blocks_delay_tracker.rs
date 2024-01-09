@@ -1,7 +1,6 @@
 use chrono::DateTime;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
-use near_primitives::borsh::maybestd::collections::hash_map::Entry;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::static_clock::StaticClock;
@@ -10,7 +9,7 @@ use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
     ChunkProcessingStatus, DroppedReason,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 use std::mem;
 use std::time::Instant;
 use tracing::error;
@@ -426,7 +425,7 @@ impl Chain {
         if self.is_in_processing(block_hash) {
             return BlockProcessingStatus::InProcessing;
         }
-        if self.store().block_exists(block_hash).unwrap_or_default() {
+        if self.chain_store().block_exists(block_hash).unwrap_or_default() {
             return BlockProcessingStatus::Accepted;
         }
         if let Some(dropped_reason) = &block_info.dropped {

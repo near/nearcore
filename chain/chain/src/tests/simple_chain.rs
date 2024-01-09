@@ -25,11 +25,15 @@ fn build_chain() {
 
     mock_clock_guard.add_utc(timestamp(0, 0, 3, 444));
     mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
+    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
     mock_clock_guard.add_instant(Instant::now());
 
+    // this step may fail when adding a new dynamic config
+    // the dynamic config uses the static clock to update metrics
+    // for every new field one extra utc timestamp should be added
     let (mut chain, _, _, signer) = setup();
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 2);
+    assert_eq!(mock_clock_guard.utc_call_count(), 3);
     assert_eq!(mock_clock_guard.instant_call_count(), 1);
     assert_eq!(chain.head().unwrap().height, 0);
 
@@ -48,9 +52,9 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"3Dkg6hjpnYvMuoyEdSLnEXza6Ct2ZV9xoridA37AJzSz");
+        insta::assert_display_snapshot!(hash, @"CwaiZ4AmfJSnMN9rytYwwYHCTzLioC5xcjHzNkDex1HH");
     } else {
-        insta::assert_display_snapshot!(hash, @"8GP6PcFavb4pqeofMFjDyKUQnfVZtwPWsVA4V47WNbRn");
+        insta::assert_display_snapshot!(hash, @"HJmRPXT4JM9tt6mXw2gM75YaSoqeDCphhFK26uRpd1vw");
     }
 
     for i in 1..5 {
@@ -72,15 +76,15 @@ fn build_chain() {
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 10);
+    assert_eq!(mock_clock_guard.utc_call_count(), 11);
     assert_eq!(mock_clock_guard.instant_call_count(), 17);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"6uCZwfkpE8qV54n5MvZXqTt8RMHYDduX4eE7quNzgLNk");
+        insta::assert_display_snapshot!(hash, @"Dn18HUFm149fojXpwV1dYCfjdPh56S1k233kp7vmnFeE");
     } else {
-        insta::assert_display_snapshot!(hash, @"319JoVaUej5iXmrZMeaZBPMeBLePQzJofA5Y1ztdyPw9");
+        insta::assert_display_snapshot!(hash, @"HbQVGVZ3WGxsNqeM3GfSwDoxwYZ2RBP1SinAze9SYR3C");
     }
 }
 
@@ -270,9 +274,9 @@ fn next_blocks() {
     let b4_hash = *b4.hash();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
+    assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b2_hash);
     assert!(chain.process_block_test(&None, b3).is_ok());
     assert!(chain.process_block_test(&None, b4).is_ok());
-    assert_eq!(chain.mut_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
-    assert_eq!(chain.mut_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
+    assert_eq!(chain.mut_chain_store().get_next_block_hash(&b1_hash).unwrap(), b3_hash);
+    assert_eq!(chain.mut_chain_store().get_next_block_hash(&b3_hash).unwrap(), b4_hash);
 }

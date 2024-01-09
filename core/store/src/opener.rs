@@ -524,7 +524,7 @@ impl<'a> DBOpener<'a> {
         let metadata = DbMetadata::read(&db)?;
         if want_version != metadata.version {
             let msg = format!("unexpected DbVersion {}; expected {want_version}", metadata.version);
-            Err(std::io::Error::new(std::io::ErrorKind::Other, msg))
+            Err(std::io::Error::other(msg))
         } else {
             Ok((db, metadata))
         }
@@ -604,7 +604,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     config.path = Some(checkpoint_path);
     let archive = hot_store.get_db_kind()? == Some(DbKind::Archive);
     let opener = StoreOpener::new(checkpoint_base_path, archive, &config, None);
-    let node_storage = opener.open()?;
+    let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
 
     if let Some(columns_to_keep) = columns_to_keep {
         let columns_to_keep_set: std::collections::HashSet<DBCol> =
@@ -654,7 +654,7 @@ mod tests {
         let mut store_update = node_storage.get_hot_store().store_update();
         for column in columns {
             for key in &keys {
-                store_update.insert(column, key, &vec![42]);
+                store_update.insert(column, key.clone(), vec![42]);
             }
         }
         store_update.commit().unwrap();

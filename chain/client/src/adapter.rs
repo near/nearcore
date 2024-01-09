@@ -7,6 +7,7 @@ use near_network::types::{
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -16,7 +17,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Box<FinalExecutionOutcomeView>>")]
 pub(crate) struct TxStatusRequest {
     pub tx_hash: CryptoHash,
@@ -24,12 +25,12 @@ pub(crate) struct TxStatusRequest {
 }
 
 /// Transaction status response
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub(crate) struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Box<Block>>")]
 pub(crate) struct BlockRequest(pub CryptoHash);
 
@@ -47,7 +48,7 @@ pub struct BlockResponse {
 pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<Vec<BlockHeader>>")]
 pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
@@ -57,9 +58,9 @@ pub(crate) struct BlockHeadersRequest(pub Vec<CryptoHash>);
 pub(crate) struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
 /// State request header.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestHeader {
+pub struct StateRequestHeader {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
 }
@@ -67,7 +68,7 @@ pub(crate) struct StateRequestHeader {
 /// State request part.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "Option<StateResponse>")]
-pub(crate) struct StateRequestPart {
+pub struct StateRequestPart {
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
     pub part_id: u64,
@@ -76,12 +77,12 @@ pub(crate) struct StateRequestPart {
 /// Response to state request.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct StateResponse(pub Box<StateResponseInfo>);
+pub struct StateResponse(pub Box<StateResponseInfo>);
 
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
 /// newer announcements.
-#[derive(actix::Message)]
+#[derive(actix::Message, Debug)]
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub(crate) struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
@@ -135,6 +136,10 @@ pub enum ProcessTxResponse {
     DoesNotTrackShard,
 }
 
+#[derive(actix::Message, Debug, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
+
 pub struct Adapter {
     /// Address of the client actor.
     client_addr: actix::Addr<ClientActor>,
@@ -160,10 +165,7 @@ impl near_network::client::Client for Adapter {
     ) -> Option<Box<FinalExecutionOutcomeView>> {
         match self
             .view_client_addr
-            .send(
-                TxStatusRequest { tx_hash: tx_hash, signer_account_id: account_id }
-                    .with_span_context(),
-            )
+            .send(TxStatusRequest { tx_hash, signer_account_id: account_id }.with_span_context())
             .await
         {
             Ok(res) => res,
@@ -194,9 +196,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestHeader { shard_id: shard_id, sync_hash: sync_hash }.with_span_context(),
-            )
+            .send(StateRequestHeader { shard_id, sync_hash }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
@@ -216,10 +216,7 @@ impl near_network::client::Client for Adapter {
     ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
         match self
             .view_client_addr
-            .send(
-                StateRequestPart { shard_id: shard_id, sync_hash: sync_hash, part_id: part_id }
-                    .with_span_context(),
-            )
+            .send(StateRequestPart { shard_id, sync_hash, part_id }.with_span_context())
             .await
         {
             Ok(Some(StateResponse(resp))) => Ok(Some(*resp)),
@@ -339,6 +336,13 @@ impl near_network::client::Client for Adapter {
                 tracing::error!("mailbox error: {err}");
                 Ok(vec![])
             }
+        }
+    }
+
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+        match self.client_addr.send(ChunkStateWitnessMessage(witness).with_span_context()).await {
+            Ok(()) => {}
+            Err(err) => tracing::error!("mailbox error: {err}"),
         }
     }
 }

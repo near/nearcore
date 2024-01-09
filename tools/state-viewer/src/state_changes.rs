@@ -1,4 +1,4 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -83,7 +83,8 @@ fn dump_state_changes(
         let block_hash = block_header.hash();
         let epoch_id = block_header.epoch_id();
         let key = KeyForStateChanges::for_block(block_header.hash());
-        let mut state_changes_per_shard = vec![vec![];epoch_manager.num_shards(epoch_id).unwrap() as usize];
+        let mut state_changes_per_shard: Vec<_> =
+            epoch_manager.shard_ids(epoch_id).unwrap().into_iter().map(|_| vec![]).collect();
 
         for row in key.find_rows_iter(&store) {
             let (key, value) = row.unwrap();
@@ -112,7 +113,7 @@ fn dump_state_changes(
     let state_changes_for_block_range = StateChangesForBlockRange { blocks };
 
     tracing::info!(target: "state-changes", ?file, "Writing state changes to a file");
-    let data: Vec<u8> = state_changes_for_block_range.try_to_vec().unwrap();
+    let data: Vec<u8> = borsh::to_vec(&state_changes_for_block_range).unwrap();
     std::fs::write(&file, data).unwrap();
 }
 
@@ -189,6 +190,7 @@ fn apply_state_changes(
                 trie_update,
                 state_changes,
                 *block_hash,
+                block_height,
             );
             let mut store_update = chain_store.store_update();
             store_update.save_trie_changes(wrapped_trie_changes);

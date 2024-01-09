@@ -6,9 +6,9 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::RpcInto;
 use near_network::tcp;
 use near_o11y::testonly::init_integration_logger;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::AccessKey;
 use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
@@ -43,10 +43,10 @@ fn test_check_tx_error_log() {
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: 1_000 }),
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ],
         block_hash,
     );
@@ -68,7 +68,7 @@ fn test_deliver_tx_error_log() {
     let runtime_config_store = RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
     let fee_helper = testlib::fees_utils::FeeHelper::new(
-        runtime_config.fees.clone(),
+        RuntimeConfig::clone(&runtime_config),
         node.genesis().config.min_gas_price,
     );
     let signer =
@@ -83,10 +83,10 @@ fn test_deliver_tx_error_log() {
         vec![
             Action::CreateAccount(CreateAccountAction {}),
             Action::Transfer(TransferAction { deposit: TESTING_INIT_BALANCE + 1 }),
-            Action::AddKey(AddKeyAction {
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key.clone(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ],
         block_hash,
     );

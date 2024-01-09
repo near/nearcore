@@ -19,11 +19,11 @@ lto (link-time optimization), so our `-r` builds are very slow, use a lot of
 RAM, and don't utilize the available parallelism fully.
 
 As debug builds are much too slow at runtime for many purposes, we have a custom
-profile `--profile quick-release` which is equivalent to `-r`, except that the
-time-consuming options such as LTO are disabled.
+profile `--profile dev-release` which is equivalent to `-r`, except that the
+time-consuming options such as LTO are disabled, and debug assertions are enabled.
 
-Use `--profile quick-release` when doing comparative benchmarking, or when
-connecting a locally built node to a network. Use `-r` if you want to get
+Use `--profile dev-release` for most local development, or when connecting a
+locally built node to a network. Use `-r` for production, or if you want to get
 absolute performance numbers.
 
 ## Linker

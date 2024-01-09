@@ -3,14 +3,13 @@ use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
 use nearcore::config::GenesisExt;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[test]
 fn test_account_id_in_function_call_permission_upgrade() {
@@ -46,7 +45,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
+        actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),
             access_key: AccessKey {
                 nonce: 1,
@@ -56,7 +55,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
                     method_names: vec![],
                 }),
             },
-        })],
+        }))],
         nonce: 0,
         block_hash: CryptoHash::default(),
     };
@@ -111,7 +110,7 @@ fn test_very_long_account_id() {
         signer_id: "test0".parse().unwrap(),
         receiver_id: "test0".parse().unwrap(),
         public_key: signer.public_key(),
-        actions: vec![Action::AddKey(AddKeyAction {
+        actions: vec![Action::AddKey(Box::new(AddKeyAction {
             public_key: signer.public_key(),
             access_key: AccessKey {
                 nonce: 1,
@@ -121,7 +120,7 @@ fn test_very_long_account_id() {
                     method_names: vec![],
                 }),
             },
-        })],
+        }))],
         nonce: 0,
         block_hash: tip.last_block_hash,
     }

@@ -1,14 +1,16 @@
 use std::collections::HashSet;
 
 use near_chain_configs::Genesis;
+use near_parameters::RuntimeConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
-use near_store::test_utils::create_tries_complex;
-use near_store::{GenesisStateApplier, ShardTries, TrieUpdate};
+use near_primitives_core::types::NumShards;
+use near_store::genesis::GenesisStateApplier;
+use near_store::test_utils::TestTriesBuilder;
+use near_store::{ShardTries, TrieUpdate};
 use nearcore::config::GenesisExt;
-use node_runtime::config::RuntimeConfig;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -33,7 +35,10 @@ pub fn get_test_trie_viewer() -> (TrieViewer, TrieUpdate) {
 
 pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTries, StateRoot) {
     let shard_layout = &genesis.config.shard_layout;
-    let tries = create_tries_complex(shard_layout.version(), shard_layout.num_shards());
+    let tries = TestTriesBuilder::new()
+        .with_shard_layout(shard_layout.version(), shard_layout.shard_ids().count() as NumShards)
+        .with_flat_storage()
+        .build();
     let runtime = Runtime::new();
     let mut account_ids: HashSet<AccountId> = HashSet::new();
     genesis.for_each_record(|record: &StateRecord| {

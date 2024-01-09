@@ -1,6 +1,5 @@
 use near_store::metadata::DbKind;
 use near_store::NodeStorage;
-use nearcore::NearConfig;
 use std::path::Path;
 
 /// This can potentially support db specified not in config, but in command line.
@@ -25,7 +24,11 @@ pub(crate) struct ChangeDbKindCommand {
 }
 
 impl ChangeDbKindCommand {
-    pub(crate) fn run(&self, home_dir: &Path, near_config: &NearConfig) -> anyhow::Result<()> {
+    pub(crate) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
+        let near_config = nearcore::config::load_config(
+            &home_dir,
+            near_chain_configs::GenesisValidationMode::UnsafeFast,
+        )?;
         let opener = NodeStorage::opener(
             home_dir,
             near_config.config.archive,

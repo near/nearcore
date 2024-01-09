@@ -1,9 +1,8 @@
-use crate::client;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
-    AccountOrPeerIdOrHash, Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong,
-    RawRoutedMessage, RoutedMessageBody,
+    Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
 };
 use crate::peer::peer_actor::PeerActor;
 use crate::peer_manager::connection;
@@ -16,8 +15,9 @@ use crate::tcp;
 use crate::types::{
     ConnectedPeerInfo, HighestHeightPeerInfo, KnownProducer, NetworkInfo, NetworkRequests,
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
-    SetChainInfo,
+    SetChainInfo, SnapshotHostInfo,
 };
+use crate::{client, network_protocol};
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;
@@ -29,9 +29,10 @@ use near_primitives::block::GenesisId;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::views::{
     ConnectionInfoView, EdgeView, KnownPeerStateView, NetworkGraphView, PeerStoreView,
-    RecentOutboundConnectionsView,
+    RecentOutboundConnectionsView, SnapshotHostInfoView, SnapshotHostsView,
 };
-use rand::seq::IteratorRandom;
+use network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
+use rand::seq::{IteratorRandom, SliceRandom};
 use rand::thread_rng;
 use rand::Rng;
 use std::cmp::min;
@@ -597,8 +598,8 @@ impl PeerManagerActor {
                             anyhow::Ok(())
                         }.await;
 
-                        if result.is_err() {
-                            tracing::info!(target:"network", ?result, "failed to connect to {peer_info}");
+                        if let Err(ref err) = result {
+                            tracing::info!(target: "network", err = format!("{:#}", err), "failed to connect to {peer_info}");
                         }
                         if state.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
                             tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
@@ -614,7 +615,7 @@ impl PeerManagerActor {
         // Find peers that are not reliable (too much behind) - and make sure that we're not routing messages through them.
         let unreliable_peers = self.unreliable_peers();
         metrics::PEER_UNRELIABLE.set(unreliable_peers.len() as i64);
-        self.state.graph.set_unreliable_peers(unreliable_peers);
+        self.state.set_unreliable_peers(unreliable_peers);
 
         let new_interval = min(max_interval, interval * EXPONENTIAL_BACKOFF_RATIO);
 
@@ -644,27 +645,6 @@ impl PeerManagerActor {
                 .event_sink
                 .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
-    }
-
-    /// Return whether the message is sent or not.
-    fn send_message_to_account_or_peer_or_hash(
-        &mut self,
-        target: &AccountOrPeerIdOrHash,
-        msg: RoutedMessageBody,
-    ) -> bool {
-        let target = match target {
-            AccountOrPeerIdOrHash::AccountId(account_id) => {
-                return self.state.send_message_to_account(&self.clock, account_id, msg);
-            }
-            AccountOrPeerIdOrHash::PeerId(it) => PeerIdOrHash::PeerId(it.clone()),
-            AccountOrPeerIdOrHash::Hash(it) => PeerIdOrHash::Hash(*it),
-        };
-
-        self.state.send_message_to_peer(
-            &self.clock,
-            tcp::Tier::T2,
-            self.state.sign_message(&self.clock, RawRoutedMessage { target, body: msg }),
-        )
     }
 
     pub(crate) fn get_network_info(&self) -> NetworkInfo {
@@ -752,9 +732,6 @@ impl PeerManagerActor {
         let _span =
             tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
                 .entered();
-        let _d = delay_detector::DelayDetector::new(|| {
-            format!("network request {}", msg.as_ref()).into()
-        });
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
@@ -788,40 +765,58 @@ impl PeerManagerActor {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestHeader { shard_id, sync_hash, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestHeader(shard_id, sync_hash),
+            NetworkRequests::StateRequestHeader { shard_id, sync_hash, peer_id } => {
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestHeader(shard_id, sync_hash)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, target } => {
-                if self.send_message_to_account_or_peer_or_hash(
-                    &target,
-                    RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id),
+            NetworkRequests::StateRequestPart { shard_id, sync_hash, part_id, peer_id } => {
+                if self.state.tier2.send_message(
+                    peer_id,
+                    Arc::new(PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)),
                 ) {
                     NetworkResponses::NoResponse
                 } else {
                     NetworkResponses::RouteNotFound
                 }
             }
-            NetworkRequests::StateResponse { route_back, response } => {
-                let body = RoutedMessageBody::VersionedStateResponse(response);
-                if self.state.send_message_to_peer(
-                    &self.clock,
-                    tcp::Tier::T2,
-                    self.state.sign_message(
-                        &self.clock,
-                        RawRoutedMessage { target: PeerIdOrHash::Hash(route_back), body },
-                    ),
-                ) {
-                    NetworkResponses::NoResponse
-                } else {
-                    NetworkResponses::RouteNotFound
+            NetworkRequests::SnapshotHostInfo { sync_hash, epoch_height, mut shards } => {
+                if shards.len() > MAX_SHARDS_PER_SNAPSHOT_HOST_INFO {
+                    tracing::warn!("PeerManager: Sending out a SnapshotHostInfo message with {} shards, \
+                                    this is more than the allowed limit. The list of shards will be truncated. \
+                                    Please adjust the MAX_SHARDS_PER_SNAPSHOT_HOST_INFO constant ({})", shards.len(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO);
+
+                    // We can's send out more than MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shards because other nodes would
+                    // ban us for abusive behavior. Let's truncate the shards vector by choosing a random subset of
+                    // MAX_SHARDS_PER_SNAPSHOT_HOST_INFO shard ids. Choosing a random subset slightly increases the chances
+                    // that other nodes will have snapshot sync information about all shards from some node.
+                    shards = shards
+                        .choose_multiple(&mut rand::thread_rng(), MAX_SHARDS_PER_SNAPSHOT_HOST_INFO)
+                        .copied()
+                        .collect();
                 }
+                // Sort the shards to keep things tidy
+                shards.sort();
+
+                // Sign the information about the locally created snapshot using the keys in the
+                // network config before broadcasting it
+                let snapshot_host_info = SnapshotHostInfo::new(
+                    self.state.config.node_id(),
+                    sync_hash,
+                    epoch_height,
+                    shards,
+                    &self.state.config.node_key,
+                );
+
+                self.state.tier2.broadcast_message(Arc::new(PeerMessage::SyncSnapshotHosts(
+                    SyncSnapshotHosts { hosts: vec![snapshot_host_info.into()] },
+                )));
+                NetworkResponses::NoResponse
             }
             NetworkRequests::BanPeer { peer_id, ban_reason } => {
                 self.state.disconnect_and_ban(&self.clock, &peer_id, ban_reason);
@@ -963,6 +958,24 @@ impl PeerManagerActor {
                 self.state.tier2.broadcast_message(Arc::new(PeerMessage::Challenge(challenge)));
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::ChunkStateWitness(chunk_validators, state_witness) => {
+                for chunk_validator in chunk_validators {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::ChunkStateWitness(state_witness.clone()),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkEndorsement(approval) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &approval.target,
+                    RoutedMessageBody::ChunkEndorsement(approval.endorsement),
+                );
+                NetworkResponses::NoResponse
+            }
         }
     }
 
@@ -996,6 +1009,7 @@ impl PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
     type Result = ();
+    #[perf]
     fn handle(&mut self, msg: WithSpanContext<SetChainInfo>, ctx: &mut Self::Context) {
         let (_span, SetChainInfo(info)) = handler_trace_span!(target: "network", msg);
         let _timer =
@@ -1029,6 +1043,7 @@ impl actix::Handler<WithSpanContext<SetChainInfo>> for PeerManagerActor {
 
 impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerActor {
     type Result = PeerManagerMessageResponse;
+    #[perf]
     fn handle(
         &mut self,
         msg: WithSpanContext<PeerManagerMessageRequest>,
@@ -1044,6 +1059,7 @@ impl actix::Handler<WithSpanContext<PeerManagerMessageRequest>> for PeerManagerA
 
 impl actix::Handler<GetDebugStatus> for PeerManagerActor {
     type Result = DebugStatus;
+    #[perf]
     fn handle(&mut self, msg: GetDebugStatus, _ctx: &mut actix::Context<Self>) -> Self::Result {
         match msg {
             GetDebugStatus::PeerStore => {
@@ -1108,6 +1124,21 @@ impl actix::Handler<GetDebugStatus> for PeerManagerActor {
                         .collect::<Vec<_>>(),
                 })
             }
+            GetDebugStatus::Routes => DebugStatus::Routes(self.state.graph_v2.get_debug_view()),
+            GetDebugStatus::SnapshotHosts => DebugStatus::SnapshotHosts(SnapshotHostsView {
+                hosts: self
+                    .state
+                    .snapshot_hosts
+                    .get_hosts()
+                    .iter()
+                    .map(|h| SnapshotHostInfoView {
+                        peer_id: h.peer_id.clone(),
+                        sync_hash: h.sync_hash,
+                        epoch_height: h.epoch_height,
+                        shards: h.shards.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            }),
         }
     }
 }

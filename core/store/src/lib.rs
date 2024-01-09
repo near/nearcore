@@ -13,30 +13,27 @@ use strum;
 
 pub use columns::DBCol;
 pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
-    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
-pub use genesis_state_applier::GenesisStateApplier;
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::contract::ContractCode;
-pub use near_primitives::errors::StorageError;
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+use near_vm_runner::ContractCode;
 
-use crate::db::{
-    refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics,
-    GENESIS_JSON_HASH_KEY, GENESIS_STATE_ROOTS_KEY,
-};
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
 pub use crate::trie::{
-    estimator, split_state, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    estimator, resharding, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
@@ -48,7 +45,6 @@ pub mod config;
 pub mod db;
 pub mod flat;
 pub mod genesis;
-pub mod genesis_state_applier;
 pub mod metadata;
 pub mod metrics;
 pub mod migrations;
@@ -137,7 +133,7 @@ impl NodeStorage {
             None
         };
 
-        Self { hot_storage: hot_storage, cold_storage: cold_db }
+        Self { hot_storage, cold_storage: cold_db }
     }
 
     /// Initialises an opener for a new temporary test store.
@@ -436,11 +432,21 @@ impl StoreUpdate {
     ///
     /// It is a programming error if `insert` overwrites an existing, different
     /// value. Use it for insert-only columns.
-    pub fn insert(&mut self, column: DBCol, key: &[u8], value: &[u8]) {
+    pub fn insert(&mut self, column: DBCol, key: Vec<u8>, value: Vec<u8>) {
         assert!(column.is_insert_only(), "can't insert: {column}");
-        self.transaction.insert(column, key.to_vec(), value.to_vec())
+        self.transaction.insert(column, key, value)
     }
 
+    /// Borsh-serializes a value and inserts it into the database.
+    ///
+    /// It is a programming error if `insert` overwrites an existing, different
+    /// value. Use it for insert-only columns.
+    ///
+    /// Note on performance: The key is always copied into a new allocation,
+    /// which is generally bad. However, the insert-only columns use
+    /// `CryptoHash` as key, which has the data in a small fixed-sized array.
+    /// Copying and allocating that is not prohibitively expensive and we have
+    /// to do it either way. Thus, we take a slice for the key for the nice API.
     pub fn insert_ser<T: BorshSerialize>(
         &mut self,
         column: DBCol,
@@ -448,8 +454,8 @@ impl StoreUpdate {
         value: &T,
     ) -> io::Result<()> {
         assert!(column.is_insert_only(), "can't insert_ser: {column}");
-        let data = value.try_to_vec()?;
-        self.insert(column, key, &data);
+        let data = borsh::to_vec(&value)?;
+        self.insert(column, key.to_vec(), data);
         Ok(())
     }
 
@@ -526,7 +532,7 @@ impl StoreUpdate {
         value: &T,
     ) -> io::Result<()> {
         assert!(!(column.is_rc() || column.is_insert_only()), "can't set_ser: {column}");
-        let data = value.try_to_vec()?;
+        let data = borsh::to_vec(&value)?;
         self.set(column, key, &data);
         Ok(())
     }
@@ -665,7 +671,7 @@ pub fn get<T: BorshDeserialize>(
 
 /// Writes an object into Trie.
 pub fn set<T: BorshSerialize>(state_update: &mut TrieUpdate, key: TrieKey, value: &T) {
-    let data = value.try_to_vec().expect("Borsh serializer is not expected to ever fail");
+    let data = borsh::to_vec(&value).expect("Borsh serializer is not expected to ever fail");
     state_update.set(key, data);
 }
 
@@ -860,6 +866,17 @@ pub fn set_genesis_state_roots(store_update: &mut StoreUpdate, genesis_roots: &[
         .expect("Borsh cannot fail");
 }
 
+fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> io::Result<T>
+where
+    F: std::string::ToString,
+{
+    match res {
+        Ok(Some(o)) => Ok(o),
+        Ok(None) => Err(io::Error::new(io::ErrorKind::NotFound, field_name.to_string())),
+        Err(e) => Err(e),
+    }
+}
+
 pub struct StoreCompiledContractCache {
     db: Arc<dyn Database>,
 }
@@ -881,7 +898,11 @@ impl CompiledContractCache for StoreCompiledContractCache {
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), value.try_to_vec().unwrap());
+        update.set(
+            DBCol::CachedContractCode,
+            key.as_ref().to_vec(),
+            borsh::to_vec(&value).unwrap(),
+        );
         self.db.write(update)
     }
 
@@ -1087,7 +1108,7 @@ mod tests {
         core::mem::drop(file);
         let store = crate::test_utils::create_test_store();
         assert_eq!(
-            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
             store.load_state_from_file(tmp.path()).unwrap_err().kind()
         );
     }

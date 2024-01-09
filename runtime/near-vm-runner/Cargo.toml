@@ -3,44 +3,47 @@ name = "near-vm-runner"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate implements the specification of the interface that Near blockchain exposes to the smart contracts."
 repository.workspace = true
 license.workspace = true
 categories = ["wasm"]
 publish = true
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 blst.workspace = true
+base64.workspace = true
 bn.workspace = true
 borsh.workspace = true
-clap = { workspace = true, optional = true }
 ed25519-dalek.workspace = true
+enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"] }
-wasm-encoder.workspace = true
 loupe.workspace = true
 memoffset.workspace = true
+num-rational.workspace = true
 once_cell.workspace = true
 parity-wasm.workspace = true
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
-serde.workspace = true
+serde_repr.workspace = true
 serde_with.workspace = true
+serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
 stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+wasm-encoder.workspace = true
 wasmparser.workspace = true
 wasmtime = { workspace = true, optional = true }
 
-near-account-id.workspace = true
 near-crypto.workspace = true
-near-fmt.workspace = true
 near-primitives-core.workspace = true
-near-rpc-error-macro.workspace = true
+near-parameters.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
@@ -69,7 +72,6 @@ assert_matches.workspace = true
 bolero.workspace = true
 expect-test.workspace = true
 hex.workspace = true
-near-primitives.workspace = true
 near-test-contracts.workspace = true
 rand.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -79,7 +81,7 @@ wat.workspace = true
 
 [features]
 nightly_protocol = [
-  "near-fmt/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
 # all vms enabled for now
@@ -107,12 +109,6 @@ near_vm = [
     "near-vm-vm"
 ]
 
-# Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer0 = ["wasmer0_vm"]
-force_wasmtime = ["wasmtime_vm"]
-force_wasmer2 = ["wasmer2_vm"]
-force_near_vm = ["near_vm"]
-
 no_cpu_compatibility_checks = []
 
 no_cache = []
@@ -124,13 +120,11 @@ protocol_feature_fix_contract_loading_cost = [
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
-  "near-fmt/nightly",
+  "near-parameters/nightly",
   "near-primitives-core/nightly",
 ]
 sandbox = []
 io_trace = []
-
-dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 
 # Use this feature to enable counting of fees and costs applied.
 costs_counting = []

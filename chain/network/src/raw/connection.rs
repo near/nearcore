@@ -45,8 +45,6 @@ pub struct Connection {
 pub enum RoutedMessage {
     Ping { nonce: u64 },
     Pong { nonce: u64, source: PeerId },
-    StateRequestPart(ShardId, CryptoHash, u64),
-    VersionedStateResponse(StateResponseInfo),
     PartialEncodedChunkRequest(PartialEncodedChunkRequestMsg),
     PartialEncodedChunkResponse(PartialEncodedChunkResponseMsg),
 }
@@ -62,15 +60,6 @@ impl fmt::Debug for RoutedMessage {
         match self {
             Self::Ping { nonce } => write!(f, "Ping({})", nonce),
             Self::Pong { nonce, source } => write!(f, "Pong({}, {})", nonce, source),
-            Self::StateRequestPart(shard_id, hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, hash, part_id)
-            }
-            Self::VersionedStateResponse(r) => write!(
-                f,
-                "VersionedStateResponse(shard_id: {} sync_hash: {})",
-                r.shard_id(),
-                r.sync_hash()
-            ),
             Self::PartialEncodedChunkRequest(r) => write!(f, "PartialEncodedChunkRequest({:?})", r),
             Self::PartialEncodedChunkResponse(r) => write!(
                 f,
@@ -93,6 +82,9 @@ pub enum DirectMessage {
     Block(Block),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockHeaders(Vec<BlockHeader>),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl fmt::Display for DirectMessage {
@@ -115,6 +107,18 @@ impl fmt::Debug for DirectMessage {
                     h.iter().map(|h| format!("#{} {}", h.height(), h.hash())).collect::<Vec<_>>()
                 )
             }
+            Self::StateRequestHeader(shard_id, hash) => {
+                write!(f, "StateRequestHeader({}, {})", shard_id, hash)
+            }
+            Self::StateRequestPart(shard_id, hash, part_id) => {
+                write!(f, "StateRequestPart({}, {}, {})", shard_id, hash, part_id)
+            }
+            Self::VersionedStateResponse(r) => write!(
+                f,
+                "VersionedStateResponse(shard_id: {} sync_hash: {})",
+                r.shard_id(),
+                r.sync_hash()
+            ),
         }
     }
 }
@@ -367,6 +371,15 @@ impl Connection {
             DirectMessage::Block(b) => PeerMessage::Block(b),
             DirectMessage::BlockHeadersRequest(h) => PeerMessage::BlockHeadersRequest(h),
             DirectMessage::BlockHeaders(h) => PeerMessage::BlockHeaders(h),
+            DirectMessage::StateRequestHeader(shard_id, sync_hash) => {
+                PeerMessage::StateRequestHeader(shard_id, sync_hash)
+            }
+            DirectMessage::StateRequestPart(shard_id, sync_hash, part_id) => {
+                PeerMessage::StateRequestPart(shard_id, sync_hash, part_id)
+            }
+            DirectMessage::VersionedStateResponse(request) => {
+                PeerMessage::VersionedStateResponse(request)
+            }
         };
 
         self.stream.write_message(&peer_msg).await
@@ -385,12 +398,6 @@ impl Connection {
             }
             RoutedMessage::Pong { nonce, source } => {
                 RoutedMessageBody::Pong(Pong { nonce, source })
-            }
-            RoutedMessage::StateRequestPart(shard_id, block_hash, part_id) => {
-                RoutedMessageBody::StateRequestPart(shard_id, block_hash, part_id)
-            }
-            RoutedMessage::VersionedStateResponse(response) => {
-                RoutedMessageBody::VersionedStateResponse(response)
             }
             RoutedMessage::PartialEncodedChunkRequest(request) => {
                 RoutedMessageBody::PartialEncodedChunkRequest(request)
@@ -430,12 +437,6 @@ impl Connection {
             RoutedMessageBody::Ping(p) => Some(RoutedMessage::Ping { nonce: p.nonce }),
             RoutedMessageBody::Pong(p) => {
                 Some(RoutedMessage::Pong { nonce: p.nonce, source: p.source.clone() })
-            }
-            RoutedMessageBody::VersionedStateResponse(state_response_info) => {
-                Some(RoutedMessage::VersionedStateResponse(state_response_info.clone()))
-            }
-            RoutedMessageBody::StateRequestPart(shard_id, hash, part_id) => {
-                Some(RoutedMessage::StateRequestPart(*shard_id, *hash, *part_id))
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
                 Some(RoutedMessage::PartialEncodedChunkRequest(request.clone()))
@@ -493,6 +494,12 @@ impl Connection {
                 }
                 PeerMessage::BlockHeaders(headers) => {
                     return Ok((Message::Direct(DirectMessage::BlockHeaders(headers)), timestamp));
+                }
+                PeerMessage::VersionedStateResponse(state_response) => {
+                    return Ok((
+                        Message::Direct(DirectMessage::VersionedStateResponse(state_response)),
+                        timestamp,
+                    ));
                 }
                 _ => {}
             }

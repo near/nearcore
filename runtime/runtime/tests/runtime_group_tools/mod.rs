@@ -1,5 +1,6 @@
 use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, GenesisRecords};
 use near_crypto::{InMemorySigner, KeyType};
+use near_parameters::ActionCosts;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
@@ -10,9 +11,10 @@ use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::{AccountId, AccountInfo, Balance};
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::test_utils::create_tries;
-use near_store::{GenesisStateApplier, ShardTries};
-use near_vm_runner::logic::ActionCosts;
+use near_primitives_core::account::id::AccountIdRef;
+use near_store::genesis::GenesisStateApplier;
+use near_store::test_utils::TestTriesBuilder;
+use near_store::ShardTries;
 use node_runtime::{ApplyState, Runtime};
 use random_config::random_config;
 use std::collections::{HashMap, HashSet};
@@ -259,8 +261,14 @@ impl RuntimeGroup {
             let signer = signer.clone();
             let state_records = Arc::clone(&group.state_records);
             let validators = group.validators.clone();
-            let runtime_factory =
-                move || StandaloneRuntime::new(signer, &state_records, create_tries(), validators);
+            let runtime_factory = move || {
+                StandaloneRuntime::new(
+                    signer,
+                    &state_records,
+                    TestTriesBuilder::new().build(),
+                    validators,
+                )
+            };
             handles.push(Self::start_runtime_in_thread(group.clone(), runtime_factory));
         }
         handles
@@ -321,7 +329,7 @@ impl RuntimeGroup {
         self.executed_receipts
             .lock()
             .unwrap()
-            .get(executing_runtime)
+            .get(AccountIdRef::new_or_panic(executing_runtime))
             .expect("Runtime not found")
             .iter()
             .find_map(|r| if &r.get_hash() == hash { Some(r.clone()) } else { None })
@@ -395,8 +403,8 @@ macro_rules! assert_receipts {
     $($action_name:ident, $action_pat:pat, $action_assert:block ),+
      => [ $($produced_receipt:ident),*] ) => {
         let r = $group.get_receipt($to, $receipt);
-        assert_eq!(r.predecessor_id.as_ref(), $from);
-        assert_eq!(r.receiver_id.as_ref(), $to);
+        assert_eq!(r.predecessor_id, $from);
+        assert_eq!(r.receiver_id, $to);
         match &r.receipt {
             $receipt_pat => {
                 $receipt_assert

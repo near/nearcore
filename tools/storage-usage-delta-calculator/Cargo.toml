@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow.workspace = true
 serde_json.workspace = true
@@ -16,6 +19,7 @@ tracing.workspace = true
 
 near-chain-configs.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 node-runtime.workspace = true

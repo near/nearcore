@@ -7,7 +7,7 @@ features="required"
 
 if [ "$1" == "wasmtime" ]; then
   VMKIND="$1";
-  features="$features,wasmtime"
+  features="$features"
 fi
 if [ "$1" == "lightbeam" ]; then
   VMKIND="wasmtime"

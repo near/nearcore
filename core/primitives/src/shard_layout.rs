@@ -2,7 +2,6 @@ use crate::hash::CryptoHash;
 use crate::types::{AccountId, NumShards};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::types::ShardId;
-use std::cmp::Ordering::Greater;
 use std::collections::HashMap;
 use std::{fmt, str};
 
@@ -25,7 +24,7 @@ use std::{fmt, str};
 /// `version` and `shard_id`
 ///
 /// `get_parent_shard_id` and `get_split_shard_ids`
-/// `ShardLayout` also includes information needed for splitting shards. In particular, it encodes
+/// `ShardLayout` also includes information needed for resharding. In particular, it encodes
 /// which shards from the previous shard layout split to which shards in the following shard layout.
 /// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
 /// we call shard A the parent shard of shard B and C.
@@ -156,17 +155,29 @@ impl ShardLayout {
         )
     }
 
+    /// Returns the simple nightshade layout, version 2, that will be used in production.
+    pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
+        ShardLayout::v1(
+            vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
+            2,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
-    pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
-        self.get_split_shard_ids(parent_shard_id).map(|shards| {
+    pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
+        self.get_children_shards_ids(parent_shard_id).map(|shards| {
             shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
         })
     }
 
     /// Given a parent shard id, return the shard ids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
-    pub fn get_split_shard_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
+    pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
@@ -181,7 +192,7 @@ impl ShardLayout {
     /// Returns error if `shard_id` is an invalid shard id in the current layout
     /// Panics if `self` has no parent shard layout
     pub fn get_parent_shard_id(&self, shard_id: ShardId) -> Result<ShardId, ShardLayoutError> {
-        if shard_id > self.num_shards() {
+        if !self.shard_ids().any(|id| id == shard_id) {
             return Err(ShardLayoutError::InvalidShardIdError { shard_id });
         }
         let parent_shard_id = match self {
@@ -204,17 +215,21 @@ impl ShardLayout {
         }
     }
 
-    #[inline]
-    pub fn num_shards(&self) -> NumShards {
+    fn num_shards(&self) -> NumShards {
         match self {
             Self::V0(v0) => v0.num_shards,
             Self::V1(v1) => (v1.boundary_accounts.len() + 1) as NumShards,
         }
     }
 
-    /// Returns shard uids for all shards in the shard layout
-    pub fn get_shard_uids(&self) -> Vec<ShardUId> {
-        (0..self.num_shards()).map(|x| ShardUId::from_shard_id_and_layout(x, self)).collect()
+    pub fn shard_ids(&self) -> impl Iterator<Item = ShardId> {
+        0..self.num_shards()
+    }
+
+    /// Returns an iterator that iterates over all the shard uids for all the
+    /// shards in the shard layout
+    pub fn shard_uids(&self) -> impl Iterator<Item = ShardUId> + '_ {
+        self.shard_ids().map(|shard_id| ShardUId::from_shard_id_and_layout(shard_id, self))
     }
 }
 
@@ -224,7 +239,7 @@ impl ShardLayout {
 pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout) -> ShardId {
     match shard_layout {
         ShardLayout::V0(ShardLayoutV0 { num_shards, .. }) => {
-            let hash = CryptoHash::hash_bytes(account_id.as_ref().as_bytes());
+            let hash = CryptoHash::hash_bytes(account_id.as_bytes());
             let (bytes, _) = stdx::split_array::<32, 8, 24>(hash.as_bytes());
             u64::from_le_bytes(*bytes) % num_shards
         }
@@ -234,7 +249,7 @@ pub fn account_id_to_shard_id(account_id: &AccountId, shard_layout: &ShardLayout
             // scan. For the time being, with only 4 shards, this is perfectly fine.
             let mut shard_id: ShardId = 0;
             for boundary_account in boundary_accounts {
-                if boundary_account.cmp(account_id) == Greater {
+                if account_id < boundary_account {
                     break;
                 }
                 shard_id += 1;
@@ -287,7 +302,7 @@ impl ShardUId {
 
     /// Constructs a shard uid from shard id and a shard layout
     pub fn from_shard_id_and_layout(shard_id: ShardId, shard_layout: &ShardLayout) -> Self {
-        assert!(shard_id < shard_layout.num_shards());
+        assert!(shard_layout.shard_ids().any(|i| i == shard_id));
         Self { shard_id: shard_id as u32, version: shard_layout.version() }
     }
 
@@ -468,7 +483,7 @@ mod tests {
         let num_shards = 4;
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let mut shard_id_distribution: HashMap<_, _> =
-            (0..num_shards).map(|x| (x, 0)).into_iter().collect();
+            shard_layout.shard_ids().map(|shard_id| (shard_id, 0)).collect();
         let mut rng = StdRng::from_seed([0; 32]);
         for _i in 0..1000 {
             let s: Vec<u8> = (&mut rng).sample_iter(&Alphanumeric).take(10).collect();
@@ -491,11 +506,11 @@ mod tests {
             1,
         );
         assert_eq!(
-            shard_layout.get_split_shard_uids(0).unwrap(),
+            shard_layout.get_children_shards_uids(0).unwrap(),
             (0..3).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
-            shard_layout.get_split_shard_uids(1).unwrap(),
+            shard_layout.get_children_shards_uids(1).unwrap(),
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {
@@ -546,5 +561,82 @@ mod tests {
 
     fn parse_account_ids(ids: &[&str]) -> Vec<AccountId> {
         ids.into_iter().map(|a| a.parse().unwrap()).collect()
+    }
+
+    #[test]
+    fn test_shard_layout_all() {
+        let v0 = ShardLayout::v0(1, 0);
+        let v1 = ShardLayout::get_simple_nightshade_layout();
+        let v2 = ShardLayout::get_simple_nightshade_layout_v2();
+
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
+        {
+          "V0": {
+            "num_shards": 1,
+            "version": 0
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v1).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near"
+            ],
+            "shards_split_map": [
+              [
+                0,
+                1,
+                2,
+                3
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              0,
+              0,
+              0
+            ],
+            "version": 1
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v2).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shards_split_map": [
+              [
+                0
+              ],
+              [
+                1
+              ],
+              [
+                2
+              ],
+              [
+                3,
+                4
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              1,
+              2,
+              3,
+              3
+            ],
+            "version": 2
+          }
+        }
+        "###);
     }
 }

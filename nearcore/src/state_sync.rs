@@ -1,5 +1,5 @@
 use crate::metrics;
-use borsh::BorshSerialize;
+
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
@@ -13,12 +13,11 @@ use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
-use near_primitives::syncing::{get_num_state_parts, StatePartKey, StateSyncDumpProgress};
+use near_primitives::state_sync::{StatePartKey, StateSyncDumpProgress};
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,7 +31,6 @@ pub fn spawn_state_sync_dump(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     account_id: Option<AccountId>,
-    credentials_file: Option<PathBuf>,
 ) -> anyhow::Result<Option<StateSyncDumpHandle>> {
     let dump_config = if let Some(dump_config) = client_config.state_sync.dump.clone() {
         dump_config
@@ -45,15 +43,30 @@ pub fn spawn_state_sync_dump(
 
     let external = match dump_config.location {
         ExternalStorageLocation::S3 { bucket, region } => ExternalConnection::S3{
-            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), credentials_file).expect(
+            bucket: Arc::new(create_bucket_readwrite(&bucket, &region, Duration::from_secs(30), dump_config.credentials_file).expect(
                 "Failed to authenticate connection to S3. Please either provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the environment, or create a credentials file and link it in config.json as 's3_credentials_file'."))
         },
         ExternalStorageLocation::Filesystem { root_dir } => ExternalConnection::Filesystem { root_dir },
+        ExternalStorageLocation::GCS { bucket } => {
+            if let Some(credentials_file) = dump_config.credentials_file {
+                if let Ok(var) = std::env::var("SERVICE_ACCOUNT") {
+                    tracing::warn!(target: "state_sync_dump", "Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                    println!("Environment variable 'SERVICE_ACCOUNT' is set to {var}, but 'credentials_file' in config.json overrides it to '{credentials_file:?}'");
+                }
+                std::env::set_var("SERVICE_ACCOUNT", &credentials_file);
+                tracing::info!(target: "state_sync_dump", "Set the environment variable 'SERVICE_ACCOUNT' to '{credentials_file:?}'");
+            }
+            ExternalConnection::GCS {
+                gcs_client: Arc::new(cloud_storage::Client::default()),
+                reqwest_client: Arc::new(reqwest::Client::default()),
+                bucket
+            }
+        },
     };
 
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
-    let num_shards = {
+    let shard_ids = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
             epoch_manager.clone(),
@@ -64,13 +77,14 @@ pub fn spawn_state_sync_dump(
             false,
         )?;
         let epoch_id = chain.head()?.epoch_id;
-        epoch_manager.num_shards(&epoch_id)
+        epoch_manager.shard_ids(&epoch_id)
     }?;
 
     let chain_id = client_config.chain_id.clone();
     let keep_running = Arc::new(AtomicBool::new(true));
     // Start a thread for each shard.
-    let handles = (0..num_shards as usize)
+    let handles = shard_ids
+        .into_iter()
         .map(|shard_id| {
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();
@@ -125,7 +139,7 @@ impl StateSyncDumpHandle {
     }
 }
 
-fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
+pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
 }
@@ -173,8 +187,8 @@ fn get_current_state(
     account_id: &Option<AccountId>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
-    let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
-        Ok(Some(StateSyncDumpProgress::AllDumped { epoch_id, .. })) => Some(epoch_id),
+    let was_last_epoch_dumped = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
+        Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
 
@@ -222,7 +236,7 @@ async fn state_sync_dump(
 
     if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
-        chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
+        chain.chain_store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }
 
     // Stop if the node is stopped.
@@ -338,11 +352,7 @@ async fn state_sync_dump(
                                         &shard_id,
                                         epoch_height,
                                         Some(state_part.len()),
-                                        num_parts
-                                            .checked_sub(
-                                                parts_to_dump.len().checked_add(1).unwrap() as u64,
-                                            )
-                                            .unwrap(),
+                                        num_parts.checked_sub(parts_to_dump.len() as u64).unwrap(),
                                         num_parts,
                                     );
                                     dumped_any_state_part = true;
@@ -373,7 +383,7 @@ async fn state_sync_dump(
         let has_progress = match next_state {
             Some(next_state) => {
                 tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
-                match chain.store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
+                match chain.chain_store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
                     Ok(_) => true,
                     Err(err) => {
                         // This will be retried.
@@ -405,7 +415,7 @@ fn get_in_progress_data(
 ) -> Result<(StateRoot, u64, CryptoHash), Error> {
     let state_header = chain.get_state_response_header(shard_id, sync_hash)?;
     let state_root = state_header.chunk_prev_state_root();
-    let num_parts = get_num_state_parts(state_header.state_root_node().memory_usage);
+    let num_parts = state_header.num_state_parts();
 
     let sync_block_header = chain.get_block_header(&sync_hash)?;
     let sync_prev_block_header = chain.get_previous_header(&sync_block_header)?;
@@ -457,8 +467,8 @@ fn obtain_and_store_state_part(
         PartId::new(part_id, num_parts),
     )?;
 
-    let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-    let mut store_update = chain.store().store().store_update();
+    let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
+    let mut store_update = chain.chain_store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;
     Ok(state_part)

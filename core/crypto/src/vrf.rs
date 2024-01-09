@@ -26,6 +26,9 @@ impl PublicKey {
         self.is_valid(input.borrow(), value, proof)
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn is_valid(&self, input: &[u8], value: &Value, proof: &Proof) -> bool {
         let p = unwrap_or_return_false!(unpack(&value.0));
         let (r, c) = unwrap_or_return_false!(unpack(&proof.0));
@@ -38,12 +41,16 @@ impl PublicKey {
     }
 }
 
+// FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+// unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+// manner.
+#[allow(clippy::arithmetic_side_effects)]
 fn basemul(s: Scalar) -> Point {
-    &s * &GT
+    &s * &*GT
 }
 
 fn safe_invert(s: Scalar) -> Scalar {
-    Scalar::conditional_select(&s, &Scalar::one(), s.ct_eq(&Scalar::zero())).invert()
+    Scalar::conditional_select(&s, &Scalar::ONE, s.ct_eq(&Scalar::ZERO)).invert()
 }
 
 impl SecretKey {
@@ -64,6 +71,10 @@ impl SecretKey {
         self.compute(input.borrow())
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+    // manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn compute(&self, input: &[u8]) -> Value {
         Value(basemul(safe_invert(self.0 + self.1.offset(input))).pack())
     }
@@ -72,6 +83,10 @@ impl SecretKey {
         self.compute_with_proof(input.borrow())
     }
 
+    // FIXME: no clear fix is available here -- the underlying library runs a non-trivial amount of
+    // unchecked arithmetic inside and provides no apparent way to do it in a checked or wrapping
+    // manner.
+    #[allow(clippy::arithmetic_side_effects)]
     fn compute_with_proof(&self, input: &[u8]) -> (Value, Proof) {
         let x = self.0 + self.1.offset(input);
         let inv = safe_invert(x);
@@ -107,7 +122,7 @@ traits!(SecretKey, 32, |s| s.0.as_bytes(), "secret key");
 mod tests {
     use super::*;
 
-    use rand::rngs::OsRng;
+    use secp256k1::rand::rngs::OsRng;
     use serde::{Deserialize, Serialize};
     use serde_json::{from_str, to_string};
 

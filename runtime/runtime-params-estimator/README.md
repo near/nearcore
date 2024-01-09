@@ -27,7 +27,7 @@ Use this tool to measure the running time of elementary runtime operations that 
    Rather, the costs are hard-codded in the `Default` impl for `RuntimeConfig`.
    You can run `cargo run --package runtime-params-estimator --bin runtime-params-estimator -- --costs-file costs.txt` to convert cost table into `RuntimeConfig`.
 
-3. **Continuous Estimation**: Take a look at [`continuous-estimation/README.md`](./continuous-estimation/README.md) to learn about the automated setup around the parameter estimator.
+3. **Continuous Estimation**: Take a look at [`estimator-warehouse/README.md`](./estimator-warehouse/README.md) to learn about the automated setup around the parameter estimator.
 
 Note, if you use the plotting functionality you would need to install [gnuplot](http://gnuplot.info/) to see the graphs.
 
@@ -52,7 +52,7 @@ cargo run -p runtime-params-estimator -- replay my_trace.log cache-stats
   STORAGE WRITE 151412 requests for a total of  2512012 B
   TRIE NODES    8878276 /375708 /27383  (chunk-cache/shard-cache/DB)
   SHARD CACHE         93.21% hit rate,  93.21% if removing 15 too large nodes from total
-  CHUNK CACHE         95.66% hit rate,  99.69% if removing 375708 shard cache hits from total
+  ACCOUNTING CACHE         95.66% hit rate,  99.69% if removing 375708 shard cache hits from total
 ```
 
 For a list of all options, run `cargo run -p runtime-params-estimator -- replay --help`.

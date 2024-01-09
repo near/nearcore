@@ -190,7 +190,7 @@ pub fn make_chunk_parts(chunk: ShardChunk) -> Vec<PartialEncodedChunkPart> {
     let (parts, _) = EncodedShardChunk::encode_transaction_receipts(
         &mut rs,
         chunk.transactions().to_vec(),
-        &chunk.receipts(),
+        &chunk.prev_outgoing_receipts(),
     )
     .unwrap();
     let mut content = EncodedShardChunkBody { parts };
@@ -216,15 +216,11 @@ impl ChunkSet {
         Self { chunks: HashMap::default() }
     }
     pub fn make(&mut self) -> Vec<ShardChunk> {
+        let shard_ids: Vec<_> = (0..4).collect();
         // TODO: these are always genesis chunks.
         // Consider making this more realistic.
-        let chunks = genesis_chunks(
-            vec![StateRoot::new()], // state_roots
-            4,                      // num_shards
-            1000,                   // initial_gas_limit
-            0,                      // genesis_height
-            version::PROTOCOL_VERSION,
-        );
+        let chunks =
+            genesis_chunks(vec![StateRoot::new()], &shard_ids, 1000, 0, version::PROTOCOL_VERSION);
         self.chunks.extend(chunks.iter().map(|c| (c.chunk_hash(), c.clone())));
         chunks
     }
@@ -250,7 +246,7 @@ pub struct Chain {
 }
 
 impl Chain {
-    pub fn make<R: Rng>(clock: &mut time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
+    pub fn make<R: Rng>(clock: &time::FakeClock, rng: &mut R, block_count: usize) -> Chain {
         let mut chunks = ChunkSet::new();
         let mut blocks = vec![];
         blocks.push(make_genesis_block(&clock.clock(), chunks.make()));

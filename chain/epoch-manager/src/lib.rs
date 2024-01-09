@@ -6,7 +6,8 @@ use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
-    AllEpochConfig, EpochConfig, ShardConfig, SlashState, AGGREGATOR_KEY,
+    AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig, ShardConfig, SlashState,
+    AGGREGATOR_KEY,
 };
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -17,6 +18,7 @@ use near_primitives::types::{
     EpochInfoProvider, NumBlocks, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
+use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -152,8 +154,17 @@ impl EpochManager {
         store: Store,
         genesis_config: &GenesisConfig,
     ) -> Result<Self, EpochError> {
+        Self::new_from_genesis_config_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_from_genesis_config_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Result<Self, EpochError> {
         let reward_calculator = RewardCalculator::new(genesis_config);
-        let all_epoch_config = AllEpochConfig::from(genesis_config);
+        let all_epoch_config =
+            Self::new_all_epoch_config_with_test_overrides(genesis_config, test_overrides);
         Self::new(
             store,
             all_epoch_config,
@@ -164,7 +175,37 @@ impl EpochManager {
     }
 
     pub fn new_arc_handle(store: Store, genesis_config: &GenesisConfig) -> Arc<EpochManagerHandle> {
-        Arc::new(Self::new_from_genesis_config(store, genesis_config).unwrap().into_handle())
+        Self::new_arc_handle_with_test_overrides(store, genesis_config, None)
+    }
+
+    pub fn new_arc_handle_with_test_overrides(
+        store: Store,
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> Arc<EpochManagerHandle> {
+        Arc::new(
+            Self::new_from_genesis_config_with_test_overrides(
+                store,
+                genesis_config,
+                test_overrides,
+            )
+            .unwrap()
+            .into_handle(),
+        )
+    }
+
+    fn new_all_epoch_config_with_test_overrides(
+        genesis_config: &GenesisConfig,
+        test_overrides: Option<AllEpochConfigTestOverrides>,
+    ) -> AllEpochConfig {
+        let initial_epoch_config = EpochConfig::from(genesis_config);
+        let epoch_config = AllEpochConfig::new_with_test_overrides(
+            genesis_config.use_production_config(),
+            initial_epoch_config,
+            &genesis_config.chain_id,
+            test_overrides,
+        );
+        epoch_config
     }
 
     pub fn new(
@@ -325,7 +366,6 @@ impl EpochManager {
     /// we don't kick out too many validators in case of network instability.
     /// We also make sure that these exempted validators were not kicked out in the last epoch,
     /// so it is guaranteed that they will stay as validators after this epoch.
-    #[allow(unused_variables)]
     fn compute_exempted_kickout(
         epoch_info: &EpochInfo,
         validator_block_chunk_stats: &HashMap<AccountId, BlockChunkValidatorStats>,
@@ -340,7 +380,6 @@ impl EpochManager {
         // until the total excepted stake exceeds the ratio of total stake that we need to keep.
         // Later when we perform the check to kick out validators, we don't kick out validators in
         // exempted_validators.
-        #[allow(unused_mut)]
         let mut exempted_validators = HashSet::new();
         if checked_feature!("stable", MaxKickoutStake, epoch_info.protocol_version()) {
             let min_keep_stake = total_stake * (exempt_perc as u128) / 100;
@@ -420,7 +459,6 @@ impl EpochManager {
         let block_producer_kickout_threshold = config.block_producer_kickout_threshold;
         let chunk_producer_kickout_threshold = config.chunk_producer_kickout_threshold;
         let mut validator_block_chunk_stats = HashMap::new();
-        #[allow(unused)]
         let mut total_stake: Balance = 0;
         let mut maximum_block_prod = 0;
         let mut max_validator = None;
@@ -558,11 +596,10 @@ impl EpochManager {
         let next_version = if let Some((version, stake)) =
             versions.into_iter().max_by_key(|&(_version, stake)| stake)
         {
-            if stake
-                > (total_block_producer_stake
-                    * *config.protocol_upgrade_stake_threshold.numer() as u128)
-                    / *config.protocol_upgrade_stake_threshold.denom() as u128
-            {
+            let numer = *config.protocol_upgrade_stake_threshold.numer() as u128;
+            let denom = *config.protocol_upgrade_stake_threshold.denom() as u128;
+            let threshold = total_block_producer_stake * numer / denom;
+            if stake > threshold {
                 version
             } else {
                 protocol_version
@@ -570,7 +607,6 @@ impl EpochManager {
         } else {
             protocol_version
         };
-
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
@@ -881,6 +917,30 @@ impl EpochManager {
         })
     }
 
+    /// Returns the list of chunk validators for the given shard_id and height.
+    pub fn get_chunk_validators(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+        let epoch_info = self.get_epoch_info(epoch_id)?;
+        let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
+        let chunk_validators =
+            chunk_validators_per_shard.get(shard_id as usize).ok_or_else(|| {
+                EpochError::ChunkValidatorSelectionError(format!(
+                    "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
+                    shard_id, height, epoch_id,
+                ))
+            })?;
+        Ok(chunk_validators
+            .iter()
+            .map(|(validator_id, seats)| {
+                (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
+            })
+            .collect())
+    }
+
     /// get_heuristic_block_approvers_ordered: block producers for epoch
     /// get_all_block_producers_ordered: block producers for epoch, slashing info
     /// get_all_block_approvers_ordered: block producers for epoch, slashing info, sometimes block producers for next epoch
@@ -1028,7 +1088,7 @@ impl EpochManager {
         if self.will_shard_layout_change(parent_hash)? {
             let shard_layout = self.get_shard_layout(&next_epoch_id)?;
             let split_shards = shard_layout
-                .get_split_shard_ids(shard_id)
+                .get_children_shards_ids(shard_id)
                 .expect("all shard layouts expect the first one must have a split map");
             for next_shard_id in split_shards {
                 if self.cares_about_shard_in_epoch(
@@ -1049,6 +1109,20 @@ impl EpochManager {
     pub fn is_next_block_epoch_start(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let block_info = self.get_block_info(parent_hash)?;
         self.is_next_block_in_next_epoch(&block_info)
+    }
+
+    /// Relies on the fact that last block hash of an epoch is an EpochId of next next epoch.
+    /// If this block is the last one in some epoch, and we fully processed it, there will be `EpochInfo` record with `hash` key.
+    fn is_last_block_in_finished_epoch(&self, hash: &CryptoHash) -> Result<bool, EpochError> {
+        match self.get_epoch_info(&EpochId(*hash)) {
+            Ok(_) => Ok(true),
+            Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::MissingBlock(_)) => Ok(false),
+            Err(err) => {
+                warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");
+                Ok(false)
+            }
+        }
     }
 
     pub fn get_epoch_id_from_prev_block(
@@ -1807,5 +1881,63 @@ impl EpochManager {
         } else {
             Ok(None)
         }
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    pub fn get_all_epoch_hashes_from_db(
+        &self,
+        last_block_info: &BlockInfo,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_db", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let first_epoch_block_height =
+            self.get_block_info(last_block_info.epoch_first_block())?.height();
+        let mut current_block_info = last_block_info.clone();
+        while current_block_info.hash() != last_block_info.epoch_first_block() {
+            // Check that we didn't reach previous epoch.
+            // This only should happen if BlockInfo data is incorrect.
+            // Without this assert same BlockInfo will cause infinite loop instead of crash with a message.
+            assert!(
+                current_block_info.height() > first_epoch_block_height,
+                "Reached {:?} from {:?} when first epoch height is {:?}",
+                current_block_info,
+                last_block_info,
+                first_epoch_block_height
+            );
+
+            result.push(*current_block_info.hash());
+            current_block_info = (*self.get_block_info(current_block_info.prev_hash())?).clone();
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(*current_block_info.hash());
+
+        Ok(result)
+    }
+
+    #[cfg(feature = "new_epoch_sync")]
+    fn get_all_epoch_hashes_from_cache(
+        &self,
+        last_block_info: &BlockInfo,
+        hash_to_prev_hash: &HashMap<CryptoHash, CryptoHash>,
+    ) -> Result<Vec<CryptoHash>, EpochError> {
+        let _span =
+            tracing::debug_span!(target: "epoch_manager", "get_all_epoch_hashes_from_cache", ?last_block_info)
+                .entered();
+
+        let mut result = vec![];
+        let mut current_hash = *last_block_info.hash();
+        while current_hash != *last_block_info.epoch_first_block() {
+            result.push(current_hash);
+            current_hash = *hash_to_prev_hash
+                .get(&current_hash)
+                .ok_or(EpochError::MissingBlock(current_hash))?;
+        }
+        // First block of an epoch is not covered by the while loop.
+        result.push(current_hash);
+
+        Ok(result)
     }
 }

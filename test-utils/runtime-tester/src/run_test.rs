@@ -5,10 +5,12 @@ use near_client::ProcessTxResponse;
 use near_client_primitives::types::Error;
 use near_crypto::InMemorySigner;
 use near_epoch_manager::EpochManager;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonce};
+use near_store::config::StateSnapshotType;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::{config::GenesisExt, NightshadeRuntime};
 use std::io;
@@ -34,7 +36,7 @@ impl Scenario {
             self.network_config.seeds.iter().map(|x| x.parse().unwrap()).collect();
         let clients = vec![accounts[0].clone()];
         let mut genesis = Genesis::test(accounts, 1);
-        let mut runtime_config = near_primitives::runtime::config::RuntimeConfig::test();
+        let mut runtime_config = near_parameters::RuntimeConfig::test();
         runtime_config.wasm_config.limit_config.max_total_prepaid_gas =
             self.runtime_config.max_total_prepaid_gas;
         genesis.config.epoch_length = self.runtime_config.epoch_length;
@@ -48,13 +50,16 @@ impl Scenario {
             let store = opener.open().unwrap();
             (Some(tempdir), store.get_hot_store())
         };
+        let home_dir = tempdir.as_ref().map(|d| d.path());
+        initialize_genesis_state(store.clone(), &genesis, home_dir);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            if let Some(tempdir) = &tempdir { tempdir.path() } else { Path::new(".") },
+            home_dir.unwrap_or(Path::new(".")),
             store.clone(),
-            &genesis,
+            &genesis.config,
             epoch_manager.clone(),
             runtime_config_store,
+            StateSnapshotType::ForReshardingOnly,
         );
 
         let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
@@ -80,10 +85,13 @@ impl Scenario {
             for tx in &block.transactions {
                 let signed_tx = tx.to_signed_transaction(&last_block);
                 block_stats.tx_hashes.push(signed_tx.get_hash());
-                assert_eq!(
-                    env.clients[0].process_tx(signed_tx, false, false),
-                    ProcessTxResponse::ValidTx
-                );
+                if !self.is_fuzzing {
+                    // fuzzing can generate invalid transactions
+                    assert_eq!(
+                        env.clients[0].process_tx(signed_tx, false, false),
+                        ProcessTxResponse::ValidTx
+                    );
+                }
             }
 
             let start_time = cpu_time::ProcessTime::now();
@@ -108,6 +116,7 @@ pub struct Scenario {
     pub runtime_config: RuntimeConfig,
     pub blocks: Vec<BlockConfig>,
     pub use_in_memory_store: bool,
+    pub is_fuzzing: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

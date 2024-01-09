@@ -4,17 +4,14 @@ use crate::rocksdb_stats::get_rocksdb_stats;
 use crate::trie_iteration_benchmark::TrieIterationBenchmarkCmd;
 
 use near_chain_configs::{GenesisChangeConfig, GenesisValidationMode};
-
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ChunkHash;
-
+use near_primitives::trie_key::col;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_store::{Mode, NodeStorage, Store, Temperature};
 use nearcore::{load_config, NearConfig};
-
 use std::path::{Path, PathBuf};
-
 use std::str::FromStr;
 
 #[derive(clap::Subcommand)]
@@ -86,6 +83,9 @@ pub enum StateViewerSubCommand {
     StateChanges(StateChangesCmd),
     /// Dump or apply state parts.
     StateParts(StatePartsCmd),
+    /// Iterates over the Flat State and prints some statistics.
+    /// e.g. large accounts, total, average and median size, middle account
+    StateStats(StateStatsCmd),
     /// Benchmark how long does it take to iterate the trie.
     TrieIterationBenchmark(TrieIterationBenchmarkCmd),
     /// View head of the storage.
@@ -147,6 +147,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::State => state(home_dir, near_config, store),
             StateViewerSubCommand::StateChanges(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::StateParts(cmd) => cmd.run(home_dir, near_config, store),
+            StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
@@ -160,11 +161,21 @@ pub struct ApplyCmd {
     height: BlockHeight,
     #[clap(long)]
     shard_id: ShardId,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
-        apply_block_at_height(self.height, self.shard_id, home_dir, near_config, store).unwrap();
+        apply_block_at_height(
+            self.height,
+            self.shard_id,
+            self.use_flat_storage,
+            home_dir,
+            near_config,
+            store,
+        )
+        .unwrap();
     }
 }
 
@@ -174,12 +185,15 @@ pub struct ApplyChunkCmd {
     chunk_hash: String,
     #[clap(long)]
     target_height: Option<u64>,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyChunkCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = ChunkHash::from(CryptoHash::from_str(&self.chunk_hash).unwrap());
-        apply_chunk(home_dir, near_config, store, hash, self.target_height).unwrap()
+        apply_chunk(home_dir, near_config, store, hash, self.target_height, self.use_flat_storage)
+            .unwrap()
     }
 }
 
@@ -199,6 +213,8 @@ pub struct ApplyRangeCmd {
     only_contracts: bool,
     #[clap(long)]
     sequential: bool,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyRangeCmd {
@@ -214,6 +230,7 @@ impl ApplyRangeCmd {
             store,
             self.only_contracts,
             self.sequential,
+            self.use_flat_storage,
         );
     }
 }
@@ -222,12 +239,14 @@ impl ApplyRangeCmd {
 pub struct ApplyReceiptCmd {
     #[clap(long)]
     hash: String,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyReceiptCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_receipt(home_dir, near_config, store, hash).unwrap();
+        apply_receipt(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
     }
 }
 
@@ -235,12 +254,14 @@ impl ApplyReceiptCmd {
 pub struct ApplyTxCmd {
     #[clap(long)]
     hash: String,
+    #[clap(long)]
+    use_flat_storage: bool,
 }
 
 impl ApplyTxCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
-        apply_tx(home_dir, near_config, store, hash).unwrap();
+        apply_tx(home_dir, near_config, store, hash, self.use_flat_storage).unwrap();
     }
 }
 
@@ -505,12 +526,16 @@ pub struct ScanDbColumnCmd {
     #[clap(long)]
     from_bytes: Option<String>,
     #[clap(long)]
+    from_hash: Option<CryptoHash>,
+    #[clap(long)]
     to: Option<String>,
     // List of comma-separated u8-values.
     // For example, if a column key starts wth ShardUId and you want to scan starting from s2.v1 use `--from-bytes 1,0,0,0,2,0,0,0`.
     // Note that the numbers are generally saved as low-endian.
     #[clap(long)]
     to_bytes: Option<String>,
+    #[clap(long)]
+    to_hash: Option<CryptoHash>,
     #[clap(long)]
     max_keys: Option<usize>,
     #[clap(long, default_value = "false")]
@@ -519,8 +544,8 @@ pub struct ScanDbColumnCmd {
 
 impl ScanDbColumnCmd {
     pub fn run(self, store: Store) {
-        let lower_bound = Self::prefix(self.from, self.from_bytes);
-        let upper_bound = Self::prefix(self.to, self.to_bytes);
+        let lower_bound = Self::prefix(self.from, self.from_bytes, self.from_hash);
+        let upper_bound = Self::prefix(self.to, self.to_bytes, self.to_hash);
         crate::scan_db::scan_db_column(
             &self.column,
             lower_bound.as_deref().map(|v| v.as_ref()),
@@ -531,16 +556,19 @@ impl ScanDbColumnCmd {
         )
     }
 
-    fn prefix(s: Option<String>, bytes: Option<String>) -> Option<Vec<u8>> {
-        match (s, bytes) {
-            (None, None) => None,
-            (Some(s), None) => Some(s.into_bytes()),
-            (None, Some(bytes)) => {
+    fn prefix(
+        s: Option<String>,
+        bytes: Option<String>,
+        hash: Option<CryptoHash>,
+    ) -> Option<Vec<u8>> {
+        match (s, bytes, hash) {
+            (None, None, None) => None,
+            (Some(s), None, None) => Some(s.into_bytes()),
+            (None, Some(bytes), None) => {
                 Some(bytes.split(",").map(|s| s.parse::<u8>().unwrap()).collect::<Vec<u8>>())
             }
-            (Some(_), Some(_)) => {
-                panic!("Provided both a Vec and a String as a prefix")
-            }
+            (None, None, Some(hash)) => Some(borsh::to_vec(&hash).unwrap()),
+            _ => panic!("Need to provide exactly one of bytes, str, or hash"),
         }
     }
 }
@@ -571,6 +599,9 @@ pub struct StatePartsCmd {
     /// Store state parts in an S3 bucket.
     #[clap(long)]
     s3_region: Option<String>,
+    /// Store state parts in an GCS bucket.
+    #[clap(long)]
+    gcs_bucket: Option<String>,
     /// Dump or Apply state parts.
     #[clap(subcommand)]
     command: crate::state_parts::StatePartsSubCommand,
@@ -583,12 +614,23 @@ impl StatePartsCmd {
             self.root_dir,
             self.s3_bucket,
             self.s3_region,
+            self.gcs_bucket,
             home_dir,
             near_config,
             store,
         );
     }
 }
+
+#[derive(clap::Parser)]
+pub struct StateStatsCmd {}
+
+impl StateStatsCmd {
+    pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        print_state_stats(home_dir, store, near_config);
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewChainCmd {
     #[clap(long)]
@@ -624,6 +666,55 @@ impl clap::ValueEnum for ViewTrieFormat {
     }
 }
 
+/// Possible record types in a state trie.
+#[derive(Clone)]
+#[repr(u8)]
+pub enum RecordType {
+    Account = col::ACCOUNT,
+    ContractCode = col::CONTRACT_CODE,
+    AccessKey = col::ACCESS_KEY,
+    ReceivedData = col::RECEIVED_DATA,
+    PostponedReceiptId = col::POSTPONED_RECEIPT_ID,
+    PendingDataCount = col::PENDING_DATA_COUNT,
+    PostponedReceipt = col::POSTPONED_RECEIPT,
+    DelayedReceiptOrIndices = col::DELAYED_RECEIPT_OR_INDICES,
+    ContractData = col::CONTRACT_DATA,
+}
+
+impl clap::ValueEnum for RecordType {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            Self::Account,
+            Self::ContractCode,
+            Self::AccessKey,
+            Self::ReceivedData,
+            Self::PostponedReceiptId,
+            Self::PendingDataCount,
+            Self::PostponedReceipt,
+            Self::DelayedReceiptOrIndices,
+            Self::ContractData,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            Self::Account => Some(clap::builder::PossibleValue::new("account")),
+            Self::ContractCode => Some(clap::builder::PossibleValue::new("contract-code")),
+            Self::AccessKey => Some(clap::builder::PossibleValue::new("access-key")),
+            Self::ReceivedData => Some(clap::builder::PossibleValue::new("received-data")),
+            Self::PostponedReceiptId => {
+                Some(clap::builder::PossibleValue::new("postponed-receipt-id"))
+            }
+            Self::PendingDataCount => Some(clap::builder::PossibleValue::new("pending-data-count")),
+            Self::PostponedReceipt => Some(clap::builder::PossibleValue::new("postponed-receipt")),
+            Self::DelayedReceiptOrIndices => {
+                Some(clap::builder::PossibleValue::new("delayed-receipt-or-indices"))
+            }
+            Self::ContractData => Some(clap::builder::PossibleValue::new("contract-data")),
+        }
+    }
+}
+
 #[derive(clap::Parser)]
 pub struct ViewTrieCmd {
     /// The format of the output. This can be either `full` or `pretty`.
@@ -652,19 +743,53 @@ pub struct ViewTrieCmd {
     /// For format=pretty this measures depth in terms of key nibbles.
     #[clap(long)]
     max_depth: u32,
+    /// Limits how many entries are printed to the output.
+    #[clap(long)]
+    limit: Option<u32>,
+    /// Filters output to only show records of the given type.
+    #[clap(long)]
+    record_type: Option<RecordType>,
+    /// Skips nodes which AccountId is lexicographically less than `from` (except being a prefix of `from`).
+    #[clap(long)]
+    from: Option<AccountId>,
+    /// Skips nodes which AccountId is lexicographically greater than `to`.
+    #[clap(long)]
+    to: Option<AccountId>,
 }
 
 impl ViewTrieCmd {
     pub fn run(self, store: Store) {
         let hash = CryptoHash::from_str(&self.hash).unwrap();
+        let record_type = self.record_type.map(|c| c as u8);
 
         match self.format {
             ViewTrieFormat::Full => {
-                view_trie(store, hash, self.shard_id, self.shard_version, self.max_depth).unwrap();
+                view_trie(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    record_type,
+                    self.from,
+                    self.to,
+                )
+                .unwrap();
             }
             ViewTrieFormat::Pretty => {
-                view_trie_leaves(store, hash, self.shard_id, self.shard_version, self.max_depth)
-                    .unwrap();
+                view_trie_leaves(
+                    store,
+                    hash,
+                    self.shard_id,
+                    self.shard_version,
+                    self.max_depth,
+                    self.limit,
+                    record_type,
+                    self.from,
+                    self.to,
+                )
+                .unwrap();
             }
         }
     }

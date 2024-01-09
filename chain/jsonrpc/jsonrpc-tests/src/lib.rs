@@ -1,10 +1,15 @@
+use std::sync::Arc;
+
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
 use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
 use near_jsonrpc::{start_http, RpcConfig};
-use near_jsonrpc_primitives::message::{from_slice, Message};
+use near_jsonrpc_primitives::{
+    message::{from_slice, Message},
+    types::entity_debug::DummyEntityDebugHandler,
+};
 use near_network::tcp;
 use near_primitives::types::NumBlocks;
 use once_cell::sync::Lazy;
@@ -28,7 +33,7 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
-        vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
+        vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
         } else {
@@ -46,12 +51,12 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
         actor_handles.client_actor,
         actor_handles.view_client_actor.clone(),
         None,
+        Arc::new(DummyEntityDebugHandler {}),
     );
     (actor_handles.view_client_actor, addr)
 }
 
 #[macro_export]
-#[allow(unused_macros)] // Suppress Rustc warnings even though this macro is used.
 macro_rules! test_with_client {
     ($node_type:expr, $client:ident, $block:expr) => {
         init_test_logger();

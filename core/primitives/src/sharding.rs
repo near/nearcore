@@ -8,9 +8,12 @@ use crate::validator_signer::ValidatorSigner;
 use crate::version::{ProtocolFeature, ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use near_fmt::AbbrBytes;
 use reed_solomon_erasure::galois_8::{Field, ReedSolomon};
 use reed_solomon_erasure::ReconstructShard;
+use std::cmp::Ordering;
 use std::sync::Arc;
+use tracing::debug_span;
 
 #[derive(
     BorshSerialize,
@@ -70,7 +73,7 @@ pub use shard_chunk_header_inner::{
 };
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV1 {
     pub inner: ShardChunkHeaderInnerV1,
 
@@ -79,12 +82,12 @@ pub struct ShardChunkHeaderV1 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV2 {
     pub inner: ShardChunkHeaderInnerV1,
 
@@ -93,7 +96,7 @@ pub struct ShardChunkHeaderV2 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 
@@ -103,7 +106,7 @@ impl ShardChunkHeaderV2 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInnerV1) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(combine_hash(&inner_hash, &inner.encoded_merkle_root))
@@ -112,33 +115,33 @@ impl ShardChunkHeaderV2 {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
         shard_id: ShardId,
-        gas_used: Gas,
+        prev_gas_used: Gas,
         gas_limit: Gas,
-        balance_burnt: Balance,
-        outgoing_receipts_root: CryptoHash,
+        prev_balance_burnt: Balance,
+        prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStakeV1>,
+        prev_validator_proposals: Vec<ValidatorStakeV1>,
         signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInnerV1 {
             prev_block_hash,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
             shard_id,
-            gas_used,
+            prev_gas_used,
             gas_limit,
-            balance_burnt,
-            outgoing_receipts_root,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
             tx_root,
-            validator_proposals,
+            prev_validator_proposals,
         };
         let hash = Self::compute_hash(&inner);
         let signature = signer.sign_chunk_hash(&hash);
@@ -148,7 +151,7 @@ impl ShardChunkHeaderV2 {
 
 // V2 -> V3: Use versioned ShardChunkHeaderInner structure
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct ShardChunkHeaderV3 {
     pub inner: ShardChunkHeaderInner,
 
@@ -157,7 +160,7 @@ pub struct ShardChunkHeaderV3 {
     /// Signature of the chunk producer.
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: ChunkHash,
 }
 
@@ -167,7 +170,7 @@ impl ShardChunkHeaderV3 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInner) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(combine_hash(&inner_hash, inner.encoded_merkle_root()))
@@ -176,34 +179,38 @@ impl ShardChunkHeaderV3 {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
         shard_id: ShardId,
-        gas_used: Gas,
+        prev_gas_used: Gas,
         gas_limit: Gas,
-        balance_burnt: Balance,
-        outgoing_receipts_root: CryptoHash,
+        prev_balance_burnt: Balance,
+        prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        prev_validator_proposals: Vec<ValidatorStake>,
         signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
             prev_block_hash,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
             shard_id,
-            gas_used,
+            prev_gas_used,
             gas_limit,
-            balance_burnt,
-            outgoing_receipts_root,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
             tx_root,
-            validator_proposals,
+            prev_validator_proposals,
         });
+        Self::from_inner(inner, signer)
+    }
+
+    pub fn from_inner(inner: ShardChunkHeaderInner, signer: &dyn ValidatorSigner) -> Self {
         let hash = Self::compute_hash(&inner);
         let signature = signer.sign_chunk_hash(&hash);
         Self { inner, height_included: 0, signature, hash }
@@ -229,9 +236,9 @@ impl ShardChunkHeader {
 
     pub fn inner_header_hash(&self) -> CryptoHash {
         let inner_bytes = match self {
-            Self::V1(header) => header.inner.try_to_vec(),
-            Self::V2(header) => header.inner.try_to_vec(),
-            Self::V3(header) => header.inner.try_to_vec(),
+            Self::V1(header) => borsh::to_vec(&header.inner),
+            Self::V2(header) => borsh::to_vec(&header.inner),
+            Self::V3(header) => borsh::to_vec(&header.inner),
         };
         hash(&inner_bytes.expect("Failed to serialize"))
     }
@@ -273,11 +280,11 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn validator_proposals(&self) -> ValidatorStakeIter {
+    pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
         match self {
-            Self::V1(header) => ValidatorStakeIter::v1(&header.inner.validator_proposals),
-            Self::V2(header) => ValidatorStakeIter::v1(&header.inner.validator_proposals),
-            Self::V3(header) => header.inner.validator_proposals(),
+            Self::V1(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),
+            Self::V2(header) => ValidatorStakeIter::v1(&header.inner.prev_validator_proposals),
+            Self::V3(header) => header.inner.prev_validator_proposals(),
         }
     }
 
@@ -327,11 +334,11 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn gas_used(&self) -> Gas {
+    pub fn prev_gas_used(&self) -> Gas {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.gas_used,
-            ShardChunkHeader::V2(header) => header.inner.gas_used,
-            ShardChunkHeader::V3(header) => header.inner.gas_used(),
+            ShardChunkHeader::V1(header) => header.inner.prev_gas_used,
+            ShardChunkHeader::V2(header) => header.inner.prev_gas_used,
+            ShardChunkHeader::V3(header) => header.inner.prev_gas_used(),
         }
     }
 
@@ -345,29 +352,29 @@ impl ShardChunkHeader {
     }
 
     #[inline]
-    pub fn balance_burnt(&self) -> Balance {
+    pub fn prev_balance_burnt(&self) -> Balance {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.balance_burnt,
-            ShardChunkHeader::V2(header) => header.inner.balance_burnt,
-            ShardChunkHeader::V3(header) => header.inner.balance_burnt(),
+            ShardChunkHeader::V1(header) => header.inner.prev_balance_burnt,
+            ShardChunkHeader::V2(header) => header.inner.prev_balance_burnt,
+            ShardChunkHeader::V3(header) => header.inner.prev_balance_burnt(),
         }
     }
 
     #[inline]
-    pub fn outgoing_receipts_root(&self) -> CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.outgoing_receipts_root,
-            ShardChunkHeader::V2(header) => header.inner.outgoing_receipts_root,
-            ShardChunkHeader::V3(header) => *header.inner.outgoing_receipts_root(),
+            ShardChunkHeader::V1(header) => header.inner.prev_outgoing_receipts_root,
+            ShardChunkHeader::V2(header) => header.inner.prev_outgoing_receipts_root,
+            ShardChunkHeader::V3(header) => *header.inner.prev_outgoing_receipts_root(),
         }
     }
 
     #[inline]
-    pub fn outcome_root(&self) -> CryptoHash {
+    pub fn prev_outcome_root(&self) -> CryptoHash {
         match &self {
-            ShardChunkHeader::V1(header) => header.inner.outcome_root,
-            ShardChunkHeader::V2(header) => header.inner.outcome_root,
-            ShardChunkHeader::V3(header) => *header.inner.outcome_root(),
+            ShardChunkHeader::V1(header) => header.inner.prev_outcome_root,
+            ShardChunkHeader::V2(header) => header.inner.prev_outcome_root,
+            ShardChunkHeader::V3(header) => *header.inner.prev_outcome_root(),
         }
     }
 
@@ -401,6 +408,14 @@ impl ShardChunkHeader {
             ShardChunkHeader::V3(_) => BLOCK_HEADER_V3_VERSION <= version,
         }
     }
+
+    pub fn compute_hash(&self) -> ChunkHash {
+        match self {
+            ShardChunkHeader::V1(header) => ShardChunkHeaderV1::compute_hash(&header.inner),
+            ShardChunkHeader::V2(header) => ShardChunkHeaderV2::compute_hash(&header.inner),
+            ShardChunkHeader::V3(header) => ShardChunkHeaderV3::compute_hash(&header.inner),
+        }
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Hash, Eq, PartialEq, Clone, Debug, Default)]
@@ -416,7 +431,7 @@ impl ShardChunkHeaderV1 {
     }
 
     pub fn compute_hash(inner: &ShardChunkHeaderInnerV1) -> ChunkHash {
-        let inner_bytes = inner.try_to_vec().expect("Failed to serialize");
+        let inner_bytes = borsh::to_vec(&inner).expect("Failed to serialize");
         let inner_hash = hash(&inner_bytes);
 
         ChunkHash(inner_hash)
@@ -425,33 +440,33 @@ impl ShardChunkHeaderV1 {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         encoded_merkle_root: CryptoHash,
         encoded_length: u64,
         height: BlockHeight,
         shard_id: ShardId,
-        gas_used: Gas,
+        prev_gas_used: Gas,
         gas_limit: Gas,
-        balance_burnt: Balance,
-        outgoing_receipts_root: CryptoHash,
+        prev_balance_burnt: Balance,
+        prev_outgoing_receipts_root: CryptoHash,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStakeV1>,
+        prev_validator_proposals: Vec<ValidatorStakeV1>,
         signer: &dyn ValidatorSigner,
     ) -> Self {
         let inner = ShardChunkHeaderInnerV1 {
             prev_block_hash,
             prev_state_root,
-            outcome_root,
+            prev_outcome_root,
             encoded_merkle_root,
             encoded_length,
             height_created: height,
             shard_id,
-            gas_used,
+            prev_gas_used,
             gas_limit,
-            balance_burnt,
-            outgoing_receipts_root,
+            prev_balance_burnt,
+            prev_outgoing_receipts_root,
             tx_root,
-            validator_proposals,
+            prev_validator_proposals,
         };
         let hash = Self::compute_hash(&inner);
         let signature = signer.sign_chunk_hash(&hash);
@@ -601,11 +616,36 @@ pub struct ShardProof {
 /// For each Merkle proof there is a subset of receipts which may be proven.
 pub struct ReceiptProof(pub Vec<Receipt>, pub ShardProof);
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+// Implement ordering to ensure `ReceiptProofs` are ordered consistently,
+// because we expect messages with ReceiptProofs to be deterministic.
+impl PartialOrd<Self> for ReceiptProof {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ReceiptProof {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.1.from_shard_id, self.1.to_shard_id)
+            .cmp(&(other.1.from_shard_id, other.1.to_shard_id))
+    }
+}
+
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialEq)]
 pub struct PartialEncodedChunkPart {
     pub part_ord: u64,
     pub part: Box<[u8]>,
     pub merkle_proof: MerklePath,
+}
+
+impl std::fmt::Debug for PartialEncodedChunkPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PartialEncodedChunkPart")
+            .field("part_ord", &self.part_ord)
+            .field("part", &format_args!("{}", AbbrBytes(self.part.as_ref())))
+            .field("merkle_proof", &self.merkle_proof)
+            .finish()
+    }
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -613,7 +653,7 @@ pub struct ShardChunkV1 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeaderV1,
     pub transactions: Vec<SignedTransaction>,
-    pub receipts: Vec<Receipt>,
+    pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -621,7 +661,7 @@ pub struct ShardChunkV2 {
     pub chunk_hash: ChunkHash,
     pub header: ShardChunkHeader,
     pub transactions: Vec<SignedTransaction>,
-    pub receipts: Vec<Receipt>,
+    pub prev_outgoing_receipts: Vec<Receipt>,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
@@ -638,7 +678,7 @@ impl ShardChunk {
                     chunk_hash: header.chunk_hash(),
                     header,
                     transactions: chunk.transactions,
-                    receipts: chunk.receipts,
+                    prev_outgoing_receipts: chunk.prev_outgoing_receipts,
                 })),
                 ShardChunkHeader::V2(_) => None,
                 ShardChunkHeader::V3(_) => None,
@@ -647,7 +687,7 @@ impl ShardChunk {
                 chunk_hash: header.chunk_hash(),
                 header,
                 transactions: chunk.transactions,
-                receipts: chunk.receipts,
+                prev_outgoing_receipts: chunk.prev_outgoing_receipts,
             })),
         }
     }
@@ -700,10 +740,10 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn outgoing_receipts_root(&self) -> CryptoHash {
+    pub fn prev_outgoing_receipts_root(&self) -> CryptoHash {
         match self {
-            Self::V1(chunk) => chunk.header.inner.outgoing_receipts_root,
-            Self::V2(chunk) => chunk.header.outgoing_receipts_root(),
+            Self::V1(chunk) => chunk.header.inner.prev_outgoing_receipts_root,
+            Self::V2(chunk) => chunk.header.prev_outgoing_receipts_root(),
         }
     }
 
@@ -724,10 +764,10 @@ impl ShardChunk {
     }
 
     #[inline]
-    pub fn receipts(&self) -> &[Receipt] {
+    pub fn prev_outgoing_receipts(&self) -> &[Receipt] {
         match self {
-            Self::V1(chunk) => &chunk.receipts,
-            Self::V2(chunk) => &chunk.receipts,
+            Self::V1(chunk) => &chunk.prev_outgoing_receipts,
+            Self::V2(chunk) => &chunk.prev_outgoing_receipts,
         }
     }
 
@@ -736,6 +776,22 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => &chunk.transactions,
             Self::V2(chunk) => &chunk.transactions,
+        }
+    }
+
+    #[inline]
+    pub fn header_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => chunk.header.chunk_hash(),
+            Self::V2(chunk) => chunk.header.chunk_hash(),
+        }
+    }
+
+    #[inline]
+    pub fn prev_block_hash(&self) -> CryptoHash {
+        match self {
+            Self::V1(chunk) => chunk.header.inner.prev_block_hash,
+            Self::V2(chunk) => *chunk.header.prev_block_hash(),
         }
     }
 
@@ -751,6 +807,13 @@ impl ShardChunk {
         match self {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
+        }
+    }
+
+    pub fn compute_header_hash(&self) -> ChunkHash {
+        match self {
+            Self::V1(chunk) => ShardChunkHeaderV1::compute_hash(&chunk.header.inner),
+            Self::V2(chunk) => chunk.header.compute_hash(),
         }
     }
 }
@@ -815,7 +878,7 @@ impl EncodedShardChunkV1 {
             chunk_hash: self.header.chunk_hash(),
             header: self.header.clone(),
             transactions: transaction_receipts.0,
-            receipts: transaction_receipts.1,
+            prev_outgoing_receipts: transaction_receipts.1,
         })
     }
 }
@@ -919,12 +982,12 @@ impl EncodedShardChunk {
     }
 
     pub fn encode_transaction_receipts(
-        rs: &mut ReedSolomonWrapper,
+        rs: &ReedSolomonWrapper,
         transactions: Vec<SignedTransaction>,
         outgoing_receipts: &[Receipt],
     ) -> Result<(Vec<Option<Box<[u8]>>>, u64), std::io::Error> {
         let mut bytes =
-            TransactionReceipt(transactions, outgoing_receipts.to_vec()).try_to_vec()?;
+            borsh::to_vec(&TransactionReceipt(transactions, outgoing_receipts.to_vec()))?;
 
         let mut parts = Vec::with_capacity(rs.total_shard_count());
         let data_parts = rs.data_shard_count();
@@ -952,23 +1015,23 @@ impl EncodedShardChunk {
     pub fn new(
         prev_block_hash: CryptoHash,
         prev_state_root: StateRoot,
-        outcome_root: CryptoHash,
+        prev_outcome_root: CryptoHash,
         height: BlockHeight,
         shard_id: ShardId,
         rs: &mut ReedSolomonWrapper,
-        gas_used: Gas,
+        prev_gas_used: Gas,
         gas_limit: Gas,
-        balance_burnt: Balance,
+        prev_balance_burnt: Balance,
         tx_root: CryptoHash,
-        validator_proposals: Vec<ValidatorStake>,
+        prev_validator_proposals: Vec<ValidatorStake>,
         transactions: Vec<SignedTransaction>,
-        outgoing_receipts: &[Receipt],
-        outgoing_receipts_root: CryptoHash,
+        prev_outgoing_receipts: &[Receipt],
+        prev_outgoing_receipts_root: CryptoHash,
         signer: &dyn ValidatorSigner,
         protocol_version: ProtocolVersion,
     ) -> Result<(Self, Vec<MerklePath>), std::io::Error> {
         let (transaction_receipts_parts, encoded_length) =
-            Self::encode_transaction_receipts(rs, transactions, outgoing_receipts)?;
+            Self::encode_transaction_receipts(rs, transactions, prev_outgoing_receipts)?;
 
         let mut content = EncodedShardChunkBody { parts: transaction_receipts_parts };
         content.reconstruct(rs).unwrap();
@@ -977,22 +1040,22 @@ impl EncodedShardChunk {
         let block_header_v3_version = Some(ProtocolFeature::BlockHeaderV3.protocol_version());
 
         if protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
-            let validator_proposals =
-                validator_proposals.into_iter().map(|v| v.into_v1()).collect();
+            let prev_validator_proposals =
+                prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV1::new(
                 prev_block_hash,
                 prev_state_root,
-                outcome_root,
+                prev_outcome_root,
                 encoded_merkle_root,
                 encoded_length,
                 height,
                 shard_id,
-                gas_used,
+                prev_gas_used,
                 gas_limit,
-                balance_burnt,
-                outgoing_receipts_root,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
                 tx_root,
-                validator_proposals,
+                prev_validator_proposals,
                 signer,
             );
             let chunk = EncodedShardChunkV1 { header, content };
@@ -1001,19 +1064,19 @@ impl EncodedShardChunk {
             || protocol_version < block_header_v3_version.unwrap()
         {
             let validator_proposals =
-                validator_proposals.into_iter().map(|v| v.into_v1()).collect();
+                prev_validator_proposals.into_iter().map(|v| v.into_v1()).collect();
             let header = ShardChunkHeaderV2::new(
                 prev_block_hash,
                 prev_state_root,
-                outcome_root,
+                prev_outcome_root,
                 encoded_merkle_root,
                 encoded_length,
                 height,
                 shard_id,
-                gas_used,
+                prev_gas_used,
                 gas_limit,
-                balance_burnt,
-                outgoing_receipts_root,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
                 tx_root,
                 validator_proposals,
                 signer,
@@ -1024,17 +1087,17 @@ impl EncodedShardChunk {
             let header = ShardChunkHeaderV3::new(
                 prev_block_hash,
                 prev_state_root,
-                outcome_root,
+                prev_outcome_root,
                 encoded_merkle_root,
                 encoded_length,
                 height,
                 shard_id,
-                gas_used,
+                prev_gas_used,
                 gas_limit,
-                balance_burnt,
-                outgoing_receipts_root,
+                prev_balance_burnt,
+                prev_outgoing_receipts_root,
                 tx_root,
-                validator_proposals,
+                prev_validator_proposals,
                 signer,
             );
             let chunk = EncodedShardChunkV2 { header: ShardChunkHeader::V3(header), content };
@@ -1102,6 +1165,14 @@ impl EncodedShardChunk {
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
+        let _span = debug_span!(
+            target: "sharding",
+            "decode_chunk",
+            data_parts,
+            height_included = self.cloned_header().height_included(),
+            shard_id = self.cloned_header().shard_id(),
+            chunk_hash = ?self.chunk_hash())
+        .entered();
         let parts = match self {
             Self::V1(chunk) => &chunk.content.parts[0..data_parts],
             Self::V2(chunk) => &chunk.content.parts[0..data_parts],
@@ -1118,14 +1189,14 @@ impl EncodedShardChunk {
                 chunk_hash: chunk.header.chunk_hash(),
                 header: chunk.header.clone(),
                 transactions: transaction_receipts.0,
-                receipts: transaction_receipts.1,
+                prev_outgoing_receipts: transaction_receipts.1,
             })),
 
             Self::V2(chunk) => Ok(ShardChunk::V2(ShardChunkV2 {
                 chunk_hash: chunk.header.chunk_hash(),
                 header: chunk.header.clone(),
                 transactions: transaction_receipts.0,
-                receipts: transaction_receipts.1,
+                prev_outgoing_receipts: transaction_receipts.1,
             })),
         }
     }

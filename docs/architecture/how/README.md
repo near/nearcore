@@ -91,7 +91,7 @@ do today):
    the current head of the node, the head is updated.
 5. The node checks whether any blocks in the `OrphanPool` are ready to be
    processed in a BFS order and processes all of them until none can be
-   processed any more. Note that a block is put into the `OrphanPool` if and
+   processed anymore. Note that a block is put into the `OrphanPool` if and
    only if its previous block is not accepted.
 6. Upon acceptance of a block, the node would check whether it needs to run
    garbage collection. If it needs to, it would garbage collect two blocks worth
@@ -116,7 +116,7 @@ peer. Once `ClientActor` realizes that it is more than `sync_height_threshold`
 to sync. The synchronization process is done in three steps:
 
 1. Header sync. The node first identifies the headers it needs to sync through a
-   [`get_locator`](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/*client/src/sync.rs#L332)
+   [`get_locator`](https://github.com/near/nearcore/blob/279044f09a7e6e5e3f26db4898af3655dae6eda6/chain/client/src/sync.rs#L332)
    calculation. This is essentially an exponential backoff computation that
    tries to identify commonly known headers between the node and its peers. Then
    it would request headers from different peers, at most

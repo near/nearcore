@@ -1,6 +1,4 @@
 use actix::Message;
-use ansi_term::Color::{Purple, Yellow};
-use ansi_term::Style;
 use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
@@ -15,16 +13,17 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, DownloadStatusView, EpochValidatorInfo, ExecutionOutcomeWithIdView,
-    FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockLiteView, LightClientBlockView,
-    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView,
-    SplitStorageInfoView, StateChangesKindsView, StateChangesRequestView, StateChangesView,
-    SyncStatusView,
+    GasPriceView, LightClientBlockLiteView, LightClientBlockView, MaintenanceWindowsView,
+    QueryRequest, QueryResponse, ReceiptView, ShardSyncDownloadView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesRequestView, StateChangesView, SyncStatusView, TxStatusView,
 };
 pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tracing::debug_span;
+use yansi::Color::Magenta;
+use yansi::Style;
 
 /// Combines errors coming from chain, tx pool and block producer.
 #[derive(Debug, thiserror::Error)]
@@ -47,13 +46,6 @@ impl From<near_primitives::errors::EpochError> for Error {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, PartialEq)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
-}
-
 #[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
     pub start_time: DateTime<Utc>,
@@ -62,7 +54,7 @@ pub struct DownloadStatus {
     pub error: bool,
     pub done: bool,
     pub state_requests_count: u64,
-    pub last_target: Option<AccountOrPeerIdOrHash>,
+    pub last_target: Option<PeerId>,
 }
 
 impl DownloadStatus {
@@ -104,8 +96,8 @@ pub enum ShardSyncStatus {
     StateDownloadScheduling,
     StateDownloadApplying,
     StateDownloadComplete,
-    StateSplitScheduling,
-    StateSplitApplying(Arc<StateSplitApplyingStatus>),
+    ReshardingScheduling,
+    ReshardingApplying,
     StateSyncDone,
 }
 
@@ -117,8 +109,8 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateDownloadScheduling => 2,
             ShardSyncStatus::StateDownloadApplying => 3,
             ShardSyncStatus::StateDownloadComplete => 4,
-            ShardSyncStatus::StateSplitScheduling => 5,
-            ShardSyncStatus::StateSplitApplying(_) => 6,
+            ShardSyncStatus::ReshardingScheduling => 5,
+            ShardSyncStatus::ReshardingApplying => 6,
             ShardSyncStatus::StateSyncDone => 7,
         }
     }
@@ -141,19 +133,8 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
             ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
-            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
-            ShardSyncStatus::StateSplitApplying(state_split_status) => {
-                let str = if let Some(total_parts) = state_split_status.total_parts.get() {
-                    format!(
-                        "total parts {} done {}",
-                        total_parts,
-                        state_split_status.done_parts.load(Ordering::Relaxed)
-                    )
-                } else {
-                    "not started".to_string()
-                };
-                format!("split applying {}", str)
-            }
+            ShardSyncStatus::ReshardingScheduling => "resharding scheduling".to_string(),
+            ShardSyncStatus::ReshardingApplying => "resharding applying".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }
@@ -174,19 +155,14 @@ impl From<ShardSyncDownload> for ShardSyncDownloadView {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct StateSplitApplyingStatus {
-    /// total number of parts to be applied
-    pub total_parts: OnceCell<u64>,
-    /// number of parts that are done
-    pub done_parts: AtomicU64,
-}
-
 /// Stores status of shard sync and statuses of downloading shards.
 #[derive(Clone, Debug)]
 pub struct ShardSyncDownload {
-    /// Stores all download statuses. If we are downloading state parts, its length equals the number of state parts.
-    /// Otherwise it is 1, since we have only one piece of data to download, like shard state header.
+    /// Stores all download statuses. If we are downloading state parts, its
+    /// length equals the number of state parts. Otherwise it is 1, since we
+    /// have only one piece of data to download, like shard state header. It
+    /// could be 0 when we are not downloading anything but rather splitting a
+    /// shard as part of resharding.
     pub downloads: Vec<DownloadStatus>,
     pub status: ShardSyncStatus,
 }
@@ -241,38 +217,23 @@ pub fn format_shard_sync_phase(
     match &shard_sync_download.status {
         ShardSyncStatus::StateDownloadHeader => format!(
             "{} requests sent {}, last target {:?}",
-            paint("HEADER", Purple.bold(), use_colour),
+            paint("HEADER", Magenta.style().bold(), use_colour),
             shard_sync_download.downloads.get(0).map_or(0, |x| x.state_requests_count),
             shard_sync_download.downloads.get(0).map_or(None, |x| x.last_target.as_ref()),
         ),
         ShardSyncStatus::StateDownloadParts => {
             let mut num_parts_done = 0;
             let mut num_parts_not_done = 0;
-            let mut text = "".to_string();
-            for (i, download) in shard_sync_download.downloads.iter().enumerate() {
+            for download in shard_sync_download.downloads.iter() {
                 if download.done {
                     num_parts_done += 1;
-                    continue;
+                } else {
+                    num_parts_not_done += 1;
                 }
-                num_parts_not_done += 1;
-                text.push_str(&format!(
-                    "[{}: {}, {}, {:?}] ",
-                    paint(&i.to_string(), Yellow.bold(), use_colour),
-                    download.done,
-                    download.state_requests_count,
-                    download.last_target
-                ));
             }
-            format!(
-                "{} [{}: is_done, requests sent, last target] {} num_parts_done={} num_parts_not_done={}",
-                paint("PARTS", Purple.bold(), use_colour),
-                paint("part_id", Yellow.bold(), use_colour),
-                text,
-                num_parts_done,
-                num_parts_not_done
-            )
+            format!("num_parts_done={num_parts_done} num_parts_not_done={num_parts_not_done}")
         }
-        status => format!("{:?}", status),
+        status => format!("{status:?}"),
     }
 }
 
@@ -315,16 +276,28 @@ pub enum SyncStatus {
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync {
+        /// Head height at the beginning. Not the header head height!
+        /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
+        /// Current header head height.
         current_height: BlockHeight,
+        /// Highest height of our peers.
         highest_height: BlockHeight,
     },
     /// State sync, with different states of state sync for different shards.
     StateSync(StateSyncStatus),
     /// Sync state across all shards is done.
     StateSyncDone,
-    /// Catch up on blocks.
-    BodySync { start_height: BlockHeight, current_height: BlockHeight, highest_height: BlockHeight },
+    /// Download and process blocks until the head reaches the head of the network.
+    BlockSync {
+        /// Header head height at the beginning.
+        /// Used only for reporting the progress of the sync.
+        start_height: BlockHeight,
+        /// Current head height.
+        current_height: BlockHeight,
+        /// Highest height of our peers.
+        highest_height: BlockHeight,
+    },
 }
 
 impl SyncStatus {
@@ -346,20 +319,27 @@ impl SyncStatus {
             // Represent NoSync as 0 because it is the state of a normal well-behaving node.
             SyncStatus::NoSync => 0,
             SyncStatus::AwaitingPeers => 1,
-            SyncStatus::EpochSync { epoch_ord: _ } => 2,
-            SyncStatus::HeaderSync { start_height: _, current_height: _, highest_height: _ } => 3,
+            SyncStatus::EpochSync { .. } => 2,
+            SyncStatus::HeaderSync { .. } => 3,
             SyncStatus::StateSync(_) => 4,
             SyncStatus::StateSyncDone => 5,
-            SyncStatus::BodySync { start_height: _, current_height: _, highest_height: _ } => 6,
+            SyncStatus::BlockSync { .. } => 6,
         }
     }
 
     pub fn start_height(&self) -> Option<BlockHeight> {
         match self {
             SyncStatus::HeaderSync { start_height, .. } => Some(*start_height),
-            SyncStatus::BodySync { start_height, .. } => Some(*start_height),
+            SyncStatus::BlockSync { start_height, .. } => Some(*start_height),
             _ => None,
         }
+    }
+
+    pub fn update(&mut self, new_value: Self) {
+        let _span =
+            debug_span!(target: "sync", "update_sync_status", old_value = ?self, ?new_value)
+                .entered();
+        *self = new_value;
     }
 }
 
@@ -381,14 +361,15 @@ impl From<SyncStatus> for SyncStatusView {
                     .collect(),
             ),
             SyncStatus::StateSyncDone => SyncStatusView::StateSyncDone,
-            SyncStatus::BodySync { start_height, current_height, highest_height } => {
-                SyncStatusView::BodySync { start_height, current_height, highest_height }
+            SyncStatus::BlockSync { start_height, current_height, highest_height } => {
+                SyncStatusView::BlockSync { start_height, current_height, highest_height }
             }
         }
     }
 }
 
 /// Actor message requesting block by id, hash or sync state.
+#[derive(Debug)]
 pub struct GetBlock(pub BlockReference);
 
 #[derive(thiserror::Error, Debug)]
@@ -432,6 +413,7 @@ impl Message for GetBlock {
 }
 
 /// Get block with the block merkle tree. Used for testing
+#[derive(Debug)]
 pub struct GetBlockWithMerkleTree(pub BlockReference);
 
 impl GetBlockWithMerkleTree {
@@ -445,6 +427,7 @@ impl Message for GetBlockWithMerkleTree {
 }
 
 /// Actor message requesting a chunk by chunk hash and block hash + shard id.
+#[derive(Debug)]
 pub enum GetChunk {
     Height(BlockHeight, ShardId),
     BlockHash(CryptoHash, ShardId),
@@ -575,6 +558,7 @@ pub enum QueryError {
     Unreachable { error_message: String },
 }
 
+#[derive(Debug)]
 pub struct Status {
     pub is_health_check: bool,
     // If true - return more detailed information about the current status (recent blocks etc).
@@ -621,6 +605,7 @@ impl Message for Status {
     type Result = Result<StatusResponse, StatusError>;
 }
 
+#[derive(Debug)]
 pub struct GetNextLightClientBlock {
     pub last_block_hash: CryptoHash,
 }
@@ -662,12 +647,14 @@ impl Message for GetNextLightClientBlock {
     type Result = Result<Option<Arc<LightClientBlockView>>, GetNextLightClientBlockError>;
 }
 
+#[derive(Debug)]
 pub struct GetNetworkInfo {}
 
 impl Message for GetNetworkInfo {
     type Result = Result<NetworkInfoResponse, String>;
 }
 
+#[derive(Debug)]
 pub struct GetGasPrice {
     pub block_id: MaybeBlockId,
 }
@@ -753,9 +740,10 @@ impl From<near_chain_primitives::Error> for TxStatusError {
 }
 
 impl Message for TxStatus {
-    type Result = Result<Option<FinalExecutionOutcomeViewEnum>, TxStatusError>;
+    type Result = Result<TxStatusView, TxStatusError>;
 }
 
+#[derive(Debug)]
 pub struct GetValidatorInfo {
     pub epoch_reference: EpochReference,
 }
@@ -791,6 +779,7 @@ impl From<near_chain_primitives::Error> for GetValidatorInfoError {
     }
 }
 
+#[derive(Debug)]
 pub struct GetValidatorOrdered {
     pub block_id: MaybeBlockId,
 }
@@ -799,6 +788,7 @@ impl Message for GetValidatorOrdered {
     type Result = Result<Vec<ValidatorStakeView>, GetValidatorInfoError>;
 }
 
+#[derive(Debug)]
 pub struct GetStateChanges {
     pub block_hash: CryptoHash,
     pub state_changes_request: StateChangesRequestView,
@@ -838,6 +828,7 @@ impl Message for GetStateChanges {
     type Result = Result<StateChangesView, GetStateChangesError>;
 }
 
+#[derive(Debug)]
 pub struct GetStateChangesInBlock {
     pub block_hash: CryptoHash,
 }
@@ -846,6 +837,7 @@ impl Message for GetStateChangesInBlock {
     type Result = Result<StateChangesKindsView, GetStateChangesError>;
 }
 
+#[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlock {
     pub block_hash: CryptoHash,
 }
@@ -854,6 +846,7 @@ impl Message for GetStateChangesWithCauseInBlock {
     type Result = Result<StateChangesView, GetStateChangesError>;
 }
 
+#[derive(Debug)]
 pub struct GetStateChangesWithCauseInBlockForTrackedShards {
     pub block_hash: CryptoHash,
     pub epoch_id: EpochId,
@@ -863,6 +856,7 @@ impl Message for GetStateChangesWithCauseInBlockForTrackedShards {
     type Result = Result<HashMap<ShardId, StateChangesView>, GetStateChangesError>;
 }
 
+#[derive(Debug)]
 pub struct GetExecutionOutcome {
     pub id: TransactionOrReceiptId,
 }
@@ -929,6 +923,7 @@ impl Message for GetExecutionOutcome {
     type Result = Result<GetExecutionOutcomeResponse, GetExecutionOutcomeError>;
 }
 
+#[derive(Debug)]
 pub struct GetExecutionOutcomesForBlock {
     pub block_hash: CryptoHash,
 }
@@ -937,6 +932,7 @@ impl Message for GetExecutionOutcomesForBlock {
     type Result = Result<HashMap<ShardId, Vec<ExecutionOutcomeWithIdView>>, String>;
 }
 
+#[derive(Debug)]
 pub struct GetBlockProof {
     pub block_hash: CryptoHash,
     pub head_block_hash: CryptoHash,
@@ -979,6 +975,7 @@ impl Message for GetBlockProof {
     type Result = Result<GetBlockProofResponse, GetBlockProofError>;
 }
 
+#[derive(Debug)]
 pub struct GetReceipt {
     pub receipt_id: CryptoHash,
 }
@@ -1010,6 +1007,7 @@ impl Message for GetReceipt {
     type Result = Result<Option<ReceiptView>, GetReceiptError>;
 }
 
+#[derive(Debug)]
 pub struct GetProtocolConfig(pub BlockReference);
 
 impl Message for GetProtocolConfig {
@@ -1040,6 +1038,7 @@ impl From<near_chain_primitives::Error> for GetProtocolConfigError {
     }
 }
 
+#[derive(Debug)]
 pub struct GetMaintenanceWindows {
     pub account_id: AccountId,
 }
@@ -1065,6 +1064,7 @@ impl From<near_chain_primitives::Error> for GetMaintenanceWindowsError {
     }
 }
 
+#[derive(Debug)]
 pub struct GetClientConfig {}
 
 impl Message for GetClientConfig {
@@ -1092,6 +1092,7 @@ impl From<near_chain_primitives::Error> for GetClientConfigError {
     }
 }
 
+#[derive(Debug)]
 pub struct GetSplitStorageInfo {}
 
 impl Message for GetSplitStorageInfo {

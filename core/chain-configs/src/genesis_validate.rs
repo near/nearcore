@@ -1,4 +1,4 @@
-use crate::genesis_config::{Genesis, GenesisConfig};
+use crate::genesis_config::{Genesis, GenesisConfig, GenesisContents};
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::key_conversion::is_valid_staking_key;
 use near_primitives::state_record::StateRecord;
@@ -8,6 +8,12 @@ use std::collections::{HashMap, HashSet};
 
 /// Validate genesis config and records. Returns ValidationError if semantic checks of genesis failed.
 pub fn validate_genesis(genesis: &Genesis) -> Result<(), ValidationError> {
+    if let GenesisContents::StateRoots { .. } = &genesis.contents {
+        // TODO(robin-near): We don't have a great way of validating the
+        // genesis records if we're given state roots directly, though we
+        // could still validate things that aren't related to records.
+        return Ok(());
+    }
     let mut validation_errors = ValidationErrors::new();
     let mut genesis_validator = GenesisValidator::new(&genesis.config, &mut validation_errors);
     tracing::info!(target: "config", "Validating Genesis config and records. This could take a few minutes...");

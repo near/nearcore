@@ -14,9 +14,8 @@ use near_primitives::{
     types::{AccountId, EpochId, ShardId},
 };
 use nearcore::config::GenesisExt;
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
-
-use crate::tests::client::utils::TestEnvNightshadeSetupExt;
 
 struct AdversarialBehaviorTestData {
     num_validators: usize,
@@ -84,6 +83,12 @@ impl AdversarialBehaviorTestData {
             }
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.
+            }
+            NetworkRequests::ChunkEndorsement(_) => {
+                // TODO(#10265).
+            }
+            NetworkRequests::ChunkStateWitness(_, _) => {
+                // TODO(#10265).
             }
             _ => {
                 panic!("Unexpected network request: {:?}", requests);

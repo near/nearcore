@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Spins up four nodes, and waits until they produce 50 blocks.
 # Ensures that the nodes remained in sync throughout the process
-# Sets epoch length to 10
+# Sets epoch length to 20
+# The nodes track all shards.
 
 # Local:
 # python tests/sanity/block_production.py
@@ -23,8 +24,7 @@ EPOCH_LENGTH = 20
 BLOCKS = EPOCH_LENGTH * 5
 
 node_config = {
-    "store.state_snapshot_enabled": True,
-    "state_sync_enabled": True,
+    "tracked_shards": [0],  # Track all shards.
 }
 
 nodes = start_cluster(

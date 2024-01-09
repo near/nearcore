@@ -81,7 +81,7 @@ Responsibilities:
 First, the `PeerManagerActor` actor gets started. `PeerManagerActor` opens the
 TCP server, which listens to incoming connections. It starts the
 `RoutingTableActor`, which then starts the `EdgeValidatorActor`. When
-a incoming connection gets accepted, it starts a new `PeerActor`
+an incoming connection gets accepted, it starts a new `PeerActor`
 on its own thread.
 
 # 4. NetworkConfig
@@ -93,7 +93,7 @@ Here is a list of features read from config:
 * `boot_nodes` - list of nodes to connect to on start.
 * `addr` - listening address.
 * `max_num_peers` - by default we connect up to 40 peers, current implementation
-  supports upto 128.
+  supports up to 128.
 
 # 5. Connecting to other peers.
 
@@ -389,8 +389,8 @@ Routing table computation does a few things:
 * Removes unreachable edges from memory and stores them to disk.
 * The distance is calculated as the minimum number of nodes on the path from
   given node `A`, to each other node on the network. That is, `A` has a distance
-  of `0` to itself. It's neighbors will have a distance of `1`. The neighbors of
-  theirs neighbors will have a distance of `2`, etc.
+  of `0` to itself. Its neighbors will have a distance of `1`. The neighbors of
+  their neighbors will have a distance of `2`, etc.
 
 ## 9.1 Step 1
 
@@ -441,7 +441,7 @@ This section describes different protocols of sending messages currently used in
 ## 10.1 Messages between Actors.
 
 `Near` is build on `Actix`'s `actor`
-[framework](https://actix.rs/book/actix/sec-2-actor.html). Usually each actor
+[framework](https://actix.rs/docs/actix/actor). Usually each actor
 runs on its own dedicated thread. Some, like `PeerActor` have one thread per
 each instance. Only messages implementing `actix::Message`, can be sent
 using between threads. Each actor has its own queue; Processing of messages
@@ -474,7 +474,7 @@ or hash (which seems to be used only for route back...). If target is the
 account - it will be converted using `routing_table.account_owner` to the peer.
 
 Upon receiving the message, the `PeerManagerActor`
-[will sign it](https://github.com/near/nearcore/blob/master/chain/network/src/peer_manager.rs#L1285)
+[will sign it](https://github.com/near/nearcore/blob/cadf11d5851be7611011b4e89542e11f41f3d827/chain/network/src/peer_manager/peer_manager_actor.rs)
 and convert into RoutedMessage (which also have things like TTL etc.).
 
 Then it will use the `routing_table`, to find the route to the target peer (add

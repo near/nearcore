@@ -1,6 +1,7 @@
 use near_vm_types::partial_sum_map::{Error, PartialSumMap};
 
-fn main() {
+#[test]
+fn partial_sum_map_fuzzer() {
     bolero::check!().with_type::<(Vec<(u32, u32)>, Vec<u32>)>().for_each(|input| {
         let adds = &input.0;
         let tests = &input.1;

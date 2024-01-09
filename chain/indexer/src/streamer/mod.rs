@@ -1,24 +1,3 @@
-use std::time::Duration;
-
-use actix::Addr;
-use async_recursion::async_recursion;
-use near_indexer_primitives::types::ProtocolVersion;
-use node_runtime::config::RuntimeConfig;
-use rocksdb::DB;
-use tokio::sync::mpsc;
-use tokio::time;
-use tracing::{debug, info};
-
-use near_indexer_primitives::{
-    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
-    StreamerMessage,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::views;
-
-use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-
 use self::errors::FailedToFetchData;
 use self::fetchers::{
     fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
@@ -27,6 +6,22 @@ use self::fetchers::{
 use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
+use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
+use actix::Addr;
+use async_recursion::async_recursion;
+use near_indexer_primitives::{
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
+    StreamerMessage,
+};
+use near_parameters::RuntimeConfig;
+use near_primitives::hash::CryptoHash;
+use near_primitives::views;
+use rocksdb::DB;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time;
+use tracing::{debug, info};
 
 mod errors;
 mod fetchers;
@@ -80,8 +75,7 @@ async fn build_streamer_message(
     let num_shards = protocol_config_view.num_block_producer_seats_per_shard.len()
         as near_primitives::types::NumShards;
 
-    let runtime_config_store =
-        near_primitives::runtime::config_store::RuntimeConfigStore::new(None);
+    let runtime_config_store = near_parameters::RuntimeConfigStore::new(None);
     let runtime_config = runtime_config_store.get_config(protocol_config_view.protocol_version);
 
     let mut shards_outcomes = fetch_outcomes(&client, block.header.hash).await?;
@@ -128,7 +122,6 @@ async fn build_streamer_message(
         let chunk_local_receipts = convert_transactions_sir_into_local_receipts(
             &client,
             &runtime_config,
-            protocol_config_view.protocol_version,
             indexer_transactions
                 .iter()
                 .filter(|tx| tx.transaction.signer_id == tx.transaction.receiver_id)
@@ -175,7 +168,6 @@ async fn build_streamer_message(
                     if let Some(receipt) = find_local_receipt_by_id_in_block(
                         &client,
                         &runtime_config,
-                        protocol_config_view.protocol_version,
                         prev_block,
                         execution_outcome.id,
                     )
@@ -188,7 +180,7 @@ async fn build_streamer_message(
                 }
             };
             receipt_execution_outcomes
-                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt: receipt });
+                .push(IndexerExecutionOutcomeWithReceipt { execution_outcome, receipt });
         }
 
         // Blocks #47317863 and #47317864
@@ -200,7 +192,7 @@ async fn build_streamer_message(
         // ExecutionOutcomes appear.
         // ref: https://github.com/near/nearcore/pull/4248
         if PROBLEMATIC_BLOCKS.contains(&block.header.hash)
-            && &protocol_config_view.chain_id == "mainnet"
+            && &protocol_config_view.chain_id == near_primitives::chains::MAINNET
         {
             let mut restored_receipts: Vec<views::ReceiptView> = vec![];
             let receipt_ids_included: std::collections::HashSet<CryptoHash> =
@@ -246,7 +238,6 @@ async fn build_streamer_message(
 async fn find_local_receipt_by_id_in_block(
     client: &Addr<near_client::ViewClientActor>,
     runtime_config: &RuntimeConfig,
-    protocol_version: ProtocolVersion,
     block: views::BlockView,
     receipt_id: near_primitives::hash::CryptoHash,
 ) -> Result<Option<views::ReceiptView>, FailedToFetchData> {
@@ -276,7 +267,6 @@ async fn find_local_receipt_by_id_in_block(
             let local_receipts = convert_transactions_sir_into_local_receipts(
                 &client,
                 &runtime_config,
-                protocol_version,
                 vec![&indexer_transaction],
                 &block,
             )

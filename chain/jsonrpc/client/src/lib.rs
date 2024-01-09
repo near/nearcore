@@ -5,13 +5,15 @@ use near_jsonrpc_primitives::message::{from_slice, Message};
 use near_jsonrpc_primitives::types::changes::{
     RpcStateChangesInBlockByTypeRequest, RpcStateChangesInBlockByTypeResponse,
 };
+use near_jsonrpc_primitives::types::transactions::{
+    RpcTransactionResponse, RpcTransactionStatusRequest,
+};
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
 use near_primitives::hash::CryptoHash;
-use near_primitives::types::{AccountId, BlockId, BlockReference, MaybeBlockId, ShardId};
+use near_primitives::types::{BlockId, BlockReference, EpochReference, MaybeBlockId, ShardId};
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
-    BlockView, ChunkView, EpochValidatorInfo, FinalExecutionOutcomeView, GasPriceView,
-    StatusResponse,
+    BlockView, ChunkView, EpochValidatorInfo, GasPriceView, StatusResponse,
 };
 use std::time::Duration;
 
@@ -177,20 +179,14 @@ macro_rules! jsonrpc_client {
 
 jsonrpc_client!(pub struct JsonRpcClient {
     pub fn broadcast_tx_async(&self, tx: String) -> RpcRequest<String>;
-    pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<FinalExecutionOutcomeView>;
+    pub fn broadcast_tx_commit(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn status(&self) -> RpcRequest<StatusResponse>;
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_check_tx(&self, tx: String) -> RpcRequest<serde_json::Value>;
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
     #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_broadcast_tx_sync(&self, tx: String) -> RpcRequest<serde_json::Value>;
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<serde_json::Value>;
+    pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn health(&self) -> RpcRequest<()>;
-    pub fn tx(&self, hash: String, account_id: AccountId) -> RpcRequest<FinalExecutionOutcomeView>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
-    pub fn validators(&self, block_id: MaybeBlockId) -> RpcRequest<EpochValidatorInfo>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
 });
 
@@ -218,6 +214,10 @@ impl JsonRpcClient {
 
     pub fn block(&self, request: BlockReference) -> RpcRequest<BlockView> {
         call_method(&self.client, &self.server_addr, "block", request)
+    }
+
+    pub fn tx(&self, request: RpcTransactionStatusRequest) -> RpcRequest<RpcTransactionResponse> {
+        call_method(&self.client, &self.server_addr, "tx", request)
     }
 
     #[allow(non_snake_case)]
@@ -259,6 +259,17 @@ impl JsonRpcClient {
     ) -> RpcRequest<near_jsonrpc_primitives::types::split_storage::RpcSplitStorageInfoResponse>
     {
         call_method(&self.client, &self.server_addr, "EXPERIMENTAL_split_storage_info", request)
+    }
+
+    pub fn validators(
+        &self,
+        epoch_id_or_block_id: Option<EpochReference>,
+    ) -> RpcRequest<EpochValidatorInfo> {
+        let epoch_reference = match epoch_id_or_block_id {
+            Some(epoch_reference) => epoch_reference,
+            _ => EpochReference::Latest,
+        };
+        call_method(&self.client, &self.server_addr, "validators", epoch_reference)
     }
 }
 

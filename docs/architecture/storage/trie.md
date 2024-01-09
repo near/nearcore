@@ -61,12 +61,9 @@ when `ShardTries::apply_insertions` is called, which puts new values to
 Stores all `Trie` nodes and allows to get serialized nodes by `TrieKey` hash
 using the `retrieve_raw_bytes` method.
 
-There are three implementations of `TrieStorage`:
+There are two major implementations of `TrieStorage`:
 
 * `TrieCachingStorage` - caches all big values ever read by `retrieve_raw_bytes`.
-* `TrieRecordingStorage` - records all key-value pairs ever read by
-  `retrieve_raw_bytes`. Used for obtaining state parts (and challenges in the
-  future).
 * `TrieMemoryPartialStorage` - used for validating recorded partial storage.
 
 Note that these storages use database keys, which are retrieved using hashes of
@@ -74,7 +71,9 @@ trie nodes using the `get_key_from_shard_id_and_hash` method.
 
 ### ShardTries
 
-Contains stores and caches and allows to get `Trie` object for any shard.
+This is the main struct that is used to access all Tries. There's usually only a single instance of this and it contains stores and caches. We use this to gain access to the `Trie` for a single shard by calling the `get_trie_for_shard` or equivalent methods.
+
+Each shard within `ShardTries` has their own `cache` and `view_cache`. The `cache` stores the most frequently accessed nodes and is usually used during block production. The `view_cache` is used to serve user request to get data, which usually come in via network. It is a good idea to have an independent cache for this as we can have patterns in accessing user data independent of block production.
 
 ## Primitives
 

@@ -1,17 +1,18 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::time::Duration;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_chain_configs::MutableConfigValue;
+use near_chain_configs::ReshardingConfig;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
+use near_store::StorageError;
 use num_rational::Rational32;
 
-use crate::metrics;
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_client_primitives::types::StateSplitApplyingStatus;
 use near_pool::types::PoolIterator;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
@@ -25,7 +26,7 @@ use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
-    StateChangesForSplitStates, StateRoot, StateRootNode,
+    StateChangesForResharding, StateRoot, StateRootNode,
 };
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
@@ -77,22 +78,28 @@ pub struct AcceptedBlock {
     pub provenance: Provenance,
 }
 
-pub struct ApplySplitStateResult {
+#[derive(Debug)]
+pub struct ApplyResultForResharding {
     pub shard_uid: ShardUId,
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
 }
 
-// This struct captures two cases
-// when apply transactions, split states may or may not be ready
-// if it's ready, apply transactions also apply updates to split states and this enum will be
-//    ApplySplitStateResults
-// otherwise, it simply returns the state changes needed to be applied to split states
-pub enum ApplySplitStateResultOrStateChanges {
-    ApplySplitStateResults(Vec<ApplySplitStateResult>),
-    StateChangesForSplitStates(StateChangesForSplitStates),
+// ReshardingResults contains the results of applying depending on whether
+// resharding is finished.
+// If resharding is finished the results should be applied immediately.
+// If resharding is not finished the results should be stored and applied later.
+#[derive(Debug)]
+pub enum ReshardingResults {
+    /// Immediately apply the resharding result.
+    /// Happens during IsCaughtUp and CatchingUp
+    ApplyReshardingResults(Vec<ApplyResultForResharding>),
+    /// Store the resharding results so that they can be applied later.
+    /// Happens during NotCaughtUp.
+    StoreReshardingResults(StateChangesForResharding),
 }
 
+#[derive(Debug)]
 pub struct ApplyTransactionResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
@@ -205,7 +212,8 @@ pub struct ChainConfig {
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
-    pub state_snapshot_every_n_blocks: Option<u64>,
+    /// The resharding configuration.
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
 }
 
 impl ChainConfig {
@@ -213,7 +221,10 @@ impl ChainConfig {
         Self {
             save_trie_changes: true,
             background_migration_threads: 1,
-            state_snapshot_every_n_blocks: None,
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
+            ),
         }
     }
 }
@@ -235,15 +246,77 @@ impl ChainGenesis {
     }
 }
 
+pub enum StorageDataSource {
+    /// Full state data is present in DB.
+    Db,
+    /// Trie is present in DB and flat storage is not.
+    /// Used for testing stateless validation jobs, should be removed after
+    /// stateless validation release.
+    DbTrieOnly,
+    /// State data is supplied from state witness, there is no state data
+    /// stored on disk.
+    Recorded(PartialStorage),
+}
+
+pub struct RuntimeStorageConfig {
+    pub state_root: StateRoot,
+    pub use_flat_storage: bool,
+    pub source: StorageDataSource,
+    pub state_patch: SandboxStatePatch,
+    pub record_storage: bool,
+}
+
+impl RuntimeStorageConfig {
+    pub fn new(state_root: StateRoot, use_flat_storage: bool) -> Self {
+        Self {
+            state_root,
+            use_flat_storage,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+            record_storage: false,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ApplyTransactionsBlockContext {
+    pub height: BlockHeight,
+    pub block_hash: CryptoHash,
+    pub prev_block_hash: CryptoHash,
+    pub block_timestamp: u64,
+    pub gas_price: Balance,
+    pub challenges_result: ChallengesResult,
+    pub random_seed: CryptoHash,
+}
+
+impl ApplyTransactionsBlockContext {
+    pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
+        Self {
+            height: header.height(),
+            block_hash: *header.hash(),
+            prev_block_hash: *header.prev_hash(),
+            block_timestamp: header.raw_timestamp(),
+            gas_price,
+            challenges_result: header.challenges_result().clone(),
+            random_seed: *header.random_value(),
+        }
+    }
+}
+
+pub struct ApplyTransactionsChunkContext<'a> {
+    pub shard_id: ShardId,
+    pub last_validator_proposals: ValidatorStakeIter<'a>,
+    pub gas_limit: Gas,
+    pub is_new_chunk: bool,
+    pub is_first_block_with_chunk_of_version: bool,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
 /// Naming note: `state_root` is a pre state root for block `block_hash` and a
 /// post state root for block `prev_hash`.
 pub trait RuntimeAdapter: Send + Sync {
-    /// Get store and genesis state roots
-    fn genesis_state(&self) -> (Store, Vec<StateRoot>);
-
     fn get_tries(&self) -> ShardTries;
 
     fn store(&self) -> &Store;
@@ -267,7 +340,7 @@ pub trait RuntimeAdapter: Send + Sync {
         state_root: StateRoot,
     ) -> Result<Trie, Error>;
 
-    fn get_flat_storage_manager(&self) -> Option<FlatStorageManager>;
+    fn get_flat_storage_manager(&self) -> FlatStorageManager;
 
     /// Validates a given signed transaction.
     /// If the state root is given, then the verification will use the account. Otherwise it will
@@ -304,6 +377,7 @@ pub trait RuntimeAdapter: Send + Sync {
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
+        time_limit: Option<Duration>,
     ) -> Result<Vec<SignedTransaction>, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
@@ -317,93 +391,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Also returns transaction result for each transaction and new receipts.
     fn apply_transactions(
         &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
+        storage: RuntimeStorageConfig,
+        chunk: ApplyTransactionsChunkContext,
+        block: ApplyTransactionsBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error> {
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply_transactions",
-            shard_id)
-        .entered();
-        let _timer =
-            metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
-        self.apply_transactions_with_optional_storage_proof(
-            shard_id,
-            state_root,
-            height,
-            block_timestamp,
-            prev_block_hash,
-            block_hash,
-            receipts,
-            transactions,
-            last_validator_proposals,
-            gas_price,
-            gas_limit,
-            challenges_result,
-            random_seed,
-            false,
-            is_new_chunk,
-            is_first_block_with_chunk_of_version,
-            state_patch,
-            use_flat_storage,
-        )
-    }
-
-    fn apply_transactions_with_optional_storage_proof(
-        &self,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_seed: CryptoHash,
-        generate_storage_proof: bool,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
-        state_patch: SandboxStatePatch,
-        use_flat_storage: bool,
-    ) -> Result<ApplyTransactionResult, Error>;
-
-    fn check_state_transition(
-        &self,
-        partial_storage: PartialStorage,
-        shard_id: ShardId,
-        state_root: &StateRoot,
-        height: BlockHeight,
-        block_timestamp: u64,
-        prev_block_hash: &CryptoHash,
-        block_hash: &CryptoHash,
-        receipts: &[Receipt],
-        transactions: &[SignedTransaction],
-        last_validator_proposals: ValidatorStakeIter,
-        gas_price: Balance,
-        gas_limit: Gas,
-        challenges_result: &ChallengesResult,
-        random_value: CryptoHash,
-        is_new_chunk: bool,
-        is_first_block_with_chunk_of_version: bool,
     ) -> Result<ApplyTransactionResult, Error>;
 
     /// Query runtime with given `path` and `data`.
@@ -434,21 +426,14 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Returns false if the resulting part doesn't match the expected one.
     fn validate_state_part(&self, state_root: &StateRoot, part_id: PartId, data: &[u8]) -> bool;
 
-    fn apply_update_to_split_states(
+    fn apply_update_to_children_states(
         &self,
         block_hash: &CryptoHash,
+        block_height: BlockHeight,
         state_roots: HashMap<ShardUId, StateRoot>,
         next_shard_layout: &ShardLayout,
-        state_changes: StateChangesForSplitStates,
-    ) -> Result<Vec<ApplySplitStateResult>, Error>;
-
-    fn build_state_for_split_shards(
-        &self,
-        shard_uid: ShardUId,
-        state_root: &StateRoot,
-        next_epoch_shard_layout: &ShardLayout,
-        state_split_status: Arc<StateSplitApplyingStatus>,
-    ) -> Result<HashMap<ShardUId, StateRoot>, Error>;
+        state_changes: StateChangesForResharding,
+    ) -> Result<Vec<ApplyResultForResharding>, Error>;
 
     /// Should be executed after accepting all the parts to set up a new state.
     fn apply_state_part(
@@ -479,6 +464,11 @@ pub trait RuntimeAdapter: Send + Sync {
     ) -> bool;
 
     fn get_protocol_config(&self, epoch_id: &EpochId) -> Result<ProtocolConfig, Error>;
+
+    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
+    /// but which exact shards to load depends on configuration. This may only be called when flat
+    /// storage is ready.
+    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError>;
 }
 
 /// The last known / checked height and time when we have processed it.
@@ -491,6 +481,8 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use chrono::Utc;
     use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
 
@@ -504,9 +496,9 @@ mod tests {
 
     #[test]
     fn test_block_produce() {
-        let num_shards = 32;
+        let shard_ids: Vec<_> = (0..32).collect();
         let genesis_chunks =
-            genesis_chunks(vec![Trie::EMPTY_ROOT], num_shards, 1_000_000, 0, PROTOCOL_VERSION);
+            genesis_chunks(vec![Trie::EMPTY_ROOT], &shard_ids, 1_000_000, 0, PROTOCOL_VERSION);
         let genesis_bps: Vec<ValidatorStake> = Vec::new();
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
@@ -521,7 +513,8 @@ mod tests {
         let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
-        let approvals = vec![Some(Approval::new(*b1.hash(), 1, 2, &other_signer).signature)];
+        let approvals =
+            vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
         let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }

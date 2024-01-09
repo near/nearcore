@@ -3,11 +3,13 @@ name = "near-primitives-core"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate provides the core set of primitives used by other nearcore crates including near-primitives"
 repository.workspace = true
 license.workspace = true
 publish = true
+
+[lints]
+workspace = true
 
 [dependencies]
 arbitrary.workspace = true
@@ -35,6 +37,7 @@ default = []
 protocol_feature_fix_staking_threshold = []
 protocol_feature_fix_contract_loading_cost = []
 protocol_feature_reject_blocks_with_outdated_protocol_version = []
+
 nightly = [
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",

@@ -1,13 +1,13 @@
 use crate::account::{AccessKey, Account};
 use crate::hash::{hash, CryptoHash};
 use crate::receipt::{Receipt, ReceivedData};
-use crate::trie_key::col;
 use crate::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_account_key,
     parse_account_id_from_contract_code_key, parse_account_id_from_contract_data_key,
     parse_account_id_from_received_data_key, parse_data_id_from_received_data_key,
     parse_data_key_from_contract_data_key, parse_public_key_from_access_key_key,
 };
+use crate::trie_key::{col, TrieKey};
 use crate::types::{AccountId, StoreKey, StoreValue};
 use borsh::BorshDeserialize;
 use near_crypto::PublicKey;
@@ -17,7 +17,7 @@ use std::fmt::{Display, Formatter};
 
 /// Record in the state storage.
 #[serde_as]
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum StateRecord {
     /// Account information.
     Account { account_id: AccountId, account: Account },
@@ -94,11 +94,15 @@ impl StateRecord {
                 let receipt = Receipt::try_from_slice(&value)?;
                 Some(StateRecord::PostponedReceipt(Box::new(receipt)))
             }
-            col::DELAYED_RECEIPT => {
+            col::DELAYED_RECEIPT_OR_INDICES
+                if key.len() == TrieKey::DelayedReceiptIndices.len() =>
+            {
+                None
+            }
+            col::DELAYED_RECEIPT_OR_INDICES => {
                 let receipt = Receipt::try_from_slice(&value)?;
                 Some(StateRecord::DelayedReceipt(Box::new(receipt)))
             }
-            col::DELAYED_RECEIPT_INDICES => None,
             _ => {
                 println!("key[0]: {} is unreachable", key[0]);
                 None

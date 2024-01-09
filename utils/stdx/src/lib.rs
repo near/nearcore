@@ -1,6 +1,6 @@
 //! `stdx` crate contains polyfills which should really be in std,
 //! but currently aren't for one reason or another.
-#![deny(clippy::integer_arithmetic)]
+#![deny(clippy::arithmetic_side_effects)]
 
 // TODO(mina86): Replace usage of the split functions by split_array_ref et al
 // methods of array and slice types once those are stabilised.

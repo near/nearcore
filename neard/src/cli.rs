@@ -6,7 +6,10 @@ use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
+#[cfg(feature = "new_epoch_sync")]
+use near_epoch_sync_tool::EpochSyncCommand;
 use near_flat_storage::commands::FlatStorageCommand;
+use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
@@ -20,6 +23,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::compute_root_from_path;
 use near_primitives::types::{Gas, NumSeats, NumShards};
 use near_state_parts::cli::StatePartsCommand;
+use near_state_parts_dump_check::cli::StatePartsDumpCheckCommand;
 use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
@@ -120,7 +124,7 @@ impl NeardCmd {
                 cmd.run()?;
             }
             NeardSubCommand::FlatStorage(cmd) => {
-                cmd.run(&home_dir)?;
+                cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::ValidateConfig(cmd) => {
                 cmd.run(&home_dir)?;
@@ -129,6 +133,21 @@ impl NeardCmd {
                 cmd.run(&home_dir, genesis_validation)?;
             }
             NeardSubCommand::Database(cmd) => {
+                cmd.run(&home_dir)?;
+            }
+            NeardSubCommand::ForkNetwork(cmd) => {
+                cmd.run(
+                    &home_dir,
+                    genesis_validation,
+                    neard_cmd.opts.verbose_target(),
+                    &neard_cmd.opts.o11y,
+                )?;
+            }
+            NeardSubCommand::StatePartsDumpCheck(cmd) => {
+                cmd.run()?;
+            }
+            #[cfg(feature = "new_epoch_sync")]
+            NeardSubCommand::EpochSync(cmd) => {
                 cmd.run(&home_dir)?;
             }
         };
@@ -171,12 +190,12 @@ struct NeardOpts {
 }
 
 impl NeardOpts {
+    // TODO(nikurt): Delete in 1.38 or later.
     pub fn verbose_target(&self) -> Option<&str> {
-        match self.verbose {
-            None => None,
-            Some(None) => Some(""),
-            Some(Some(ref target)) => Some(target.as_str()),
-        }
+        self.verbose.as_ref().map(|inner| {
+            tracing::error!(target: "neard", "--verbose flag is deprecated, please use RUST_LOG or log_config.json instead.");
+            inner.as_ref().map_or("", String::as_str)
+        })
     }
 }
 
@@ -253,6 +272,16 @@ pub(super) enum NeardSubCommand {
 
     /// Set of commands to run on database
     Database(DatabaseCommand),
+
+    /// Resets the network into a forked network at the given block height and state.
+    ForkNetwork(ForkNetworkCommand),
+
+    /// Check completeness of dumped state parts of an epoch
+    StatePartsDumpCheck(StatePartsDumpCheckCommand),
+
+    #[cfg(feature = "new_epoch_sync")]
+    /// Testing tool for epoch sync
+    EpochSync(EpochSyncCommand),
 }
 
 #[derive(clap::Parser)]
@@ -316,7 +345,9 @@ fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
         && !cfg!(feature = "nightly")
         && !cfg!(feature = "nightly_protocol");
-    if !is_release_build && ["mainnet", "testnet"].contains(&chain) {
+    if !is_release_build
+        && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
+    {
         warn!(
             target: "neard",
             "Running a neard executable which wasn’t built with `make release` \
@@ -483,9 +514,8 @@ impl RunCmd {
 
         #[cfg(feature = "sandbox")]
         {
-            if near_config.client_config.chain_id == "mainnet"
-                || near_config.client_config.chain_id == "testnet"
-                || near_config.client_config.chain_id == "betanet"
+            if near_config.client_config.chain_id == near_primitives::chains::MAINNET
+                || near_config.client_config.chain_id == near_primitives::chains::TESTNET
             {
                 eprintln!(
                     "Sandbox node can only run dedicate localnet, cannot connect to a network"
@@ -526,6 +556,7 @@ impl RunCmd {
                 cold_store_loop_handle,
                 state_sync_dump_handle,
                 flat_state_migration_handle,
+                resharding_handle,
                 ..
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
@@ -552,9 +583,8 @@ impl RunCmd {
             if let Some(handle) = state_sync_dump_handle {
                 handle.stop()
             }
-            if let Some(handle) = flat_state_migration_handle {
-                handle.stop();
-            }
+            resharding_handle.stop();
+            flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;
                 debug!(target: "neard", "{} server stopped", name);
@@ -742,11 +772,13 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.inner_lite.outcome_root != block_outcome_root {
             println!(
                 "{}",
-                ansi_term::Colour::Red.bold().paint(format!(
+                yansi::Paint::default(format!(
                     "ERROR: computed outcome root: {:?} doesn't match the block one {:?}.",
                     block_outcome_root,
                     light_client_proof.block_header_lite.inner_lite.outcome_root
                 ))
+                .fg(yansi::Color::Red)
+                .bold()
             );
             return Err(VerifyProofError::InvalidOutcomeRootProof);
         }
@@ -755,19 +787,19 @@ impl VerifyProofSubCommand {
         if light_client_proof.block_header_lite.hash()
             != light_client_proof.outcome_proof.block_hash
         {
-            println!("{}",
-            ansi_term::Colour::Red.bold().paint(format!(
-                "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
-                light_client_proof.block_header_lite.hash(),
-                light_client_proof.outcome_proof.block_hash
-            )));
+            println!(
+                "{}",
+                yansi::Paint::default(format!(
+                    "ERROR: block hash from header lite {:?} doesn't match the one from outcome proof {:?}",
+                    light_client_proof.block_header_lite.hash(),
+                    light_client_proof.outcome_proof.block_hash
+                )).fg(yansi::Color::Red).bold()
+            );
             return Err(VerifyProofError::InvalidBlockHashProof);
         } else {
             println!(
                 "{}",
-                ansi_term::Colour::Green
-                    .bold()
-                    .paint(format!("Block hash matches {:?}", block_hash))
+                yansi::Paint::green(format!("Block hash matches {:?}", block_hash)).bold()
             );
         }
 

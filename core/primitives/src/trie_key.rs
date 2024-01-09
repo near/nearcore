@@ -8,6 +8,9 @@ use crate::hash::CryptoHash;
 use crate::types::AccountId;
 
 pub(crate) const ACCOUNT_DATA_SEPARATOR: u8 = b',';
+// The use of `ACCESS_KEY` as a separator is a historical artefact.
+// Changing it would require a very long DB migration for basically no benefits.
+pub(crate) const ACCESS_KEY_SEPARATOR: u8 = col::ACCESS_KEY;
 
 /// Type identifiers used for DB key generation to store values in the key-value storage.
 pub mod col {
@@ -31,11 +34,13 @@ pub mod col {
     pub const PENDING_DATA_COUNT: u8 = 5;
     /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: u8 = 6;
-    /// This column id is used when storing the indices of the delayed receipts queue.
-    /// NOTE: It is a singleton per shard.
-    pub const DELAYED_RECEIPT_INDICES: u8 = 7;
-    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
-    pub const DELAYED_RECEIPT: u8 = 8;
+    /// This column id is used when storing:
+    /// * the indices of the delayed receipts queue (a singleton per shard)
+    /// * the delayed receipts themselves
+    /// The identifier is shared between two different key types for for historical reasons. It
+    /// is valid because the length of `TrieKey::DelayedReceipt` is always greater than
+    /// `TrieKey::DelayedReceiptIndices` when serialized to bytes.
+    pub const DELAYED_RECEIPT_OR_INDICES: u8 = 7;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
     /// All columns
@@ -135,8 +140,10 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + receipt_id.as_ref().len()
             }
-            TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_INDICES.len(),
-            TrieKey::DelayedReceipt { .. } => col::DELAYED_RECEIPT.len() + size_of::<u64>(),
+            TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_OR_INDICES.len(),
+            TrieKey::DelayedReceipt { .. } => {
+                col::DELAYED_RECEIPT_OR_INDICES.len() + size_of::<u64>()
+            }
             TrieKey::ContractData { account_id, key } => {
                 col::CONTRACT_DATA.len()
                     + account_id.len()
@@ -153,52 +160,52 @@ impl TrieKey {
         match self {
             TrieKey::Account { account_id } => {
                 buf.push(col::ACCOUNT);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
             }
             TrieKey::ContractCode { account_id } => {
                 buf.push(col::CONTRACT_CODE);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
             }
             TrieKey::AccessKey { account_id, public_key } => {
                 buf.push(col::ACCESS_KEY);
-                buf.extend(account_id.as_ref().as_bytes());
-                buf.push(col::ACCESS_KEY);
-                buf.extend(public_key.try_to_vec().unwrap());
+                buf.extend(account_id.as_bytes());
+                buf.push(ACCESS_KEY_SEPARATOR);
+                buf.extend(borsh::to_vec(&public_key).unwrap());
             }
             TrieKey::ReceivedData { receiver_id, data_id } => {
                 buf.push(col::RECEIVED_DATA);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
             TrieKey::PostponedReceiptId { receiver_id, data_id } => {
                 buf.push(col::POSTPONED_RECEIPT_ID);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
             TrieKey::PendingDataCount { receiver_id, receipt_id } => {
                 buf.push(col::PENDING_DATA_COUNT);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(receipt_id.as_ref());
             }
             TrieKey::PostponedReceipt { receiver_id, receipt_id } => {
                 buf.push(col::POSTPONED_RECEIPT);
-                buf.extend(receiver_id.as_ref().as_bytes());
+                buf.extend(receiver_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(receipt_id.as_ref());
             }
             TrieKey::DelayedReceiptIndices => {
-                buf.push(col::DELAYED_RECEIPT_INDICES);
+                buf.push(col::DELAYED_RECEIPT_OR_INDICES);
             }
             TrieKey::DelayedReceipt { index } => {
-                buf.push(col::DELAYED_RECEIPT_INDICES);
+                buf.push(col::DELAYED_RECEIPT_OR_INDICES);
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {
                 buf.push(col::CONTRACT_DATA);
-                buf.extend(account_id.as_ref().as_bytes());
+                buf.extend(account_id.as_bytes());
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
@@ -331,7 +338,7 @@ pub mod trie_key_parsers {
         raw_key: &[u8],
     ) -> Result<AccountId, std::io::Error> {
         let account_id_prefix = parse_account_id_prefix(col::ACCESS_KEY, raw_key)?;
-        if let Some(account_id) = next_token(account_id_prefix, col::ACCESS_KEY) {
+        if let Some(account_id) = next_token(account_id_prefix, ACCESS_KEY_SEPARATOR) {
             parse_account_id_from_slice(account_id, "AccessKey")
         } else {
             Err(std::io::Error::new(
@@ -356,7 +363,6 @@ pub mod trie_key_parsers {
         Ok(TrieKey::AccessKey { account_id, public_key })
     }
 
-    #[allow(unused)]
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
@@ -646,59 +652,67 @@ mod tests {
 
     #[test]
     fn test_account_id_from_trie_key() {
-        let account_id = OK_ACCOUNT_IDS[0].parse::<AccountId>().unwrap();
+        for account_id_str in OK_ACCOUNT_IDS {
+            let account_id = account_id_str.parse::<AccountId>().unwrap();
 
-        assert_eq!(
-            TrieKey::Account { account_id: account_id.clone() }.get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::AccessKey {
-                account_id: account_id.clone(),
-                public_key: PublicKey::empty(KeyType::ED25519)
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::ReceivedData { receiver_id: account_id.clone(), data_id: Default::default() }
+            assert_eq!(
+                TrieKey::Account { account_id: account_id.clone() }.get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::ContractCode { account_id: account_id.clone() }.get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::AccessKey {
+                    account_id: account_id.clone(),
+                    public_key: PublicKey::empty(KeyType::ED25519)
+                }
                 .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PostponedReceiptId {
-                receiver_id: account_id.clone(),
-                data_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PendingDataCount {
-                receiver_id: account_id.clone(),
-                receipt_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(
-            TrieKey::PostponedReceipt {
-                receiver_id: account_id.clone(),
-                receipt_id: Default::default()
-            }
-            .get_account_id(),
-            Some(account_id.clone())
-        );
-        assert_eq!(TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(), None);
-        assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
-        assert_eq!(
-            TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::ReceivedData {
+                    receiver_id: account_id.clone(),
+                    data_id: Default::default()
+                }
                 .get_account_id(),
-            Some(account_id)
-        );
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PostponedReceiptId {
+                    receiver_id: account_id.clone(),
+                    data_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PendingDataCount {
+                    receiver_id: account_id.clone(),
+                    receipt_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::PostponedReceipt {
+                    receiver_id: account_id.clone(),
+                    receipt_id: Default::default()
+                }
+                .get_account_id(),
+                Some(account_id.clone())
+            );
+            assert_eq!(
+                TrieKey::DelayedReceipt { index: Default::default() }.get_account_id(),
+                None
+            );
+            assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
+            assert_eq!(
+                TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
+                    .get_account_id(),
+                Some(account_id)
+            );
+        }
     }
 }

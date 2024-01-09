@@ -67,6 +67,8 @@ pub struct InfoHelper {
     pub boot_time_seconds: i64,
     // Allows more detailed logging, for example a list of orphaned blocks.
     enable_multiline_logging: bool,
+    // Keeps track of the previous SyncRequirement for updating metrics.
+    prev_sync_requirement: Option<String>,
 }
 
 impl InfoHelper {
@@ -91,6 +93,7 @@ impl InfoHelper {
             boot_time_seconds: StaticClock::utc().timestamp(),
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
+            prev_sync_requirement: None,
         }
     }
 
@@ -137,8 +140,8 @@ impl InfoHelper {
     /// Count which shards are tracked by the node in the epoch indicated by head parameter.
     fn record_tracked_shards(head: &Tip, client: &crate::client::Client) {
         let me = client.validator_signer.as_ref().map(|x| x.validator_id());
-        if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
-            for shard_id in 0..num_shards {
+        if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
+            for shard_id in shard_ids {
                 let tracked = client.shard_tracker.care_about_shard(
                     me,
                     &head.last_block_hash,
@@ -180,8 +183,8 @@ impl InfoHelper {
                     .with_label_values(&[&shard_id.to_string()])
                     .set(if is_chunk_producer_for_shard { 1 } else { 0 });
             }
-        } else if let Ok(num_shards) = client.epoch_manager.num_shards(&head.epoch_id) {
-            for shard_id in 0..num_shards {
+        } else if let Ok(shard_ids) = client.epoch_manager.shard_ids(&head.epoch_id) {
+            for shard_id in shard_ids {
                 metrics::IS_CHUNK_PRODUCER_FOR_SHARD
                     .with_label_values(&[&shard_id.to_string()])
                     .set(0);
@@ -196,7 +199,7 @@ impl InfoHelper {
     fn record_epoch_settlement_info(head: &Tip, client: &crate::client::Client) {
         let epoch_info = client.epoch_manager.get_epoch_info(&head.epoch_id);
         let blocks_in_epoch = client.config.epoch_length;
-        let number_of_shards = client.epoch_manager.num_shards(&head.epoch_id).unwrap_or_default();
+        let shard_ids = client.epoch_manager.shard_ids(&head.epoch_id).unwrap_or_default();
         if let Ok(epoch_info) = epoch_info {
             metrics::VALIDATORS_CHUNKS_EXPECTED_IN_EPOCH.reset();
             metrics::VALIDATORS_BLOCKS_EXPECTED_IN_EPOCH.reset();
@@ -236,7 +239,7 @@ impl InfoHelper {
                     .set(stake_to_blocks(stake, stake_sum))
             });
 
-            for shard_id in 0..number_of_shards {
+            for shard_id in shard_ids {
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
                 for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {
@@ -363,11 +366,11 @@ impl InfoHelper {
         client_config: &ClientConfig,
         config_updater: &Option<ConfigUpdater>,
     ) {
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
-        let paint = |colour: ansi_term::Colour, text: Option<String>| match text {
-            None => ansi_term::Style::default().paint(""),
-            Some(text) if use_colour => colour.bold().paint(text),
-            Some(text) => ansi_term::Style::default().paint(text),
+        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let paint = |color: yansi::Color, text: Option<String>| match text {
+            None => yansi::Paint::default(String::new()),
+            Some(text) if use_color => yansi::Paint::default(text).fg(color).bold(),
+            Some(text) => yansi::Paint::default(text),
         };
 
         let s = |num| if num == 1 { "" } else { "s" };
@@ -411,11 +414,11 @@ impl InfoHelper {
 
         info!(
             target: "stats", "{}{}{}{}{}",
-            paint(ansi_term::Colour::Yellow, sync_status_log),
-            paint(ansi_term::Colour::White, validator_info_log),
-            paint(ansi_term::Colour::Cyan, network_info_log),
-            paint(ansi_term::Colour::Green, blocks_info_log),
-            paint(ansi_term::Colour::Blue, machine_info_log),
+            paint(yansi::Color::Yellow, sync_status_log),
+            paint(yansi::Color::White, validator_info_log),
+            paint(yansi::Color::Cyan, network_info_log),
+            paint(yansi::Color::Green, blocks_info_log),
+            paint(yansi::Color::Blue, machine_info_log),
         );
         if !catchup_status_log.is_empty() {
             info!(target: "stats", "Catchups\n{}", catchup_status_log);
@@ -538,9 +541,9 @@ impl InfoHelper {
 
     fn log_chain_processing_info(&mut self, client: &crate::Client, epoch_id: &EpochId) {
         let chain = &client.chain;
-        let use_colour = matches!(self.log_summary_style, LogSummaryStyle::Colored);
+        let use_color = matches!(self.log_summary_style, LogSummaryStyle::Colored);
         let info = chain.get_chain_processing_info();
-        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_colour };
+        let blocks_info = BlocksInfo { blocks_info: info.blocks_info, use_color };
         tracing::debug!(
             target: "stats",
             "{:?} Orphans: {} With missing chunks: {} In processing {}{}",
@@ -550,6 +553,36 @@ impl InfoHelper {
             info.num_blocks_in_processing,
             if self.enable_multiline_logging { blocks_info.to_string() } else { "".to_owned() },
         );
+    }
+
+    // If the `new_sync_requirement` differs from `self.prev_sync_requirement`,
+    // then increments a corresponding metric.
+    // Uses `String` instead of `SyncRequirement` to avoid circular dependencies.
+    pub(crate) fn update_sync_requirements_metrics(&mut self, new_sync_requirement: String) {
+        // Compare the new SyncRequirement with the previously seen SyncRequirement.
+        let change = match &self.prev_sync_requirement {
+            None => Some(new_sync_requirement),
+            Some(prev_sync) => {
+                let prev_sync_requirement = format!("{prev_sync}");
+                if prev_sync_requirement == new_sync_requirement {
+                    None
+                } else {
+                    Some(new_sync_requirement)
+                }
+            }
+        };
+        if let Some(new_sync_requirement) = change {
+            // Something change, update the metrics and record it.
+            metrics::SYNC_REQUIREMENT.with_label_values(&[&new_sync_requirement]).inc();
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
+            if let Some(prev_sync_requirement) = &self.prev_sync_requirement {
+                metrics::SYNC_REQUIREMENT_CURRENT
+                    .with_label_values(&[&prev_sync_requirement])
+                    .set(0);
+            }
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
+            self.prev_sync_requirement = Some(new_sync_requirement);
+        }
     }
 }
 
@@ -619,7 +652,7 @@ pub fn display_sync_status(
                 current_height
             )
         }
-        SyncStatus::BodySync { start_height, current_height, highest_height } => {
+        SyncStatus::BlockSync { start_height, current_height, highest_height } => {
             let percent = if highest_height <= start_height {
                 0.0
             } else {
@@ -641,17 +674,15 @@ pub fn display_sync_status(
             for (shard_id, shard_status) in shard_statuses {
                 write!(res, "[{}: {}]", shard_id, shard_status.status.to_string(),).unwrap();
             }
-            if matches!(state_sync_config, SyncConfig::Peers) {
-                // TODO #8719
+            if let SyncConfig::Peers = state_sync_config {
                 tracing::warn!(
                     target: "stats",
-                    "The node is syncing its State. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
+                    "The node is trying to sync its State from its peers. The current implementation of this mechanism is known to be unreliable. It may never complete, or fail randomly and corrupt the DB.\n\
                      Suggestions:\n\
-                     * Download a recent data snapshot and restart the node.\n\
-                     * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`.\n\
-                     \n\
-                     A better implementation of State Sync is work in progress.");
-            }
+                      * Try to state sync from GCS. See `\"state_sync\"` and `\"state_sync_enabled\"` options in the reference `config.json` file.
+                      or
+                      * Disable state sync in the config. Add `\"state_sync_enabled\": false` to `config.json`, then download a recent data snapshot and restart the node.");
+            };
             res
         }
         SyncStatus::StateSyncDone => "State sync done".to_string(),
@@ -672,16 +703,16 @@ impl std::fmt::Display for FormatMillis {
 /// meant to be used in logging where final new line is not desired.
 struct BlocksInfo {
     blocks_info: Vec<near_primitives::views::BlockProcessingInfo>,
-    use_colour: bool,
+    use_color: bool,
 }
 
 impl std::fmt::Display for BlocksInfo {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let paint = |colour: ansi_term::Colour, text: String| {
-            if self.use_colour {
-                colour.bold().paint(text)
+        let paint = |color: yansi::Color, text: String| {
+            if self.use_color {
+                yansi::Paint::default(text).fg(color).bold()
             } else {
-                ansi_term::Style::default().paint(text)
+                yansi::Paint::default(text)
             }
         };
 
@@ -705,11 +736,8 @@ impl std::fmt::Display for BlocksInfo {
                 })
                 .collect::<String>();
 
-            let chunk_status_color = if all_chunks_received {
-                ansi_term::Colour::Green
-            } else {
-                ansi_term::Colour::White
-            };
+            let chunk_status_color =
+                if all_chunks_received { yansi::Color::Green } else { yansi::Color::White };
 
             let chunk_status = paint(chunk_status_color, chunk_status);
             let in_progress = FormatMillis("in progress", Some(block_info.in_progress_ms));

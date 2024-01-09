@@ -1,9 +1,9 @@
 use actix::Addr;
 
-use near_indexer_primitives::types::ProtocolVersion;
 use near_indexer_primitives::IndexerTransactionWithOutcome;
+use near_parameters::RuntimeConfig;
 use near_primitives::views;
-use node_runtime::config::{tx_cost, RuntimeConfig};
+use node_runtime::config::tx_cost;
 
 use super::errors::FailedToFetchData;
 use super::fetchers::fetch_block;
@@ -11,7 +11,6 @@ use super::fetchers::fetch_block;
 pub(crate) async fn convert_transactions_sir_into_local_receipts(
     client: &Addr<near_client::ViewClientActor>,
     runtime_config: &RuntimeConfig,
-    protocol_version: ProtocolVersion,
     txs: Vec<&IndexerTransactionWithOutcome>,
     block: &views::BlockView,
 ) -> Result<Vec<views::ReceiptView>, FailedToFetchData> {
@@ -25,7 +24,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
         txs.into_iter()
             .map(|tx| {
                 let cost = tx_cost(
-                    &runtime_config.fees,
+                    &runtime_config,
                     &near_primitives::transaction::Transaction {
                         signer_id: tx.transaction.signer_id.clone(),
                         public_key: tx.transaction.public_key.clone(),
@@ -44,7 +43,6 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                     },
                     prev_block_gas_price,
                     true,
-                    protocol_version,
                 );
                 views::ReceiptView {
                     predecessor_id: tx.transaction.signer_id.clone(),

@@ -3,11 +3,13 @@ name = "near-fmt"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "Helpers for pretty formatting."
 repository.workspace = true
 license.workspace = true
 publish = true
+
+[lints]
+workspace = true
 
 [dependencies]
 near-primitives-core.workspace = true

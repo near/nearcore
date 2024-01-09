@@ -71,7 +71,7 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
     let db_config = &config.rocksdb_test_config;
     let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
-    let db = new_test_db(&tmp_dir, &data, &db_config);
+    let db = new_test_db(&tmp_dir, &data, &db_config, config.accurate);
 
     if db_config.debug_rocksdb {
         eprintln!("# {:?}", db_config);
@@ -79,21 +79,24 @@ pub(crate) fn rocks_db_inserts_cost(config: &Config) -> GasCost {
         print_levels_info(&db);
     }
 
+    let setup_insertions = if config.accurate { db_config.setup_insertions } else { 1 };
+    let op_count = if config.accurate { db_config.op_count } else { 1 };
+
     let gas_counter = GasCost::measure(config.metric);
 
     if db_config.sequential_keys {
         sequential_inserts(
-            db_config.op_count,
+            op_count,
             db_config.value_size,
             &data,
-            db_config.setup_insertions,
+            setup_insertions,
             &db,
             db_config.force_compaction,
             db_config.force_flush,
         );
     } else {
         prandom_inserts(
-            db_config.op_count,
+            op_count,
             db_config.value_size,
             &data,
             ANOTHER_PRANDOM_SEED,
@@ -124,7 +127,7 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
     let db_config = &config.rocksdb_test_config;
     let tmp_dir = tempfile::TempDir::new().expect("Failed to create directory for temp DB");
     let data = input_data(db_config, INPUT_DATA_BUFFER_SIZE);
-    let db = new_test_db(&tmp_dir, &data, &db_config);
+    let db = new_test_db(&tmp_dir, &data, &db_config, config.accurate);
 
     if db_config.debug_rocksdb {
         eprintln!("# {:?}", db_config);
@@ -132,9 +135,11 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
         print_levels_info(&db);
     }
 
+    let setup_insertions = if config.accurate { db_config.setup_insertions } else { 1 };
+    let op_count = if config.accurate { db_config.op_count } else { 1 };
+
     let mut prng: XorShiftRng = rand::SeedableRng::seed_from_u64(SETUP_PRANDOM_SEED);
-    let mut keys: Vec<usize> =
-        iter::repeat_with(|| prng.gen()).take(db_config.setup_insertions).collect();
+    let mut keys: Vec<usize> = iter::repeat_with(|| prng.gen()).take(setup_insertions).collect();
     if db_config.sequential_keys {
         keys.sort();
     } else {
@@ -144,7 +149,7 @@ pub(crate) fn rocks_db_read_cost(config: &Config) -> GasCost {
 
     let gas_counter = GasCost::measure(config.metric);
 
-    for i in 0..db_config.op_count {
+    for i in 0..op_count {
         let key = keys[i as usize % keys.len()];
         db.get(&key.to_string()).unwrap();
     }
@@ -254,6 +259,7 @@ fn new_test_db(
     db_dir: impl AsRef<std::path::Path>,
     data: &[u8],
     db_config: &RocksDBTestConfig,
+    accurate: bool,
 ) -> DB {
     let mut opts = rocksdb::Options::default();
 
@@ -277,9 +283,10 @@ fn new_test_db(
     }
 
     let db = rocksdb::DB::open(&opts, db_dir).expect("Failed to create RocksDB");
+    let setup_insertions = if accurate { db_config.setup_insertions } else { 1 };
 
     prandom_inserts(
-        db_config.setup_insertions,
+        setup_insertions,
         db_config.value_size,
         &data,
         SETUP_PRANDOM_SEED,

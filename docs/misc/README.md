@@ -6,7 +6,7 @@ something, but don't know where to put it, put it here!
 ## Crate Versioning and Publishing
 
 While all the crates in the workspace are directly unversioned (`v0.0.0`), they
-all share a unified variable version in the [workspace manifest](Cargo.toml).
+all share a unified variable version in the [workspace manifest](../../Cargo.toml).
 This keeps versions consistent across the workspace and informs their versions
 at the moment of publishing.
 

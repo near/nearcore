@@ -102,6 +102,19 @@ impl<'a> ConfigValidator<'a> {
                             self.validation_errors.push_config_semantics_error(error_message);
                         }
                     }
+                    ExternalStorageLocation::GCS { bucket } => {
+                        if bucket.is_empty() {
+                            let error_message = format!("'config.state_sync.dump.location.GCS.bucket' needs to be specified when 'config.state_sync.dump.location.GCS' is present.");
+                            self.validation_errors.push_config_semantics_error(error_message);
+                        }
+                    }
+                }
+
+                if let Some(credentials_file) = &dump_config.credentials_file {
+                    if !credentials_file.exists() || !credentials_file.is_file() {
+                        let error_message = format!("'config.state_sync.dump.credentials_file' is provided but the specified file does not exist or is not a file.");
+                        self.validation_errors.push_config_semantics_error(error_message);
+                    }
                 }
             }
             match &state_sync.sync {
@@ -120,6 +133,12 @@ impl<'a> ConfigValidator<'a> {
                                 self.validation_errors.push_config_semantics_error(error_message);
                             }
                         }
+                        ExternalStorageLocation::GCS { bucket } => {
+                            if bucket.is_empty() {
+                                let error_message = format!("'config.state_sync.sync.ExternalStorage.location.GCS.bucket' needs to be specified when 'config.state_sync.sync.ExternalStorage.location.GCS' is present.");
+                                self.validation_errors.push_config_semantics_error(error_message);
+                            }
+                        }
                     }
                     if config.num_concurrent_requests == 0 {
                         let error_message = format!("'config.state_sync.sync.ExternalStorage.num_concurrent_requests' needs to be greater than 0");
@@ -127,6 +146,16 @@ impl<'a> ConfigValidator<'a> {
                     }
                 }
             }
+        }
+
+        let tx_routing_height_horizon = self.config.tx_routing_height_horizon;
+        if tx_routing_height_horizon < 2 {
+            let error_message = format!("'config.tx_routing_height_horizon' needs to be at least 2, got {tx_routing_height_horizon}.");
+            self.validation_errors.push_config_semantics_error(error_message);
+        }
+        if tx_routing_height_horizon > 100 {
+            let error_message = format!("'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got {tx_routing_height_horizon}.");
+            self.validation_errors.push_config_semantics_error(error_message);
         }
     }
 
@@ -199,6 +228,26 @@ mod test {
         let mut config = Config::default();
         config.cold_store = Some(config.store.clone());
         config.save_trie_changes = Some(false);
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.tx_routing_height_horizon' needs to be at least 2, got 1."
+    )]
+    fn test_tx_routing_height_horizon_too_low() {
+        let mut config = Config::default();
+        config.tx_routing_height_horizon = 1;
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "\\nconfig.json semantic issue: 'config.tx_routing_height_horizon' can't be too high to avoid spamming the network. Keep it below 100. Got 1000000000."
+    )]
+    fn test_tx_routing_height_horizon_too_high() {
+        let mut config = Config::default();
+        config.tx_routing_height_horizon = 1_000_000_000;
         validate_config(&config).unwrap();
     }
 }

@@ -168,14 +168,6 @@ pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_BYTES: Lazy<IntCounterVec> = Laz
     )
     .unwrap()
 });
-// TODO(mina86): This has been deprecated in 1.30.  Remove at 1.32 or so.
-pub(crate) static PEER_MESSAGE_RECEIVED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-    try_create_int_counter(
-        "near_peer_message_received_total",
-        "Deprecated; aggregate near_peer_message_received_by_type_total instead",
-    )
-    .unwrap()
-});
 pub(crate) static PEER_MESSAGE_RECEIVED_BY_TYPE_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_peer_message_received_by_type_total",
@@ -205,6 +197,14 @@ pub(crate) static SYNC_ACCOUNTS_DATA: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_sync_accounts_data",
         "Number of SyncAccountsData messages sent/received",
         &["direction", "incremental", "requesting_full_sync"],
+    )
+    .unwrap()
+});
+pub(crate) static SYNC_SNAPSHOT_HOSTS: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_sync_snapshot_hosts",
+        "Number of SyncSnapshotHost messages sent/received",
+        &["direction"],
     )
     .unwrap()
 });
@@ -367,6 +367,18 @@ pub(crate) static ACCOUNT_TO_PEER_LOOKUPS: Lazy<IntCounterVec> = Lazy::new(|| {
         // lookups to be done via AccountData. For now AnnounceAccount is
         // used as a fallback.
         &["source"],
+    )
+    .unwrap()
+});
+
+pub(crate) static NETWORK_ROUTED_MSG_DISTANCES: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_network_routed_msg_distances",
+        "compares routing distance by protocol (V1 vs V2)",
+        // Compares the routing distances for the V1 and V2 routing protocols.
+        // We are currently running both while validating performance of V2.
+        // Eventually we want to deprecate V1 and run only V2.
+        &["cmp"],
     )
     .unwrap()
 });

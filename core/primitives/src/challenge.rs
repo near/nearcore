@@ -17,6 +17,12 @@ pub enum PartialState {
     TrieValues(Vec<TrieValue>),
 }
 
+impl Default for PartialState {
+    fn default() -> Self {
+        PartialState::TrieValues(vec![])
+    }
+}
+
 impl PartialState {
     pub fn len(&self) -> usize {
         let Self::TrieValues(values) = self;
@@ -87,13 +93,13 @@ pub enum ChallengeBody {
 }
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
-#[borsh_init(init)]
+#[borsh(init=init)]
 pub struct Challenge {
     pub body: ChallengeBody,
     pub account_id: AccountId,
     pub signature: Signature,
 
-    #[borsh_skip]
+    #[borsh(skip)]
     pub hash: CryptoHash,
 }
 

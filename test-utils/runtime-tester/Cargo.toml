@@ -8,7 +8,11 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
+bolero.workspace = true
 cpu-time.workspace = true
 libfuzzer-sys.workspace = true
 serde.workspace = true
@@ -23,6 +27,7 @@ near-client.workspace = true
 near-client-primitives.workspace = true
 near-epoch-manager.workspace = true
 nearcore.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
 near-o11y.workspace = true

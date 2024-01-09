@@ -5,8 +5,12 @@ mod borsh_conv;
 mod edge;
 mod peer;
 mod proto_conv;
+mod state_sync;
 pub use edge::*;
+use near_primitives::chunk_validation::ChunkEndorsement;
+use near_primitives::chunk_validation::ChunkStateWitness;
 pub use peer::*;
+pub use state_sync::*;
 
 #[cfg(test)]
 pub(crate) mod testonly;
@@ -22,7 +26,7 @@ pub use _proto::network as proto;
 use crate::network_protocol::proto_conv::trace_context::{
     extract_span_context, inject_trace_context,
 };
-use borsh::{BorshDeserialize as _, BorshSerialize as _};
+use borsh::BorshDeserialize as _;
 use near_async::time;
 use near_crypto::PublicKey;
 use near_crypto::Signature;
@@ -35,7 +39,7 @@ use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{
     ChunkHash, PartialEncodedChunk, PartialEncodedChunkPart, ReceiptProof, ShardChunkHeader,
 };
-use near_primitives::syncing::{ShardStateSyncResponse, ShardStateSyncResponseV1};
+use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV1};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -137,6 +141,19 @@ pub struct VersionedAccountData {
 /// It is important to have such a constraint on the serialized proto,
 /// because it may contain many unknown fields (which are dropped during parsing).
 pub const MAX_ACCOUNT_DATA_SIZE_BYTES: usize = 10000; // 10kB
+
+/// Limit on the number of shard ids in a single [`SnapshotHostInfo`](state_sync::SnapshotHostInfo) message.
+/// The number of shards has to be limited, otherwise a malicious attack could fill the snapshot host cache
+/// with millions of shards.
+/// The assumption is that no single host is going to track state for more than 512 shards. Keeping state for
+/// a shard requires significant resources, so a single peer shouldn't be able to handle too many of them.
+/// If this assumption changes in the future, this limit will have to be revisited.
+///
+/// Warning: adjusting this constant directly will break upgradeability. A new versioned-node would not interop
+/// correctly with an old-versioned node; it could send an excessively large message to an old node.
+/// If we ever want to change it we will need to introduce separate send and receive limits,
+/// increase the receive limit in one release then increase the send limit in the next.
+pub const MAX_SHARDS_PER_SNAPSHOT_HOST_INFO: usize = 512;
 
 impl VersionedAccountData {
     /// Serializes AccountData to proto and signs it using `signer`.
@@ -288,6 +305,32 @@ impl RoutingTableUpdate {
         Self { edges, accounts }
     }
 }
+
+/// Denotes a network path to `destination` of length `distance`.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct AdvertisedPeerDistance {
+    pub destination: PeerId,
+    pub distance: u32,
+}
+
+/// Struct shared by a peer listing the distances it has to other peers
+/// in the NEAR network.
+///
+/// It includes a collection of signed edges forming a spanning tree
+/// which verifiably achieves the advertised routing distances.
+///
+/// The distances in the tree may be the same or better than the advertised
+/// distances; see routing::graph_v2::tests::inconsistent_peers.
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct DistanceVector {
+    /// PeerId of the node sending the message.
+    pub root: PeerId,
+    /// List of distances the root has to other peers in the network.
+    pub distances: Vec<AdvertisedPeerDistance>,
+    /// Spanning tree of signed edges achieving the claimed distances (or better).
+    pub edges: Vec<Edge>,
+}
+
 /// Structure representing handshake between peers.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Handshake {
@@ -361,6 +404,7 @@ pub enum PeerMessage {
     LastEdge(Edge),
     /// Contains accounts and edge information.
     SyncRoutingTable(RoutingTableUpdate),
+    DistanceVector(DistanceVector),
     RequestUpdateNonce(PartialEdgeInfo),
 
     SyncAccountsData(SyncAccountsData),
@@ -380,6 +424,11 @@ pub enum PeerMessage {
     /// Gracefully disconnect from other peer.
     Disconnect(Disconnect),
     Challenge(Challenge),
+
+    SyncSnapshotHosts(SyncSnapshotHosts),
+    StateRequestHeader(ShardId, CryptoHash),
+    StateRequestPart(ShardId, CryptoHash, u64),
+    VersionedStateResponse(StateResponseInfo),
 }
 
 impl fmt::Display for PeerMessage {
@@ -411,7 +460,7 @@ impl PeerMessage {
     /// If the encoding is `Proto`, then also attaches current Span's context to the message.
     pub(crate) fn serialize(&self, enc: Encoding) -> Vec<u8> {
         match enc {
-            Encoding::Borsh => borsh_::PeerMessage::from(self).try_to_vec().unwrap(),
+            Encoding::Borsh => borsh::to_vec(&borsh_::PeerMessage::from(self)).unwrap(),
             Encoding::Proto => {
                 let mut msg = proto::PeerMessage::from(self);
                 let cx = Span::current().context();
@@ -477,8 +526,8 @@ pub enum RoutedMessageBody {
     /// Not used, but needed to borsh backward compatibility.
     _UnusedReceiptOutcomeResponse,
 
-    StateRequestHeader(ShardId, CryptoHash),
-    StateRequestPart(ShardId, CryptoHash, u64),
+    _UnusedStateRequestHeader,
+    _UnusedStateRequestPart,
     /// StateResponse in not produced since protocol version 58.
     /// We can remove the support for it in protocol version 60.
     /// It has been obsoleted by VersionedStateResponse which
@@ -491,8 +540,11 @@ pub enum RoutedMessageBody {
     Ping(Ping),
     Pong(Pong),
     VersionedPartialEncodedChunk(PartialEncodedChunk),
-    VersionedStateResponse(StateResponseInfo),
+    _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+
+    ChunkStateWitness(ChunkStateWitness),
+    ChunkEndorsement(ChunkEndorsement),
 }
 
 impl RoutedMessageBody {
@@ -501,10 +553,11 @@ impl RoutedMessageBody {
     // lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
-            // are only sent by the original node and if they are lost, the receiver node doesn't
-            // know to request them.
+            // These messages are important because they are critical for block and chunk production,
+            // and lost messages cannot be requested again.
             RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ChunkEndorsement(_)
+            | RoutedMessageBody::ChunkStateWitness(_)
             | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
         }
@@ -530,12 +583,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
             RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
-            RoutedMessageBody::StateRequestHeader(shard_id, sync_hash) => {
-                write!(f, "StateRequestHeader({}, {})", shard_id, sync_hash)
-            }
-            RoutedMessageBody::StateRequestPart(shard_id, sync_hash, part_id) => {
-                write!(f, "StateRequestPart({}, {}, {})", shard_id, sync_hash, part_id)
-            }
+            RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
+            RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
             RoutedMessageBody::StateResponse(response) => {
                 write!(f, "StateResponse({}, {})", response.shard_id, response.sync_hash)
             }
@@ -552,12 +601,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::VersionedPartialEncodedChunk(_) => {
                 write!(f, "VersionedPartialEncodedChunk(?)")
             }
-            RoutedMessageBody::VersionedStateResponse(response) => write!(
-                f,
-                "VersionedStateResponse({}, {})",
-                response.shard_id(),
-                response.sync_hash()
-            ),
             RoutedMessageBody::PartialEncodedChunkForward(forward) => write!(
                 f,
                 "PartialChunkForward({:?}, {:?})",
@@ -566,6 +609,9 @@ impl fmt::Debug for RoutedMessageBody {
             ),
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
+            RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
+            RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
+            RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
         }
     }
 }
@@ -648,8 +694,6 @@ impl RoutedMessage {
             self.body,
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
-                | RoutedMessageBody::StateRequestHeader(_, _)
-                | RoutedMessageBody::StateRequestPart(_, _, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
                 | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
@@ -779,22 +823,6 @@ impl StateResponseInfo {
             Self::V2(info) => info.state_response,
         }
     }
-}
-
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    borsh::BorshSerialize,
-    borsh::BorshDeserialize,
-    serde::Serialize,
-)]
-pub enum AccountOrPeerIdOrHash {
-    AccountId(AccountId),
-    PeerId(PeerId),
-    Hash(CryptoHash),
 }
 
 pub(crate) struct RawRoutedMessage {

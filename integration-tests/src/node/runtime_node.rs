@@ -2,9 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_parameters::RuntimeConfig;
 use near_primitives::types::AccountId;
 use nearcore::config::GenesisExt;
-use node_runtime::config::RuntimeConfig;
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account, carol_account};
 
 use crate::node::Node;
@@ -109,7 +109,7 @@ mod tests {
         let (alice1, bob1) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         node_user.send_money(alice.clone(), bob.clone(), 1).unwrap();
         let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-        let fee_helper = FeeHelper::new(runtime_config.fees, node.genesis().config.min_gas_price);
+        let fee_helper = FeeHelper::new(runtime_config, node.genesis().config.min_gas_price);
         let transfer_cost = fee_helper.transfer_cost();
         let (alice2, bob2) = (node.view_balance(&alice).unwrap(), node.view_balance(&bob).unwrap());
         assert_eq!(alice2, alice1 - 1 - transfer_cost);

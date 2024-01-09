@@ -8,20 +8,29 @@ pub(crate) mod test_builder;
 mod ts_contract;
 mod wasm_validation;
 
-use crate::logic::{VMConfig, VMContext};
-use crate::vm_kind::VMKind;
-#[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-use near_primitives_core::config::ContractPrepareVersion;
-use near_primitives_core::types::ProtocolVersion;
+use crate::logic::VMContext;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeConfigStore;
+use near_primitives_core::version::PROTOCOL_VERSION;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
 const SIGNER_ACCOUNT_PK: [u8; 3] = [0, 1, 2];
 const PREDECESSOR_ACCOUNT_ID: &str = "carol";
 
-const LATEST_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::MAX;
+pub(crate) fn test_vm_config() -> near_parameters::vm::Config {
+    let store = RuntimeConfigStore::test();
+    let config = store.get_config(PROTOCOL_VERSION).wasm_config.clone();
+    near_parameters::vm::Config {
+        vm_kind: config.vm_kind.replace_with_wasmtime_if_unsupported(),
+        ..config
+    }
+}
 
-pub(crate) fn with_vm_variants(#[allow(unused)] cfg: &VMConfig, runner: impl Fn(VMKind) -> ()) {
+pub(crate) fn with_vm_variants(
+    #[allow(unused)] cfg: &near_parameters::vm::Config,
+    runner: impl Fn(VMKind) -> (),
+) {
     #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
     runner(VMKind::Wasmer0);
 
@@ -32,7 +41,8 @@ pub(crate) fn with_vm_variants(#[allow(unused)] cfg: &VMConfig, runner: impl Fn(
     runner(VMKind::Wasmer2);
 
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
-    if cfg.limit_config.contract_prepare_version == ContractPrepareVersion::V2 {
+    if cfg.limit_config.contract_prepare_version == near_parameters::vm::ContractPrepareVersion::V2
+    {
         runner(VMKind::NearVm);
     }
 }
@@ -55,19 +65,5 @@ fn create_context(input: Vec<u8>) -> VMContext {
         random_seed: vec![0, 1, 2],
         view_config: None,
         output_data_receivers: vec![],
-    }
-}
-
-/// Small helper to compute expected loading gas cost charged before loading.
-///
-/// Includes hard-coded value for runtime parameter values
-/// `wasm_contract_loading_base` and `wasm_contract_loading_bytes` which would
-/// have to be updated if they change in the future.
-#[allow(unused)]
-fn prepaid_loading_gas(bytes: usize) -> u64 {
-    if cfg!(feature = "protocol_feature_fix_contract_loading_cost") {
-        35_445_963 + bytes as u64 * 21_6750
-    } else {
-        0
     }
 }

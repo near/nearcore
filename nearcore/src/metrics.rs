@@ -4,9 +4,9 @@ use actix_rt::ArbiterHandle;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, try_create_histogram_vec, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, HistogramVec, IntCounterVec, IntGauge,
-    IntGaugeVec,
+    exponential_buckets, linear_buckets, processing_time_buckets, try_create_histogram_vec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, HistogramVec,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
@@ -14,6 +14,16 @@ use near_store::{ShardUId, Store, Trie, TrieDBStorage};
 use once_cell::sync::Lazy;
 
 use crate::NearConfig;
+
+pub static APPLYING_CHUNKS_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_applying_chunks_time",
+        "Time taken to apply chunks per shard",
+        &["shard_id"],
+        Some(processing_time_buckets()),
+    )
+    .unwrap()
+});
 
 pub(crate) static APPLY_CHUNK_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
@@ -274,16 +284,16 @@ pub fn spawn_trie_metrics_loop(
 mod tests {
     use super::*;
     use near_primitives::trie_key::col;
-    use near_store::test_utils::create_tries;
     use near_store::test_utils::simplify_changes;
     use near_store::test_utils::test_populate_trie;
+    use near_store::test_utils::TestTriesBuilder;
 
     fn create_item(key: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
         (key.to_vec(), Some(vec![]))
     }
 
     fn create_trie(items: &[(Vec<u8>, Option<Vec<u8>>)]) -> Trie {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId { version: 1, shard_id: 0 };
         let trie_changes = simplify_changes(&items);
         let state_root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, shard_uid, trie_changes);
@@ -319,8 +329,7 @@ mod tests {
             create_item(&[col::POSTPONED_RECEIPT, 1]),
             create_item(&[col::POSTPONED_RECEIPT, 2]),
             create_item(&[col::POSTPONED_RECEIPT, 3]),
-            create_item(&[col::DELAYED_RECEIPT_INDICES, 1]),
-            create_item(&[col::DELAYED_RECEIPT, 1]),
+            create_item(&[col::DELAYED_RECEIPT_OR_INDICES, 1]),
             create_item(&[col::CONTRACT_DATA, 1]),
         ];
         let count = get_postponed_receipt_count_for_trie(create_trie(&items)).unwrap();

@@ -3,13 +3,13 @@ name = "near-indexer-primitives"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate hosts structures for the NEAR Indexer Framework types"
 repository.workspace = true
 license.workspace = true
 publish = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
 serde.workspace = true

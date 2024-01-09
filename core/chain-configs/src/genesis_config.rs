@@ -7,13 +7,13 @@ use crate::genesis_validate::validate_genesis;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use near_config_utils::ValidationError;
-use near_primitives::epoch_manager::{AllEpochConfig, EpochConfig};
+use near_parameters::{RuntimeConfig, RuntimeConfigView};
+use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::views::RuntimeConfigView;
+use near_primitives::types::StateRoot;
 use near_primitives::{
     hash::CryptoHash,
-    runtime::config::RuntimeConfig,
     serialize::dec_format,
     state_record::StateRecord,
     types::{
@@ -182,7 +182,9 @@ pub struct GenesisConfig {
 
 impl GenesisConfig {
     pub fn use_production_config(&self) -> bool {
-        self.use_production_config || self.chain_id == "testnet" || self.chain_id == "mainnet"
+        self.use_production_config
+            || self.chain_id == near_primitives::chains::TESTNET
+            || self.chain_id == near_primitives::chains::MAINNET
     }
 }
 
@@ -210,14 +212,6 @@ impl From<&GenesisConfig> for EpochConfig {
             },
             validator_max_kickout_stake_perc: config.max_kickout_stake_perc,
         }
-    }
-}
-
-impl From<&GenesisConfig> for AllEpochConfig {
-    fn from(genesis_config: &GenesisConfig) -> Self {
-        let initial_epoch_config = EpochConfig::from(genesis_config);
-        let epoch_config = Self::new(genesis_config.use_production_config(), initial_epoch_config);
-        epoch_config
     }
 }
 
@@ -261,12 +255,19 @@ pub enum GenesisContents {
     /// The idea is that all records consume too much memory,
     /// so they should be processed in streaming fashion with for_each_record.
     RecordsFile { records_file: PathBuf },
+    /// Use records already in storage, represented by these state roots.
+    /// Used only for mock network forking for testing purposes.
+    /// WARNING: THIS IS USED FOR TESTING ONLY. IT IS **NOT CORRECT**, because
+    /// it is impossible to compute the corresponding genesis hash in this form,
+    /// such that the genesis hash is consistent with that of an equivalent
+    /// genesis that spells out the records.
+    StateRoots { state_roots: Vec<StateRoot> },
 }
 
-fn contents_are_not_records(contents: &GenesisContents) -> bool {
+fn contents_are_from_record_file(contents: &GenesisContents) -> bool {
     match contents {
-        GenesisContents::Records { .. } => false,
-        _ => true,
+        GenesisContents::RecordsFile { .. } => true,
+        _ => false,
     }
 }
 
@@ -284,7 +285,7 @@ pub struct Genesis {
     #[serde(
         flatten,
         deserialize_with = "no_value_and_null_as_default",
-        skip_serializing_if = "contents_are_not_records"
+        skip_serializing_if = "contents_are_from_record_file"
     )]
     pub contents: GenesisContents,
 }
@@ -471,11 +472,28 @@ impl GenesisJsonHasher {
         record.serialize(&mut ser).expect("Error serializing the genesis record.");
     }
 
+    pub fn process_state_roots(&mut self, state_roots: &[StateRoot]) {
+        // WARNING: THIS IS INCORRECT, because it is impossible to compute the
+        // genesis hash from the state root in a way that is consistent to that
+        // of a genesis that spells out all the records.
+        // THEREFORE, THIS IS ONLY USED FOR TESTING, and this logic is only
+        // present at all because a genesis hash always has to at least exist.
+        let mut ser = Serializer::pretty(&mut self.digest);
+        state_roots.serialize(&mut ser).expect("Error serializing the state roots.");
+    }
+
     pub fn process_genesis(&mut self, genesis: &Genesis) {
         self.process_config(&genesis.config);
-        genesis.for_each_record(|record: &StateRecord| {
-            self.process_record(record);
-        });
+        match &genesis.contents {
+            GenesisContents::StateRoots { state_roots } => {
+                self.process_state_roots(state_roots);
+            }
+            _ => {
+                genesis.for_each_record(|record: &StateRecord| {
+                    self.process_record(record);
+                });
+            }
+        }
     }
 
     pub fn finalize(self) -> CryptoHash {
@@ -506,29 +524,32 @@ impl Genesis {
         path: P,
         genesis_validation: GenesisValidationMode,
     ) -> Result<Self, ValidationError> {
-        let mut file = File::open(&path).map_err(|_| ValidationError::GenesisFileError {
+        let mut file = File::open(&path).map_err(|e| ValidationError::GenesisFileError {
             error_message: format!(
-                "Could not open genesis config file at path {}.",
-                &path.as_ref().display()
+                "Could not open genesis config file at path {}: {:?}",
+                &path.as_ref().display(),
+                e,
             ),
         })?;
 
         let mut json_str = String::new();
-        file.read_to_string(&mut json_str).map_err(|_| ValidationError::GenesisFileError {
-            error_message: format!("Failed to read genesis config file to string. "),
+        file.read_to_string(&mut json_str).map_err(|e| ValidationError::GenesisFileError {
+            error_message: format!("Failed to read genesis config file to string: {:?}", e),
         })?;
 
         let json_str_without_comments = near_config_utils::strip_comments_from_json_str(&json_str)
-            .map_err(|_| ValidationError::GenesisFileError {
-                error_message: format!("Failed to strip comments from genesis config file"),
+            .map_err(|e| ValidationError::GenesisFileError {
+                error_message: format!(
+                    "Failed to strip comments from genesis config file: {:?}",
+                    e
+                ),
             })?;
 
-        let genesis =
-            serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|_| {
-                ValidationError::GenesisFileError {
-                    error_message: format!("Failed to deserialize the genesis records."),
-                }
-            })?;
+        let genesis = serde_json::from_str::<Genesis>(&json_str_without_comments).map_err(|e| {
+            ValidationError::GenesisFileError {
+                error_message: format!("Failed to deserialize the genesis records: {:?}", e),
+            }
+        })?;
 
         genesis.validate(genesis_validation)?;
         Ok(genesis)
@@ -549,6 +570,10 @@ impl Genesis {
             ValidationError::GenesisFileError { error_message: error_message }
         })?;
         Self::new_with_path_validated(genesis_config, records_path, genesis_validation)
+    }
+
+    pub fn new_from_state_roots(config: GenesisConfig, state_roots: Vec<StateRoot>) -> Self {
+        Self { config, contents: GenesisContents::StateRoots { state_roots } }
     }
 
     fn new_validated(
@@ -606,14 +631,6 @@ impl Genesis {
         hasher.finalize()
     }
 
-    /// Returns number of records in the genesis or path to records file.
-    pub fn records_len(&self) -> Result<usize, &Path> {
-        match &self.contents {
-            GenesisContents::Records { records } => Ok(records.0.len()),
-            GenesisContents::RecordsFile { records_file } => Err(&records_file),
-        }
-    }
-
     /// If records vector is empty processes records stream from records_file.
     /// May panic if records_file is removed or is in wrong format.
     pub fn for_each_record(&self, mut callback: impl FnMut(&StateRecord)) {
@@ -633,6 +650,9 @@ impl Genesis {
                 stream_records_from_file(reader, callback_move)
                     .expect("error while streaming records");
             }
+            GenesisContents::StateRoots { .. } => {
+                unreachable!("Cannot iterate through records when genesis uses state roots");
+            }
         }
     }
 
@@ -651,6 +671,9 @@ impl Genesis {
                     GenesisContents::Records { records: GenesisRecords::from_file(records_file) };
             }
             GenesisContents::Records { .. } => {}
+            GenesisContents::StateRoots { .. } => {
+                unreachable!("Cannot iterate through records when genesis uses state roots");
+            }
         }
         match &mut self.contents {
             GenesisContents::Records { records } => records,
@@ -690,6 +713,9 @@ impl GenesisChangeConfig {
 // Ideally we should create `RuntimeConfigView`, but given the deeply nested nature and the number of fields inside
 // `RuntimeConfig`, it should be its own endeavor.
 // TODO: This has changed, there is now `RuntimeConfigView`. Reconsider if moving this is possible now.
+// TODO: Consider replacing tens of fields with a combination of `GenesisConfig`
+// and `EpochConfig` fields, similar to how `RuntimeConfig` is represented as a
+// separate struct and not inlined.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ProtocolConfigView {
     /// Current Protocol Version
@@ -748,6 +774,17 @@ pub struct ProtocolConfigView {
     pub fishermen_threshold: Balance,
     /// The minimum stake required for staking is last seat price divided by this number.
     pub minimum_stake_divisor: u64,
+    /// Max stake percentage of the validators we will kick out.
+    pub max_kickout_stake_perc: u8,
+    /// The lowest ratio s/s_total any block producer can have.
+    /// See <https://github.com/near/NEPs/pull/167> for details
+    pub minimum_stake_ratio: Rational32,
+    /// The minimum number of validators each shard must have
+    pub minimum_validators_per_shard: NumSeats,
+    /// Number of validator seats for chunk only producers.
+    pub num_chunk_only_producer_seats: NumSeats,
+    /// Layout information regarding how to split accounts to shards
+    pub shard_layout: ShardLayout,
 }
 
 pub struct ProtocolConfig {
@@ -787,6 +824,11 @@ impl From<ProtocolConfig> for ProtocolConfigView {
             protocol_treasury_account: genesis_config.protocol_treasury_account,
             fishermen_threshold: genesis_config.fishermen_threshold,
             minimum_stake_divisor: genesis_config.minimum_stake_divisor,
+            max_kickout_stake_perc: genesis_config.max_kickout_stake_perc,
+            minimum_stake_ratio: genesis_config.minimum_stake_ratio,
+            minimum_validators_per_shard: genesis_config.minimum_validators_per_shard,
+            num_chunk_only_producer_seats: genesis_config.num_chunk_only_producer_seats,
+            shard_layout: genesis_config.shard_layout,
         }
     }
 }

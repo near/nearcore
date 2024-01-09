@@ -8,13 +8,15 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 path = "src/main.rs"
 name = "neard"
 
 [dependencies]
 actix.workspace = true
-ansi_term.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
@@ -30,6 +32,7 @@ thiserror.workspace = true
 tikv-jemallocator.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+yansi.workspace = true
 
 nearcore.workspace = true
 near-amend-genesis.workspace = true
@@ -40,7 +43,9 @@ near-config-utils.workspace = true
 near-crypto.workspace = true
 near-database-tool.workspace = true
 near-dyn-configs.workspace = true
+near-epoch-sync-tool = { workspace = true, optional = true }
 near-flat-storage.workspace = true
+near-fork-network.workspace = true
 near-jsonrpc-primitives.workspace = true
 near-mirror.workspace = true
 near-network.workspace = true
@@ -49,6 +54,7 @@ near-performance-metrics.workspace = true
 near-ping.workspace = true
 near-primitives.workspace = true
 near-state-parts.workspace = true
+near-state-parts-dump-check.workspace = true
 near-state-viewer.workspace = true
 near-store.workspace = true
 near-undo-block.workspace = true
@@ -65,11 +71,11 @@ c_memory_stats = ["nearcore/c_memory_stats"]
 test_features = ["nearcore/test_features"]
 expensive_tests = ["nearcore/expensive_tests"]
 no_cache = ["nearcore/no_cache"]
-delay_detector = ["nearcore/delay_detector"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
+new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
 
 nightly = [
   "nightly_protocol",
@@ -79,12 +85,14 @@ nightly = [
   "near-client/nightly",
   "near-database-tool/nightly",
   "near-dyn-configs/nightly",
+  "near-fork-network/nightly",
   "near-jsonrpc-primitives/nightly",
   "near-mirror/nightly",
   "near-network/nightly",
   "near-o11y/nightly",
   "near-ping/nightly",
   "near-primitives/nightly",
+  "near-state-parts-dump-check/nightly",
   "near-state-parts/nightly",
   "near-store/nightly",
   "near-undo-block/nightly",
@@ -95,12 +103,14 @@ nightly_protocol = [
   "near-client/nightly_protocol",
   "near-database-tool/nightly_protocol",
   "near-dyn-configs/nightly_protocol",
+  "near-fork-network/nightly_protocol",
   "near-jsonrpc-primitives/nightly_protocol",
   "near-mirror/nightly_protocol",
   "near-network/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-ping/nightly_protocol",
   "near-primitives/nightly_protocol",
+  "near-state-parts-dump-check/nightly_protocol",
   "near-state-parts/nightly_protocol",
   "near-store/nightly_protocol",
   "near-undo-block/nightly_protocol",
@@ -117,11 +127,6 @@ calimero_zero_storage = [
 io_trace = ["near-store/io_trace", "near-o11y/io_trace", "nearcore/io_trace"]
 
 sandbox = ["nearcore/sandbox"]
-
-# Force usage of a specific wasm vm irrespective of protocol version.
-force_wasmer2 = ["nearcore/force_wasmer2"]
-force_wasmer0 = ["nearcore/force_wasmer0"]
-force_wasmtime = ["nearcore/force_wasmtime"]
 
 [package.metadata.workspaces]
 independent = true

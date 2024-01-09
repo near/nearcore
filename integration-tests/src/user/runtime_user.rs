@@ -4,10 +4,10 @@ use std::sync::{Arc, RwLock};
 
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
+use near_parameters::RuntimeConfig;
 use near_primitives::errors::{RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::test_utils::MockEpochInfoProvider;
 use near_primitives::transaction::SignedTransaction;
@@ -249,6 +249,14 @@ impl User for RuntimeUser {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_state(&state_update, account_id, prefix, false)
+            .map_err(|err| err.to_string())
+    }
+
+    fn is_locked(&self, account_id: &AccountId) -> Result<bool, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer
+            .view_access_keys(&state_update, account_id)
+            .map(|access_keys| access_keys.is_empty())
             .map_err(|err| err.to_string())
     }
 

@@ -1,7 +1,10 @@
 use crate::node::RuntimeNode;
 use crate::tests::standard_cases::*;
 use near_chain_configs::Genesis;
+use near_crypto::SecretKey;
+use near_primitives::checked_feature;
 use near_primitives::state_record::StateRecord;
+use near_primitives::version::PROTOCOL_VERSION;
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -114,15 +117,37 @@ fn test_send_money_runtime() {
 }
 
 #[test]
-fn test_transfer_tokens_implicit_account_runtime() {
+fn test_transfer_tokens_near_implicit_account_runtime() {
     let node = create_runtime_node();
-    transfer_tokens_implicit_account(node);
+    let public_key = node.user().signer().public_key();
+    transfer_tokens_to_implicit_account(node, public_key);
 }
 
 #[test]
-fn test_trying_to_create_implicit_account_runtime() {
+fn test_transfer_tokens_eth_implicit_account_runtime() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
     let node = create_runtime_node();
-    trying_to_create_implicit_account(node);
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    transfer_tokens_to_implicit_account(node, secret_key.public_key());
+}
+
+#[test]
+fn test_trying_to_create_near_implicit_account_runtime() {
+    let node = create_runtime_node();
+    let public_key = node.user().signer().public_key();
+    trying_to_create_implicit_account(node, public_key);
+}
+
+#[test]
+fn test_trying_to_create_eth_implicit_account_runtime() {
+    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
+        return;
+    }
+    let node = create_runtime_node();
+    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
+    trying_to_create_implicit_account(node, secret_key.public_key());
 }
 
 #[test]
@@ -318,24 +343,24 @@ fn test_contract_write_key_value_cost_runtime() {
 }
 
 #[test]
-fn test_chunk_nodes_cache_same_common_parent() {
+fn test_accounting_cache_same_common_parent() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-    test_chunk_nodes_cache_common_parent(node, runtime_config);
+    test_accounting_cache_common_parent(node, runtime_config);
 }
 
 #[test]
-fn test_chunk_nodes_cache_branch_value_runtime() {
+fn test_accounting_cache_branch_value_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-    test_chunk_nodes_cache_branch_value(node, runtime_config);
+    test_accounting_cache_branch_value(node, runtime_config);
 }
 
 #[test]
-fn test_chunk_nodes_cache_mode_runtime() {
+fn test_accounting_cache_mode_runtime() {
     let node = create_runtime_node();
     let runtime_config = node.client.as_ref().read().unwrap().runtime_config.clone();
-    test_chunk_nodes_cache_mode(node, runtime_config);
+    test_accounting_cache_mode(node, runtime_config);
 }
 
 #[test]

@@ -1,9 +1,9 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use near_primitives::types::StateRoot;
 use near_store::db::TestDB;
 use near_store::Store;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const STATE_DUMP_FILE: &str = "state_dump";
@@ -43,9 +43,8 @@ impl StateDump {
         {
             let mut roots_files = dir;
             roots_files.push(GENESIS_ROOTS_FILE);
-            let mut file = File::create(roots_files)?;
-            let data = self.roots.try_to_vec()?;
-            file.write_all(&data)?;
+            let file = File::create(roots_files)?;
+            borsh::to_writer(&file, &self.roots)?;
         }
         Ok(())
     }

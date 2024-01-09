@@ -134,6 +134,8 @@ pub enum Error {
     /// Invalid chunk state.
     #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
+    #[error("Invalid Chunk State Witness")]
+    InvalidChunkStateWitness,
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -188,9 +190,17 @@ pub enum Error {
     /// Invalid block merkle root.
     #[error("Invalid Block Merkle Root")]
     InvalidBlockMerkleRoot,
+    /// Invalid split shard ids.
+    #[error("Invalid Split Shard Ids when resharding. shard_id: {0}, parent_shard_id: {1}")]
+    InvalidSplitShardsIds(u64, u64),
     /// Someone is not a validator. Usually happens in signature verification
     #[error("Not A Validator")]
     NotAValidator,
+    /// Someone is not a chunk validator. Happens if we're asked to validate a chunk we're not
+    /// supposed to validate, or to verify a chunk approval signed by a validator that isn't
+    /// supposed to validate the chunk.
+    #[error("Not A Chunk Validator")]
+    NotAChunkValidator,
     /// Validator error.
     #[error("Validator Error: {0}")]
     ValidatorError(String),
@@ -260,6 +270,7 @@ impl Error {
             | Error::InvalidChunk
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
+            | Error::InvalidChunkStateWitness
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -271,6 +282,7 @@ impl Error {
             | Error::InvalidStatePayload
             | Error::InvalidTransactions
             | Error::InvalidChallenge
+            | Error::InvalidSplitShardsIds(_, _)
             | Error::MaliciousChallenge
             | Error::IncorrectNumberOfChunkHeaders
             | Error::InvalidEpochHash
@@ -290,6 +302,7 @@ impl Error {
             | Error::InvalidBlockMerkleRoot
             | Error::InvalidProtocolVersion
             | Error::NotAValidator
+            | Error::NotAChunkValidator
             | Error::InvalidChallengeRoot => true,
         }
     }
@@ -298,6 +311,72 @@ impl Error {
         match self {
             Error::IOErr(_) | Error::Other(_) | Error::DBNotFoundErr(_) => true,
             _ => false,
+        }
+    }
+
+    /// Some blockchain errors are reported in the prometheus metrics. In such cases a report might
+    /// contain a label that specifies the type of error that has occured. For example when the node
+    /// receives a block with an invalid signature this would be reported as:
+    ///  `near_num_invalid_blocks{error="invalid_signature"}`.
+    /// This function returns the value of the error label for a specific instance of Error.
+    pub fn prometheus_label_value(&self) -> &'static str {
+        match self {
+            Error::BlockKnown(_) => "block_known",
+            Error::TooManyProcessingBlocks => "too_many_processing_blocks",
+            Error::Orphan => "orphan",
+            Error::ChunkMissing(_) => "chunk_missing",
+            Error::ChunksMissing(_) => "chunks_missing",
+            Error::InvalidChunkHeight => "invalid_chunk_height",
+            Error::IOErr(_) => "io_err",
+            Error::Other(_) => "other",
+            Error::ValidatorError(_) => "validator_error",
+            Error::EpochOutOfBounds(_) => "epoch_out_of_bounds",
+            Error::ChallengedBlockOnChain => "challenged_block_on_chain",
+            Error::CannotBeFinalized => "cannot_be_finalized",
+            Error::StorageError(_) => "storage_error",
+            Error::GCError(_) => "gc_error",
+            Error::DBNotFoundErr(_) => "db_not_found_err",
+            Error::InvalidBlockPastTime(_, _) => "invalid_block_past_time",
+            Error::InvalidBlockFutureTime(_) => "invalid_block_future_time",
+            Error::InvalidBlockHeight(_) => "invalid_block_height",
+            Error::InvalidBlockProposer => "invalid_block_proposer",
+            Error::InvalidChunk => "invalid_chunk",
+            Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
+            Error::InvalidChunkState(_) => "invalid_chunk_state",
+            Error::InvalidChunkStateWitness => "invalid_chunk_state_witness",
+            Error::InvalidChunkMask => "invalid_chunk_mask",
+            Error::InvalidStateRoot => "invalid_state_root",
+            Error::InvalidTxRoot => "invalid_tx_root",
+            Error::InvalidChunkReceiptsRoot => "invalid_chunk_receipts_root",
+            Error::InvalidOutcomesProof => "invalid_outcomes_proof",
+            Error::InvalidChunkHeadersRoot => "invalid_chunk_headers_root",
+            Error::InvalidChunkTxRoot => "invalid_chunk_tx_root",
+            Error::InvalidReceiptsProof => "invalid_receipts_proof",
+            Error::InvalidStatePayload => "invalid_state_payload",
+            Error::InvalidTransactions => "invalid_transactions",
+            Error::InvalidChallenge => "invalid_challenge",
+            Error::InvalidSplitShardsIds(_, _) => "invalid_split_shard_ids",
+            Error::MaliciousChallenge => "malicious_challenge",
+            Error::IncorrectNumberOfChunkHeaders => "incorrect_number_of_chunk_headers",
+            Error::InvalidEpochHash => "invalid_epoch_hash",
+            Error::InvalidNextBPHash => "invalid_next_bp_hash",
+            Error::NotEnoughApprovals => "not_enough_approvals",
+            Error::InvalidFinalityInfo => "invalid_finality_info",
+            Error::InvalidValidatorProposals => "invalid_validator_proposals",
+            Error::InvalidSignature => "invalid_signature",
+            Error::InvalidApprovals => "invalid_approvals",
+            Error::InvalidGasLimit => "invalid_gas_limit",
+            Error::InvalidGasPrice => "invalid_gas_price",
+            Error::InvalidGasUsed => "invalid_gas_used",
+            Error::InvalidBalanceBurnt => "invalid_balance_burnt",
+            Error::InvalidShardId(_) => "invalid_shard_id",
+            Error::InvalidStateRequest(_) => "invalid_state_request",
+            Error::InvalidRandomnessBeaconOutput => "invalid_randomness_beacon_output",
+            Error::InvalidBlockMerkleRoot => "invalid_block_merkele_root",
+            Error::InvalidProtocolVersion => "invalid_protocol_version",
+            Error::NotAValidator => "not_a_validator",
+            Error::NotAChunkValidator => "not_a_chunk_validator",
+            Error::InvalidChallengeRoot => "invalid_challenge_root",
         }
     }
 }
@@ -360,4 +439,17 @@ pub enum BlockKnownError {
     KnownInProcessing,
     #[error("already known in invalid blocks")]
     KnownAsInvalid,
+}
+
+#[cfg(feature = "new_epoch_sync")]
+pub mod epoch_sync {
+    #[derive(thiserror::Error, std::fmt::Debug)]
+    pub enum EpochSyncInfoError {
+        #[error(transparent)]
+        EpochSyncInfoErr(#[from] near_primitives::errors::epoch_sync::EpochSyncInfoError),
+        #[error(transparent)]
+        IOErr(#[from] std::io::Error),
+        #[error(transparent)]
+        ChainErr(#[from] crate::Error),
+    }
 }

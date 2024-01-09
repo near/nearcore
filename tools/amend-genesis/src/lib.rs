@@ -1,5 +1,5 @@
 use anyhow::Context;
-use borsh::BorshSerialize;
+
 use near_chain_configs::{Genesis, GenesisValidationMode};
 use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
@@ -9,7 +9,7 @@ use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats};
+use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::{hash_map, HashMap};
@@ -107,7 +107,7 @@ impl AccountRecords {
                 for (public_key, access_key) in self.keys {
                     let storage_usage = account.storage_usage()
                         + public_key.len() as u64
-                        + access_key.try_to_vec().unwrap().len() as u64
+                        + borsh::object_length(&access_key).unwrap() as u64
                         + num_extra_bytes_record;
                     account.set_storage_usage(storage_usage);
 
@@ -254,6 +254,8 @@ pub struct GenesisChanges {
     pub protocol_reward_rate: Option<Rational32>,
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
+    pub min_gas_price: Option<Balance>,
+    pub max_gas_price: Option<Balance>,
 }
 
 /// Amend a genesis/records file created by `dump-state`.
@@ -350,12 +352,14 @@ pub fn amend_genesis(
     if let Some(n) = genesis_changes.num_seats {
         genesis.config.num_block_producer_seats = n;
     }
-    if let Some(l) = shard_layout {
+    if let Some(shard_layout) = shard_layout {
         genesis.config.avg_hidden_validator_seats_per_shard =
-            (0..l.num_shards()).map(|_| 0).collect();
-        genesis.config.num_block_producer_seats_per_shard =
-            utils::get_num_seats_per_shard(l.num_shards(), genesis.config.num_block_producer_seats);
-        genesis.config.shard_layout = l;
+            shard_layout.shard_ids().into_iter().map(|_| 0).collect();
+        genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
+            shard_layout.shard_ids().count() as NumShards,
+            genesis.config.num_block_producer_seats,
+        );
+        genesis.config.shard_layout = shard_layout;
     }
     if let Some(v) = genesis_changes.protocol_version {
         genesis.config.protocol_version = v;
@@ -374,6 +378,12 @@ pub fn amend_genesis(
     }
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
+    }
+    if let Some(p) = genesis_changes.min_gas_price {
+        genesis.config.min_gas_price = p;
+    }
+    if let Some(p) = genesis_changes.max_gas_price {
+        genesis.config.max_gas_price = p;
     }
     genesis.to_file(genesis_file_out);
     records_seq.end()?;

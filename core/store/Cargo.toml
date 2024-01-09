@@ -8,6 +8,9 @@ repository.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 actix-rt.workspace = true
 actix.workspace = true
@@ -19,6 +22,7 @@ derive_more.workspace = true
 elastic-array.workspace = true
 enum-map.workspace = true
 fs2.workspace = true
+hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true
 lru.workspace = true
@@ -41,6 +45,7 @@ near-chain-configs = { workspace = true, features = ["metrics"] }
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true
+near-parameters.workspace = true
 near-primitives.workspace = true
 near-vm-runner.workspace = true
 
@@ -48,6 +53,8 @@ near-vm-runner.workspace = true
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+near-chain.workspace = true
+near-chunks.workspace = true
 rand.workspace = true
 thiserror.workspace = true
 
@@ -59,6 +66,10 @@ harness = false
 name = "store_bench"
 harness = false
 
+[[bench]]
+name = "finalize_bench"
+harness = false
+
 [features]
 default = []
 io_trace = []
@@ -66,11 +77,13 @@ no_cache = []
 single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 serialize_all_state_changes = []
+new_epoch_sync = []
 
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
@@ -79,6 +92,7 @@ nightly = [
   "near-chain-configs/nightly",
   "near-fmt/nightly",
   "near-o11y/nightly",
+  "near-parameters/nightly",
   "near-primitives/nightly",
   "near-vm-runner/nightly",
 ]

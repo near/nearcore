@@ -128,15 +128,6 @@ mod params {
             self.0.unwrap_or_else(Self::parse)
         }
 
-        /// If value hasn’t been parsed yet, tries to deserialise it directly
-        /// into `T` using given parse function.
-        pub fn unwrap_or_else(
-            self,
-            func: impl FnOnce(Value) -> Result<T, RpcParseError>,
-        ) -> Result<T, RpcParseError> {
-            self.0.unwrap_or_else(func)
-        }
-
         /// If value hasn’t been parsed yet and it’s a one-element array
         /// (i.e. singleton) deserialises the element and calls `func` on it.
         ///

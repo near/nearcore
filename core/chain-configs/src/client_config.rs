@@ -1,4 +1,5 @@
 //! Chain Client Configuration
+use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
@@ -6,6 +7,8 @@ use near_primitives::types::{
 use near_primitives::version::Version;
 use std::cmp::{max, min};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
@@ -26,22 +29,21 @@ pub const DEFAULT_GC_NUM_EPOCHS_TO_KEEP: u64 = 5;
 
 /// Default number of concurrent requests to external storage to fetch state parts.
 pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL: u32 = 25;
+pub const DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL: u32 = 5;
 
 /// Configuration for garbage collection.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
 pub struct GCConfig {
     /// Maximum number of blocks to garbage collect at every garbage collection
     /// call.
-    #[serde(default = "default_gc_blocks_limit")]
     pub gc_blocks_limit: NumBlocks,
 
     /// Maximum number of height to go through at each garbage collection step
     /// when cleaning forks during garbage collection.
-    #[serde(default = "default_gc_fork_clean_step")]
     pub gc_fork_clean_step: u64,
 
     /// Number of epochs for which we keep store data.
-    #[serde(default = "default_gc_num_epochs_to_keep")]
     pub gc_num_epochs_to_keep: u64,
 }
 
@@ -55,18 +57,6 @@ impl Default for GCConfig {
     }
 }
 
-fn default_gc_blocks_limit() -> NumBlocks {
-    GCConfig::default().gc_blocks_limit
-}
-
-fn default_gc_fork_clean_step() -> u64 {
-    GCConfig::default().gc_fork_clean_step
-}
-
-fn default_gc_num_epochs_to_keep() -> u64 {
-    GCConfig::default().gc_num_epochs_to_keep()
-}
-
 impl GCConfig {
     pub fn gc_num_epochs_to_keep(&self) -> u64 {
         max(MIN_GC_NUM_EPOCHS_TO_KEEP, self.gc_num_epochs_to_keep)
@@ -77,14 +67,22 @@ fn default_num_concurrent_requests() -> u32 {
     DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL
 }
 
+fn default_num_concurrent_requests_during_catchup() -> u32 {
+    DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExternalStorageConfig {
     /// Location of state parts.
     pub location: ExternalStorageLocation,
     /// When fetching state parts from external storage, throttle fetch requests
-    /// to this many concurrent requests per shard.
+    /// to this many concurrent requests.
     #[serde(default = "default_num_concurrent_requests")]
     pub num_concurrent_requests: u32,
+    /// During catchup, the node will use a different number of concurrent requests
+    /// to reduce the performance impact of state sync.
+    #[serde(default = "default_num_concurrent_requests_during_catchup")]
+    pub num_concurrent_requests_during_catchup: u32,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -97,6 +95,9 @@ pub enum ExternalStorageLocation {
     },
     Filesystem {
         root_dir: PathBuf,
+    },
+    GCS {
+        bucket: String,
     },
 }
 
@@ -113,6 +114,9 @@ pub struct DumpConfig {
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iteration_delay: Option<Duration>,
+    /// Location of a json file with credentials allowing write access to the bucket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials_file: Option<PathBuf>,
 }
 
 /// Configures how to fetch state parts during state sync.
@@ -145,6 +149,156 @@ impl SyncConfig {
     fn is_default(&self) -> bool {
         matches!(self, Self::Peers)
     }
+}
+
+// A handle that allows the main process to interrupt resharding if needed.
+// This typically happens when the main process is interrupted.
+#[derive(Clone)]
+pub struct ReshardingHandle {
+    keep_going: Arc<AtomicBool>,
+}
+
+impl ReshardingHandle {
+    pub fn new() -> Self {
+        Self { keep_going: Arc::new(AtomicBool::new(true)) }
+    }
+
+    pub fn get(&self) -> bool {
+        self.keep_going.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn stop(&self) -> () {
+        self.keep_going.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Configuration for resharding.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default)]
+pub struct ReshardingConfig {
+    /// The soft limit on the size of a single batch. The batch size can be
+    /// decreased if resharding is consuming too many resources and interfering
+    /// with regular node operation.
+    pub batch_size: bytesize::ByteSize,
+
+    /// The delay between writing batches to the db. The batch delay can be
+    /// increased if resharding is consuming too many resources and interfering
+    /// with regular node operation.
+    pub batch_delay: Duration,
+
+    /// The delay between attempts to start resharding while waiting for the
+    /// state snapshot to become available.
+    pub retry_delay: Duration,
+
+    /// The delay between the resharding request is received and when the actor
+    /// actually starts working on it. This delay should only be used in tests.
+    pub initial_delay: Duration,
+
+    /// The maximum time that the actor will wait for the snapshot to be ready,
+    /// before starting resharding. Do not wait indefinitely since we want to
+    /// report error early enough for the node maintainer to have time to recover.
+    pub max_poll_time: Duration,
+}
+
+impl Default for ReshardingConfig {
+    fn default() -> Self {
+        // Conservative default for a slower resharding that puts as little
+        // extra load on the node as possible.
+        Self {
+            batch_size: bytesize::ByteSize::kb(500),
+            batch_delay: Duration::from_millis(100),
+            retry_delay: Duration::from_secs(10),
+            initial_delay: Duration::from_secs(0),
+            // The snapshot typically is available within a minute from the
+            // epoch start. Set the default higher in case we need to wait for
+            // state sync.
+            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
+        }
+    }
+}
+
+pub fn default_header_sync_initial_timeout() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_header_sync_progress_timeout() -> Duration {
+    Duration::from_secs(2)
+}
+
+pub fn default_header_sync_stall_ban_timeout() -> Duration {
+    Duration::from_secs(120)
+}
+
+pub fn default_state_sync_timeout() -> Duration {
+    Duration::from_secs(60)
+}
+
+pub fn default_header_sync_expected_height_per_second() -> u64 {
+    10
+}
+
+pub fn default_sync_check_period() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_sync_step_period() -> Duration {
+    Duration::from_millis(10)
+}
+
+pub fn default_sync_height_threshold() -> u64 {
+    1
+}
+
+pub fn default_epoch_sync_enabled() -> bool {
+    false
+}
+
+pub fn default_state_sync() -> Option<StateSyncConfig> {
+    Some(StateSyncConfig {
+        dump: None,
+        sync: SyncConfig::ExternalStorage(ExternalStorageConfig {
+            location: GCS { bucket: "state-parts".to_string() },
+            num_concurrent_requests: DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_EXTERNAL,
+            num_concurrent_requests_during_catchup:
+                DEFAULT_STATE_SYNC_NUM_CONCURRENT_REQUESTS_ON_CATCHUP_EXTERNAL,
+        }),
+    })
+}
+
+pub fn default_state_sync_enabled() -> bool {
+    true
+}
+
+pub fn default_view_client_threads() -> usize {
+    4
+}
+
+pub fn default_log_summary_period() -> Duration {
+    Duration::from_secs(10)
+}
+
+pub fn default_view_client_throttle_period() -> Duration {
+    Duration::from_secs(30)
+}
+
+pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
+    Some(50_000)
+}
+
+pub fn default_transaction_pool_size_limit() -> Option<u64> {
+    Some(100_000_000) // 100 MB.
+}
+
+pub fn default_tx_routing_height_horizon() -> BlockHeightDelta {
+    4
+}
+
+pub fn default_enable_multiline_logging() -> Option<bool> {
+    Some(true)
+}
+
+pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
+    Some(Duration::from_millis(200))
 }
 
 /// ClientConfig where some fields can be updated at runtime.
@@ -180,7 +334,7 @@ pub struct ClientConfig {
     pub header_sync_progress_timeout: Duration,
     /// How much time to wait before banning a peer in header sync if sync is too slow
     pub header_sync_stall_ban_timeout: Duration,
-    /// Expected increase of header head weight per second during header sync
+    /// Expected increase of header head height per second during header sync
     pub header_sync_expected_height_per_second: u64,
     /// How long to wait for a response during state sync
     pub state_sync_timeout: Duration,
@@ -200,8 +354,6 @@ pub struct ClientConfig {
     pub ttl_account_id_router: Duration,
     /// Horizon at which instead of fetching block, fetch full state.
     pub block_fetch_horizon: BlockHeightDelta,
-    /// Horizon to step from the latest block when fetching state.
-    pub state_fetch_horizon: NumBlocks,
     /// Time between check to perform catchup.
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
@@ -212,12 +364,13 @@ pub struct ClientConfig {
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Garbage collection configuration.
     pub gc: GCConfig,
-    /// Accounts that this client tracks
+    /// Accounts that this client tracks.
     pub tracked_accounts: Vec<AccountId>,
-    /// Shards that this client tracks
+    /// Shards that this client tracks.
     pub tracked_shards: Vec<ShardId>,
     /// Rotate between these sets of tracked shards.
     /// Used to simulate the behavior of chunk only producers without staking tokens.
+    /// This field is only used if `tracked_shards` is empty.
     pub tracked_shard_schedule: Vec<Vec<ShardId>>,
     /// Not clear old data, set `true` for archive nodes.
     pub archive: bool,
@@ -251,13 +404,21 @@ pub struct ClientConfig {
     pub state_sync_enabled: bool,
     /// Options for syncing state.
     pub state_sync: StateSyncConfig,
-    /// Testing only. Makes a state snapshot after every epoch, but also every N blocks. The first snapshot is done after processng the first block.
-    pub state_snapshot_every_n_blocks: Option<u64>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
     pub transaction_pool_size_limit: Option<u64>,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
+    // Configuration for resharding.
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
+    /// If the node is not a chunk producer within that many blocks, then route
+    /// to upcoming chunk producers.
+    pub tx_routing_height_horizon: BlockHeightDelta,
+    /// Limit the time of adding transactions to a chunk.
+    /// A node produces a chunk by adding transactions from the transaction pool until
+    /// some limit is reached. This time limit ensures that adding transactions won't take
+    /// longer than the specified duration, which helps to produce the chunk quickly.
+    pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
 }
 
 impl ClientConfig {
@@ -305,7 +466,6 @@ impl ClientConfig {
             num_block_producer_seats,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
-            state_fetch_horizon: 5,
             catchup_step_period: Duration::from_millis(1),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),
@@ -331,9 +491,17 @@ impl ClientConfig {
             flat_storage_creation_period: Duration::from_secs(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
-            state_snapshot_every_n_blocks: None,
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
+            ),
+            tx_routing_height_horizon: 4,
+            produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
+                default_produce_chunk_add_transactions_time_limit(),
+                "produce_chunk_add_transactions_time_limit",
+            ),
         }
     }
 }

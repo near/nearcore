@@ -2,16 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_header::{BlockHeader, BlockHeaderV3};
+use crate::block::BlockV3;
+use crate::block_header::BlockHeader;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
-use crate::sharding::ShardChunkHeader;
+use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -59,12 +61,12 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions.push(Action::FunctionCall(FunctionCallAction {
+        self.actions.push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
             gas,
             deposit,
-        }));
+        })));
         self
     }
 
@@ -74,16 +76,16 @@ impl Transaction {
     }
 
     pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
-        self.actions.push(Action::Stake(StakeAction { stake, public_key }));
+        self.actions.push(Action::Stake(Box::new(StakeAction { stake, public_key })));
         self
     }
     pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
-        self.actions.push(Action::AddKey(AddKeyAction { public_key, access_key }));
+        self.actions.push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
         self
     }
 
     pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey(DeleteKeyAction { public_key }));
+        self.actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
         self
     }
 
@@ -144,7 +146,7 @@ impl SignedTransaction {
             signer_id.clone(),
             signer_id,
             signer,
-            vec![Action::Stake(StakeAction { stake, public_key })],
+            vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
         )
     }
@@ -165,10 +167,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
@@ -192,10 +194,10 @@ impl SignedTransaction {
             signer,
             vec![
                 Action::CreateAccount(CreateAccountAction {}),
-                Action::AddKey(AddKeyAction {
+                Action::AddKey(Box::new(AddKeyAction {
                     public_key,
                     access_key: AccessKey { nonce: 0, permission: AccessKeyPermission::FullAccess },
-                }),
+                })),
                 Action::Transfer(TransferAction { deposit: amount }),
                 Action::DeployContract(DeployContractAction { code }),
             ],
@@ -219,7 +221,12 @@ impl SignedTransaction {
             signer_id,
             receiver_id,
             signer,
-            vec![Action::FunctionCall(FunctionCallAction { args, method_name, gas, deposit })],
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                args,
+                method_name,
+                gas,
+                deposit,
+            }))],
             block_hash,
         )
     }
@@ -254,13 +261,26 @@ impl SignedTransaction {
     }
 }
 
-impl BlockHeader {
-    pub fn get_mut(&mut self) -> &mut BlockHeaderV3 {
+impl Block {
+    pub fn get_mut(&mut self) -> &mut BlockV3 {
         match self {
-            BlockHeader::BlockHeaderV1(_) | BlockHeader::BlockHeaderV2(_) => {
+            Block::BlockV1(_) | Block::BlockV2(_) => {
+                panic!("older block version should not appear in tests")
+            }
+            Block::BlockV3(block) => Arc::make_mut(block),
+        }
+    }
+}
+
+impl BlockHeader {
+    pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
+        match self {
+            BlockHeader::BlockHeaderV1(_)
+            | BlockHeader::BlockHeaderV2(_)
+            | BlockHeader::BlockHeaderV3(_) => {
                 panic!("old header should not appear in tests")
             }
-            BlockHeader::BlockHeaderV3(header) => Arc::make_mut(header),
+            BlockHeader::BlockHeaderV4(header) => Arc::make_mut(header),
         }
     }
 
@@ -275,6 +295,10 @@ impl BlockHeader {
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
             BlockHeader::BlockHeaderV3(header) => {
+                let header = Arc::make_mut(header);
+                header.inner_rest.latest_protocol_version = latest_protocol_version;
+            }
+            BlockHeader::BlockHeaderV4(header) => {
                 let header = Arc::make_mut(header);
                 header.inner_rest.latest_protocol_version = latest_protocol_version;
             }
@@ -303,10 +327,25 @@ impl BlockHeader {
                 header.hash = hash;
                 header.signature = signature;
             }
+            BlockHeader::BlockHeaderV4(header) => {
+                let header = Arc::make_mut(header);
+                header.hash = hash;
+                header.signature = signature;
+            }
         }
     }
 }
 
+impl ShardChunkHeader {
+    pub fn get_mut(&mut self) -> &mut ShardChunkHeaderV3 {
+        match self {
+            ShardChunkHeader::V1(_) | ShardChunkHeader::V2(_) => {
+                unreachable!("old header should not appear in tests")
+            }
+            ShardChunkHeader::V3(chunk) => chunk,
+        }
+    }
+}
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
@@ -322,7 +361,7 @@ pub struct TestBlockBuilder {
     epoch_id: EpochId,
     next_epoch_id: EpochId,
     next_bp_hash: CryptoHash,
-    approvals: Vec<Option<Signature>>,
+    approvals: Vec<Option<Box<Signature>>>,
     block_merkle_root: CryptoHash,
 }
 
@@ -362,7 +401,7 @@ impl TestBlockBuilder {
         self.next_bp_hash = next_bp_hash;
         self
     }
-    pub fn approvals(mut self, approvals: Vec<Option<Signature>>) -> Self {
+    pub fn approvals(mut self, approvals: Vec<Option<Box<Signature>>>) -> Self {
         self.approvals = approvals;
         self
     }
@@ -375,6 +414,7 @@ impl TestBlockBuilder {
     }
 
     pub fn build(self) -> Block {
+        tracing::debug!(target: "test", height=self.height, ?self.epoch_id, "produce block");
         Block::produce(
             PROTOCOL_VERSION,
             PROTOCOL_VERSION,
@@ -411,6 +451,10 @@ impl Block {
                 let block = Arc::make_mut(block);
                 &mut block.header
             }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
         }
     }
 
@@ -435,6 +479,10 @@ impl Block {
             Block::BlockV2(block) => {
                 let block = Arc::make_mut(block);
                 block.chunks = chunks;
+            }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                block.body.chunks = chunks;
             }
         }
     }
@@ -494,23 +542,28 @@ pub fn create_test_signer(account_name: &str) -> InMemoryValidatorSigner {
 /// This also works for predefined implicit accounts, where the signer will use the implicit key.
 ///
 /// Should be used only in tests.
-pub fn create_user_test_signer(account_name: &str) -> InMemorySigner {
-    let account_id = account_name.parse().unwrap();
-    if account_id == implicit_test_account() {
-        InMemorySigner::from_secret_key(account_id, implicit_test_account_secret())
+pub fn create_user_test_signer(account_name: &AccountIdRef) -> InMemorySigner {
+    let account_id = account_name.to_owned();
+    if account_id == near_implicit_test_account() {
+        InMemorySigner::from_secret_key(account_id, near_implicit_test_account_secret())
     } else {
-        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name)
+        InMemorySigner::from_seed(account_id, KeyType::ED25519, account_name.as_str())
     }
 }
 
-/// A fixed implicit account for which tests can know the private key.
-pub fn implicit_test_account() -> AccountId {
+/// A fixed NEAR-implicit account for which tests can know the private key.
+pub fn near_implicit_test_account() -> AccountId {
     "061b1dd17603213b00e1a1e53ba060ad427cef4887bd34a5e0ef09010af23b0a".parse().unwrap()
 }
 
-/// Private key for the fixed implicit test account.
-pub fn implicit_test_account_secret() -> SecretKey {
+/// Private key for the fixed NEAR-implicit test account.
+pub fn near_implicit_test_account_secret() -> SecretKey {
     "ed25519:5roj6k68kvZu3UEJFyXSfjdKGrodgZUfFLZFpzYXWtESNsLWhYrq3JGi4YpqeVKuw1m9R2TEHjfgWT1fjUqB1DNy".parse().unwrap()
+}
+
+/// A fixed ETH-implicit account.
+pub fn eth_implicit_test_account() -> AccountId {
+    "0x96791e923f8cf697ad9c3290f2c9059f0231b24c".parse().unwrap()
 }
 
 impl FinalExecutionOutcomeView {

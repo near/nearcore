@@ -11,7 +11,7 @@ pub struct ProtocolUpgradeVotingSchedule {
 
 impl Default for ProtocolUpgradeVotingSchedule {
     fn default() -> Self {
-        Self { timestamp: DateTime::<Utc>::from_utc(Default::default(), Utc) }
+        Self { timestamp: DateTime::<Utc>::from_naive_utc_and_offset(Default::default(), Utc) }
     }
 }
 
@@ -41,7 +41,7 @@ impl ProtocolUpgradeVotingSchedule {
         }
 
         Ok(Self {
-            timestamp: DateTime::<Utc>::from_utc(
+            timestamp: DateTime::<Utc>::from_naive_utc_and_offset(
                 NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")?,
                 Utc,
             ),

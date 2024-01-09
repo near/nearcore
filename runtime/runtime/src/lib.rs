@@ -11,18 +11,16 @@ pub use crate::verifier::{
 };
 use config::total_prepaid_send_fees;
 pub use near_crypto;
+use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::contract::ContractCode;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::profile::ProfileDataV3;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
 };
 pub use near_primitives::runtime::apply_state::ApplyState;
-use near_primitives::runtime::fees::RuntimeFeesConfig;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -46,8 +44,10 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ActionCosts, ReturnData};
+use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::ContractCode;
+use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -60,6 +60,7 @@ pub mod config;
 pub mod ext;
 mod metrics;
 mod prefetch;
+pub mod receipt_manager;
 pub mod state_viewer;
 mod verifier;
 
@@ -297,12 +298,7 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(
-            &apply_state.config.fees,
-            action,
-            &receipt.receiver_id,
-            apply_state.current_protocol_version,
-        );
+        let exec_fees = exec_fee(&apply_state.config, action, &receipt.receiver_id);
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
@@ -310,13 +306,13 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_the_only_action = actions.len() == 1;
-        let is_refund = AccountId::is_system(&receipt.predecessor_id);
+        let is_refund = receipt.predecessor_id.is_system();
         // Account validation
         if let Err(e) = check_account_existence(
             action,
             account,
             account_id,
-            apply_state.current_protocol_version,
+            &apply_state.config,
             is_the_only_action,
             is_refund,
         ) {
@@ -348,7 +344,6 @@ impl Runtime {
                     account_id,
                     deploy_contract,
                     apply_state,
-                    apply_state.current_protocol_version,
                 )?;
             }
             Action::FunctionCall(function_call) => {
@@ -382,14 +377,11 @@ impl Runtime {
                     }
                 } else {
                     // Implicit account creation
-                    debug_assert!(checked_feature!(
-                        "stable",
-                        ImplicitAccountCreation,
-                        apply_state.current_protocol_version
-                    ));
+                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
                     debug_assert!(!is_refund);
                     action_implicit_account_creation_transfer(
                         state_update,
+                        apply_state,
                         &apply_state.config.fees,
                         account,
                         actor_id,
@@ -583,7 +575,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if AccountId::is_system(&receipt.predecessor_id) {
+        let gas_deficit_amount = if receipt.predecessor_id.is_system() {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -612,8 +604,7 @@ impl Runtime {
                 receipt,
                 action_receipt,
                 &mut result,
-                apply_state.current_protocol_version,
-                &apply_state.config.fees,
+                &apply_state.config,
             )?
         };
         stats.gas_deficit_amount = safe_add_balance(stats.gas_deficit_amount, gas_deficit_amount)?;
@@ -634,8 +625,7 @@ impl Runtime {
         };
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas =
-            if AccountId::is_system(&receipt.predecessor_id) { 0 } else { result.gas_burnt };
+        let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -771,26 +761,16 @@ impl Runtime {
         receipt: &Receipt,
         action_receipt: &ActionReceipt,
         result: &mut ActionResult,
-        current_protocol_version: ProtocolVersion,
-        transaction_costs: &RuntimeFeesConfig,
+        config: &RuntimeConfig,
     ) -> Result<Balance, RuntimeError> {
         let total_deposit = total_deposit(&action_receipt.actions)?;
         let prepaid_gas = safe_add_gas(
             total_prepaid_gas(&action_receipt.actions)?,
-            total_prepaid_send_fees(
-                transaction_costs,
-                &action_receipt.actions,
-                current_protocol_version,
-            )?,
+            total_prepaid_send_fees(config, &action_receipt.actions)?,
         )?;
         let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(
-                transaction_costs,
-                &action_receipt.actions,
-                &receipt.receiver_id,
-                current_protocol_version,
-            )?,
-            transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee(),
+            total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
+            config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
         let gas_refund = if result.result.is_err() {
@@ -1197,6 +1177,7 @@ impl Runtime {
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
+            protocol_version = apply_state.current_protocol_version,
             num_transactions = transactions.len())
         .entered();
 
@@ -1313,12 +1294,12 @@ impl Runtime {
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
-                node_counter = ?state_update.trie().get_trie_nodes_count(),
                 predecessor = %receipt.predecessor_id,
                 receiver = %receipt.receiver_id,
                 id = %receipt.receipt_id,
             )
             .entered();
+            let node_counter_before = state_update.trie().get_trie_nodes_count();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1328,7 +1309,9 @@ impl Runtime {
                 &mut stats,
                 epoch_info_provider,
             );
-            tracing::debug!(target: "runtime", node_counter = ?state_update.trie().get_trie_nodes_count());
+            let node_counter_after = state_update.trie().get_trie_nodes_count();
+            tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
+
             if let Some(outcome_with_id) = result? {
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
@@ -1460,14 +1443,13 @@ impl Runtime {
         }
 
         check_balance(
-            &apply_state.config.fees,
+            &apply_state.config,
             &state_update,
             validator_accounts_update,
             incoming_receipts,
             transactions,
             &outgoing_receipts,
             &stats,
-            apply_state.current_protocol_version,
         )?;
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
@@ -1536,9 +1518,9 @@ impl Runtime {
 mod tests {
     use assert_matches::assert_matches;
     use near_crypto::{InMemorySigner, KeyType, PublicKey, Signer};
+    use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
     use near_primitives::account::AccessKey;
     use near_primitives::hash::hash;
-    use near_primitives::runtime::config::RuntimeConfig;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{
@@ -1546,9 +1528,8 @@ mod tests {
     };
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
-    use near_store::test_utils::create_tries;
+    use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
-    use near_vm_runner::logic::{ExtCosts, ParameterCost};
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1581,7 +1562,7 @@ mod tests {
 
     #[test]
     fn test_get_and_set_accounts() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), MerkleHash::default());
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1593,7 +1574,7 @@ mod tests {
 
     #[test]
     fn test_get_account_from_trie() {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
         let test_account = account_new(to_yocto(10), hash(&[]));
@@ -1619,7 +1600,7 @@ mod tests {
         gas_limit: Gas,
     ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
     {
-        let tries = create_tries();
+        let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
         let account_id = alice_account();
@@ -2242,22 +2223,16 @@ mod tests {
 
         let gas = 2 * 10u64.pow(14);
         let gas_price = GAS_PRICE / 10;
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,
             deposit: 0,
-        })];
+        }))];
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            total_prepaid_exec_fees(
-                &apply_state.config.fees,
-                &actions,
-                &alice_account(),
-                PROTOCOL_VERSION,
-            )
-            .unwrap(),
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
@@ -2311,22 +2286,16 @@ mod tests {
 
         let gas = 1_000_000;
         let gas_price = GAS_PRICE / 10;
-        let actions = vec![Action::FunctionCall(FunctionCallAction {
+        let actions = vec![Action::FunctionCall(Box::new(FunctionCallAction {
             method_name: "hello".to_string(),
             args: b"world".to_vec(),
             gas,
             deposit: 0,
-        })];
+        }))];
 
         let expected_gas_burnt = safe_add_gas(
             apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-            total_prepaid_exec_fees(
-                &apply_state.config.fees,
-                &actions,
-                &alice_account(),
-                PROTOCOL_VERSION,
-            )
-            .unwrap(),
+            total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
         let receipts = vec![Receipt {
@@ -2373,11 +2342,11 @@ mod tests {
         let initial_account_state = get_account(&state_update, &alice_account()).unwrap().unwrap();
 
         let actions = vec![
-            Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() }),
-            Action::AddKey(AddKeyAction {
+            Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() })),
+            Action::AddKey(Box::new(AddKeyAction {
                 public_key: signer.public_key(),
                 access_key: AccessKey::full_access(),
-            }),
+            })),
         ];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
@@ -2424,7 +2393,8 @@ mod tests {
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let actions = vec![Action::DeleteKey(DeleteKeyAction { public_key: signer.public_key() })];
+        let actions =
+            vec![Action::DeleteKey(Box::new(DeleteKeyAction { public_key: signer.public_key() }))];
 
         let receipts = vec![create_receipt_with_actions(alice_account(), signer, actions)];
 
@@ -2484,15 +2454,9 @@ mod tests {
         tries.apply_all(&apply_result.trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
 
-        let contract_code = near_primitives::contract::ContractCode::new(wasm_code, None);
-        let vm_kind = near_vm_runner::internal::VMKind::for_protocol_version(
-            apply_state.current_protocol_version,
-        );
-        let key = near_vm_runner::get_contract_cache_key(
-            &contract_code,
-            vm_kind,
-            &apply_state.config.wasm_config,
-        );
+        let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
+        let key =
+            near_vm_runner::get_contract_cache_key(&contract_code, &apply_state.config.wasm_config);
         apply_state
             .cache
             .unwrap()
@@ -2527,23 +2491,23 @@ mod tests {
         let first_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer.clone(),
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: sha256_cost.gas,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let second_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"second".to_vec(),
                 gas: sha256_cost.gas,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let apply_result = runtime
@@ -2614,12 +2578,12 @@ mod tests {
         let first_call_receipt = create_receipt_with_actions(
             alice_account(),
             signer,
-            vec![Action::FunctionCall(FunctionCallAction {
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
                 method_name: "ext_sha256".to_string(),
                 args: b"first".to_vec(),
                 gas: 1,
                 deposit: 0,
-            })],
+            }))],
         );
 
         let apply_result = runtime

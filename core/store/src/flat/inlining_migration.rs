@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use borsh::BorshDeserialize;
 use crossbeam::channel;
 use itertools::Itertools;
 use near_primitives::hash::CryptoHash;
@@ -258,8 +258,7 @@ pub fn inline_flat_state_values(
                         store_update.set(
                             DBCol::FlatState,
                             &key,
-                            &FlatStateValue::inlined(value)
-                                .try_to_vec()
+                            &borsh::to_vec(&FlatStateValue::inlined(value))
                                 .expect("borsh should not fail here"),
                         );
                         inlined_batch_count += 1;
@@ -269,7 +268,7 @@ pub fn inline_flat_state_values(
             }
             store_update.commit().expect("failed to commit inlined values");
             assert!(flat_storage_manager.set_flat_state_updates_mode(true));
-            tracing::info!(target: "store", "Unlocked flat storage after the inlining migration");
+            tracing::debug!(target: "store", "Unlocked flat storage after the inlining migration");
             inlined_total_count += inlined_batch_count;
             batch_duration = batch_inlining_start.elapsed();
             FLAT_STATE_PAUSED_DURATION.observe(batch_duration.as_secs_f64());
@@ -313,7 +312,7 @@ mod tests {
     use crate::flat::store_helper::encode_flat_state_db_key;
     use crate::flat::{FlatStateValuesInliningMigrationHandle, FlatStorageManager};
     use crate::{DBCol, NodeStorage, Store, TrieCachingStorage};
-    use borsh::{BorshDeserialize, BorshSerialize};
+    use borsh::BorshDeserialize;
     use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::{hash, CryptoHash};
     use near_primitives::shard_layout::{ShardLayout, ShardUId};
@@ -324,7 +323,7 @@ mod tests {
     #[test]
     fn full_migration() {
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],
@@ -334,9 +333,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         inline_flat_state_values(
             store.clone(),
             &flat_storage_manager,
@@ -367,7 +364,7 @@ mod tests {
     fn block_migration() {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],
@@ -377,9 +374,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
@@ -408,7 +403,7 @@ mod tests {
     fn interrupt_blocked_migration() {
         init_test_logger();
         let store = NodeStorage::test_opener().1.open().unwrap().get_hot_store();
-        let shard_uid = ShardLayout::v0_single_shard().get_shard_uids()[0];
+        let shard_uid = ShardLayout::v0_single_shard().shard_uids().next().unwrap();
         let values = [
             vec![0],
             vec![1],
@@ -418,9 +413,7 @@ mod tests {
             vec![5],
         ];
         populate_flat_store(&store, shard_uid, &values);
-
-        let flat_storage_manager =
-            FlatStorageManager::test(store.clone(), &vec![shard_uid], CryptoHash::default());
+        let flat_storage_manager = create_flat_storage_for_genesis(&store, shard_uid);
         // Lock flat head.
         assert!(flat_storage_manager.set_flat_state_updates_mode(false));
         // Start a separate thread that should block waiting for the flat head.
@@ -448,10 +441,24 @@ mod tests {
                 TrieCachingStorage::get_key_from_shard_uid_and_hash(shard_uid, &hash(&value));
             store_update.increment_refcount(DBCol::State, &trie_key, &value);
             let fs_key = encode_flat_state_db_key(shard_uid, &[i as u8]);
-            let fs_value = FlatStateValue::value_ref(&value).try_to_vec().unwrap();
+            let fs_value = borsh::to_vec(&FlatStateValue::value_ref(&value)).unwrap();
             store_update.set(DBCol::FlatState, &fs_key, &fs_value);
         }
         store_update.commit().unwrap();
+    }
+
+    fn create_flat_storage_for_genesis(store: &Store, shard_uid: ShardUId) -> FlatStorageManager {
+        let flat_storage_manager = FlatStorageManager::new(store.clone());
+        let mut store_update = store.store_update();
+        flat_storage_manager.set_flat_storage_for_genesis(
+            &mut store_update,
+            shard_uid,
+            &CryptoHash::default(),
+            0,
+        );
+        store_update.commit().unwrap();
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        flat_storage_manager
     }
 
     fn count_inlined_values(store: &Store) -> u64 {
