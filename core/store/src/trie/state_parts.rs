@@ -580,7 +580,7 @@ mod tests {
             (b"aaa".to_vec(), Some(vec![3; value_len])),
             (b"aaaa".to_vec(), Some(vec![4; value_len])),
         ];
-        // We split state into `num_keys + 1` parts for convenience of testing,
+        // We reshard into `num_keys + 1` parts for convenience of testing,
         // because right boundaries are exclusive. This way first part is
         // empty and other parts contain exactly one key.
         let num_parts = trie_changes.len() + 1;

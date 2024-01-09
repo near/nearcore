@@ -14,6 +14,7 @@ pub static SECP256K1: Lazy<secp256k1::Secp256k1<secp256k1::All>> =
     Lazy::new(secp256k1::Secp256k1::new);
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum KeyType {
     ED25519 = 0,
     SECP256K1 = 1,
@@ -65,6 +66,7 @@ fn split_key_type_data(value: &str) -> Result<(KeyType, &str), crate::errors::Pa
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct Secp256K1PublicKey([u8; 64]);
 
@@ -86,6 +88,7 @@ impl std::fmt::Debug for Secp256K1PublicKey {
 }
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd, derive_more::AsRef, derive_more::From)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 #[as_ref(forward)]
 pub struct ED25519PublicKey(pub [u8; ed25519_dalek::PUBLIC_KEY_LENGTH]);
 
@@ -108,6 +111,7 @@ impl std::fmt::Debug for ED25519PublicKey {
 
 /// Public key container supporting different curves.
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[cfg_attr(test, derive(bolero::TypeGenerator))]
 pub enum PublicKey {
     /// 256 bit elliptic curve based public-key.
     ED25519(ED25519PublicKey),
@@ -540,11 +544,18 @@ impl Signature {
                 }
             }
             (Signature::SECP256K1(signature), PublicKey::SECP256K1(public_key)) => {
-                let rsig = secp256k1::ecdsa::RecoverableSignature::from_compact(
+                let rec_id =
+                    match secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])) {
+                        Ok(r) => r,
+                        Err(_) => return false,
+                    };
+                let rsig = match secp256k1::ecdsa::RecoverableSignature::from_compact(
                     &signature.0[0..64],
-                    secp256k1::ecdsa::RecoveryId::from_i32(i32::from(signature.0[64])).unwrap(),
-                )
-                .unwrap();
+                    rec_id,
+                ) {
+                    Ok(r) => r,
+                    Err(_) => return false,
+                };
                 let sig = rsig.to_standard();
                 let pdata: [u8; 65] = {
                     // code borrowed from https://github.com/openethereum/openethereum/blob/98b7c07171cd320f32877dfa5aa528f585dc9a72/ethkey/src/signature.rs#L210
@@ -552,13 +563,15 @@ impl Signature {
                     temp[1..65].copy_from_slice(&public_key.0);
                     temp
                 };
-                SECP256K1
-                    .verify_ecdsa(
-                        &secp256k1::Message::from_slice(data).expect("32 bytes"),
-                        &sig,
-                        &secp256k1::PublicKey::from_slice(&pdata).unwrap(),
-                    )
-                    .is_ok()
+                let message = match secp256k1::Message::from_slice(data) {
+                    Ok(m) => m,
+                    Err(_) => return false,
+                };
+                let pub_key = match secp256k1::PublicKey::from_slice(&pdata) {
+                    Ok(p) => p,
+                    Err(_) => return false,
+                };
+                SECP256K1.verify_ecdsa(&message, &sig, &pub_key).is_ok()
             }
             _ => false,
         }
@@ -766,6 +779,29 @@ mod tests {
             let signature = secret_key.sign(&data);
             assert!(signature.verify(&data, &public_key));
         }
+    }
+
+    #[test]
+    fn signature_verify_fuzzer() {
+        bolero::check!().with_type().for_each(
+            |(key_type, sign, data, public_key): &(KeyType, [u8; 65], Vec<u8>, PublicKey)| {
+                let signature = match key_type {
+                    KeyType::ED25519 => {
+                        Signature::from_parts(KeyType::ED25519, &sign[..64]).unwrap()
+                    }
+                    KeyType::SECP256K1 => {
+                        Signature::from_parts(KeyType::SECP256K1, &sign[..65]).unwrap()
+                    }
+                };
+                let _ = signature.verify(&data, &public_key);
+            },
+        );
+    }
+
+    #[test]
+    fn regression_signature_verification_originally_failed() {
+        let signature = Signature::from_parts(KeyType::SECP256K1, &[4; 65]).unwrap();
+        let _ = signature.verify(&[], &PublicKey::empty(KeyType::SECP256K1));
     }
 
     #[test]
