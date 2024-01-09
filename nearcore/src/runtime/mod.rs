@@ -5,8 +5,8 @@ use crate::NearConfig;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
-    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use near_chain::Error;
 use near_chain_configs::{
@@ -274,14 +274,14 @@ impl NightshadeRuntime {
     fn process_state_update(
         &self,
         trie: Trie,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
         state_patch: SandboxStatePatch,
-    ) -> Result<ApplyTransactionResult, Error> {
+    ) -> Result<ApplyChunkResult, Error> {
         let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
-        let ApplyTransactionsBlockContext {
+        let ApplyChunkBlockContext {
             height: block_height,
             block_hash,
             ref prev_block_hash,
@@ -290,7 +290,7 @@ impl NightshadeRuntime {
             challenges_result,
             random_seed,
         } = block;
-        let ApplyTransactionsChunkContext {
+        let ApplyChunkShardContext {
             shard_id,
             last_validator_proposals,
             gas_limit,
@@ -458,7 +458,7 @@ impl NightshadeRuntime {
 
         let shard_uid = self.get_shard_uid_from_prev_hash(shard_id, prev_block_hash)?;
 
-        let result = ApplyTransactionResult {
+        let result = ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
                 shard_uid,
@@ -835,14 +835,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error> {
+    ) -> Result<ApplyChunkResult, Error> {
         let shard_id = chunk.shard_id;
         let _timer =
             metrics::APPLYING_CHUNKS_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();

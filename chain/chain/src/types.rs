@@ -100,7 +100,7 @@ pub enum ReshardingResults {
 }
 
 #[derive(Debug)]
-pub struct ApplyTransactionResult {
+pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
@@ -112,7 +112,7 @@ pub struct ApplyTransactionResult {
     pub processed_delayed_receipts: Vec<Receipt>,
 }
 
-impl ApplyTransactionResult {
+impl ApplyChunkResult {
     /// Returns root and paths for all the outcomes in the result.
     pub fn compute_outcomes_proof(
         outcomes: &[ExecutionOutcomeWithId],
@@ -279,7 +279,7 @@ impl RuntimeStorageConfig {
 }
 
 #[derive(Clone)]
-pub struct ApplyTransactionsBlockContext {
+pub struct ApplyChunkBlockContext {
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -289,7 +289,7 @@ pub struct ApplyTransactionsBlockContext {
     pub random_seed: CryptoHash,
 }
 
-impl ApplyTransactionsBlockContext {
+impl ApplyChunkBlockContext {
     pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
         Self {
             height: header.height(),
@@ -303,7 +303,7 @@ impl ApplyTransactionsBlockContext {
     }
 }
 
-pub struct ApplyTransactionsChunkContext<'a> {
+pub struct ApplyChunkShardContext<'a> {
     pub shard_id: ShardId,
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
@@ -387,16 +387,17 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
-    /// Apply transactions to given state root and return store update and new state root.
+    /// Apply transactions and receipts to given state root and return store update
+    /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error>;
+    ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
     fn query(
@@ -548,7 +549,7 @@ mod tests {
             },
         };
         let outcomes = vec![outcome1, outcome2];
-        let (outcome_root, paths) = ApplyTransactionResult::compute_outcomes_proof(&outcomes);
+        let (outcome_root, paths) = ApplyChunkResult::compute_outcomes_proof(&outcomes);
         for (outcome_with_id, path) in outcomes.into_iter().zip(paths.into_iter()) {
             assert!(verify_path(outcome_root, &path, &outcome_with_id.to_hashes()));
         }
