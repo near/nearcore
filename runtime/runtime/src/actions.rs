@@ -405,13 +405,20 @@ pub(crate) fn action_transfer(
     if nonrefundable {
         assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(
-            || {
-                StorageError::StorageInconsistentState(
-                    "Non-refundable account balance integer overflow".to_string(),
-                )
-            },
-        )?);
+        match account {
+            // This path cannot happen. It is rejected by `check_account_existence` with
+            // an error `NonRefundableBalanceToExistingAccount` as legacy account must already exist.
+            Account::LegacyAccount(_) => panic!("Non-refundable transfer to a legacy account."),
+            Account::Account(account) => {
+                account.set_nonrefundable(
+                    account.nonrefundable().checked_add(deposit).ok_or_else(|| {
+                        StorageError::StorageInconsistentState(
+                            "Non-refundable account balance integer overflow".to_string(),
+                        )
+                    })?,
+                );
+            }
+        }
     } else {
         account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
             StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
