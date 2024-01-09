@@ -1782,7 +1782,11 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
-        persist_chunk(partial_chunk.clone(), Some(shard_chunk.clone()), self.chain.mut_chain_store())?;
+        persist_chunk(
+            partial_chunk.clone(),
+            Some(shard_chunk.clone()),
+            self.chain.mut_chain_store(),
+        )?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
