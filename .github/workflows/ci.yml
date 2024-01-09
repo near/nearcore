@@ -26,13 +26,13 @@ jobs:
           - name: Linux
             id: linux
             cache_id: linux
-            os: ubuntu-22.04-16core
+            os: ubuntu-22.04-32core
             type: stable
             runs_integ_tests: true
           - name: Linux Nightly
             id: linux-nightly
             cache_id: linux
-            os: ubuntu-22.04-16core
+            os: ubuntu-22.04-32core
             type: nightly
             runs_integ_tests: true
           - name: MacOS
@@ -93,7 +93,7 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -234,7 +234,7 @@ jobs:
 
   py_upgradability:
     name: "Upgradability"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-22.04-16core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
