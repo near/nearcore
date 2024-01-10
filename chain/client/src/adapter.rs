@@ -351,7 +351,8 @@ impl near_network::client::Client for Adapter {
     }
 
     async fn chunk_endorsement(&self, endorsement: ChunkEndorsement) {
-        match self.client_addr.send(ChunkEndorsementMessage(endorsement).with_span_context()).await {
+        match self.client_addr.send(ChunkEndorsementMessage(endorsement).with_span_context()).await
+        {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }
