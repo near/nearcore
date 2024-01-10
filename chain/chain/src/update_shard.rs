@@ -1,8 +1,7 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -21,7 +20,7 @@ use std::collections::HashMap;
 pub struct NewChunkResult {
     pub(crate) shard_uid: ShardUId,
     pub(crate) gas_limit: Gas,
-    pub(crate) apply_result: ApplyTransactionResult,
+    pub(crate) apply_result: ApplyChunkResult,
     pub(crate) resharding_results: Option<ReshardingResults>,
 }
 
@@ -32,7 +31,7 @@ pub struct OldChunkResult {
     pub(crate) shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
     /// TODO(logunov): exclude receipts/txs context from all related types.
-    pub(crate) apply_result: ApplyTransactionResult,
+    pub(crate) apply_result: ApplyChunkResult,
     pub(crate) resharding_results: Option<ReshardingResults>,
 }
 
@@ -71,7 +70,7 @@ pub(crate) struct NewChunkData {
     pub chunk: ShardChunk,
     pub receipts: Vec<Receipt>,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
-    pub block: ApplyTransactionsBlockContext,
+    pub block: ApplyChunkBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
     pub storage_context: StorageContext,
 }
@@ -79,7 +78,7 @@ pub(crate) struct NewChunkData {
 pub(crate) struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
-    pub block: ApplyTransactionsBlockContext,
+    pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
 }
 
@@ -113,7 +112,7 @@ pub(crate) struct ShardContext {
     /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
     /// Whether transactions should be applied.
-    pub should_apply_transactions: bool,
+    pub should_apply_chunk: bool,
     /// See comment in `get_update_shard_job`.
     pub need_to_reshard: bool,
 }
@@ -165,7 +164,7 @@ pub(crate) fn process_missing_chunks_range(
     mut current_chunk_extra: ChunkExtra,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
-    execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)>,
+    execution_contexts: Vec<(ApplyChunkBlockContext, ShardContext)>,
 ) -> Result<Vec<(CryptoHash, ShardUId, ChunkExtra)>, Error> {
     let mut result = vec![];
     for (block_context, shard_context) in execution_contexts {
@@ -224,9 +223,9 @@ pub(crate) fn apply_new_chunk(
         state_patch: storage_context.state_patch,
         record_storage: false,
     };
-    match runtime.apply_transactions(
+    match runtime.apply_chunk(
         storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             shard_id,
             last_validator_proposals: chunk_inner.prev_validator_proposals(),
             gas_limit,
@@ -286,9 +285,9 @@ fn apply_old_chunk(
         state_patch: storage_context.state_patch,
         record_storage: false,
     };
-    match runtime.apply_transactions(
+    match runtime.apply_chunk(
         storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             shard_id,
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
@@ -351,7 +350,7 @@ fn apply_resharding(
     Ok(ReshardingResult { shard_uid, results })
 }
 
-/// Process ApplyTransactionResult to apply changes to children shards. When
+/// Process ApplyChunkResult to apply changes to children shards. When
 /// shards will change next epoch,
 ///  - if `resharding_state_roots` is not None, that means states for the
 ///    children shards are ready this function updates these states and returns
@@ -362,8 +361,8 @@ fn apply_resharding(
 fn apply_resharding_state_changes(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
-    block: ApplyTransactionsBlockContext,
-    apply_result: &ApplyTransactionResult,
+    block: ApplyChunkBlockContext,
+    apply_result: &ApplyChunkResult,
     resharding_state_roots: Option<ReshardingStateRoots>,
 ) -> Result<ReshardingResults, Error> {
     let state_changes = StateChangesForResharding::from_raw_state_changes(

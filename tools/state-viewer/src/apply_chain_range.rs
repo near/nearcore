@@ -1,8 +1,8 @@
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
@@ -230,16 +230,16 @@ fn apply_block_from_range(
             }
         }
         runtime_adapter
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
                 ),
@@ -254,16 +254,16 @@ fn apply_block_from_range(
         prev_chunk_extra = Some(chunk_extra.clone());
 
         runtime_adapter
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     is_first_block_with_chunk_of_version: false,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
                 ),
@@ -273,7 +273,7 @@ fn apply_block_from_range(
             .unwrap()
     };
 
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
         outcome_root,

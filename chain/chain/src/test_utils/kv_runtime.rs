@@ -1,7 +1,7 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1040,14 +1040,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(res)
     }
 
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error> {
+    ) -> Result<ApplyChunkResult, Error> {
         assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
@@ -1181,7 +1181,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
 
-        Ok(ApplyTransactionResult {
+        Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
                 ShardUId { version: 0, shard_id: shard_id as u32 },
