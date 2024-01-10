@@ -41,11 +41,3 @@ impl ChunkEndorsementInner {
         Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
     }
 }
-
-/// Message intended for the network layer to send a chunk endorsement.
-/// It just includes an additional target account ID to send it to.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementMessage {
-    pub endorsement: ChunkEndorsement,
-    pub target: AccountId,
-}

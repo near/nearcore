@@ -19,7 +19,7 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::chunk_validation::ChunkEndorsementMessage;
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -286,7 +286,7 @@ impl TestEnv {
         }
     }
 
-    pub fn get_all_chunk_endorsements(&mut self) -> Vec<ChunkEndorsementMessage> {
+    pub fn get_all_chunk_endorsements(&mut self) -> Vec<ChunkEndorsement> {
         let mut approvals = Vec::new();
         for idx in 0..self.clients.len() {
             let _span =
@@ -295,7 +295,7 @@ impl TestEnv {
 
             self.network_adapters[idx].handle_filtered(|msg| {
                 if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::ChunkEndorsement(endorsement),
+                    NetworkRequests::ChunkEndorsement(_, endorsement),
                 ) = msg
                 {
                     approvals.push(endorsement);
