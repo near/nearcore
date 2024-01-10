@@ -2,8 +2,8 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
@@ -304,9 +304,9 @@ fn validate_chunk_state_witness(
         state_root: main_transition.chunk.prev_state_root(),
         use_flat_storage: true,
     };
-    let mut main_apply_result = runtime_adapter.apply_transactions(
+    let mut main_apply_result = runtime_adapter.apply_chunk(
         runtime_storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             gas_limit: main_transition.chunk.gas_limit(),
             is_first_block_with_chunk_of_version: main_transition
                 .is_first_block_with_chunk_of_version,
@@ -314,10 +314,7 @@ fn validate_chunk_state_witness(
             last_validator_proposals: main_transition.chunk.prev_validator_proposals(),
             shard_id: main_transition.chunk.shard_id(),
         },
-        ApplyTransactionsBlockContext::from_header(
-            &main_transition.block,
-            main_transition.gas_price,
-        ),
+        ApplyChunkBlockContext::from_header(&main_transition.block, main_transition.gas_price),
         &pre_validation_output.receipts_to_apply,
         &state_witness.transactions,
     )?;
@@ -346,9 +343,9 @@ fn validate_chunk_state_witness(
             state_root: *chunk_extra.state_root(),
             use_flat_storage: true,
         };
-        let apply_result = runtime_adapter.apply_transactions(
+        let apply_result = runtime_adapter.apply_chunk(
             runtime_storage_config,
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 gas_limit: transition_params.chunk.gas_limit(),
                 is_first_block_with_chunk_of_version: transition_params
                     .is_first_block_with_chunk_of_version,
@@ -356,7 +353,7 @@ fn validate_chunk_state_witness(
                 last_validator_proposals: transition_params.chunk.prev_validator_proposals(),
                 shard_id: transition_params.chunk.shard_id(),
             },
-            ApplyTransactionsBlockContext::from_header(
+            ApplyChunkBlockContext::from_header(
                 &transition_params.block,
                 transition_params.gas_price,
             ),
@@ -396,10 +393,10 @@ fn validate_chunk_state_witness(
 }
 
 fn apply_result_to_chunk_extra(
-    apply_result: ApplyTransactionResult,
+    apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
         &apply_result.new_root,
         outcome_root,
