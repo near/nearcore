@@ -13,8 +13,7 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
-    ChunkEndorsement, ChunkEndorsementInner, ChunkEndorsementMessage, ChunkStateTransition,
-    ChunkStateWitness,
+    ChunkEndorsement, ChunkEndorsementInner, ChunkStateTransition, ChunkStateWitness,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -106,15 +105,13 @@ impl ChunkValidator {
                         "Chunk validated successfully, sending endorsement",
                     );
                     let endorsement_to_sign = ChunkEndorsementInner::new(chunk_header.chunk_hash());
+                    let endorsement = ChunkEndorsement {
+                        account_id: signer.validator_id().clone(),
+                        signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
+                        inner: endorsement_to_sign,
+                    };
                     network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(ChunkEndorsementMessage {
-                            endorsement: ChunkEndorsement {
-                                account_id: signer.validator_id().clone(),
-                                signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
-                                inner: endorsement_to_sign,
-                            },
-                            target: block_producer,
-                        }),
+                        NetworkRequests::ChunkEndorsement(block_producer, endorsement),
                     ));
                 }
                 Err(err) => {
@@ -469,6 +466,17 @@ impl Client {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitness(chunk_validators.into_keys().collect(), witness),
         ));
+        Ok(())
+    }
+
+    /// Function to process an incoming chunk endorsement from chunk validators.
+    pub fn process_chunk_endorsement(
+        &mut self,
+        _endorsement: ChunkEndorsement,
+    ) -> Result<(), Error> {
+        // TODO(10265): Here if we are the current block producer, we would store the chunk endorsement
+        // for each chunk which would later be used during block production to check whether to include the
+        // chunk or not.
         Ok(())
     }
 }

@@ -122,14 +122,6 @@ impl ChunkEndorsementInner {
     }
 }
 
-/// Message intended for the network layer to send a chunk endorsement.
-/// It just includes an additional target account ID to send it to.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementMessage {
-    pub endorsement: ChunkEndorsement,
-    pub target: AccountId,
-}
-
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
