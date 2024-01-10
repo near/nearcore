@@ -72,8 +72,6 @@ fn cold_store_copy(
 
     let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
 
-    tracing::debug!(target: "cold_store", "starting");
-
     if cold_head_height > hot_final_head_height {
         return Err(anyhow::anyhow!(
             "Cold head is ahead of final head. cold head height: {} final head height {}",
@@ -129,7 +127,7 @@ fn cold_store_copy(
         Ok(ColdStoreCopyResult::OtherBlockCopied)
     };
 
-    tracing::debug!(target: "cold_store", ?result, "ending");
+    tracing::trace!(target: "cold_store", ?result, "ending");
     result
 }
 
@@ -267,16 +265,15 @@ fn cold_store_loop(
             break;
         }
 
-        let start_time = std::time::Instant::now();
+        let instant = std::time::Instant::now();
         let result =
             cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, epoch_manager);
-        let duration = start_time.elapsed();
+        let duration = instant.elapsed();
 
         let result_string = cold_store_copy_result_to_string(&result);
         metrics::COLD_STORE_COPY_RESULT.with_label_values(&[result_string]).inc();
-        metrics::COLD_STORE_COPY_TIME.observe(duration.as_secs_f64());
         if duration > std::time::Duration::from_secs(1) {
-            tracing::warn!(target : "cold_store", "cold_store_copy took {}s", duration.as_secs_f64());
+            tracing::debug!(target : "cold_store", "cold_store_copy took {}s", duration.as_secs_f64());
         }
 
         let sleep_duration = split_storage_config.cold_store_loop_sleep_duration;

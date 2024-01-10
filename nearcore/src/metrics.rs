@@ -4,9 +4,9 @@ use actix_rt::ArbiterHandle;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_o11y::metrics::{
-    exponential_buckets, linear_buckets, processing_time_buckets, try_create_histogram,
-    try_create_histogram_vec, try_create_int_counter_vec, try_create_int_gauge,
-    try_create_int_gauge_vec, Histogram, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, linear_buckets, processing_time_buckets, try_create_histogram_vec,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, HistogramVec,
+    IntCounterVec, IntGauge, IntGaugeVec,
 };
 
 use near_primitives::{shard_layout::ShardLayout, state_record::StateRecord, trie_key};
@@ -78,14 +78,6 @@ pub(crate) static COLD_STORE_COPY_RESULT: Lazy<IntCounterVec> = Lazy::new(|| {
         "near_cold_store_copy_result",
         "The result of a cold store copy iteration in the cold store loop.",
         &["copy_result"],
-    )
-    .unwrap()
-});
-
-pub(crate) static COLD_STORE_COPY_TIME: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram(
-        "near_cold_store_copy_time",
-        "Time taken to copy a block from the hot store to the cold store",
     )
     .unwrap()
 });

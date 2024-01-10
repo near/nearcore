@@ -117,30 +117,38 @@ fn rc_aware_set(
     };
 }
 
+// A specialized version of copy_from_store for the State column. Finds all the
+// State nodes that were inserted at given height by reading from the
+// TrieChanges and inserts them into the cold store.
+//
+// The generic implementation is not efficient for State because it would
+// attempt to read every node from every shard. Here we know exactly what shard
+// the node belongs to.
 fn copy_state_from_store(
     shard_layout: &ShardLayout,
     block_hash_key: &[u8],
     cold_db: &ColdDB,
     hot_store: &mut StoreWithCache,
 ) -> io::Result<()> {
-    let mut keys = vec![];
+    let col = DBCol::State;
+    let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
+    let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
-
     for shard_uid in shard_layout.shard_uids() {
-        let shard_uid_key = shard_uid.to_bytes();
-
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
             &[DBKeyType::BlockHash, DBKeyType::ShardUId]
         );
-        let trie_changes: Option<TrieChanges> = hot_store
-            .get_ser(DBCol::TrieChanges, &join_two_keys(&block_hash_key, &shard_uid_key))?;
+
+        let shard_uid_key = shard_uid.to_bytes();
+        let key = join_two_keys(&block_hash_key, &shard_uid_key);
+        let trie_changes: Option<TrieChanges> =
+            hot_store.get_ser::<TrieChanges>(DBCol::TrieChanges, &key)?;
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
             hot_store.insert_state_to_cache_from_op(op, &shard_uid_key);
-            keys.push(op.hash().as_bytes().to_vec());
 
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
             let value = hot_store.get(DBCol::State, &key)?;
@@ -150,7 +158,13 @@ fn copy_state_from_store(
         }
     }
 
+    let read_duration = instant.elapsed();
+
+    let instant = std::time::Instant::now();
     cold_db.write(transaction)?;
+    let write_duration = instant.elapsed();
+
+    tracing::trace!(target: "cold_store", ?read_duration, ?write_duration, "finished");
 
     Ok(())
 }
@@ -167,7 +181,7 @@ fn copy_from_store(
     debug_assert!(col.is_cold());
     debug_assert!(col != DBCol::State);
 
-    let _span = tracing::debug_span!(target: "cold_store", "create and write transaction to cold db", col = %col);
+    let _span = tracing::debug_span!(target: "cold_store", "copy_from_store", col = %col);
     let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
@@ -198,7 +212,7 @@ fn copy_from_store(
     cold_db.write(transaction)?;
     let write_duration = instant.elapsed();
 
-    tracing::debug!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?read_duration, ?write_duration, "copy from store");
+    tracing::trace!(target: "cold_store", ?col, ?good_keys, ?total_keys, ?read_duration, ?write_duration, "finished");
 
     return Ok(());
 }
@@ -340,6 +354,9 @@ fn get_keys_from_store(
         key_type_to_keys.insert(
             key_type,
             match key_type {
+                DBKeyType::TrieNodeOrValueHash => {
+                    unreachable!()
+                }
                 DBKeyType::BlockHeight => vec![height_key.to_vec()],
                 DBKeyType::BlockHash => vec![block_hash_key.to_vec()],
                 DBKeyType::PreviousBlockHash => {
@@ -353,9 +370,6 @@ fn get_keys_from_store(
                     .shard_uids()
                     .map(|shard_uid| shard_uid.to_bytes().to_vec())
                     .collect(),
-                DBKeyType::TrieNodeOrValueHash => {
-                    unreachable!()
-                }
                 // TODO: write StateChanges values to colddb directly, not to cache.
                 DBKeyType::TrieKey => {
                     let mut keys = vec![];
