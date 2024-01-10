@@ -39,6 +39,9 @@ pub struct StoreConfig {
     /// Cache size for DBCol::FlatState column.
     pub col_flat_state_cache_size: bytesize::ByteSize,
 
+    /// Cache size for DBCol::CachedContractCode column.
+    pub col_contract_code_cache_size: bytesize::ByteSize,
+
     /// Block size used internally in RocksDB.
     /// Default value: 16KiB.
     /// We're still experimenting with this parameter and it seems decreasing its value can improve
@@ -201,6 +204,7 @@ impl StoreConfig {
         match col {
             DBCol::State => self.col_state_cache_size,
             DBCol::FlatState => self.col_flat_state_cache_size,
+            DBCol::CachedContractCode => self.col_contract_code_cache_size,
             _ => bytesize::ByteSize::mib(32),
         }
     }
@@ -234,6 +238,23 @@ impl Default for StoreConfig {
             // and slightly improved read speed for FlatState and reduced memory footprint in
             // #9389.
             col_flat_state_cache_size: bytesize::ByteSize::mib(128),
+
+            // This possibly mitigates the RocksDB slowness of loading contracts from the storage
+            // after the another in-memory cache fronting RocksDB was removed in #9244. As part of
+            // the 1.35 release[^1] it turned out that this has caused a significant bimodality in
+            // chunk application times – mostly attributed to storage layer. This, we suspected,
+            // had started causing increased validator kick out numbers.
+            //
+            // Original LRU cache fronting RocksDB stored 128 units of loaded contracts. At a rough
+            // estimate of 4MiB of machine code per contract, this comes out to 512MiB. Of course
+            // the two caches are still very different – this stores uncompressed blocks containing
+            // compiled machine code. The previous cache stored contracts loaded into memory. I'm
+            // confident that the overhead of loading the contract code into memory is not
+            // particularly notable at this point, though, so the difference is something we can
+            // live with.
+            //
+            // [^1]: https://near.zulipchat.com/#narrow/stream/297873-pagoda.2Fnode/topic/release.201.2E36/near/379169243
+            col_contract_code_cache_size: bytesize::ByteSize::mib(512),
 
             // This value was taken from the Openethereum default parameter and
             // we use it since then.
