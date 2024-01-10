@@ -2,7 +2,7 @@
 //! accounts storage staking balance without that someone being able to run off
 //! with the money.
 //!
-//! This feature introduces the ReserveStorage action.
+//! This feature introduces the NonrefundableStorageTransfer action.
 //!
 //! NEP: https://github.com/near/NEPs/pull/491
 
@@ -16,7 +16,7 @@ use near_primitives::errors::{
 use near_primitives::test_utils::{eth_implicit_test_account, near_implicit_test_account};
 use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
-    ReserveStorageAction, SignedTransaction, TransferAction,
+    NonrefundableStorageTransferAction, SignedTransaction, TransferAction,
 };
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -133,7 +133,9 @@ fn exec_transfer(
     }
 
     if nonrefundable {
-        actions.push(Action::ReserveStorage(ReserveStorageAction { deposit }));
+        actions.push(Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
+            deposit,
+        }));
     } else {
         actions.push(Action::Transfer(TransferAction { deposit }));
     }

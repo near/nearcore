@@ -129,7 +129,7 @@ pub(crate) enum ActionType {
     FunctionCall,
     Transfer,
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    ReserveStorage,
+    NonrefundableStorageTransfer,
     Stake,
     AddKey,
     DeleteKey,
@@ -338,7 +338,9 @@ fn try_find_actions_spawned_by_receipt(
                                     #[cfg(
                                         feature = "protocol_feature_nonrefundable_transfer_nep491"
                                     )]
-                                    Action::ReserveStorage(_) => ActionType::ReserveStorage,
+                                    Action::NonrefundableStorageTransfer(_) => {
+                                        ActionType::NonrefundableStorageTransfer
+                                    }
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
                                     Action::DeleteKey(_) => ActionType::DeleteKey,

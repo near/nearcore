@@ -103,8 +103,7 @@ pub fn total_send_fees(
                 )
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ReserveStorage(_) => {
-                // TODO(nonrefundable-storage) When stabilizing, merge with branch above
+            NonrefundableStorageTransfer(_) => {
                 // Account for implicit account creation
                 transfer_send_fee(
                     fees,
@@ -210,8 +209,7 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
             )
         }
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        ReserveStorage(_) => {
-            // TODO(nonrefundable-storage) When stabilizing, merge with branch above
+        NonrefundableStorageTransfer(_) => {
             // Account for implicit account creation
             transfer_exec_fee(
                 fees,

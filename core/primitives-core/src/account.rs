@@ -131,7 +131,6 @@ impl Account {
     }
 
     #[inline]
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     pub fn version(&self) -> AccountVersion {
         self.version
     }
@@ -162,7 +161,6 @@ impl Account {
         self.storage_usage = storage_usage;
     }
 
-    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     pub fn set_version(&mut self, version: AccountVersion) {
         self.version = version;
     }
@@ -182,8 +180,8 @@ struct LegacyAccount {
     storage_usage: StorageUsage,
 }
 
-/// Legacy accounts (e.g. accounts that we parse from the mainnet genesis file)
-/// do not have the `nonrefundable` field.
+/// We need custom serde deserialization in order to parse mainnet genesis accounts (LegacyAccounts)
+/// as accounts V1. This preserves the mainnet genesis hash.
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 impl<'de> serde::Deserialize<'de> for Account {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -582,6 +580,7 @@ mod tests {
         assert_eq!(deserialized_account.nonrefundable, 0);
     }
 
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     #[test]
     fn test_account_v2_serde_serialization() {
         let account = Account {
@@ -597,6 +596,7 @@ mod tests {
         assert_eq!(deserialized_account, account);
     }
 
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     #[test]
     fn test_account_v2_borsh_serialization() {
         let account = Account {

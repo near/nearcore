@@ -400,7 +400,7 @@ pub fn validate_action(
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::ReserveStorage(_) => {
+        Action::NonrefundableStorageTransfer(_) => {
             check_feature_enabled(ProtocolFeature::NonRefundableBalance, current_protocol_version)
         }
         Action::Stake(a) => validate_stake_action(a),

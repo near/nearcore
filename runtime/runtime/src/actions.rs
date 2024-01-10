@@ -955,7 +955,7 @@ pub(crate) fn check_actor_permissions(
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::ReserveStorage(_) => (),
+        Action::NonrefundableStorageTransfer(_) => (),
     };
     Ok(())
 }
@@ -1012,7 +1012,7 @@ pub(crate) fn check_account_existence(
             }
         }
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        Action::ReserveStorage(_) => {
+        Action::NonrefundableStorageTransfer(_) => {
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,

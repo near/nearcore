@@ -24,7 +24,7 @@ use crate::sharding::{
     ShardChunkHeaderV3,
 };
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use crate::transaction::ReserveStorageAction;
+use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
@@ -1198,7 +1198,7 @@ pub enum ActionView {
         deposit: Balance,
     },
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    ReserveStorage {
+    NonrefundableStorageTransfer {
         #[serde(with = "dec_format")]
         deposit: Balance,
     },
@@ -1239,8 +1239,8 @@ impl From<Action> for ActionView {
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::ReserveStorage(action) => {
-                ActionView::ReserveStorage { deposit: action.deposit }
+            Action::NonrefundableStorageTransfer(action) => {
+                ActionView::NonrefundableStorageTransfer { deposit: action.deposit }
             }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
@@ -1280,8 +1280,8 @@ impl TryFrom<ActionView> for Action {
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ActionView::ReserveStorage { deposit } => {
-                Action::ReserveStorage(ReserveStorageAction { deposit })
+            ActionView::NonrefundableStorageTransfer { deposit } => {
+                Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction { deposit })
             }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))

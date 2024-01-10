@@ -29,7 +29,7 @@ use near_primitives::transaction::{
     SignedTransaction, TransferAction,
 };
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use near_primitives::transaction::{DeleteAccountAction, ReserveStorageAction};
+use near_primitives::transaction::{DeleteAccountAction, NonrefundableStorageTransferAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
@@ -383,7 +383,9 @@ impl Runtime {
                 )?;
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::ReserveStorage(ReserveStorageAction { deposit }) => {
+            Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
+                deposit,
+            }) => {
                 action_transfer_or_implicit_account_creation(
                     account,
                     *deposit,

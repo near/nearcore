@@ -163,7 +163,7 @@ pub struct TransferAction {
     serde::Deserialize,
 )]
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-pub struct ReserveStorageAction {
+pub struct NonrefundableStorageTransferAction {
     #[serde(with = "dec_format")]
     pub deposit: Balance,
 }
@@ -194,7 +194,7 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    ReserveStorage(ReserveStorageAction),
+    NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
 }
 const _: () = assert!(
     cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
@@ -213,7 +213,7 @@ impl Action {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            Action::ReserveStorage(a) => a.deposit,
+            Action::NonrefundableStorageTransfer(a) => a.deposit,
             _ => 0,
         }
     }
