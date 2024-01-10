@@ -1743,19 +1743,22 @@ impl Client {
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
             match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
                 Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                    let chunk_header = encoded_chunk.cloned_header();
+                    let shard_chunk = self
+                        .persist_and_distribute_encoded_chunk(
+                            encoded_chunk,
+                            merkle_paths,
+                            receipts,
+                            validator_id.clone(),
+                        )
+                        .expect("Failed to process produced chunk");
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
-                        &encoded_chunk.cloned_header(),
+                        &chunk_header,
+                        &shard_chunk,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }
-                    self.persist_and_distribute_encoded_chunk(
-                        encoded_chunk,
-                        merkle_paths,
-                        receipts,
-                        validator_id.clone(),
-                    )
-                    .expect("Failed to process produced chunk");
                 }
                 Ok(None) => {}
                 Err(err) => {
@@ -1771,7 +1774,7 @@ impl Client {
         merkle_paths: Vec<MerklePath>,
         receipts: Vec<Receipt>,
         validator_id: AccountId,
-    ) -> Result<(), Error> {
+    ) -> Result<ShardChunk, Error> {
         let (shard_chunk, partial_chunk) = decode_encoded_chunk(
             &encoded_chunk,
             merkle_paths.clone(),
@@ -1779,7 +1782,11 @@ impl Client {
             self.epoch_manager.as_ref(),
             &self.shard_tracker,
         )?;
-        persist_chunk(partial_chunk.clone(), Some(shard_chunk), self.chain.mut_chain_store())?;
+        persist_chunk(
+            partial_chunk.clone(),
+            Some(shard_chunk.clone()),
+            self.chain.mut_chain_store(),
+        )?;
         self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
@@ -1787,7 +1794,7 @@ impl Client {
             merkle_paths,
             outgoing_receipts: receipts,
         });
-        Ok(())
+        Ok(shard_chunk)
     }
 
     pub fn request_missing_chunks(

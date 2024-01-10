@@ -1,5 +1,5 @@
 use crate::hash::{hash, CryptoHash};
-use crate::merkle::{combine_hash, merklize, MerklePath};
+use crate::merkle::{combine_hash, merklize, verify_path, MerklePath};
 use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter, ValidatorStakeV1};
@@ -277,6 +277,10 @@ impl ShardChunkHeader {
             Self::V2(header) => &mut header.height_included,
             Self::V3(header) => &mut header.height_included,
         }
+    }
+
+    pub fn is_new_chunk(&self) -> bool {
+        self.height_created() == self.height_included()
     }
 
     #[inline]
@@ -628,6 +632,15 @@ impl Ord for ReceiptProof {
     fn cmp(&self, other: &Self) -> Ordering {
         (self.1.from_shard_id, self.1.to_shard_id)
             .cmp(&(other.1.from_shard_id, other.1.to_shard_id))
+    }
+}
+
+impl ReceiptProof {
+    pub fn verify_against_receipt_root(&self, receipt_root: CryptoHash) -> bool {
+        let ReceiptProof(shard_receipts, receipt_proof) = self;
+        let receipt_hash =
+            CryptoHash::hash_borsh(ReceiptList(receipt_proof.to_shard_id, shard_receipts));
+        verify_path(receipt_root, &receipt_proof.proof, &receipt_hash)
     }
 }
 
