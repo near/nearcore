@@ -39,6 +39,7 @@ impl TryFrom<u8> for AccountVersion {
 }
 
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+/// A standard, default account format that uses versioning.
 #[derive(serde::Serialize, PartialEq, Eq, Debug, Clone)]
 pub struct StandardAccount {
     /// The total not locked, refundable tokens.
@@ -82,6 +83,9 @@ impl StandardAccount {
     }
 }
 
+/// Special account format used for backward compatibility reasons.
+/// This is the account format we parse from mainnet genesis file,
+/// so it should not be changed, as it would change the genesis hash.
 #[derive(BorshSerialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 #[cfg_attr(
     not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
@@ -105,7 +109,7 @@ pub enum Account {
 #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    /// The total not locked, refundable tokens.
+    /// The total not locked tokens.
     #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
@@ -286,6 +290,7 @@ impl Account {
 }
 
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+/// We do not serialize Account enum type discriminator, to be consistent with the way we deserialize.
 impl serde::Serialize for Account {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -298,6 +303,8 @@ impl serde::Serialize for Account {
     }
 }
 
+/// Legacy accounts (e.g. accounts that we parse from the mainnet genesis file)
+/// do not have the `nonrefundable` field. 
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 impl<'de> serde::Deserialize<'de> for Account {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -312,8 +319,10 @@ impl<'de> serde::Deserialize<'de> for Account {
             locked: Balance,
             code_hash: CryptoHash,
             storage_usage: StorageUsage,
+            // If the field is missing, serde will use None as the default.
             #[serde(default, with = "dec_format")]
             nonrefundable: Option<Balance>,
+            version: Option<AccountVersion>,
         }
 
         let account_data = AccountData::deserialize(deserializer)?;
@@ -324,8 +333,9 @@ impl<'de> serde::Deserialize<'de> for Account {
                 locked: account_data.locked,
                 code_hash: account_data.code_hash,
                 storage_usage: account_data.storage_usage,
-                nonrefundable: nonrefundable,
-                version: AccountVersion::V2,
+                nonrefundable,
+                // The `version` field must be present in non-legacy serde serialized accounts.
+                version: account_data.version.expect("Missing `version` field"),
             })),
             None => Ok(Account::LegacyAccount(LegacyAccount {
                 amount: account_data.amount,
@@ -343,13 +353,13 @@ impl BorshDeserialize for Account {
         // either a sentinel or a balance.
         let sentinel_or_amount = u128::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
-            // Account v2 or newer
+            // Account v2 or newer.
             let version_byte = u8::deserialize_reader(rd)?;
-            if version_byte != 2 {
+            if version_byte < 2 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
-                        "Error deserializing account: version {} does not equal 2",
+                        "Error deserializing account: version {} less than 2",
                         version_byte
                     ),
                 ));
@@ -374,6 +384,9 @@ impl BorshDeserialize for Account {
 
             #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
             {
+                // NOTE(staffik): This part of the code is unreachable, since the serialization sentinel
+                // could only be read from the serialized state since the Non-refundable transfer feature landed.
+                // Kept for compilation reason, would be removed after stabilization.
                 Ok(Account { amount, locked, code_hash, storage_usage, version })
             }
 
@@ -434,10 +447,10 @@ impl BorshSerialize for Account {
         {
             match self {
                 Account::LegacyAccount(_) => legacy_account.serialize(writer),
-                // Note(jakmeier): It might be tempting to lazily convert old V1 to V2
-                // while serializing. But that would break the borsh assumptions
-                // of unique binary representation.
                 Account::Account(account) => match account.version() {
+                    // Note(jakmeier): It might be tempting to lazily convert old V1 to V2
+                    // while serializing. But that would break the borsh assumptions
+                    // of unique binary representation.
                     AccountVersion::V1 => legacy_account.serialize(writer),
                     // Note(jakmeier): These accounts are serialized in merklized state.
                     // I would really like to avoid migration of the MPT.

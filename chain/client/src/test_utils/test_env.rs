@@ -380,6 +380,7 @@ impl TestEnv {
         }
     }
 
+    /// Passes the given query to the runtime adapter using the current head and returns a result.
     pub fn query_view(&mut self, request: QueryRequest) -> Result<QueryResponse, QueryError> {
         let head = self.clients[0].chain.head().unwrap();
         let head_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
