@@ -8,6 +8,7 @@ use crate::lightclient::get_epoch_block_producers_view;
 use crate::migrations::check_if_block_is_first_with_chunk_of_version;
 use crate::missing_chunks::MissingChunksPool;
 use crate::orphan::{Orphan, OrphanBlockPool};
+use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
@@ -93,9 +94,6 @@ use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::get_genesis_state_roots;
 use near_store::DBCol;
 use once_cell::sync::OnceCell;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
@@ -1275,20 +1273,10 @@ impl Chain {
         }
         // sort the receipts deterministically so the order that they will be processed is deterministic
         for (_, receipt_proofs) in receipt_proofs_by_shard_id.iter_mut() {
-            Self::shuffle_receipt_proofs(receipt_proofs, block.hash());
+            shuffle_receipt_proofs(receipt_proofs, block.hash());
         }
 
         Ok(receipt_proofs_by_shard_id)
-    }
-
-    fn shuffle_receipt_proofs<ReceiptProofType>(
-        receipt_proofs: &mut Vec<ReceiptProofType>,
-        block_hash: &CryptoHash,
-    ) {
-        let mut slice = [0u8; 32];
-        slice.copy_from_slice(block_hash.as_ref());
-        let mut rng: ChaCha20Rng = SeedableRng::from_seed(slice);
-        receipt_proofs.shuffle(&mut rng);
     }
 
     /// Start processing a received or produced block. This function will process block asynchronously.
@@ -4712,21 +4700,5 @@ impl Chain {
                 hash: *block_hash,
             })
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use near_primitives::hash::CryptoHash;
-
-    #[test]
-    pub fn receipt_randomness_reproducibility() {
-        // Sanity check that the receipt shuffling implementation does not change.
-        let mut receipt_proofs = vec![0, 1, 2, 3, 4, 5, 6];
-        crate::Chain::shuffle_receipt_proofs(
-            &mut receipt_proofs,
-            &CryptoHash::hash_bytes(&[1, 2, 3, 4, 5]),
-        );
-        assert_eq!(receipt_proofs, vec![2, 3, 1, 4, 0, 5, 6],);
     }
 }
