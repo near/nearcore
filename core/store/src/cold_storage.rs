@@ -184,7 +184,7 @@ fn copy_from_store(
 
     // note this function should only be used for state in tests where it's
     // needed to copy state records from genesis
-    #[cfg(test)]
+    #[cfg(not(test))]
     debug_assert!(col != DBCol::State);
 
     let _span = tracing::debug_span!(target: "cold_store", "copy_from_store", col = %col);
@@ -303,6 +303,10 @@ pub fn copy_all_data_to_cold(
     Ok(CopyAllDataToColdStatus::EverythingCopied)
 }
 
+// The copy_state_from_store function depends on the state nodes to be present
+// in the trie changes. This isn't the case for genesis so instead this method
+// can be used to copy the genesis records from hot to cold.
+// TODO - How did copying from genesis worked in the prod migration to split storage?
 pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
@@ -310,6 +314,9 @@ pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Resu
             continue;
         }
 
+        // Note that we use the generic implementation of `copy_from_store` also
+        // for the State column that otherwise should be copied using the
+        // specialized `copy_state_from_store`.
         copy_from_store(
             cold_db,
             &mut store_with_cache,
