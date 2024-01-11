@@ -3510,7 +3510,7 @@ impl Chain {
                 shard_uid,
                 cares_about_shard_this_epoch: true,
                 will_shard_layout_change: false,
-                should_apply_transactions: true,
+                should_apply_chunk: true,
                 need_to_reshard: false,
             };
             execution_contexts.push((
@@ -3664,7 +3664,7 @@ impl Chain {
                 shard_uid,
                 cares_about_shard_this_epoch: true,
                 will_shard_layout_change: false,
-                should_apply_transactions: true,
+                should_apply_chunk: true,
                 need_to_reshard: false,
             };
             (
