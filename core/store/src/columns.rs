@@ -561,12 +561,33 @@ impl fmt::Display for DBCol {
     }
 }
 
-#[test]
-fn column_props_sanity() {
+#[cfg(test)]
+mod tests {
+    use super::*;
     use strum::IntoEnumIterator;
 
-    for col in DBCol::iter() {
-        // Check that rc and write_once are mutually exclusive.
-        assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
+    #[test]
+    fn column_props_sanity() {
+        for col in DBCol::iter() {
+            // Check that rc and write_once are mutually exclusive.
+            assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
+        }
+    }
+
+    // In split storage archival nodes the State column and the
+    // TrieNodeOrValueHash db key type and handled separately.
+    // This implementation asserts that the TrieNodeOrValueHash key type is
+    // only use in the State column and in no other columns.
+    #[test]
+    fn key_type_split_storage_sanity() {
+        for col in DBCol::iter() {
+            if col == DBCol::State {
+                continue;
+            }
+            let key_types = col.key_type();
+            for key_type in key_types {
+                assert_ne!(key_type, &DBKeyType::TrieNodeOrValueHash);
+            }
+        }
     }
 }
