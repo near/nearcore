@@ -370,6 +370,12 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                self.chain_store_update.save_state_proof(
+                    *block_hash,
+                    shard_id,
+                    apply_result.proof,
+                    apply_result.exact_receipts_hash,
+                );
                 if let Some(resharding_results) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
@@ -396,6 +402,12 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_state_proof(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.proof,
+                    apply_result.exact_receipts_hash,
+                );
 
                 if let Some(resharding_config) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;

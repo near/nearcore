@@ -6,6 +6,7 @@ use crate::types::{
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::chunk_validation::ChunkStateTransition;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -13,6 +14,7 @@ use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, StateChangesForResharding, StateRoot};
+use near_store::PartialStorage;
 use std::collections::HashMap;
 
 /// Result of updating a shard for some block when it has a new chunk for this
@@ -123,6 +125,7 @@ pub(crate) struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
+    pub record_storage: bool,
 }
 
 /// Processes shard update with given block and shard.
@@ -160,24 +163,35 @@ pub(crate) fn process_shard_update(
 /// `current_chunk_extra` must correspond to `ChunkExtra` just before
 /// execution; in the end it will correspond to the latest execution
 /// result.
-pub(crate) fn process_missing_chunks_range(
+pub(crate) fn process_missing_chunks_range<I: Iterator<Item = ChunkStateTransition>>(
     parent_span: &tracing::Span,
     mut current_chunk_extra: ChunkExtra,
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
     execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)>,
-) -> Result<Vec<(CryptoHash, ShardUId, ChunkExtra)>, Error> {
-    let mut result = vec![];
+    mut state_proofs: I,
+) -> Result<ChunkExtra, Error> {
     for (block_context, shard_context) in execution_contexts {
-        let OldChunkResult { shard_uid, apply_result, resharding_results: _ } = apply_old_chunk(
+        let storage = PartialStorage {
+            nodes: state_proofs
+                .next()
+                .ok_or(Error::Other(format!(
+                    "Missing state proof for {} {}",
+                    block_context.block_hash,
+                    shard_context.shard_uid.shard_id()
+                )))?
+                .base_state,
+        };
+        let OldChunkResult { apply_result, .. } = apply_old_chunk(
             parent_span,
             OldChunkData {
                 block: block_context.clone(),
                 resharding_state_roots: None,
                 prev_chunk_extra: current_chunk_extra.clone(),
                 storage_context: StorageContext {
-                    storage_data_source: StorageDataSource::DbTrieOnly,
+                    storage_data_source: StorageDataSource::Recorded(storage),
                     state_patch: Default::default(),
+                    record_storage: false,
                 },
             },
             shard_context,
@@ -185,10 +199,10 @@ pub(crate) fn process_missing_chunks_range(
             epoch_manager,
         )?;
         *current_chunk_extra.state_root_mut() = apply_result.new_root;
-        result.push((block_context.block_hash, shard_uid, current_chunk_extra.clone()));
     }
-    Ok(result)
+    Ok(current_chunk_extra)
 }
+
 /// Applies new chunk, which includes applying transactions from chunk and
 /// receipts filtered from outgoing receipts from previous chunks.
 pub(crate) fn apply_new_chunk(
@@ -222,7 +236,7 @@ pub(crate) fn apply_new_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: false,
+        record_storage: storage_context.record_storage,
     };
     match runtime.apply_transactions(
         storage_config,
@@ -284,7 +298,7 @@ fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: false,
+        record_storage: storage_context.record_storage,
     };
     match runtime.apply_transactions(
         storage_config,

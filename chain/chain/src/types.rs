@@ -110,6 +110,7 @@ pub struct ApplyTransactionResult {
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub exact_receipts_hash: CryptoHash,
 }
 
 impl ApplyTransactionResult {
