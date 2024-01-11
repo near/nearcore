@@ -31,14 +31,14 @@ fn check_key(first_store: &Store, second_store: &Store, col: DBCol, key: &[u8]) 
     let pretty_key = near_fmt::StorageKey(key);
     tracing::debug!("Checking {:?} {:?}", col, pretty_key);
 
-    let first_res = first_store.get(col, key);
-    let second_res = second_store.get(col, key);
+    let first_res = first_store.get(col, key).unwrap();
+    let second_res = second_store.get(col, key).unwrap();
 
     if col == DBCol::PartialChunks {
         tracing::debug!("{:?}", first_store.get_ser::<PartialEncodedChunk>(col, key));
     }
 
-    assert_eq!(first_res.unwrap(), second_res.unwrap(), "col: {:?} key: {:?}", col, pretty_key);
+    assert_eq!(first_res, second_res, "col: {:?} key: {:?}", col, pretty_key);
 }
 
 fn check_iter(
@@ -86,11 +86,11 @@ fn test_storage_after_commit_of_cold_update() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    test_cold_genesis_update(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
+    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
         .unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
@@ -148,7 +148,7 @@ fn test_storage_after_commit_of_cold_update() {
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
         update_cold_db(
-            &*store.cold_db().unwrap(),
+            &*storage.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &env.clients[0]
                 .epoch_manager
@@ -202,7 +202,7 @@ fn test_storage_after_commit_of_cold_update() {
         if col.is_cold() {
             let num_checks = check_iter(
                 &env.clients[0].runtime_adapter.store(),
-                &store.get_cold_store().unwrap(),
+                &storage.get_cold_store().unwrap(),
                 col,
                 &no_check_rules,
             );

@@ -154,6 +154,8 @@ fn copy_state_from_store(
             let value = hot_store.get(DBCol::State, &key)?;
             let value =
                 value.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, hex::encode(&key)))?;
+
+            tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
         }
     }
@@ -179,6 +181,10 @@ fn copy_from_store(
     keys: Vec<StoreKey>,
 ) -> io::Result<()> {
     debug_assert!(col.is_cold());
+
+    // note this function should only be used for state in tests where it's
+    // needed to copy state records from genesis
+    #[cfg(test)]
     debug_assert!(col != DBCol::State);
 
     let _span = tracing::debug_span!(target: "cold_store", "copy_from_store", col = %col);
@@ -300,14 +306,16 @@ pub fn copy_all_data_to_cold(
 pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
     let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
-        if col.is_cold() {
-            copy_from_store(
-                cold_db,
-                &mut store_with_cache,
-                col,
-                hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),
-            )?;
+        if !col.is_cold() {
+            continue;
         }
+
+        copy_from_store(
+            cold_db,
+            &mut store_with_cache,
+            col,
+            hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),
+        )?;
     }
     Ok(())
 }
@@ -355,7 +363,7 @@ fn get_keys_from_store(
             key_type,
             match key_type {
                 DBKeyType::TrieNodeOrValueHash => {
-                    unreachable!()
+                    unreachable!();
                 }
                 DBKeyType::BlockHeight => vec![height_key.to_vec()],
                 DBKeyType::BlockHash => vec![block_hash_key.to_vec()],
