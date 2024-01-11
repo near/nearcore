@@ -530,10 +530,10 @@ pub(crate) fn check_expected_connections(
             debug!(target: "test", node_id, expected_connections_lo, ?expected_connections_hi, "runner.rs: check_expected_connections");
             let pm = &info.get_node(node_id)?.actix.addr;
             let res = pm.send(GetInfo {}.with_span_context()).await?;
-            if expected_connections_lo.map_or(false, |l| l > res.num_connected_peers) {
+            if expected_connections_lo.is_some_and(|l| l > res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }
-            if expected_connections_hi.map_or(false, |h| h < res.num_connected_peers) {
+            if expected_connections_hi.is_some_and(|h| h < res.num_connected_peers) {
                 return Ok(ControlFlow::Continue(()));
             }
             Ok(ControlFlow::Break(()))
