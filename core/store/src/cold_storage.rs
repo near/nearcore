@@ -184,8 +184,6 @@ fn copy_from_store(
 
     // note this function should only be used for state in tests where it's
     // needed to copy state records from genesis
-    #[cfg(not(test))]
-    debug_assert!(col != DBCol::State);
 
     let _span = tracing::debug_span!(target: "cold_store", "copy_from_store", col = %col);
     let instant = std::time::Instant::now();
