@@ -3697,6 +3697,7 @@ name = "near-crypto"
 version = "0.0.0"
 dependencies = [
  "blake2",
+ "bolero",
  "borsh 1.0.0",
  "bs58",
  "c2-chacha",

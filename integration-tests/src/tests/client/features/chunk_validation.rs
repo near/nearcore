@@ -22,7 +22,6 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 // TODO(#9292): This does not pass yet because state witness production
 // needs to be implemented.
-// #[cfg_attr(feature = "nightly", should_panic)]
 fn test_chunk_validation_basic() {
     init_integration_logger();
 

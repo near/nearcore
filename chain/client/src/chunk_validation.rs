@@ -2,8 +2,8 @@ use near_async::messaging::{CanSend, Sender};
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, BlockHeader, Chain, ChainStore, ChainStoreAccess};
@@ -13,8 +13,8 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
-    ChunkEndorsement, ChunkEndorsementInner, ChunkEndorsementMessage, ChunkStateTransition,
-    ChunkStateWitness, StoredChunkStateTransitionData,
+    ChunkEndorsement, ChunkEndorsementInner, ChunkStateTransition, ChunkStateWitness,
+    StoredChunkStateTransitionData,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -116,15 +116,13 @@ impl ChunkValidator {
                         "Chunk validated successfully, sending endorsement",
                     );
                     let endorsement_to_sign = ChunkEndorsementInner::new(chunk_header.chunk_hash());
+                    let endorsement = ChunkEndorsement {
+                        account_id: signer.validator_id().clone(),
+                        signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
+                        inner: endorsement_to_sign,
+                    };
                     network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(ChunkEndorsementMessage {
-                            endorsement: ChunkEndorsement {
-                                account_id: signer.validator_id().clone(),
-                                signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
-                                inner: endorsement_to_sign,
-                            },
-                            target: block_producer,
-                        }),
+                        NetworkRequests::ChunkEndorsement(block_producer, endorsement),
                     ));
                 }
                 Err(err) => {
@@ -221,6 +219,7 @@ fn pre_validate_chunk_state_witness(
         }
         receipts_to_apply.extend(receipt_proof.0.iter().cloned());
     }
+
     let exact_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
     if exact_receipts_hash != state_witness.exact_receipts_hash {
         return Err(Error::InvalidChunkStateWitness(format!(
@@ -317,9 +316,10 @@ fn validate_chunk_state_witness(
         state_root: main_transition.chunk.prev_state_root(),
         use_flat_storage: true,
     };
-    let mut main_apply_result = runtime_adapter.apply_transactions(
+
+    let mut main_apply_result = runtime_adapter.apply_chunk(
         runtime_storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             gas_limit: main_transition.chunk.gas_limit(),
             is_first_block_with_chunk_of_version: main_transition
                 .is_first_block_with_chunk_of_version,
@@ -327,10 +327,7 @@ fn validate_chunk_state_witness(
             last_validator_proposals: main_transition.chunk.prev_validator_proposals(),
             shard_id: main_transition.chunk.shard_id(),
         },
-        ApplyTransactionsBlockContext::from_header(
-            &main_transition.block,
-            main_transition.gas_price,
-        ),
+        ApplyChunkBlockContext::from_header(&main_transition.block, main_transition.gas_price),
         &pre_validation_output.receipts_to_apply,
         &state_witness.transactions,
     )?;
@@ -359,9 +356,9 @@ fn validate_chunk_state_witness(
             state_root: *chunk_extra.state_root(),
             use_flat_storage: true,
         };
-        let apply_result = runtime_adapter.apply_transactions(
+        let apply_result = runtime_adapter.apply_chunk(
             runtime_storage_config,
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 gas_limit: transition_params.chunk.gas_limit(),
                 is_first_block_with_chunk_of_version: transition_params
                     .is_first_block_with_chunk_of_version,
@@ -369,7 +366,7 @@ fn validate_chunk_state_witness(
                 last_validator_proposals: transition_params.chunk.prev_validator_proposals(),
                 shard_id: transition_params.chunk.shard_id(),
             },
-            ApplyTransactionsBlockContext::from_header(
+            ApplyChunkBlockContext::from_header(
                 &transition_params.block,
                 transition_params.gas_price,
             ),
@@ -410,10 +407,10 @@ fn validate_chunk_state_witness(
 
 #[allow(unused)]
 fn apply_result_to_chunk_extra(
-    apply_result: ApplyTransactionResult,
+    apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,
 ) -> ChunkExtra {
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     ChunkExtra::new(
         &apply_result.new_root,
         outcome_root,
@@ -518,6 +515,9 @@ impl Client {
             });
         }
 
+        // TODO(#10265): If the previous block does not exist, we should
+        // queue this (similar to orphans) to retry later.
+
         Ok((main_transition, implicit_transitions, receipts_hash))
     }
 
@@ -571,6 +571,17 @@ impl Client {
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitness(chunk_validators.into_keys().collect(), witness),
         ));
+        Ok(())
+    }
+
+    /// Function to process an incoming chunk endorsement from chunk validators.
+    pub fn process_chunk_endorsement(
+        &mut self,
+        _endorsement: ChunkEndorsement,
+    ) -> Result<(), Error> {
+        // TODO(10265): Here if we are the current block producer, we would store the chunk endorsement
+        // for each chunk which would later be used during block production to check whether to include the
+        // chunk or not.
         Ok(())
     }
 }
