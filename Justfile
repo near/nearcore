@@ -80,7 +80,7 @@ python-style-checks:
 check-lychee:
     # This is not actually run in CI. GITHUB_TOKEN can still be set locally by people who want
     # to reproduce CI behavior in a better way.
-    lychee . {{ if env("GITHUB_TOKEN", "") != "" { "" } else { "-a 429" } }}
+    git ls-files | grep 'md$\|mkd$\|html\?$' | xargs lychee {{ if env("GITHUB_TOKEN", "") != "" { "" } else { "-a 429" } }}
     @echo {{ if env("GITHUB_TOKEN", "") != "" { "" } \
              else { "Note: 'Too Many Requests' errors are allowed here but not in CI, set GITHUB_TOKEN to check them" } }}
 

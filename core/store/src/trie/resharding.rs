@@ -10,7 +10,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    ConsolidatedStateChange, StateChangeCause, StateChangesForSplitStates, StateRoot,
+    ConsolidatedStateChange, StateChangeCause, StateChangesForResharding, StateRoot,
 };
 use std::collections::HashMap;
 
@@ -26,16 +26,16 @@ impl Trie {
 }
 
 impl ShardTries {
-    /// applies `changes` to split states
-    /// and returns the generated TrieUpdate for all split states
-    /// Note that this function is different from the function `add_values_to_split_states`
-    /// This function is used for applying updates to split states when processing blocks
-    /// `add_values_to_split_states` are used to generate the initial states for shards split
+    /// applies `changes` to children states during resharding
+    /// and returns the generated TrieUpdate for all children states
+    /// Note that this function is different from the function `add_values_to_children_states`
+    /// This function is used for applying updates to children states when processing blocks
+    /// `add_values_to_children_states` are used to generate the initial states for states split
     /// from the original parent shard.
-    pub fn apply_state_changes_to_split_states(
+    pub fn apply_state_changes_to_children_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
-        changes: StateChangesForSplitStates,
+        changes: StateChangesForResharding,
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
@@ -76,7 +76,7 @@ impl ShardTries {
             }
         }
         for (_, update) in trie_updates.iter_mut() {
-            // StateChangeCause should always be Resharding for processing split state.
+            // StateChangeCause should always be Resharding for processing resharding.
             // We do not want to commit the state_changes from resharding as they are already handled while
             // processing parent shard
             update.commit(StateChangeCause::Resharding);
@@ -87,7 +87,7 @@ impl ShardTries {
         let insert_receipts: Vec<_> =
             insert_receipts.into_iter().map(|(_, receipt)| receipt).collect();
 
-        apply_delayed_receipts_to_split_states_impl(
+        apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             &insert_receipts,
             &changes.processed_delayed_receipts,
@@ -102,14 +102,14 @@ impl ShardTries {
     /// The caller must guarantee that `state_roots` contains all shard_ids
     /// that `key_to_shard_id` that may return
     /// Ignore changes on DelayedReceipts or DelayedReceiptsIndices
-    /// Returns `store_update` and the new state_roots for split states
-    pub fn add_values_to_split_states(
+    /// Returns `store_update` and the new state_roots for children shards
+    pub fn add_values_to_children_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
-        self.add_values_to_split_states_impl(state_roots, values, &|raw_key| {
+        self.add_values_to_children_states_impl(state_roots, values, &|raw_key| {
             // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
             // This is because we cannot migrate delayed receipts part by part. They have to be
             // reconstructed in the new states after all DelayedReceipts are ready in the original
@@ -126,7 +126,7 @@ impl ShardTries {
         })
     }
 
-    fn add_values_to_split_states_impl(
+    fn add_values_to_children_states_impl(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         values: Vec<(Vec<u8>, Option<Vec<u8>>)>,
@@ -164,14 +164,14 @@ impl ShardTries {
             .collect()
     }
 
-    pub fn apply_delayed_receipts_to_split_states(
+    pub fn apply_delayed_receipts_to_children_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
         receipts: &[Receipt],
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
-        apply_delayed_receipts_to_split_states_impl(
+        apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             receipts,
             &[],
@@ -197,7 +197,7 @@ impl ShardTries {
     }
 }
 
-fn apply_delayed_receipts_to_split_states_impl(
+fn apply_delayed_receipts_to_children_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_receipts: &[Receipt],
     delete_receipts: &[Receipt],
@@ -269,7 +269,7 @@ fn apply_delayed_receipts_to_split_states_impl(
             TrieKey::DelayedReceiptIndices,
             delayed_receipts_indices_by_shard.get(shard_uid).unwrap(),
         );
-        // StateChangeCause should always be Resharding for processing split state.
+        // StateChangeCause should always be Resharding for processing resharding.
         // We do not want to commit the state_changes from resharding as they are already handled while
         // processing parent shard
         trie_update.commit(StateChangeCause::Resharding);
@@ -317,7 +317,7 @@ pub fn get_delayed_receipts(
 
 #[cfg(test)]
 mod tests {
-    use crate::split_state::{apply_delayed_receipts_to_split_states_impl, get_delayed_receipts};
+    use crate::resharding::{apply_delayed_receipts_to_children_states_impl, get_delayed_receipts};
     use crate::test_utils::{
         gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie, TestTriesBuilder,
     };
@@ -333,7 +333,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn test_add_values_to_split_states() {
+    fn test_add_values_to_children_states() {
         let mut rng = rand::thread_rng();
 
         for _ in 0..20 {
@@ -354,7 +354,7 @@ mod tests {
                 );
 
                 let (store_update, new_state_roots) = tries
-                    .add_values_to_split_states_impl(&state_roots, changes, &|raw_key| {
+                    .add_values_to_children_states_impl(&state_roots, changes, &|raw_key| {
                         Ok(Some(ShardUId {
                             version: 1,
                             shard_id: (hash(raw_key).0[0] as NumShards % num_shards) as u32,
@@ -441,7 +441,7 @@ mod tests {
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> HashMap<ShardUId, StateRoot> {
         let mut trie_updates: HashMap<_, _> = tries.get_trie_updates(&state_roots);
-        apply_delayed_receipts_to_split_states_impl(
+        apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             new_receipts,
             delete_receipts,

@@ -3,8 +3,8 @@ use borsh::BorshDeserialize;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
 use near_chain::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
 };
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -86,7 +86,7 @@ pub(crate) fn apply_chunk(
     target_height: Option<u64>,
     rng: Option<StdRng>,
     use_flat_storage: bool,
-) -> anyhow::Result<(ApplyTransactionResult, Gas)> {
+) -> anyhow::Result<(ApplyChunkResult, Gas)> {
     let chunk = chain_store.get_chunk(&chunk_hash)?;
     let chunk_header = chunk.cloned_header();
 
@@ -131,16 +131,16 @@ pub(crate) fn apply_chunk(
     )?;
 
     Ok((
-        runtime.apply_transactions(
+        runtime.apply_chunk(
             RuntimeStorageConfig::new(prev_state_root, use_flat_storage),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 gas_limit: chunk_header.gas_limit(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
-            ApplyTransactionsBlockContext {
+            ApplyChunkBlockContext {
                 height: target_height,
                 block_timestamp: prev_timestamp + 1_000_000_000,
                 challenges_result: vec![],
@@ -201,7 +201,7 @@ fn apply_tx_in_block(
     tx_hash: &CryptoHash,
     block_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<ApplyTransactionResult> {
+) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(tx_hash, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
@@ -230,7 +230,7 @@ fn apply_tx_in_chunk(
     chain_store: &mut ChainStore,
     tx_hash: &CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     if chain_store.get_transaction(tx_hash)?.is_none() {
         return Err(anyhow!("tx with hash {} not known", tx_hash));
     }
@@ -298,7 +298,7 @@ pub(crate) fn apply_tx(
     store: Store,
     tx_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&tx_hash)?;
 
@@ -330,7 +330,7 @@ fn apply_receipt_in_block(
     id: &CryptoHash,
     block_hash: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<ApplyTransactionResult> {
+) -> anyhow::Result<ApplyChunkResult> {
     match find_tx_or_receipt(id, &block_hash, epoch_manager, chain_store)? {
         Some((hash_type, shard_id)) => {
             match hash_type {
@@ -360,7 +360,7 @@ fn apply_receipt_in_chunk(
     chain_store: &mut ChainStore,
     id: &CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     if chain_store.get_receipt(id)?.is_none() {
         // TODO: handle local/delayed receipts
         return Err(anyhow!("receipt with ID {} not known. Is it a local or delayed receipt?", id));
@@ -453,7 +453,7 @@ pub(crate) fn apply_receipt(
     store: Store,
     id: CryptoHash,
     use_flat_storage: bool,
-) -> anyhow::Result<Vec<ApplyTransactionResult>> {
+) -> anyhow::Result<Vec<ApplyChunkResult>> {
     let mut chain_store = ChainStore::new(store.clone(), genesis_height, false);
     let outcomes = chain_store.get_outcomes_by_id(&id)?;
     if let Some(outcome) = outcomes.first() {

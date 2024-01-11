@@ -24,7 +24,7 @@ use std::{fmt, str};
 /// `version` and `shard_id`
 ///
 /// `get_parent_shard_id` and `get_split_shard_ids`
-/// `ShardLayout` also includes information needed for splitting shards. In particular, it encodes
+/// `ShardLayout` also includes information needed for resharding. In particular, it encodes
 /// which shards from the previous shard layout split to which shards in the following shard layout.
 /// If shard A in shard layout 0 splits to shard B and C in shard layout 1,
 /// we call shard A the parent shard of shard B and C.
@@ -156,7 +156,6 @@ impl ShardLayout {
     }
 
     /// Returns the simple nightshade layout, version 2, that will be used in production.
-    /// This is work in progress and the exact way of splitting is yet to be determined.
     pub fn get_simple_nightshade_layout_v2() -> ShardLayout {
         ShardLayout::v1(
             vec!["aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
@@ -170,15 +169,15 @@ impl ShardLayout {
 
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
-    pub fn get_split_shard_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
-        self.get_split_shard_ids(parent_shard_id).map(|shards| {
+    pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
+        self.get_children_shards_ids(parent_shard_id).map(|shards| {
             shards.into_iter().map(|id| ShardUId::from_shard_id_and_layout(id, self)).collect()
         })
     }
 
     /// Given a parent shard id, return the shard ids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
-    pub fn get_split_shard_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
+    pub fn get_children_shards_ids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardId>> {
         match self {
             Self::V0(_) => None,
             Self::V1(v1) => match &v1.shards_split_map {
@@ -507,11 +506,11 @@ mod tests {
             1,
         );
         assert_eq!(
-            shard_layout.get_split_shard_uids(0).unwrap(),
+            shard_layout.get_children_shards_uids(0).unwrap(),
             (0..3).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         assert_eq!(
-            shard_layout.get_split_shard_uids(1).unwrap(),
+            shard_layout.get_children_shards_uids(1).unwrap(),
             (3..6).map(|x| ShardUId { version: 1, shard_id: x }).collect::<Vec<_>>()
         );
         for x in 0..3 {

@@ -187,7 +187,7 @@ fn get_current_state(
     account_id: &Option<AccountId>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
-    let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
+    let was_last_epoch_dumped = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
         Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
@@ -236,7 +236,7 @@ async fn state_sync_dump(
 
     if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
-        chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
+        chain.chain_store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }
 
     // Stop if the node is stopped.
@@ -383,7 +383,7 @@ async fn state_sync_dump(
         let has_progress = match next_state {
             Some(next_state) => {
                 tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
-                match chain.store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
+                match chain.chain_store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
                     Ok(_) => true,
                     Err(err) => {
                         // This will be retried.
@@ -468,7 +468,7 @@ fn obtain_and_store_state_part(
     )?;
 
     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-    let mut store_update = chain.store().store().store_update();
+    let mut store_update = chain.chain_store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;
     Ok(state_part)

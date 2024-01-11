@@ -34,11 +34,13 @@ pub mod col {
     pub const PENDING_DATA_COUNT: u8 = 5;
     /// This column id is used when storing the postponed receipts (`primitives::receipt::Receipt`).
     pub const POSTPONED_RECEIPT: u8 = 6;
-    /// This column id is used when storing the indices of the delayed receipts queue.
-    /// NOTE: It is a singleton per shard.
-    pub const DELAYED_RECEIPT_INDICES: u8 = 7;
-    /// This column id is used when storing delayed receipts, because the shard is overwhelmed.
-    pub const DELAYED_RECEIPT: u8 = 8;
+    /// This column id is used when storing:
+    /// * the indices of the delayed receipts queue (a singleton per shard)
+    /// * the delayed receipts themselves
+    /// The identifier is shared between two different key types for for historical reasons. It
+    /// is valid because the length of `TrieKey::DelayedReceipt` is always greater than
+    /// `TrieKey::DelayedReceiptIndices` when serialized to bytes.
+    pub const DELAYED_RECEIPT_OR_INDICES: u8 = 7;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
     /// All columns
@@ -138,8 +140,10 @@ impl TrieKey {
                     + ACCOUNT_DATA_SEPARATOR.len()
                     + receipt_id.as_ref().len()
             }
-            TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_INDICES.len(),
-            TrieKey::DelayedReceipt { .. } => col::DELAYED_RECEIPT.len() + size_of::<u64>(),
+            TrieKey::DelayedReceiptIndices => col::DELAYED_RECEIPT_OR_INDICES.len(),
+            TrieKey::DelayedReceipt { .. } => {
+                col::DELAYED_RECEIPT_OR_INDICES.len() + size_of::<u64>()
+            }
             TrieKey::ContractData { account_id, key } => {
                 col::CONTRACT_DATA.len()
                     + account_id.len()
@@ -193,10 +197,10 @@ impl TrieKey {
                 buf.extend(receipt_id.as_ref());
             }
             TrieKey::DelayedReceiptIndices => {
-                buf.push(col::DELAYED_RECEIPT_INDICES);
+                buf.push(col::DELAYED_RECEIPT_OR_INDICES);
             }
             TrieKey::DelayedReceipt { index } => {
-                buf.push(col::DELAYED_RECEIPT_INDICES);
+                buf.push(col::DELAYED_RECEIPT_OR_INDICES);
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::ContractData { account_id, key } => {

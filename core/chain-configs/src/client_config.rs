@@ -154,11 +154,11 @@ impl SyncConfig {
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
 #[derive(Clone)]
-pub struct StateSplitHandle {
+pub struct ReshardingHandle {
     keep_going: Arc<AtomicBool>,
 }
 
-impl StateSplitHandle {
+impl ReshardingHandle {
     pub fn new() -> Self {
         Self { keep_going: Arc::new(AtomicBool::new(true)) }
     }
@@ -175,7 +175,7 @@ impl StateSplitHandle {
 /// Configuration for resharding.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
-pub struct StateSplitConfig {
+pub struct ReshardingConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
@@ -200,7 +200,7 @@ pub struct StateSplitConfig {
     pub max_poll_time: Duration,
 }
 
-impl Default for StateSplitConfig {
+impl Default for ReshardingConfig {
     fn default() -> Self {
         // Conservative default for a slower resharding that puts as little
         // extra load on the node as possible.
@@ -410,7 +410,7 @@ pub struct ClientConfig {
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
-    pub state_split_config: MutableConfigValue<StateSplitConfig>,
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -493,9 +493,9 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
             tx_routing_height_horizon: 4,
             produce_chunk_add_transactions_time_limit: MutableConfigValue::new(

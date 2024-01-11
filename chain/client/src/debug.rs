@@ -261,7 +261,7 @@ impl ClientActor {
                         matches!(
                             self.client
                                 .chain
-                                .store()
+                                .chain_store()
                                 .store()
                                 .get_ser::<ShardStateSyncResponseHeader>(DBCol::StateHeaders, &key),
                             Ok(Some(_))
@@ -400,7 +400,7 @@ impl ClientActor {
                 let block_hashes: Vec<CryptoHash> = self
                     .client
                     .chain
-                    .store()
+                    .chain_store()
                     .get_all_header_hashes_by_height(height_to_fetch)?
                     .into_iter()
                     .collect();

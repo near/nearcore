@@ -67,6 +67,8 @@ pub struct InfoHelper {
     pub boot_time_seconds: i64,
     // Allows more detailed logging, for example a list of orphaned blocks.
     enable_multiline_logging: bool,
+    // Keeps track of the previous SyncRequirement for updating metrics.
+    prev_sync_requirement: Option<String>,
 }
 
 impl InfoHelper {
@@ -91,6 +93,7 @@ impl InfoHelper {
             boot_time_seconds: StaticClock::utc().timestamp(),
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
+            prev_sync_requirement: None,
         }
     }
 
@@ -550,6 +553,36 @@ impl InfoHelper {
             info.num_blocks_in_processing,
             if self.enable_multiline_logging { blocks_info.to_string() } else { "".to_owned() },
         );
+    }
+
+    // If the `new_sync_requirement` differs from `self.prev_sync_requirement`,
+    // then increments a corresponding metric.
+    // Uses `String` instead of `SyncRequirement` to avoid circular dependencies.
+    pub(crate) fn update_sync_requirements_metrics(&mut self, new_sync_requirement: String) {
+        // Compare the new SyncRequirement with the previously seen SyncRequirement.
+        let change = match &self.prev_sync_requirement {
+            None => Some(new_sync_requirement),
+            Some(prev_sync) => {
+                let prev_sync_requirement = format!("{prev_sync}");
+                if prev_sync_requirement == new_sync_requirement {
+                    None
+                } else {
+                    Some(new_sync_requirement)
+                }
+            }
+        };
+        if let Some(new_sync_requirement) = change {
+            // Something change, update the metrics and record it.
+            metrics::SYNC_REQUIREMENT.with_label_values(&[&new_sync_requirement]).inc();
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
+            if let Some(prev_sync_requirement) = &self.prev_sync_requirement {
+                metrics::SYNC_REQUIREMENT_CURRENT
+                    .with_label_values(&[&prev_sync_requirement])
+                    .set(0);
+            }
+            metrics::SYNC_REQUIREMENT_CURRENT.with_label_values(&[&new_sync_requirement]).set(1);
+            self.prev_sync_requirement = Some(new_sync_requirement);
+        }
     }
 }
 

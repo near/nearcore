@@ -112,6 +112,31 @@ pub fn validate_chunk_with_chunk_extra(
     prev_chunk_height_included: BlockHeight,
     chunk_header: &ShardChunkHeader,
 ) -> Result<(), Error> {
+    let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
+        epoch_manager,
+        *prev_block_hash,
+        chunk_header.shard_id(),
+        prev_chunk_height_included,
+    )?;
+    let outgoing_receipts_hashes = {
+        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
+        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
+    };
+    let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
+
+    validate_chunk_with_chunk_extra_and_receipts_root(
+        prev_chunk_extra,
+        chunk_header,
+        &outgoing_receipts_root,
+    )
+}
+
+/// Validate that all next chunk information matches previous chunk extra.
+pub fn validate_chunk_with_chunk_extra_and_receipts_root(
+    prev_chunk_extra: &ChunkExtra,
+    chunk_header: &ShardChunkHeader,
+    outgoing_receipts_root: &CryptoHash,
+) -> Result<(), Error> {
     if *prev_chunk_extra.state_root() != chunk_header.prev_state_root() {
         return Err(Error::InvalidStateRoot);
     }
@@ -140,19 +165,7 @@ pub fn validate_chunk_with_chunk_extra(
         return Err(Error::InvalidBalanceBurnt);
     }
 
-    let outgoing_receipts = chain_store.get_outgoing_receipts_for_shard(
-        epoch_manager,
-        *prev_block_hash,
-        chunk_header.shard_id(),
-        prev_chunk_height_included,
-    )?;
-    let outgoing_receipts_hashes = {
-        let shard_layout = epoch_manager.get_shard_layout_from_prev_block(prev_block_hash)?;
-        Chain::build_receipts_hashes(&outgoing_receipts, &shard_layout)
-    };
-    let (outgoing_receipts_root, _) = merklize(&outgoing_receipts_hashes);
-
-    if outgoing_receipts_root != chunk_header.prev_outgoing_receipts_root() {
+    if outgoing_receipts_root != &chunk_header.prev_outgoing_receipts_root() {
         return Err(Error::InvalidReceiptsProof);
     }
 

@@ -3,9 +3,7 @@ mod global;
 mod memory;
 mod table;
 
-pub use self::function::{
-    FromToNativeWasmType, Function, HostFunction, WasmTypeList, WithEnv, WithoutEnv,
-};
+pub use self::function::{FromToNativeWasmType, Function, WasmTypeList};
 
 pub use self::global::Global;
 pub use self::memory::Memory;

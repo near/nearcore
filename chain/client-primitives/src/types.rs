@@ -96,8 +96,8 @@ pub enum ShardSyncStatus {
     StateDownloadScheduling,
     StateDownloadApplying,
     StateDownloadComplete,
-    StateSplitScheduling,
-    StateSplitApplying,
+    ReshardingScheduling,
+    ReshardingApplying,
     StateSyncDone,
 }
 
@@ -109,8 +109,8 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateDownloadScheduling => 2,
             ShardSyncStatus::StateDownloadApplying => 3,
             ShardSyncStatus::StateDownloadComplete => 4,
-            ShardSyncStatus::StateSplitScheduling => 5,
-            ShardSyncStatus::StateSplitApplying => 6,
+            ShardSyncStatus::ReshardingScheduling => 5,
+            ShardSyncStatus::ReshardingApplying => 6,
             ShardSyncStatus::StateSyncDone => 7,
         }
     }
@@ -133,8 +133,8 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
             ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
-            ShardSyncStatus::StateSplitScheduling => "split scheduling".to_string(),
-            ShardSyncStatus::StateSplitApplying => "split applying".to_string(),
+            ShardSyncStatus::ReshardingScheduling => "resharding scheduling".to_string(),
+            ShardSyncStatus::ReshardingApplying => "resharding applying".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }
@@ -276,7 +276,7 @@ pub enum SyncStatus {
     EpochSync { epoch_ord: u64 },
     /// Downloading block headers for fast sync.
     HeaderSync {
-        /// Header head height at the beginning.
+        /// Head height at the beginning. Not the header head height!
         /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
         /// Current header head height.
@@ -290,8 +290,12 @@ pub enum SyncStatus {
     StateSyncDone,
     /// Download and process blocks until the head reaches the head of the network.
     BlockSync {
+        /// Header head height at the beginning.
+        /// Used only for reporting the progress of the sync.
         start_height: BlockHeight,
+        /// Current head height.
         current_height: BlockHeight,
+        /// Highest height of our peers.
         highest_height: BlockHeight,
     },
 }

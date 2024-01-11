@@ -152,7 +152,7 @@ How much contracts receive from execution depends on two things.
    `action_function_call` fee, are burnt 100%.
 2. The remainder of the burnt gas is multiplied by the runtime configuration
    parameter
-   [`burnt_gas_reward`](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.snap#L5C5-L5C5)
+   [`burnt_gas_reward`](../../../core/parameters/res/runtime_configs/parameters.snap#L5C5-L5C5)
    which currently is at 30%.
 
 During receipt execution, nearcore code tracks the `gas_burnt_for_function_call`

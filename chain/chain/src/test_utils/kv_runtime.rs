@@ -1,7 +1,7 @@
 use super::ValidatorSchedule;
 use crate::types::{
-    ApplySplitStateResult, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -32,7 +32,7 @@ use near_primitives::transaction::{
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
-    ShardId, StateChangesForSplitStates, StateRoot, StateRootNode, ValidatorInfoIdentifier,
+    ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -1040,14 +1040,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(res)
     }
 
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error> {
+    ) -> Result<ApplyChunkResult, Error> {
         assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
@@ -1181,7 +1181,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
 
-        Ok(ApplyTransactionResult {
+        Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
                 ShardUId { version: 0, shard_id: shard_id as u32 },
@@ -1378,14 +1378,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(false)
     }
 
-    fn apply_update_to_split_states(
+    fn apply_update_to_children_states(
         &self,
         _block_hash: &CryptoHash,
         _block_height: BlockHeight,
         _state_roots: HashMap<ShardUId, StateRoot>,
         _next_shard_layout: &ShardLayout,
-        _state_changes: StateChangesForSplitStates,
-    ) -> Result<Vec<ApplySplitStateResult>, Error> {
+        _state_changes: StateChangesForResharding,
+    ) -> Result<Vec<ApplyResultForResharding>, Error> {
         Ok(vec![])
     }
 

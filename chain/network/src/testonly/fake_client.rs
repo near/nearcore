@@ -6,7 +6,7 @@ use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_async::messaging;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::ChunkStateWitness;
+use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
@@ -19,12 +19,13 @@ use near_primitives::views::FinalExecutionOutcomeView;
 pub enum Event {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
     Block(Block),
-    BlockHeaders(Vec<BlockHeader>),
     BlockApproval(Approval, PeerId),
+    BlockHeaders(Vec<BlockHeader>),
     BlockHeadersRequest(Vec<CryptoHash>),
     BlockRequest(CryptoHash),
     Challenge(Challenge),
     Chunk(Vec<PartialEncodedChunkPart>),
+    ChunkEndorsement(ChunkEndorsement),
     ChunkRequest(ChunkHash),
     ChunkStateWitness(ChunkStateWitness),
     Transaction(SignedTransaction),
@@ -122,6 +123,10 @@ impl client::Client for Fake {
 
     async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
         self.event_sink.push(Event::ChunkStateWitness(witness));
+    }
+
+    async fn chunk_endorsement(&self, endorsement: ChunkEndorsement) {
+        self.event_sink.push(Event::ChunkEndorsement(endorsement));
     }
 }
 

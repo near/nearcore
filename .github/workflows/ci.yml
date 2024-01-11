@@ -310,6 +310,8 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: coverage
+      # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
+      # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -14,6 +14,11 @@ jobs:
       id-token: "write"
 
     steps:
+      - run: sudo fallocate -l 128G /swap-file
+      - run: sudo chmod 600 /swap-file
+      - run: sudo mkswap /swap-file
+      - run: sudo swapon /swap-file
+
       - id: "auth"
         uses: "google-github-actions/auth@v1"
         with:
@@ -45,5 +50,5 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-${{ github.ref_name }}-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          RUSTFLAGS="-A warnings" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          RUSTFLAGS="-A warnings --cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/${{ github.ref_name }}/$NAME.tar.gz"

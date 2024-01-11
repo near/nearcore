@@ -30,7 +30,7 @@ use futures::{future, FutureExt};
 use near_async::messaging::CanSendAsync;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
-use near_chain::resharding::StateSplitRequest;
+use near_chain::resharding::ReshardingRequest;
 use near_chain::types::RuntimeAdapter;
 use near_chain::Chain;
 use near_chain_configs::{ExternalStorageConfig, ExternalStorageLocation, SyncConfig};
@@ -140,7 +140,8 @@ pub struct StateSync {
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
     /// Maps shard_id to result of splitting state for resharding.
-    split_state_roots: HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
+    resharding_state_roots:
+        HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
 
     /// Message queue to process the received state parts.
     state_parts_mpsc_tx: Sender<StateSyncGetPartResult>,
@@ -201,7 +202,7 @@ impl StateSync {
             network_adapter,
             timeout,
             state_parts_apply_results: HashMap::new(),
-            split_state_roots: HashMap::new(),
+            resharding_state_roots: HashMap::new(),
             state_parts_mpsc_rx: rx,
             state_parts_mpsc_tx: tx,
         }
@@ -220,7 +221,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
+        resharding_scheduler: &dyn Fn(ReshardingRequest),
         state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -237,7 +238,7 @@ impl StateSync {
             // correct reason. When changing it please also update the tests.
             panic!("cannot sync to the first epoch after sharding upgrade. Please wait for the next epoch or find peers that are more up to date");
         }
-        let split_states = epoch_manager.will_shard_layout_change(&prev_hash)?;
+        let need_to_reshard = epoch_manager.will_shard_layout_change(&prev_hash)?;
 
         for shard_id in tracking_shards {
             let version = prev_shard_layout.version();
@@ -288,22 +289,22 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateDownloadComplete => {
                     shard_sync_done = self
-                        .sync_shards_download_complete_status(split_states, shard_sync_download);
+                        .sync_shards_download_complete_status(need_to_reshard, shard_sync_download);
                 }
-                ShardSyncStatus::StateSplitScheduling => {
-                    debug_assert!(split_states);
-                    self.sync_shards_state_split_scheduling_status(
+                ShardSyncStatus::ReshardingScheduling => {
+                    debug_assert!(need_to_reshard);
+                    self.sync_shards_resharding_scheduling_status(
                         shard_id,
                         shard_sync_download,
                         sync_hash,
                         chain,
-                        state_split_scheduler,
+                        resharding_scheduler,
                         me,
                     )?;
                 }
-                ShardSyncStatus::StateSplitApplying => {
-                    debug_assert!(split_states);
-                    shard_sync_done = self.sync_shards_state_split_applying_status(
+                ShardSyncStatus::ReshardingApplying => {
+                    debug_assert!(need_to_reshard);
+                    shard_sync_done = self.sync_shards_resharding_applying_status(
                         shard_uid,
                         shard_sync_download,
                         sync_hash,
@@ -404,13 +405,13 @@ impl StateSync {
         self.state_parts_apply_results.insert(shard_id, apply_result);
     }
 
-    // Called by the client actor, when it finished splitting the state.
-    pub fn set_split_result(
+    // Called by the client actor, when it finished resharding.
+    pub fn set_resharding_result(
         &mut self,
         shard_id: ShardId,
         result: Result<HashMap<ShardUId, StateRoot>, near_chain::Error>,
     ) {
-        self.split_state_roots.insert(shard_id, result);
+        self.resharding_state_roots.insert(shard_id, result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
@@ -665,7 +666,7 @@ impl StateSync {
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
+        resharding_scheduler: &dyn Fn(ReshardingRequest),
         state_parts_arbiter_handle: &ArbiterHandle,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -694,7 +695,7 @@ impl StateSync {
             tracking_shards,
             now,
             state_parts_task_scheduler,
-            state_split_scheduler,
+            resharding_scheduler,
             state_parts_arbiter_handle,
             use_colour,
             runtime_adapter,
@@ -956,14 +957,14 @@ impl StateSync {
 
     fn sync_shards_download_complete_status(
         &mut self,
-        split_states: bool,
+        need_to_reshard: bool,
         shard_sync_download: &mut ShardSyncDownload,
     ) -> bool {
         // If the shard layout is changing in this epoch - we have to apply it right now.
-        if split_states {
+        if need_to_reshard {
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
-                status: ShardSyncStatus::StateSplitScheduling,
+                status: ShardSyncStatus::ReshardingScheduling,
             };
             false
         } else {
@@ -974,35 +975,35 @@ impl StateSync {
         }
     }
 
-    fn sync_shards_state_split_scheduling_status(
+    fn sync_shards_resharding_scheduling_status(
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &Chain,
-        state_split_scheduler: &dyn Fn(StateSplitRequest),
+        resharding_scheduler: &dyn Fn(ReshardingRequest),
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
-        chain.build_state_for_split_shards_preprocessing(
+        chain.build_state_for_resharding_preprocessing(
             &sync_hash,
             shard_id,
-            state_split_scheduler,
+            resharding_scheduler,
         )?;
         tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "resharding scheduled");
         *shard_sync_download =
-            ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::StateSplitApplying };
+            ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::ReshardingApplying };
         Ok(())
     }
 
     /// Returns whether the State Sync for the given shard is complete.
-    fn sync_shards_state_split_applying_status(
+    fn sync_shards_resharding_applying_status(
         &mut self,
         shard_uid: ShardUId,
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
     ) -> Result<bool, near_chain::Error> {
-        let result = self.split_state_roots.remove(&shard_uid.shard_id());
+        let result = self.resharding_state_roots.remove(&shard_uid.shard_id());
         let mut shard_sync_done = false;
         if let Some(state_roots) = result {
             chain.build_state_for_split_shards_postprocessing(
@@ -1317,7 +1318,7 @@ mod test {
         };
 
         let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
-        let state_split_fn = move |_: StateSplitRequest| {};
+        let resharding_fn = move |_: ReshardingRequest| {};
 
         let secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
         let public_key = secret_key.public_key();
@@ -1342,7 +1343,7 @@ mod test {
                     &[highest_height_peer_info],
                     vec![0],
                     &apply_parts_fn,
-                    &state_split_fn,
+                    &resharding_fn,
                     &Arbiter::new().handle(),
                     false,
                     runtime,

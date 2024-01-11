@@ -84,10 +84,10 @@ impl AdversarialBehaviorTestData {
             NetworkRequests::Challenge(_) => {
                 // challenges not enabled.
             }
-            NetworkRequests::ChunkEndorsement(_) => {
+            NetworkRequests::ChunkStateWitness(_, _) => {
                 // TODO(#10265).
             }
-            NetworkRequests::ChunkStateWitness(_, _) => {
+            NetworkRequests::ChunkEndorsement(_, _) => {
                 // TODO(#10265).
             }
             _ => {
