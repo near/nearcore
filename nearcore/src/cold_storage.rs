@@ -72,24 +72,7 @@ fn cold_store_copy(
 
     let _span = tracing::debug_span!(target: "cold_store", "cold_store_copy", cold_head_height, hot_final_head_height, hot_tail_height).entered();
 
-    if cold_head_height > hot_final_head_height {
-        return Err(anyhow::anyhow!(
-            "Cold head is ahead of final head. cold head height: {} final head height {}",
-            cold_head_height,
-            hot_final_head_height
-        ));
-    }
-
-    // Cold and Hot storages need to overlap.
-    // Without this check we would skip blocks from cold_head_height to hot_tail_height.
-    // This will result in corrupted cold storage.
-    if cold_head_height < hot_tail_height {
-        return Err(anyhow::anyhow!(
-            "Cold head is behind hot tail. cold head height: {} hot tail height {}",
-            cold_head_height,
-            hot_tail_height
-        ));
-    }
+    sanity_check_impl(cold_head_height, hot_final_head_height, hot_tail_height)?;
 
     if cold_head_height >= hot_final_head_height {
         return Ok(ColdStoreCopyResult::NoBlockCopied);
@@ -129,6 +112,54 @@ fn cold_store_copy(
 
     tracing::trace!(target: "cold_store", ?result, "ending");
     result
+}
+
+// Check some basic sanity conditions.
+// * cold head <= hot final head
+// * cold head >= hot tail
+fn sanity_check(
+    hot_store: &Store,
+    cold_store: &Store,
+    genesis_height: BlockHeight,
+) -> anyhow::Result<()> {
+    let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
+    let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
+
+    let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
+    let hot_final_head_height = hot_final_head.map_or(genesis_height, |tip| tip.height);
+
+    let hot_tail = hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
+    let hot_tail_height = hot_tail.unwrap_or(genesis_height);
+
+    sanity_check_impl(cold_head_height, hot_final_head_height, hot_tail_height)?;
+
+    Ok(())
+}
+
+fn sanity_check_impl(
+    cold_head_height: u64,
+    hot_final_head_height: u64,
+    hot_tail_height: u64,
+) -> anyhow::Result<()> {
+    // We should only copy final blocks to cold storage.
+    if cold_head_height > hot_final_head_height {
+        return Err(anyhow::anyhow!(
+            "Cold head is ahead of final head. cold head height: {} final head height {}",
+            cold_head_height,
+            hot_final_head_height
+        ));
+    }
+    // Cold and Hot storages need to overlap. Without this check we would skip
+    // blocks from cold_head_height to hot_tail_height. This will result in
+    // corrupted cold storage.
+    if cold_head_height < hot_tail_height {
+        return Err(anyhow::anyhow!(
+            "Cold head is behind hot tail. cold head height: {} hot tail height {}",
+            cold_head_height,
+            hot_tail_height
+        ));
+    }
+    Ok(())
 }
 
 fn cold_store_copy_result_to_string(result: &anyhow::Result<ColdStoreCopyResult>) -> &str {
@@ -337,6 +368,11 @@ pub fn spawn_cold_store_loop(
     let genesis_height = config.genesis.config.genesis_height;
     let keep_going = Arc::new(AtomicBool::new(true));
     let keep_going_clone = keep_going.clone();
+
+    // Perform the sanity check before spawning the thread.
+    // If the check fails when the node is starting it's better to just fail
+    // fast and crash the node immediately.
+    sanity_check(&hot_store, &cold_store, genesis_height)?;
 
     let split_storage_config = config.config.split_storage.clone().unwrap_or_default();
 
