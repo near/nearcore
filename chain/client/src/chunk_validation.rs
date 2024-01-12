@@ -502,7 +502,8 @@ impl Client {
 
         let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
         if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
-            return Err(Error::InvalidChunkEndorsement(endorsement));
+            tracing::error!(target: "chunk_validation", ?endorsement, "Invalid chunk endorsement.");
+            return Err(Error::InvalidChunkEndorsement);
         }
 
         // If we are the current block producer, we store the chunk endorsement for each chunk which
