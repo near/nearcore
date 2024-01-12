@@ -7,7 +7,7 @@ use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::{Block, BlockV4};
+use crate::block::Block;
 use crate::block_body::BlockBody;
 use crate::block_header::BlockHeader;
 use crate::challenge::Challenges;
@@ -339,25 +339,25 @@ impl ShardChunkHeader {
 }
 
 impl BlockBody {
-    pub fn get_mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
+    fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
         match self {
             BlockBody::V1(body) => &mut body.chunks,
         }
     }
 
-    pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
+    fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
             BlockBody::V1(body) => body.chunks = chunks,
         }
     }
 
-    pub fn set_challenges(&mut self, challenges: Challenges) {
+    fn set_challenges(&mut self, challenges: Challenges) {
         match self {
             BlockBody::V1(body) => body.challenges = challenges,
         }
     }
 
-    pub fn set_vrf_value(&mut self, vrf_value: Value) {
+    fn set_vrf_value(&mut self, vrf_value: Value) {
         match self {
             BlockBody::V1(body) => body.vrf_value = vrf_value,
         }
@@ -457,15 +457,6 @@ impl TestBlockBuilder {
 }
 
 impl Block {
-    pub fn get_mut(&mut self) -> &mut BlockV4 {
-        match self {
-            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
-                panic!("older block version should not appear in tests")
-            }
-            Block::BlockV4(block) => Arc::make_mut(block),
-        }
-    }
-
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => {
@@ -483,6 +474,24 @@ impl Block {
             Block::BlockV4(block) => {
                 let block = Arc::make_mut(block);
                 &mut block.header
+            }
+        }
+    }
+
+    pub fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.chunks
+            }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.body.chunks
+            }
+            Block::BlockV4(block) => {
+                let block = Arc::make_mut(block);
+                block.body.mut_chunks()
             }
         }
     }
@@ -534,6 +543,24 @@ impl Block {
             Block::BlockV4(body) => {
                 let body = Arc::make_mut(body);
                 body.body.set_challenges(challenges);
+            }
+        };
+    }
+
+    pub fn set_vrf_value(&mut self, vrf_value: Value) {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => {
+                let body = Arc::make_mut(body);
+                body.vrf_value = vrf_value;
+            }
+            Block::BlockV3(body) => {
+                let body = Arc::make_mut(body);
+                body.body.vrf_value = vrf_value;
+            }
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_vrf_value(vrf_value);
             }
         };
     }
