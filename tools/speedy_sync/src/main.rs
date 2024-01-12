@@ -79,18 +79,18 @@ struct Cli {
 fn read_block_checkpoint(store: &Store, block_hash: &CryptoHash) -> BlockCheckpoint {
     let block: Block = store
         .get_ser(DBCol::Block, block_hash.as_ref())
-        .expect(format!("DB error Block {:?}", block_hash).as_str())
-        .expect(format!("Key missing Block {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error Block {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing Block {}", block_hash));
 
     let info: BlockInfo = store
         .get_ser(DBCol::BlockInfo, block_hash.as_ref())
-        .expect(format!("DB error BlockInfo {:?}", block_hash).as_str())
-        .expect(format!("Key missing BlockInfo {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error BlockInfo {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing BlockInfo {}", block_hash));
 
     let merkle_tree: PartialMerkleTree = store
         .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
-        .expect(format!("DB error BlockMerkleTree {:?}", block_hash).as_str())
-        .expect(format!("Key missing BlockMerkleTree {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error BlockMerkleTree {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing BlockMerkleTree {}", block_hash));
 
     BlockCheckpoint { header: block.header().clone(), info, merkle_tree }
 }

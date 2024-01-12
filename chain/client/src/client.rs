@@ -1489,12 +1489,15 @@ impl Client {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
             + self.config.max_block_production_delay.as_nanos())
             / 2;
-        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
-            &format!(
-                "Too high of a delta_height {} to convert into u64",
-                self.accrued_fastforward_delta
-            ),
-        );
+
+        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time)
+            .try_into()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Too high of a delta_height {} to convert into u64",
+                    self.accrued_fastforward_delta
+                )
+            });
 
         chrono::Duration::nanoseconds(ns)
     }
