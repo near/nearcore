@@ -486,10 +486,10 @@ fn test_cold_loop_on_gc_boundary() {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold((*storage.cold_db().unwrap()).clone(), &hot_store, 1000000, &keep_going)
-        .unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    copy_all_data_to_cold(cold_db.clone(), &hot_store, 1000000, &keep_going).unwrap();
 
-    update_cold_head(&*storage.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(cold_db, &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
