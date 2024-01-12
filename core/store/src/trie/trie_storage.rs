@@ -237,7 +237,8 @@ impl TrieCache {
             .per_shard_max_bytes
             .get(&shard_uid)
             .copied()
-            .unwrap_or(cache_config.default_max_bytes);
+            .unwrap_or(cache_config.default_max_bytes)
+            .as_u64();
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
             queue_capacity,
@@ -693,10 +694,13 @@ mod trie_cache_tests {
         const S0_VIEW_SIZE: u64 = 4;
 
         let s0 = ShardUId::single_shard();
-        store_config.trie_cache.default_max_bytes = DEFAULT_SIZE;
-        store_config.trie_cache.per_shard_max_bytes.insert(s0, S0_SIZE);
-        store_config.view_trie_cache.default_max_bytes = DEFAULT_VIEW_SIZE;
-        store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
+        store_config.trie_cache.default_max_bytes = bytesize::ByteSize(DEFAULT_SIZE);
+        store_config.trie_cache.per_shard_max_bytes.insert(s0, bytesize::ByteSize(S0_SIZE));
+        store_config.view_trie_cache.default_max_bytes = bytesize::ByteSize(DEFAULT_VIEW_SIZE);
+        store_config
+            .view_trie_cache
+            .per_shard_max_bytes
+            .insert(s0, bytesize::ByteSize(S0_VIEW_SIZE));
         let trie_config = TrieConfig::from_store_config(&store_config);
 
         check_cache_size(&trie_config, 1, false, DEFAULT_SIZE);
