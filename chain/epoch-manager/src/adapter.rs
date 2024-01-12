@@ -5,6 +5,7 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -378,6 +379,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         block_height: BlockHeight,
         approvals: &[Option<Box<Signature>>],
     ) -> Result<(), Error>;
+
+    fn verify_chunk_endorsement(
+        &self,
+        chunk_header: &ShardChunkHeader,
+        endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error>;
 
     fn cares_about_shard_from_prev_block(
         &self,
@@ -954,6 +961,31 @@ impl EpochManagerAdapter for EpochManagerHandle {
         } else {
             Ok(())
         }
+    }
+
+    fn verify_chunk_endorsement(
+        &self,
+        chunk_header: &ShardChunkHeader,
+        endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error> {
+        let epoch_id = self.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_validators = self.get_chunk_validators(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+        if !chunk_validators.contains_key(&endorsement.account_id) {
+            return Err(Error::NotAValidator);
+        }
+        let (validator, is_slashed) = self.get_validator_by_account_id(
+            &epoch_id,
+            chunk_header.prev_block_hash(),
+            &endorsement.account_id,
+        )?;
+        if is_slashed {
+            return Ok(false);
+        }
+        Ok(endorsement.verify(validator.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(

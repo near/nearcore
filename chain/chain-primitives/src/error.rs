@@ -5,6 +5,7 @@ use chrono::Utc;
 
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -136,6 +137,8 @@ pub enum Error {
     InvalidChunkState(Box<ChunkState>),
     #[error("Invalid Chunk State Witness")]
     InvalidChunkStateWitness(String),
+    #[error("Invalid Chunk Endorsement")]
+    InvalidChunkEndorsement(ChunkEndorsement),
     /// Invalid chunk mask
     #[error("Invalid Chunk Mask")]
     InvalidChunkMask,
@@ -271,6 +274,7 @@ impl Error {
             | Error::InvalidChunkProofs(_)
             | Error::InvalidChunkState(_)
             | Error::InvalidChunkStateWitness(_)
+            | Error::InvalidChunkEndorsement(_)
             | Error::InvalidChunkMask
             | Error::InvalidStateRoot
             | Error::InvalidTxRoot
@@ -344,6 +348,7 @@ impl Error {
             Error::InvalidChunkProofs(_) => "invalid_chunk_proofs",
             Error::InvalidChunkState(_) => "invalid_chunk_state",
             Error::InvalidChunkStateWitness(_) => "invalid_chunk_state_witness",
+            Error::InvalidChunkEndorsement(_) => "invalid_chunk_endorsement",
             Error::InvalidChunkMask => "invalid_chunk_mask",
             Error::InvalidStateRoot => "invalid_state_root",
             Error::InvalidTxRoot => "invalid_tx_root",
