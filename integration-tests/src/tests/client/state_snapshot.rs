@@ -138,7 +138,7 @@ fn verify_make_snapshot(
     state_snapshot_test_env.shard_tries.delete_state_snapshot();
     state_snapshot_test_env.shard_tries.create_state_snapshot(
         block_hash,
-        &vec![ShardUId::single_shard()],
+        &[ShardUId::single_shard()],
         block,
     )?;
     // check that make_state_snapshot does not panic or err out

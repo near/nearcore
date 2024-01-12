@@ -213,7 +213,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -228,7 +228,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -241,7 +241,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -277,7 +277,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -313,14 +313,14 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 fn challenge(
     env: TestEnv,
     shard_id: usize,
-    chunk: MaybeEncodedShardChunk,
+    chunk: Box<MaybeEncodedShardChunk>,
     block: &Block,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;

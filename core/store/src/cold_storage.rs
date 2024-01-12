@@ -9,7 +9,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::io;
 use strum::IntoEnumIterator;
 
@@ -513,12 +513,9 @@ impl StoreWithCache<'_> {
     }
 
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
-        if !self.cache.contains_key(&(column, key.to_vec())) {
+        if let hash_map::Entry::Vacant(e) = self.cache.entry((column, key.to_vec())) {
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
-            self.cache.insert(
-                (column, key.to_vec()),
-                self.store.get(column, key)?.map(|x| x.as_slice().to_vec()),
-            );
+            e.insert(self.store.get(column, key)?.map(|x| x.as_slice().to_vec()));
         }
         Ok(self.cache[&(column, key.to_vec())].clone())
     }
@@ -637,7 +634,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHash, DBKeyType::BlockHeight]
+                &[DBKeyType::BlockHash, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![
                 vec![1, 2, 3, 0, 1],
@@ -650,7 +647,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHeight, DBKeyType::BlockHash, DBKeyType::BlockHeight]
+                &[DBKeyType::BlockHeight, DBKeyType::BlockHash, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![
                 vec![0, 1, 1, 2, 3, 0, 1],
@@ -667,7 +664,7 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::ShardId, DBKeyType::BlockHeight]
+                &[DBKeyType::ShardId, DBKeyType::BlockHeight]
             )),
             HashSet::<StoreKey>::from_iter(vec![])
         );
@@ -675,13 +672,13 @@ mod test {
         assert_eq!(
             HashSet::<StoreKey>::from_iter(combine_keys(
                 &key_type_to_keys,
-                &vec![DBKeyType::BlockHash, DBKeyType::ShardId]
+                &[DBKeyType::BlockHash, DBKeyType::ShardId]
             )),
             HashSet::<StoreKey>::from_iter(vec![])
         );
 
         assert_eq!(
-            HashSet::<StoreKey>::from_iter(combine_keys(&key_type_to_keys, &vec![])),
+            HashSet::<StoreKey>::from_iter(combine_keys(&key_type_to_keys, &[])),
             HashSet::<StoreKey>::from_iter(vec![vec![]])
         );
     }

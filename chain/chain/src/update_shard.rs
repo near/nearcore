@@ -91,6 +91,7 @@ pub(crate) struct ReshardingData {
 
 /// Reason to update a shard when new block appears on chain.
 /// All types include state roots for children shards in case of resharding.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.

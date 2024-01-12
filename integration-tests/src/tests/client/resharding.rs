@@ -895,7 +895,7 @@ fn generate_create_accounts_txs(
         let signer0 = InMemorySigner::from_seed(
             signer_account.clone(),
             KeyType::ED25519,
-            &signer_account.to_string(),
+            signer_account.as_ref(),
         );
         let account_id = gen_account(&mut rng);
         if all_accounts.insert(account_id.clone()) {
@@ -1103,7 +1103,7 @@ fn setup_test_env_with_cross_contract_txs(
             let signer = InMemorySigner::from_seed(
                 account_id.clone(),
                 KeyType::ED25519,
-                &account_id.to_string(),
+                account_id.as_ref(),
             );
             SignedTransaction::from_actions(
                 1,
@@ -1124,7 +1124,7 @@ fn setup_test_env_with_cross_contract_txs(
     let mut new_accounts = HashMap::new();
 
     // add a bunch of transactions before the two epoch boundaries
-    for height in vec![
+    for height in [
         epoch_length - 2,
         epoch_length - 1,
         epoch_length,
@@ -1238,8 +1238,7 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 =
-        InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, &account0.to_string());
+    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
     let signer_new_account =
         InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
     let data = serde_json::json!([

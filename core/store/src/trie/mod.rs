@@ -556,7 +556,7 @@ pub struct ApplyStatePartResult {
 }
 
 enum NodeOrValue {
-    Node(RawTrieNodeWithSize),
+    Node(Box<RawTrieNodeWithSize>),
     Value(std::sync::Arc<[u8]>),
 }
 
@@ -1105,7 +1105,7 @@ impl Trie {
     ) -> Result<NodeOrValue, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
-            Ok(node) => Ok(NodeOrValue::Node(node)),
+            Ok(node) => Ok(NodeOrValue::Node(Box::new(node))),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
         }
     }

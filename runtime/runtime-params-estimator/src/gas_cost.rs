@@ -294,6 +294,7 @@ impl NonNegativeTolerance {
 /// Like GasCost::least_squares_method_gas_cost but in the case of a solution
 /// with negative parameters, it returns  (A,B), where A has negative values set
 /// to zero and B contains the values so that solution = A-B.
+#[allow(clippy::result_large_err)]
 fn least_squares_method_gas_cost_pos_neg(
     xs: &[u64],
     ys: &[GasCost],

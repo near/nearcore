@@ -239,7 +239,7 @@ pub enum ExecutionMetadata {
     /// V2: With ProfileData by legacy `Cost` enum
     V2(ProfileDataV2),
     /// V3: With ProfileData by gas parameters
-    V3(ProfileDataV3),
+    V3(Box<ProfileDataV3>),
 }
 
 impl fmt::Debug for ExecutionOutcome {
