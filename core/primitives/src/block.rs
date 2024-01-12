@@ -145,8 +145,8 @@ impl Block {
         if next_epoch_protocol_version < SHARD_CHUNK_HEADER_UPGRADE_VERSION {
             let legacy_chunks = body
                 .chunks()
-                .to_vec()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|chunk| match chunk {
                     ShardChunkHeader::V1(header) => header,
                     ShardChunkHeader::V2(_) => panic!(
