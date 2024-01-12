@@ -11,6 +11,7 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunk};
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
 };
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_store::cold_storage::{
     copy_all_data_to_cold, test_cold_genesis_update, test_get_store_initial_writes,
@@ -63,6 +64,20 @@ fn check_iter(
     num_checks
 }
 
+fn create_tx_send_money(
+    nonce: u64,
+    signer: &InMemorySigner,
+    block_hash: CryptoHash,
+) -> SignedTransaction {
+    SignedTransaction::send_money(
+        nonce,
+        "test0".parse().unwrap(),
+        "test1".parse().unwrap(),
+        signer,
+        1,
+        block_hash,
+    )
+}
 /// Deploying test contract and calling write_random_value 5 times every block for 4 epochs.
 /// Also doing 5 send transactions every block.
 /// 4 epochs, because this test does not cover gc behaviour.
@@ -132,14 +147,7 @@ fn test_storage_after_commit_of_cold_update() {
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
             for i in 0..5 {
-                let tx = SignedTransaction::send_money(
-                    height * 10 + i,
-                    "test0".parse().unwrap(),
-                    "test1".parse().unwrap(),
-                    &signer,
-                    1,
-                    last_hash,
-                );
+                let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
@@ -301,14 +309,7 @@ fn test_cold_db_copy_with_height_skips() {
         // Therefore, no transactions after block 15.
         if height < 16 {
             for i in 0..5 {
-                let tx = SignedTransaction::send_money(
-                    height * 10 + i,
-                    "test0".parse().unwrap(),
-                    "test1".parse().unwrap(),
-                    &signer,
-                    1,
-                    last_hash,
-                );
+                let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
                 assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
             }
         }
