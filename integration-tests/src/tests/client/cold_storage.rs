@@ -283,12 +283,11 @@ fn test_cold_db_copy_with_height_skips() {
         .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let cold_db = storage.cold_db().unwrap();
+
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
-
-    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
-
     for height in 1..max_height {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         // It is still painful to filter out transactions in last two blocks.
@@ -313,18 +312,10 @@ fn test_cold_db_copy_with_height_skips() {
             }
         };
 
-        update_cold_db(
-            &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &height,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height).unwrap();
 
         if block.is_some() {
             last_hash = *block.unwrap().hash();
@@ -354,12 +345,9 @@ fn test_cold_db_copy_with_height_skips() {
 
     for col in DBCol::iter() {
         if col.is_cold() && col != DBCol::ChunkHashesByHeight {
-            let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
-                &storage.get_cold_store().unwrap(),
-                col,
-                &no_check_rules,
-            );
+            let client_store = env.clients[0].runtime_adapter.store();
+            let cold_store = storage.get_cold_store().unwrap();
+            let num_checks = check_iter(&client_store, &cold_store, col, &no_check_rules);
             // assert that this test actually checks something
             // apart from StateChangesForSplitStates and StateHeaders, that are empty
             assert!(
