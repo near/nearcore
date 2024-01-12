@@ -30,6 +30,7 @@ use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
+use near_chain::types::RuntimeStorageConfig;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
@@ -981,7 +982,7 @@ impl Client {
                 gas_limit,
                 &next_epoch_id,
                 shard_id,
-                state_root,
+                RuntimeStorageConfig::new(state_root, true),
                 // while the height of the next block that includes the chunk might not be prev_height + 1,
                 // passing it will result in a more conservative check and will not accidentally allow
                 // invalid transactions to be included.

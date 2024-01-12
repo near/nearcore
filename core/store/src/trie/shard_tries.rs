@@ -91,6 +91,10 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
+    pub fn new_trie_update_from_trie(&self, trie: Trie) -> TrieUpdate {
+        TrieUpdate::new(trie)
+    }
+
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,

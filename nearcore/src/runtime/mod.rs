@@ -711,7 +711,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         gas_limit: Gas,
         epoch_id: &EpochId,
         shard_id: ShardId,
-        state_root: StateRoot,
+        storage_config: RuntimeStorageConfig,
         next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
@@ -724,7 +724,28 @@ impl RuntimeAdapter for NightshadeRuntime {
             None => false,
         };
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
+        let mut trie = match storage_config.source {
+            StorageDataSource::Db => {
+                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+            }
+            StorageDataSource::DbTrieOnly => {
+                // If there is no flat storage on disk, use trie but simulate costs with enabled
+                // flat storage by not charging gas for trie nodes.
+                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
+                trie.dont_charge_gas_for_trie_node_access();
+                trie
+            }
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+        };
+        if storage_config.record_storage {
+            trie = trie.recording_reads();
+        }
+
+        let mut state_update = self.tries.new_trie_update_from_trie(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;

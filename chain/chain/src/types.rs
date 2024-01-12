@@ -377,7 +377,7 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         epoch_id: &EpochId,
         shard_id: ShardId,
-        state_root: StateRoot,
+        storage: RuntimeStorageConfig,
         next_block_height: BlockHeight,
         pool_iterator: &mut dyn PoolIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,

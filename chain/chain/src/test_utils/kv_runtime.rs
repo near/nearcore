@@ -1035,7 +1035,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _epoch_id: &EpochId,
         _shard_id: ShardId,
-        _state_root: StateRoot,
+        _storage_config: RuntimeStorageConfig,
         _next_block_height: BlockHeight,
         transactions: &mut dyn PoolIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
