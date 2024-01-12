@@ -56,12 +56,17 @@ fn cold_store_copy(
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
 ) -> anyhow::Result<ColdStoreCopyResult> {
+    // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
 
+    // If FINAL_HEAD is not set for hot storage we default it to genesis_height.
     let hot_final_head = hot_store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?;
     let hot_final_head_height = hot_final_head.map_or(genesis_height, |tip| tip.height);
 
+    // If TAIL is not set for hot storage we default it to genesis_height.
+    // TAIL not being set is not an error.
+    // Archive dbs don't have TAIL, that means that they have all data from genesis_height.
     let hot_tail = hot_store.get_ser::<u64>(DBCol::BlockMisc, TAIL_KEY)?;
     let hot_tail_height = hot_tail.unwrap_or(genesis_height);
 
@@ -136,6 +141,7 @@ fn sanity_check_impl(
     hot_final_head_height: u64,
     hot_tail_height: u64,
 ) -> anyhow::Result<()> {
+    // We should only copy final blocks to cold storage.
     if cold_head_height > hot_final_head_height {
         return Err(anyhow::anyhow!(
             "Cold head is ahead of final head. cold head height: {} final head height {}",
@@ -143,6 +149,9 @@ fn sanity_check_impl(
             hot_final_head_height
         ));
     }
+    // Cold and Hot storages need to overlap. Without this check we would skip
+    // blocks from cold_head_height to hot_tail_height. This will result in
+    // corrupted cold storage.
     if cold_head_height < hot_tail_height {
         return Err(anyhow::anyhow!(
             "Cold head is behind hot tail. cold head height: {} hot tail height {}",
