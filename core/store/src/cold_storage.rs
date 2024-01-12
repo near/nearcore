@@ -135,7 +135,7 @@ fn copy_state_from_store(
     let instant = std::time::Instant::now();
 
     let mut transaction = DBTransaction::new();
-    for shard_uid in shard_layout.shard_uids() {
+    for shard_uid in shard_layout.get_shard_uids() {
         debug_assert_eq!(
             DBCol::TrieChanges.key_type(),
             &[DBKeyType::BlockHash, DBKeyType::ShardUId]
@@ -148,12 +148,8 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
-            hot_store.insert_state_to_cache_from_op(op, &shard_uid_key);
-
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
-            let value = hot_store.get(DBCol::State, &key)?;
-            let value =
-                value.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, hex::encode(&key)))?;
+            let value = op.payload().to_vec();
 
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
