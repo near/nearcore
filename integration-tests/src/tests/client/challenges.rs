@@ -26,7 +26,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use std::sync::Arc;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -45,17 +44,7 @@ fn test_block_with_challenges() {
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
-        match &mut block {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => {
-                let body = Arc::make_mut(body);
-                body.challenges = challenges.clone();
-            }
-            Block::BlockV3(body) => {
-                let body = Arc::make_mut(body);
-                body.body.challenges = challenges.clone();
-            }
-        };
+        block.set_challenges(challenges.clone());
         let block_body_hash = block.compute_block_body_hash().unwrap();
         block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
         block.mut_header().get_mut().inner_rest.challenges_root =

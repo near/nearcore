@@ -6,9 +6,10 @@ use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
-use crate::block::Block;
-use crate::block::BlockV3;
+use crate::block::{Block, BlockV4};
+use crate::block_body::BlockBody;
 use crate::block_header::BlockHeader;
+use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -261,17 +262,6 @@ impl SignedTransaction {
     }
 }
 
-impl Block {
-    pub fn get_mut(&mut self) -> &mut BlockV3 {
-        match self {
-            Block::BlockV1(_) | Block::BlockV2(_) => {
-                panic!("older block version should not appear in tests")
-            }
-            Block::BlockV3(block) => Arc::make_mut(block),
-        }
-    }
-}
-
 impl BlockHeader {
     pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
@@ -346,14 +336,33 @@ impl ShardChunkHeader {
         }
     }
 }
+
+impl BlockBody {
+    pub fn get_mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
+        match self {
+            BlockBody::V1(body) => &mut body.chunks,
+        }
+    }
+
+    pub fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
+        match self {
+            BlockBody::V1(body) => body.chunks = chunks,
+        }
+    }
+
+    pub fn set_challenges(&mut self, challenges: Challenges) {
+        match self {
+            BlockBody::V1(body) => body.challenges = challenges,
+        }
+    }
+}
+
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
 /// let signer = EmptyValidatorSigner::default();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
-///
-
 pub struct TestBlockBuilder {
     prev: Block,
     signer: Arc<dyn ValidatorSigner>,
@@ -441,6 +450,15 @@ impl TestBlockBuilder {
 }
 
 impl Block {
+    pub fn get_mut(&mut self) -> &mut BlockV4 {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => {
+                panic!("older block version should not appear in tests")
+            }
+            Block::BlockV4(block) => Arc::make_mut(block),
+        }
+    }
+
     pub fn mut_header(&mut self) -> &mut BlockHeader {
         match self {
             Block::BlockV1(block) => {
@@ -452,6 +470,10 @@ impl Block {
                 &mut block.header
             }
             Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
+            Block::BlockV4(block) => {
                 let block = Arc::make_mut(block);
                 &mut block.header
             }
@@ -484,7 +506,29 @@ impl Block {
                 let block = Arc::make_mut(block);
                 block.body.chunks = chunks;
             }
+            Block::BlockV4(block) => {
+                let block = Arc::make_mut(block);
+                block.body.set_chunks(chunks);
+            }
         }
+    }
+
+    pub fn set_challenges(&mut self, challenges: Challenges) {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => {
+                let body = Arc::make_mut(body);
+                body.challenges = challenges;
+            }
+            Block::BlockV3(body) => {
+                let body = Arc::make_mut(body);
+                body.body.challenges = challenges;
+            }
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_challenges(challenges);
+            }
+        };
     }
 }
 
