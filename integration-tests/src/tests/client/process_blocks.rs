@@ -25,7 +25,8 @@ use near_client::test_utils::{
     setup_mock_all_validators, TestEnv,
 };
 use near_client::{
-    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse, SetNetworkInfo,
+    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse,
+    ProduceChunkResult, SetNetworkInfo,
 };
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -1276,14 +1277,14 @@ fn test_bad_chunk_mask() {
         let block_producer = (height % 2) as usize;
         let chunk_producer = ((height + 1) % 2) as usize;
 
-        let (encoded_chunk, merkle_paths, receipts) =
+        let ProduceChunkResult { encoded_chunk, merkle_paths, outgoing_receipts } =
             create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
             client
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
-                    receipts.clone(),
+                    outgoing_receipts.clone(),
                     client.validator_signer.as_ref().unwrap().validator_id().clone(),
                 )
                 .unwrap();
@@ -2325,7 +2326,7 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let (encoded_chunk, merkle_paths, receipts) =
+    let ProduceChunkResult { encoded_chunk, merkle_paths, outgoing_receipts } =
         create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
@@ -2367,7 +2368,12 @@ fn test_validate_chunk_extra() {
     let chunk_header = encoded_chunk.cloned_header();
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(
+            encoded_chunk,
+            merkle_paths,
+            outgoing_receipts,
+            validator_id,
+        )
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2841,7 +2847,7 @@ fn test_epoch_protocol_version_change() {
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer == "test0" { 0 } else { 1 };
-        let (encoded_chunk, merkle_paths, receipts) =
+        let ProduceChunkResult { encoded_chunk, merkle_paths, outgoing_receipts } =
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
@@ -2851,7 +2857,7 @@ fn test_epoch_protocol_version_change() {
                 .persist_and_distribute_encoded_chunk(
                     encoded_chunk.clone(),
                     merkle_paths.clone(),
-                    receipts.clone(),
+                    outgoing_receipts.clone(),
                     validator_id,
                 )
                 .unwrap();
@@ -3035,7 +3041,8 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let ProduceChunkResult { encoded_chunk, .. } =
+        create_chunk_on_height(&mut env.clients[0], last_height + 1);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
@@ -3091,7 +3098,8 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { encoded_chunk, .. } =
+        create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 

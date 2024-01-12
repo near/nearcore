@@ -225,6 +225,12 @@ pub struct BlockDebugStatus {
     pub chunks_completed: HashSet<ChunkHash>,
 }
 
+pub struct ProduceChunkResult {
+    pub encoded_chunk: EncodedShardChunk,
+    pub merkle_paths: Vec<MerklePath>,
+    pub outgoing_receipts: Vec<Receipt>,
+}
+
 impl Client {
     pub fn new(
         config: ClientConfig,
@@ -811,7 +817,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+    ) -> Result<Option<ProduceChunkResult>, Error> {
         let timer = Instant::now();
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
@@ -915,7 +921,7 @@ impl Client {
             },
         );
 
-        Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
+        Ok(Some(ProduceChunkResult { encoded_chunk, merkle_paths, outgoing_receipts }))
     }
 
     /// Calculates the root of receipt proofs.
@@ -1752,12 +1758,12 @@ impl Client {
                 next_height,
                 shard_id,
             ) {
-                Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            encoded_chunk,
-                            merkle_paths,
-                            receipts,
+                            result.encoded_chunk,
+                            result.merkle_paths,
+                            result.outgoing_receipts,
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");

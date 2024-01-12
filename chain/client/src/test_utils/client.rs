@@ -5,6 +5,7 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
+use crate::client::ProduceChunkResult;
 use crate::Client;
 use actix_rt::{Arbiter, System};
 use itertools::Itertools;
@@ -87,7 +88,7 @@ fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
     shard_id: ShardId,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+) -> ProduceChunkResult {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
@@ -103,10 +104,7 @@ fn create_chunk_on_height_for_shard(
         .unwrap()
 }
 
-pub fn create_chunk_on_height(
-    client: &mut Client,
-    next_height: BlockHeight,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
     create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
@@ -126,16 +124,17 @@ pub fn create_chunk(
 ) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
-    let (mut chunk, mut merkle_paths, receipts) = client
-        .produce_chunk(
-            *last_block.hash(),
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
-            next_height,
-            0,
-        )
-        .unwrap()
-        .unwrap();
+    let ProduceChunkResult { encoded_chunk: mut chunk, mut merkle_paths, outgoing_receipts } =
+        client
+            .produce_chunk(
+                *last_block.hash(),
+                last_block.header().epoch_id(),
+                last_block.chunks()[0].clone(),
+                next_height,
+                0,
+            )
+            .unwrap()
+            .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
@@ -209,7 +208,7 @@ pub fn create_chunk(
         block_merkle_tree.root(),
         None,
     );
-    (chunk, merkle_paths, receipts, block)
+    (chunk, merkle_paths, outgoing_receipts, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done
