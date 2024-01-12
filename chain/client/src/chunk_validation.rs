@@ -330,7 +330,7 @@ fn validate_chunk_state_witness(
         .into_iter()
         .zip(state_witness.implicit_transitions.into_iter())
     {
-        let block_hash = block.block_hash.clone();
+        let block_hash = block.block_hash;
         let old_chunk_data = OldChunkData {
             prev_chunk_extra: chunk_extra.clone(),
             resharding_state_roots: None,
