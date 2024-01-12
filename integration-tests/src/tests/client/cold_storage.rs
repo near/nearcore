@@ -235,9 +235,9 @@ fn test_cold_db_head_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = &store.get_hot_store();
-    let cold_store = &store.get_cold_store().unwrap();
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &storage.get_hot_store();
+    let cold_store = &storage.get_cold_store().unwrap();
     let mut env = TestEnv::builder(chain_genesis)
         .stores(vec![hot_store.clone()])
         .real_epoch_managers(&genesis.config)
@@ -247,7 +247,7 @@ fn test_cold_db_head_update() {
     for height in 1..max_height {
         env.produce_block(0, height);
         update_cold_head(
-            &*store.cold_db().unwrap(),
+            &*storage.cold_db().unwrap(),
             &env.clients[0].runtime_adapter.store(),
             &height,
         )
