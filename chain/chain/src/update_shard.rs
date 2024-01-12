@@ -10,7 +10,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, StateChangesForResharding, StateRoot};
 use near_store::PartialStorage;
@@ -20,21 +21,21 @@ use std::collections::HashMap;
 /// shard.
 #[derive(Debug)]
 pub struct NewChunkResult {
-    pub(crate) shard_uid: ShardUId,
-    pub(crate) gas_limit: Gas,
-    pub(crate) apply_result: ApplyChunkResult,
-    pub(crate) resharding_results: Option<ReshardingResults>,
+    pub shard_uid: ShardUId,
+    pub gas_limit: Gas,
+    pub apply_result: ApplyChunkResult,
+    pub resharding_results: Option<ReshardingResults>,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
 #[derive(Debug)]
 pub struct OldChunkResult {
-    pub(crate) shard_uid: ShardUId,
+    pub shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
     /// TODO(logunov): exclude receipts/txs context from all related types.
-    pub(crate) apply_result: ApplyChunkResult,
-    pub(crate) resharding_results: Option<ReshardingResults>,
+    pub apply_result: ApplyChunkResult,
+    pub resharding_results: Option<ReshardingResults>,
 }
 
 /// Result of updating a shard for some block when we apply only resharding
@@ -68,8 +69,9 @@ pub enum ShardBlockUpdateResult {
 /// State roots of children shards which are ready.
 type ReshardingStateRoots = HashMap<ShardUId, StateRoot>;
 
-pub(crate) struct NewChunkData {
-    pub chunk: ShardChunk,
+pub struct NewChunkData {
+    pub chunk_header: ShardChunkHeader,
+    pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<Receipt>,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
     pub block: ApplyChunkBlockContext,
@@ -77,7 +79,7 @@ pub(crate) struct NewChunkData {
     pub storage_context: StorageContext,
 }
 
-pub(crate) struct OldChunkData {
+pub struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
     pub block: ApplyChunkBlockContext,
@@ -107,7 +109,7 @@ pub(crate) enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
-pub(crate) struct ShardContext {
+pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether node cares about shard in this epoch.
     pub cares_about_shard_this_epoch: bool,
@@ -120,7 +122,7 @@ pub(crate) struct ShardContext {
 }
 
 /// Information about storage used for applying txs and receipts.
-pub(crate) struct StorageContext {
+pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
@@ -157,54 +159,9 @@ pub(crate) fn process_shard_update(
     })
 }
 
-/// Processes shard updates for the execution contexts range which must
-/// correspond to missing chunks for some shard.
-/// `current_chunk_extra` must correspond to `ChunkExtra` just before
-/// execution; in the end it will correspond to the latest execution
-/// result.
-pub(crate) fn process_missing_chunks_range<I: Iterator<Item = ChunkStateTransition>>(
-    parent_span: &tracing::Span,
-    mut current_chunk_extra: ChunkExtra,
-    runtime: &dyn RuntimeAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    execution_contexts: Vec<(ApplyChunkBlockContext, ShardContext)>,
-    mut state_proofs: I,
-) -> Result<ChunkExtra, Error> {
-    for (block_context, shard_context) in execution_contexts {
-        let storage = PartialStorage {
-            nodes: state_proofs
-                .next()
-                .ok_or(Error::Other(format!(
-                    "Missing state proof for {} {}",
-                    block_context.block_hash,
-                    shard_context.shard_uid.shard_id()
-                )))?
-                .base_state,
-        };
-        let OldChunkResult { apply_result, .. } = apply_old_chunk(
-            parent_span,
-            OldChunkData {
-                block: block_context.clone(),
-                resharding_state_roots: None,
-                prev_chunk_extra: current_chunk_extra.clone(),
-                storage_context: StorageContext {
-                    storage_data_source: StorageDataSource::Recorded(storage),
-                    state_patch: Default::default(),
-                    record_storage: false,
-                },
-            },
-            shard_context,
-            runtime,
-            epoch_manager,
-        )?;
-        *current_chunk_extra.state_root_mut() = apply_result.new_root;
-    }
-    Ok(current_chunk_extra)
-}
-
 /// Applies new chunk, which includes applying transactions from chunk and
 /// receipts filtered from outgoing receipts from previous chunks.
-pub(crate) fn apply_new_chunk(
+pub fn apply_new_chunk(
     parent_span: &tracing::Span,
     data: NewChunkData,
     shard_context: ShardContext,
@@ -212,8 +169,9 @@ pub(crate) fn apply_new_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData {
+        chunk_header,
+        transactions,
         block,
-        chunk,
         receipts,
         resharding_state_roots,
         is_first_block_with_chunk_of_version,
@@ -226,12 +184,11 @@ pub(crate) fn apply_new_chunk(
         "new_chunk",
         shard_id)
     .entered();
-    let chunk_inner = chunk.cloned_header().take_inner();
-    let gas_limit = chunk_inner.gas_limit();
+    let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+    let _timer = CryptoHashTimer::new(chunk_header.chunk_hash().0);
     let storage_config = RuntimeStorageConfig {
-        state_root: *chunk_inner.prev_state_root(),
+        state_root: chunk_header.prev_state_root(),
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
@@ -241,14 +198,14 @@ pub(crate) fn apply_new_chunk(
         storage_config,
         ApplyChunkShardContext {
             shard_id,
-            last_validator_proposals: chunk_inner.prev_validator_proposals(),
+            last_validator_proposals: chunk_header.prev_validator_proposals(),
             gas_limit,
             is_new_chunk: true,
             is_first_block_with_chunk_of_version,
         },
         block.clone(),
         &receipts,
-        chunk.transactions(),
+        &transactions,
     ) {
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
@@ -276,7 +233,7 @@ pub(crate) fn apply_new_chunk(
 /// Applies shard update corresponding to missing chunk.
 /// (logunov) From what I know, the state update may include only validator
 /// accounts update on epoch start.
-fn apply_old_chunk(
+pub fn apply_old_chunk(
     parent_span: &tracing::Span,
     data: OldChunkData,
     shard_context: ShardContext,

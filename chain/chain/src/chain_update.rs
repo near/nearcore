@@ -370,7 +370,7 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
-                self.chain_store_update.save_state_proof(
+                self.chain_store_update.save_state_transition_data(
                     *block_hash,
                     shard_id,
                     apply_result.proof,
@@ -402,7 +402,7 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                self.chain_store_update.save_state_proof(
+                self.chain_store_update.save_state_transition_data(
                     *block_hash,
                     shard_uid.shard_id(),
                     apply_result.proof,

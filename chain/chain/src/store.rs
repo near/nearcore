@@ -1439,7 +1439,7 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
-    state_proofs: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
+    state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     // All state changes made by a chunk, this is only used for resharding.
     add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
     remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
@@ -1467,7 +1467,7 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
-            state_proofs: Default::default(),
+            state_transition_data: Default::default(),
             add_state_changes_for_resharding: HashMap::new(),
             remove_state_changes_for_resharding: HashSet::new(),
             add_blocks_to_catchup: vec![],
@@ -2078,7 +2078,7 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
-    pub fn save_state_proof(
+    pub fn save_state_transition_data(
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
@@ -2086,7 +2086,7 @@ impl<'a> ChainStoreUpdate<'a> {
         exact_receipts_hash: CryptoHash,
     ) {
         if let Some(partial_storage) = partial_storage {
-            self.state_proofs.insert(
+            self.state_transition_data.insert(
                 (block_hash, shard_id),
                 StoredChunkStateTransitionData {
                     base_state: partial_storage.nodes,
@@ -2545,11 +2545,11 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        for ((block_hash, shard_id), state_proof) in self.state_proofs.drain() {
+        for ((block_hash, shard_id), state_transition_data) in self.state_transition_data.drain() {
             store_update.set_ser(
-                DBCol::StateProofs,
+                DBCol::StateTransitionData,
                 &get_block_shard_id(&block_hash, shard_id),
-                &state_proof,
+                &state_transition_data,
             )?;
         }
         for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()

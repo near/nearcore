@@ -972,7 +972,7 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);
             }
-            DBCol::StateProofs => {
+            DBCol::StateTransitionData => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion
