@@ -688,19 +688,16 @@ mod trie_cache_tests {
     fn test_trie_config() {
         let mut store_config = StoreConfig::default();
 
-        const DEFAULT_SIZE: u64 = 1;
-        const S0_SIZE: u64 = 2;
-        const DEFAULT_VIEW_SIZE: u64 = 3;
-        const S0_VIEW_SIZE: u64 = 4;
+        const DEFAULT_SIZE: bytesize::ByteSize = bytesize::ByteSize(1);
+        const S0_SIZE: bytesize::ByteSize = bytesize::ByteSize(2);
+        const DEFAULT_VIEW_SIZE: bytesize::ByteSize = bytesize::ByteSize(3);
+        const S0_VIEW_SIZE: bytesize::ByteSize = bytesize::ByteSize(4);
 
         let s0 = ShardUId::single_shard();
-        store_config.trie_cache.default_max_bytes = bytesize::ByteSize(DEFAULT_SIZE);
-        store_config.trie_cache.per_shard_max_bytes.insert(s0, bytesize::ByteSize(S0_SIZE));
-        store_config.view_trie_cache.default_max_bytes = bytesize::ByteSize(DEFAULT_VIEW_SIZE);
-        store_config
-            .view_trie_cache
-            .per_shard_max_bytes
-            .insert(s0, bytesize::ByteSize(S0_VIEW_SIZE));
+        store_config.trie_cache.default_max_bytes = DEFAULT_SIZE;
+        store_config.trie_cache.per_shard_max_bytes.insert(s0, S0_SIZE);
+        store_config.view_trie_cache.default_max_bytes = DEFAULT_VIEW_SIZE;
+        store_config.view_trie_cache.per_shard_max_bytes.insert(s0, S0_VIEW_SIZE);
         let trie_config = TrieConfig::from_store_config(&store_config);
 
         check_cache_size(&trie_config, 1, false, DEFAULT_SIZE);
@@ -714,11 +711,11 @@ mod trie_cache_tests {
         trie_config: &TrieConfig,
         shard_id: ShardId,
         is_view: bool,
-        expected_size: u64,
+        expected_size: bytesize::ByteSize,
     ) {
         let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
-        assert_eq!(expected_size, trie_cache.lock().total_size_limit,);
-        assert_eq!(is_view, trie_cache.lock().is_view,);
+        assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
+        assert_eq!(is_view, trie_cache.lock().is_view);
     }
 }
