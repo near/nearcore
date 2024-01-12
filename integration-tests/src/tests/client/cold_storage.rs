@@ -457,9 +457,9 @@ fn test_cold_loop_on_gc_boundary() {
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
-    let hot_store = &store.get_hot_store();
-    let cold_store = &store.get_cold_store().unwrap();
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let hot_store = &storage.get_hot_store();
+    let cold_store = &storage.get_cold_store().unwrap();
     let mut env = TestEnv::builder(chain_genesis)
         .archive(true)
         .save_trie_changes(true)
@@ -486,10 +486,10 @@ fn test_cold_loop_on_gc_boundary() {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold((*store.cold_db().unwrap()).clone(), &hot_store, 1000000, &keep_going)
+    copy_all_data_to_cold((*storage.cold_db().unwrap()).clone(), &hot_store, 1000000, &keep_going)
         .unwrap();
 
-    update_cold_head(&*store.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
+    update_cold_head(&*storage.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
 
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
@@ -523,8 +523,8 @@ fn test_cold_loop_on_gc_boundary() {
     near_config.client_config = env.clients[0].config.clone();
     near_config.config.save_trie_changes = Some(true);
 
-    let epoch_manager = EpochManager::new_arc_handle(store.get_hot_store(), &genesis.config);
-    spawn_cold_store_loop(&near_config, &store, epoch_manager).unwrap();
+    let epoch_manager = EpochManager::new_arc_handle(storage.get_hot_store(), &genesis.config);
+    spawn_cold_store_loop(&near_config, &storage, epoch_manager).unwrap();
     std::thread::sleep(std::time::Duration::from_secs(1));
 
     let end_cold_head =
