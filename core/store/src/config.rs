@@ -240,23 +240,22 @@ impl Default for StoreConfig {
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache: TrieCacheConfig {
-                default_max_bytes: 500_000_000,
+                default_max_bytes: bytesize::ByteSize::mb(500),
                 // TODO(resharding) The cache size needs to adjusted for every resharding.
                 // Make that automatic e.g. by defining the minimum cache size per account rather than shard.
                 per_shard_max_bytes: HashMap::from_iter([
                     // Temporary solution to make contracts with heavy trie access
                     // patterns on shard 3 more stable. It was chosen by the estimation
                     // of the largest contract storage size we are aware as of 23/08/2022.
-                    // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
-                    // minimal hardware.
+                    // Note: on >= 1.34 nearcore version use 1gb if you have minimal hardware.
                     // In simple nightshade the heavy contract "token.sweat" is in shard 3
-                    (ShardUId { version: 1, shard_id: 3 }, 3_000_000_000),
+                    (ShardUId { version: 1, shard_id: 3 }, bytesize::ByteSize::gb(3)),
                     // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
-                    (ShardUId { version: 2, shard_id: 4 }, 3_000_000_000),
+                    (ShardUId { version: 2, shard_id: 4 }, bytesize::ByteSize::gb(3)),
                     // Shard 1 is dedicated to aurora and it had very few cache
                     // misses even with cache size of only 50MB
-                    (ShardUId { version: 1, shard_id: 1 }, 50_000_000),
-                    (ShardUId { version: 2, shard_id: 1 }, 50_000_000),
+                    (ShardUId { version: 1, shard_id: 1 }, bytesize::ByteSize::mb(50)),
+                    (ShardUId { version: 2, shard_id: 1 }, bytesize::ByteSize::mb(50)),
                 ]),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
@@ -351,9 +350,9 @@ pub struct TrieCacheConfig {
     ///
     /// This is an approximate limit that attempts to factor in data structure
     /// overhead also. It is supposed to be fairly accurate in the limit.
-    pub default_max_bytes: u64,
+    pub default_max_bytes: bytesize::ByteSize,
     /// Overwrites `default_max_bytes` for specific shards.
-    pub per_shard_max_bytes: HashMap<ShardUId, u64>,
+    pub per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize>,
     /// Limit the number of elements in caches deletions queue for specific
     /// shard
     pub shard_cache_deletions_queue_capacity: usize,

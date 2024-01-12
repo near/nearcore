@@ -35,7 +35,7 @@ impl StateSnaptshotTestEnv {
         store: &Store,
     ) -> Self {
         let trie_cache_config = TrieCacheConfig {
-            default_max_bytes: 50_000_000,
+            default_max_bytes: bytesize::ByteSize::mb(50),
             per_shard_max_bytes: Default::default(),
             shard_cache_deletions_queue_capacity: 0,
         };

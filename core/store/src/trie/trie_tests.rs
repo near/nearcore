@@ -380,7 +380,10 @@ mod trie_storage_tests {
         let shard_uid = ShardUId::single_shard();
         let store = create_store_with_values(&values, shard_uid);
         let mut trie_config = TrieConfig::default();
-        trie_config.shard_cache_config.per_shard_max_bytes.insert(shard_uid, shard_cache_size);
+        trie_config
+            .shard_cache_config
+            .per_shard_max_bytes
+            .insert(shard_uid, bytesize::ByteSize(shard_cache_size));
         let trie_cache = TrieCache::new(&trie_config, shard_uid, false);
         let trie_caching_storage =
             TrieCachingStorage::new(store, trie_cache.clone(), shard_uid, false, None);
