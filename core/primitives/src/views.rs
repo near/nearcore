@@ -1220,6 +1220,7 @@ impl From<Action> for ActionView {
                 gas: action.gas,
                 deposit: action.deposit,
             },
+            Action::YieldedFunctionCall(_) => todo!(),
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }

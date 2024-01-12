@@ -926,7 +926,8 @@ pub(crate) fn check_actor_permissions(
                 .into());
             }
         }
-        Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
+        Action::CreateAccount(_) | Action::FunctionCall(_) | Action::YieldedFunctionCall(_) => (),
+        Action::Transfer(_) => (),
         Action::Delegate(_) => (),
     };
     Ok(())
@@ -992,6 +993,7 @@ pub(crate) fn check_account_existence(
         }
         Action::DeployContract(_)
         | Action::FunctionCall(_)
+        | Action::YieldedFunctionCall(_)
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
