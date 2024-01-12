@@ -241,15 +241,17 @@ impl Default for StoreConfig {
 
             trie_cache: TrieCacheConfig {
                 default_max_bytes: 500_000_000,
-                // Temporary solution to make contracts with heavy trie access
-                // patterns on shard 3 more stable. It was chosen by the estimation
-                // of the largest contract storage size we are aware as of 23/08/2022.
-                // Consider removing after implementing flat storage. (#7327)
-                // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
-                // minimal hardware.
+                // TODO(resharding) The cache size needs to adjusted for every resharding.
+                // Make that automatic e.g. by defining the minimum cache size per account rather than shard.
                 per_shard_max_bytes: HashMap::from_iter([
+                    // Temporary solution to make contracts with heavy trie access
+                    // patterns on shard 3 more stable. It was chosen by the estimation
+                    // of the largest contract storage size we are aware as of 23/08/2022.
+                    // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
+                    // minimal hardware.
+                    // In simple nightshade the heavy contract "token.sweat" is in shard 3
                     (ShardUId { version: 1, shard_id: 3 }, 3_000_000_000),
-                    // After resharding "token.sweat" account moves to shard 4
+                    // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
                     (ShardUId { version: 2, shard_id: 4 }, 3_000_000_000),
                     // Shard 1 is dedicated to aurora and it had very few cache
                     // misses even with cache size of only 50MB
