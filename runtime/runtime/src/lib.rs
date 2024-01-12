@@ -464,6 +464,7 @@ impl Runtime {
             ReceiptEnum::Action(action_receipt) => action_receipt,
             _ => unreachable!("given receipt should be an action receipt"),
         };
+        //println!("Processing ActionReceipt {:?}", action_receipt);
         let account_id = &receipt.receiver_id;
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
@@ -666,6 +667,7 @@ impl Runtime {
         // B(); 42}
         if !action_receipt.output_data_receivers.is_empty() {
             if let Ok(ReturnData::ReceiptIndex(receipt_index)) = result.result {
+                println!("This action wants to use the output of some promise as its own output; forwarding accordingly");
                 // Modifying a new receipt instead of sending data
                 match result
                     .new_receipts
@@ -679,6 +681,7 @@ impl Runtime {
                     _ => unreachable!("the receipt should be an action receipt"),
                 }
             } else {
+                println!("This action has output data receivers; creating a DataReceipt");
                 let data = match result.result {
                     Ok(ReturnData::Value(ref data)) => Some(data.clone()),
                     Ok(_) => Some(vec![]),

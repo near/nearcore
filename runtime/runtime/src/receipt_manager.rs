@@ -100,6 +100,7 @@ impl ReceiptManager {
         let new_receipt =
             ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
+        println!("Created a receipt with index={}", new_receipt_index);
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
     }
