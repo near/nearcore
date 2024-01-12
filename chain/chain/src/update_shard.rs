@@ -5,7 +5,6 @@ use crate::types::{
 };
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_primitives::chunk_validation::ChunkStateTransition;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -14,7 +13,6 @@ use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, StateChangesForResharding, StateRoot};
-use near_store::PartialStorage;
 use std::collections::HashMap;
 
 /// Result of updating a shard for some block when it has a new chunk for this
