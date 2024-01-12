@@ -1549,7 +1549,13 @@ fn action_transfer_or_implicit_account_creation(
     actor_id: &mut AccountId,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
-        action_transfer(account, deposit, nonrefundable)?;
+        if nonrefundable {
+            assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            action_nonrefundable_storage_transfer(account, deposit)?;
+        } else {
+            action_transfer(account, deposit)?;
+        }
         // Check if this is a gas refund, then try to refund the access key allowance.
         if is_refund && action_receipt.signer_id == receipt.receiver_id {
             try_refund_allowance(

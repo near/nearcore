@@ -397,26 +397,23 @@ pub(crate) fn try_refund_allowance(
     Ok(())
 }
 
-pub(crate) fn action_transfer(
+pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result<(), StorageError> {
+    account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
+        StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
+    })?);
+    Ok(())
+}
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub(crate) fn action_nonrefundable_storage_transfer(
     account: &mut Account,
     deposit: Balance,
-    nonrefundable: bool,
 ) -> Result<(), StorageError> {
-    if nonrefundable {
-        assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(
-            || {
-                StorageError::StorageInconsistentState(
-                    "Non-refundable account balance integer overflow".to_string(),
-                )
-            },
-        )?);
-    } else {
-        account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
-            StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
-        })?);
-    }
+    account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
+        StorageError::StorageInconsistentState(
+            "Non-refundable account balance integer overflow".to_string(),
+        )
+    })?);
     Ok(())
 }
 

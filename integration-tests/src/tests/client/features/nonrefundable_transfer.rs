@@ -27,6 +27,9 @@ use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
+use testlib::fees_utils::FeeHelper;
+
+use crate::node::RuntimeNode;
 
 /// Default sender to use in tests of this module.
 fn sender() -> AccountId {
@@ -58,6 +61,11 @@ fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) ->
 /// Creates a test environment using default protocol version.
 fn setup_env() -> TestEnv {
     setup_env_with_protocol_version(None)
+}
+
+fn fee_helper() -> FeeHelper {
+    let node = RuntimeNode::new(&sender());
+    crate::tests::standard_cases::fee_helper(&node)
 }
 
 fn get_nonce(env: &mut TestEnv, signer: &InMemorySigner) -> u64 {
@@ -100,6 +108,13 @@ fn execute_transaction_from_actions(
     tx_result
 }
 
+struct TransferConfig {
+    nonrefundable: bool,
+    account_creation: bool,
+    implicit_account_creation: bool,
+    deploy_contract: bool,
+}
+
 /// Submits a transfer (either regular or non-refundable).
 ///
 /// This methods checks that the balance is subtracted from the sender and added
@@ -109,13 +124,10 @@ fn exec_transfer(
     signer: InMemorySigner,
     receiver: AccountId,
     deposit: Balance,
-    nonrefundable: bool,
-    account_creation: bool,
-    implicit_account_creation: bool,
-    deploy_contract: bool,
+    config: TransferConfig,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let sender_pre_balance = env.query_balance(sender());
-    let (receiver_before_amount, receiver_before_nonrefundable) = if account_creation {
+    let (receiver_before_amount, receiver_before_nonrefundable) = if config.account_creation {
         (0, 0)
     } else {
         let receiver_before = env.query_account(receiver.clone());
@@ -124,7 +136,7 @@ fn exec_transfer(
 
     let mut actions = vec![];
 
-    if account_creation && !implicit_account_creation {
+    if config.account_creation && !config.implicit_account_creation {
         actions.push(Action::CreateAccount(CreateAccountAction {}));
         actions.push(Action::AddKey(Box::new(AddKeyAction {
             public_key: PublicKey::from_seed(KeyType::ED25519, receiver.as_str()),
@@ -132,7 +144,7 @@ fn exec_transfer(
         })));
     }
 
-    if nonrefundable {
+    if config.nonrefundable {
         actions.push(Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
             deposit,
         }));
@@ -140,7 +152,7 @@ fn exec_transfer(
         actions.push(Action::Transfer(TransferAction { deposit }));
     }
 
-    if deploy_contract {
+    if config.deploy_contract {
         let contract = near_test_contracts::sized_contract(1500 as usize);
         actions.push(Action::DeployContract(DeployContractAction { code: contract.to_vec() }))
     }
@@ -162,12 +174,12 @@ fn exec_transfer(
     assert_eq!(sender_pre_balance - deposit - gas_cost, env.query_balance(sender()));
 
     let receiver_after = env.query_account(receiver);
-    let (receiver_expected_amount_after, receiver_expected_non_refundable_after) = if nonrefundable
-    {
-        (receiver_before_amount, receiver_before_nonrefundable + deposit)
-    } else {
-        (receiver_before_amount + deposit, receiver_before_nonrefundable)
-    };
+    let (receiver_expected_amount_after, receiver_expected_non_refundable_after) =
+        if config.nonrefundable {
+            (receiver_before_amount, receiver_before_nonrefundable + deposit)
+        } else {
+            (receiver_before_amount + deposit, receiver_before_nonrefundable)
+        };
 
     assert_eq!(receiver_after.amount, receiver_expected_amount_after);
     assert_eq!(receiver_after.nonrefundable, receiver_expected_non_refundable_after);
@@ -178,8 +190,9 @@ fn exec_transfer(
 fn delete_account(
     env: &mut TestEnv,
     signer: &InMemorySigner,
+    beneficiary_id: AccountId,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
-    let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id: receiver() })];
+    let actions = vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })];
     execute_transaction_from_actions(env, actions, &signer, signer.account_id.clone())
 }
 
@@ -193,37 +206,54 @@ fn deleting_account_with_non_refundable_storage() {
         KeyType::ED25519,
         new_account_id.as_str(),
     );
+    let nonrefundable_deposit = NEAR_BASE;
     // Create account with non-refundable storage.
     // Deploy a contract that does not fit within Zero-balance account limit.
     let create_account_tx_result = exec_transfer(
         &mut env,
         signer(),
         new_account_id.clone(),
-        NEAR_BASE,
-        true,
-        true,
-        false,
-        true,
+        nonrefundable_deposit,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: false,
+            deploy_contract: true,
+        },
     );
     create_account_tx_result.unwrap().assert_success();
 
     // Send some NEAR (refundable) so that the new account is able to pay the gas for its deletion in the next transaction.
+    let deposit = 10u128.pow(20);
     let send_money_tx_result = exec_transfer(
         &mut env,
         signer(),
         new_account_id.clone(),
-        10u128.pow(20),
-        false,
-        false,
-        false,
-        false,
+        deposit,
+        TransferConfig {
+            nonrefundable: false,
+            account_creation: false,
+            implicit_account_creation: false,
+            deploy_contract: false,
+        },
     );
     send_money_tx_result.unwrap().assert_success();
 
     // Delete the new account (that has 1 NEAR of non-refundable balance).
-    let delete_account_tx_result = delete_account(&mut env, &new_account);
+    let beneficiary_id = receiver();
+    let beneficiary_before = env.query_account(beneficiary_id.clone());
+    let delete_account_tx_result = delete_account(&mut env, &new_account, beneficiary_id.clone());
     delete_account_tx_result.unwrap().assert_success();
     assert!(!account_exists(&mut env, new_account_id));
+
+    // Check that the beneficiary account received the remaining balance from the deleted account,
+    // but none of the non-refundable balance.
+    let beneficiary_after = env.query_account(beneficiary_id);
+    assert_eq!(
+        beneficiary_after.amount,
+        beneficiary_before.amount + deposit - fee_helper().prepaid_delete_account_cost()
+    );
+    assert_eq!(beneficiary_after.nonrefundable, beneficiary_before.nonrefundable);
 }
 
 /// Non-refundable balance cannot be transferred.
@@ -242,10 +272,12 @@ fn non_refundable_balance_cannot_be_transferred() {
         signer(),
         new_account_id.clone(),
         NEAR_BASE,
-        true,
-        true,
-        false,
-        false,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: false,
+            deploy_contract: false,
+        },
     );
     create_account_tx_result.unwrap().assert_success();
 
@@ -256,10 +288,12 @@ fn non_refundable_balance_cannot_be_transferred() {
             new_account.clone(),
             receiver(),
             1,
-            nonrefundable,
-            false,
-            false,
-            false,
+            TransferConfig {
+                nonrefundable,
+                account_creation: false,
+                implicit_account_creation: false,
+                deploy_contract: false,
+            },
         );
         match transfer_tx_result {
             Err(InvalidTxError::NotEnoughBalance { signer_id, balance, .. }) => {
@@ -276,8 +310,18 @@ fn non_refundable_balance_cannot_be_transferred() {
 fn non_refundable_balance_allows_1kb_state_with_zero_balance() {
     let mut env = setup_env();
     let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
-    let tx_result =
-        exec_transfer(&mut env, signer(), new_account_id, NEAR_BASE / 5, true, true, false, true);
+    let tx_result = exec_transfer(
+        &mut env,
+        signer(),
+        new_account_id,
+        NEAR_BASE / 5,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: false,
+            deploy_contract: true,
+        },
+    );
     tx_result.unwrap().assert_success();
 }
 
@@ -285,8 +329,18 @@ fn non_refundable_balance_allows_1kb_state_with_zero_balance() {
 #[test]
 fn non_refundable_transfer_create_named_account() {
     let new_account_id: AccountId = "subaccount.test0".parse().unwrap();
-    let tx_result =
-        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, false, false);
+    let tx_result = exec_transfer(
+        &mut setup_env(),
+        signer(),
+        new_account_id,
+        1,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: false,
+            deploy_contract: false,
+        },
+    );
     tx_result.unwrap().assert_success();
 }
 
@@ -294,8 +348,18 @@ fn non_refundable_transfer_create_named_account() {
 #[test]
 fn non_refundable_transfer_create_near_implicit_account() {
     let new_account_id = near_implicit_test_account();
-    let tx_result =
-        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+    let tx_result = exec_transfer(
+        &mut setup_env(),
+        signer(),
+        new_account_id,
+        1,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: true,
+            deploy_contract: false,
+        },
+    );
     tx_result.unwrap().assert_success();
 }
 
@@ -303,16 +367,36 @@ fn non_refundable_transfer_create_near_implicit_account() {
 #[test]
 fn non_refundable_transfer_create_eth_implicit_account() {
     let new_account_id = eth_implicit_test_account();
-    let tx_result =
-        exec_transfer(&mut setup_env(), signer(), new_account_id, 1, true, true, true, false);
+    let tx_result = exec_transfer(
+        &mut setup_env(),
+        signer(),
+        new_account_id,
+        1,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: true,
+            implicit_account_creation: true,
+            deploy_contract: false,
+        },
+    );
     tx_result.unwrap().assert_success();
 }
 
 /// Non-refundable transfer is rejected on existing account.
 #[test]
 fn reject_non_refundable_transfer_existing_account() {
-    let tx_result =
-        exec_transfer(&mut setup_env(), signer(), receiver(), 1, true, false, false, false);
+    let tx_result = exec_transfer(
+        &mut setup_env(),
+        signer(),
+        receiver(),
+        1,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: false,
+            implicit_account_creation: false,
+            deploy_contract: false,
+        },
+    );
     let status = &tx_result.unwrap().receipts_outcome[0].outcome.status;
     assert!(matches!(
         status,
@@ -333,7 +417,18 @@ fn reject_non_refundable_transfer_in_older_versions() {
     let mut env = setup_env_with_protocol_version(Some(
         ProtocolFeature::NonRefundableBalance.protocol_version() - 1,
     ));
-    let tx_result = exec_transfer(&mut env, signer(), receiver(), 1, true, false, false, false);
+    let tx_result = exec_transfer(
+        &mut env,
+        signer(),
+        receiver(),
+        1,
+        TransferConfig {
+            nonrefundable: true,
+            account_creation: false,
+            implicit_account_creation: false,
+            deploy_contract: false,
+        },
+    );
     assert_eq!(
         tx_result,
         Err(InvalidTxError::ActionsValidation(
