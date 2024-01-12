@@ -129,15 +129,14 @@ fn test_storage_after_commit_of_cold_update() {
         .build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
+    let cold_db = storage.cold_db().unwrap();
 
-    let mut last_hash = *env.clients[0].chain.genesis().hash();
-
-    test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
-        .unwrap();
+    test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
+    let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         if height == 1 {
@@ -161,18 +160,11 @@ fn test_storage_after_commit_of_cold_update() {
         let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
-        update_cold_db(
-            &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &height,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let client_store = client.runtime_adapter.store();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height).unwrap();
 
         last_hash = *block.hash();
     }
@@ -213,21 +205,19 @@ fn test_storage_after_commit_of_cold_update() {
     }));
 
     for col in DBCol::iter() {
-        if col.is_cold() {
-            let num_checks = check_iter(
-                &env.clients[0].runtime_adapter.store(),
-                &storage.get_cold_store().unwrap(),
-                col,
-                &no_check_rules,
-            );
-            // assert that this test actually checks something
-            // apart from StateChangesForSplitStates and StateHeaders, that are empty
-            assert!(
-                col == DBCol::StateChangesForSplitStates
-                    || col == DBCol::StateHeaders
-                    || num_checks > 0
-            );
+        if !col.is_cold() {
+            continue;
         }
+        let client_store = env.clients[0].runtime_adapter.store();
+        let cold_store = &storage.get_cold_store().unwrap();
+        let num_checks = check_iter(client_store, cold_store, col, &no_check_rules);
+        // assert that this test actually checks something
+        // apart from StateChangesForSplitStates and StateHeaders, that are empty
+        assert!(
+            col == DBCol::StateChangesForSplitStates
+                || col == DBCol::StateHeaders
+                || num_checks > 0
+        );
     }
 }
 
