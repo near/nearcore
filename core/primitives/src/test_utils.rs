@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
@@ -353,6 +354,12 @@ impl BlockBody {
     pub fn set_challenges(&mut self, challenges: Challenges) {
         match self {
             BlockBody::V1(body) => body.challenges = challenges,
+        }
+    }
+
+    pub fn set_vrf_value(&mut self, vrf_value: Value) {
+        match self {
+            BlockBody::V1(body) => body.vrf_value = vrf_value,
         }
     }
 }
