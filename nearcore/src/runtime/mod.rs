@@ -41,7 +41,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
+    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
@@ -717,7 +717,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
         let start_time = std::time::Instant::now();
         let time_limit_reached = || match time_limit {
             Some(limit_duration) => start_time.elapsed() >= limit_duration,
@@ -843,7 +843,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
-        Ok(transactions)
+        let storage_proof = state_update.trie.recorded_storage();
+        Ok((transactions, storage_proof))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

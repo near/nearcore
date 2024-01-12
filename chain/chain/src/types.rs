@@ -383,7 +383,7 @@ pub trait RuntimeAdapter: Send + Sync {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error>;
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`

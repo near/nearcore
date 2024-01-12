@@ -43,8 +43,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
-    Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, PartialStorage, ShardTries, StorageError,
+    Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
 };
 use num_rational::Ratio;
 use std::cmp::Ordering;
@@ -1041,12 +1041,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
         let mut res = vec![];
         while let Some(iter) = transactions.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(res)
+        Ok((res, None))
     }
 
     fn apply_chunk(

@@ -52,10 +52,10 @@ fn benchmark_large_chunk_production_time() {
     }
 
     let t = std::time::Instant::now();
-    let ProduceChunkResult { encoded_chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
+    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
-    let size = borsh::object_length(&encoded_chunk).unwrap();
+    let size = borsh::object_length(&chunk).unwrap();
     eprintln!("chunk size: {}kb", size / 1024);
     eprintln!("time to produce: {:0.2?}", time);
 

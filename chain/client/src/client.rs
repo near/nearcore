@@ -80,8 +80,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
+
 use near_store::metadata::DbKind;
-use near_store::ShardUId;
+use near_store::{PartialStorage, ShardUId};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -226,9 +227,10 @@ pub struct BlockDebugStatus {
 }
 
 pub struct ProduceChunkResult {
-    pub encoded_chunk: EncodedShardChunk,
+    pub chunk: EncodedShardChunk,
     pub merkle_paths: Vec<MerklePath>,
-    pub outgoing_receipts: Vec<Receipt>,
+    pub receipts: Vec<Receipt>,
+    pub storage_proof: Option<PartialStorage>,
 }
 
 impl Client {
@@ -860,7 +862,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let transactions = self.prepare_transactions(
+        let (transactions, storage_proof) = self.prepare_transactions(
             shard_uid,
             chunk_extra.gas_limit(),
             *chunk_extra.state_root(),
@@ -921,7 +923,12 @@ impl Client {
             },
         );
 
-        Ok(Some(ProduceChunkResult { encoded_chunk, merkle_paths, outgoing_receipts }))
+        Ok(Some(ProduceChunkResult {
+            chunk: encoded_chunk,
+            merkle_paths,
+            receipts: outgoing_receipts,
+            storage_proof,
+        }))
     }
 
     /// Calculates the root of receipt proofs.
@@ -974,49 +981,50 @@ impl Client {
         gas_limit: Gas,
         state_root: StateRoot,
         prev_block_header: &BlockHeader,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
         let shard_id = shard_uid.shard_id as ShardId;
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let transactions = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
-            let transaction_validity_period = chain.transaction_validity_period;
-            runtime.prepare_transactions(
-                prev_block_header.next_gas_price(),
-                gas_limit,
-                &next_epoch_id,
-                shard_id,
-                RuntimeStorageConfig::new(state_root, true),
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
-                prev_block_header.height() + 1,
-                &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .chain_store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
-                protocol_version,
-                self.config.produce_chunk_add_transactions_time_limit.get(),
-            )?
-        } else {
-            vec![]
-        };
+        let (transactions, storage_proof) =
+            if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+                let transaction_validity_period = chain.transaction_validity_period;
+                runtime.prepare_transactions(
+                    prev_block_header.next_gas_price(),
+                    gas_limit,
+                    &next_epoch_id,
+                    shard_id,
+                    RuntimeStorageConfig::new(state_root, true),
+                    // while the height of the next block that includes the chunk might not be prev_height + 1,
+                    // passing it will result in a more conservative check and will not accidentally allow
+                    // invalid transactions to be included.
+                    prev_block_header.height() + 1,
+                    &mut iter,
+                    &mut |tx: &SignedTransaction| -> bool {
+                        chain
+                            .chain_store()
+                            .check_transaction_validity_period(
+                                prev_block_header,
+                                &tx.transaction.block_hash,
+                                transaction_validity_period,
+                            )
+                            .is_ok()
+                    },
+                    protocol_version,
+                    self.config.produce_chunk_add_transactions_time_limit.get(),
+                )?
+            } else {
+                (vec![], None)
+            };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
         let reintroduced_count = sharded_tx_pool.reintroduce_transactions(shard_uid, &transactions);
         if reintroduced_count < transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = transactions.len(), "Reintroduced transactions");
         }
-        Ok(transactions)
+        Ok((transactions, storage_proof))
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
@@ -1761,9 +1769,9 @@ impl Client {
                 Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            result.encoded_chunk,
+                            result.chunk,
                             result.merkle_paths,
-                            result.outgoing_receipts,
+                            result.receipts,
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");
