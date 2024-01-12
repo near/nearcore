@@ -381,21 +381,13 @@ fn test_initial_copy_to_cold(batch_size: usize) {
         .nightshade_runtimes(&genesis)
         .build();
 
-    let (store, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
+    let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
-
     for height in 1..max_height {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                height * 10 + i,
-                test0(),
-                test1(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
@@ -406,24 +398,16 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let keep_going = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
 
-    copy_all_data_to_cold(
-        (*store.cold_db().unwrap()).clone(),
-        &env.clients[0].runtime_adapter.store(),
-        batch_size,
-        &keep_going,
-    )
-    .unwrap();
+    let cold_db = storage.cold_db().unwrap();
+    let cold_store = storage.get_cold_store().unwrap();
+    let client_store = env.clients[0].runtime_adapter.store();
+    copy_all_data_to_cold(cold_db.clone(), &client_store, batch_size, &keep_going).unwrap();
 
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
         }
-        let num_checks = check_iter(
-            &env.clients[0].runtime_adapter.store(),
-            &store.get_cold_store().unwrap(),
-            col,
-            &vec![],
-        );
+        let num_checks = check_iter(&client_store, &cold_store, col, &vec![]);
         // StateChangesForSplitStates and StateHeaders are empty
         if col == DBCol::StateChangesForSplitStates || col == DBCol::StateHeaders {
             continue;
@@ -491,14 +475,7 @@ fn test_cold_loop_on_gc_boundary() {
     for height in 1..height_delta {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                height * 10 + i,
-                test0(),
-                test1(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
@@ -517,14 +494,7 @@ fn test_cold_loop_on_gc_boundary() {
     for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::from_seed(test0(), KeyType::ED25519, "test0");
         for i in 0..5 {
-            let tx = SignedTransaction::send_money(
-                height * 10 + i,
-                test0(),
-                test1(),
-                &signer,
-                1,
-                last_hash,
-            );
+            let tx = create_tx_send_money(height * 10 + i, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
