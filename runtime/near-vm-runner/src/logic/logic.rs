@@ -2016,6 +2016,25 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
+    /// TODO: document this
+    pub fn promise_yield_create(
+        &mut self,
+        _method_name_len: u64,
+        _method_name_ptr: u64,
+        _yield_num_blocks: u64,
+        _gas: Gas,
+        _gas_weight: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_yield_create".to_string(),
+            }
+            .into());
+        }
+        Ok(0u64)
+    }
+
     /// If the current function is invoked by a callback we can access the execution results of the
     /// promises that caused the callback. This function returns the number of complete and
     /// incomplete callbacks.
