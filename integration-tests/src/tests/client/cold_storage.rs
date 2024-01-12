@@ -96,11 +96,11 @@ fn test_storage_after_commit_of_cold_update() {
     let state_reads = test_get_store_reads(DBCol::State);
     let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
-    for h in 1..max_height {
+    for height in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
-        if h == 1 {
+        if height == 1 {
             let tx = SignedTransaction::from_actions(
-                h,
+                height,
                 "test0".parse().unwrap(),
                 "test0".parse().unwrap(),
                 &signer,
@@ -114,10 +114,10 @@ fn test_storage_after_commit_of_cold_update() {
         // Don't send transactions in last two blocks. Because on last block production a chunk from
         // the next block will be produced and information about these transactions will be written
         // into db. And it is a PAIN to filter it out, especially for Receipts.
-        if h + 2 < max_height {
+        if height + 2 < max_height {
             for i in 0..5 {
                 let tx = SignedTransaction::from_actions(
-                    h * 10 + i,
+                    height * 10 + i,
                     "test0".parse().unwrap(),
                     "test0".parse().unwrap(),
                     &signer,
@@ -133,7 +133,7 @@ fn test_storage_after_commit_of_cold_update() {
             }
             for i in 0..5 {
                 let tx = SignedTransaction::send_money(
-                    h * 10 + i,
+                    height * 10 + i,
                     "test0".parse().unwrap(),
                     "test1".parse().unwrap(),
                     &signer,
@@ -144,7 +144,7 @@ fn test_storage_after_commit_of_cold_update() {
             }
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
         update_cold_db(
@@ -156,7 +156,7 @@ fn test_storage_after_commit_of_cold_update() {
                     &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
-            &h,
+            &height,
         )
         .unwrap();
 
@@ -240,10 +240,14 @@ fn test_cold_db_head_update() {
         .nightshade_runtimes(&genesis)
         .build();
 
-    for h in 1..max_height {
-        env.produce_block(0, h);
-        update_cold_head(&*store.cold_db().unwrap(), &env.clients[0].runtime_adapter.store(), &h)
-            .unwrap();
+    for height in 1..max_height {
+        env.produce_block(0, height);
+        update_cold_head(
+            &*store.cold_db().unwrap(),
+            &env.clients[0].runtime_adapter.store(),
+            &height,
+        )
+        .unwrap();
 
         let head = &env.clients[0]
             .runtime_adapter
@@ -288,17 +292,17 @@ fn test_cold_db_copy_with_height_skips() {
     test_cold_genesis_update(&*storage.cold_db().unwrap(), &env.clients[0].runtime_adapter.store())
         .unwrap();
 
-    for h in 1..max_height {
+    for height in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         // It is still painful to filter out transactions in last two blocks.
         // So, as block 19 is skipped, blocks 17 and 18 shouldn't contain any transactions.
         // So, we shouldn't send any transactions between block 17 and the previous block.
         // And as block 16 is skipped, the previous block to 17 is 15.
         // Therefore, no transactions after block 15.
-        if h < 16 {
+        if height < 16 {
             for i in 0..5 {
                 let tx = SignedTransaction::send_money(
-                    h * 10 + i,
+                    height * 10 + i,
                     "test0".parse().unwrap(),
                     "test1".parse().unwrap(),
                     &signer,
@@ -310,8 +314,8 @@ fn test_cold_db_copy_with_height_skips() {
         }
 
         let block = {
-            if !skips.contains(&h) {
-                let block = env.clients[0].produce_block(h).unwrap().unwrap();
+            if !skips.contains(&height) {
+                let block = env.clients[0].produce_block(height).unwrap().unwrap();
                 env.process_block(0, block.clone(), Provenance::PRODUCED);
                 Some(block)
             } else {
@@ -328,7 +332,7 @@ fn test_cold_db_copy_with_height_skips() {
                     &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
                 )
                 .unwrap(),
-            &h,
+            &height,
         )
         .unwrap();
 
@@ -403,11 +407,11 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    for h in 1..max_height {
+    for height in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
-                h * 10 + i,
+                height * 10 + i,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
                 &signer,
@@ -417,7 +421,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
@@ -506,11 +510,11 @@ fn test_cold_loop_on_gc_boundary() {
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
 
-    for h in 1..height_delta {
+    for height in 1..height_delta {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
-                h * 10 + i,
+                height * 10 + i,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
                 &signer,
@@ -520,7 +524,7 @@ fn test_cold_loop_on_gc_boundary() {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
@@ -532,11 +536,11 @@ fn test_cold_loop_on_gc_boundary() {
 
     update_cold_head(&*store.cold_db().unwrap(), &hot_store, &(height_delta - 1)).unwrap();
 
-    for h in height_delta..height_delta * 2 {
+    for height in height_delta..height_delta * 2 {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         for i in 0..5 {
             let tx = SignedTransaction::send_money(
-                h * 10 + i,
+                height * 10 + i,
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
                 &signer,
@@ -546,7 +550,7 @@ fn test_cold_loop_on_gc_boundary() {
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
 
-        let block = env.clients[0].produce_block(h).unwrap().unwrap();
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
         last_hash = *block.hash();
     }
