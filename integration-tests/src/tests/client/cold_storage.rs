@@ -64,6 +64,24 @@ fn check_iter(
     num_checks
 }
 
+fn create_tx_deploy_contract(
+    height: u64,
+    signer: &InMemorySigner,
+    last_hash: CryptoHash,
+) -> SignedTransaction {
+    let code = near_test_contracts::rs_contract().to_vec();
+    let action = DeployContractAction { code };
+    let action = Action::DeployContract(action);
+    SignedTransaction::from_actions(
+        height,
+        "test0".parse().unwrap(),
+        "test0".parse().unwrap(),
+        signer,
+        vec![action],
+        last_hash,
+    )
+}
+
 fn create_tx_send_money(
     nonce: u64,
     signer: &InMemorySigner,
@@ -114,16 +132,7 @@ fn test_storage_after_commit_of_cold_update() {
     for height in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
         if height == 1 {
-            let tx = SignedTransaction::from_actions(
-                height,
-                "test0".parse().unwrap(),
-                "test0".parse().unwrap(),
-                &signer,
-                vec![Action::DeployContract(DeployContractAction {
-                    code: near_test_contracts::rs_contract().to_vec(),
-                })],
-                last_hash,
-            );
+            let tx = create_tx_deploy_contract(height, &signer, last_hash);
             assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
         }
         // Don't send transactions in last two blocks. Because on last block production a chunk from
