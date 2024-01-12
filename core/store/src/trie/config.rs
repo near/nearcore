@@ -9,7 +9,7 @@ use tracing::error;
 /// It is chosen to correspond roughly to the old limit, which was
 /// 50k entries * TRIE_LIMIT_CACHED_VALUE_SIZE.
 pub(crate) const DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT: bytesize::ByteSize =
-    if cfg!(feature = "no_cache") { bytesize::ByteSize::mb(1) } else { bytesize::ByteSize::mb(50) };
+    if cfg!(feature = "no_cache") { bytesize::ByteSize(1) } else { bytesize::ByteSize::mb(50) };
 
 /// Capacity for the deletions queue.
 /// It is chosen to fit all hashes of deleted nodes for 3 completely full blocks.
