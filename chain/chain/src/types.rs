@@ -6,6 +6,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
+use near_primitives::challenge::PartialState;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
@@ -13,7 +14,6 @@ use num_rational::Rational32;
 
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_pool::types::PoolIterator;
 use near_primitives::challenge::ChallengesResult;
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
@@ -379,11 +379,11 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         storage: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        pool_iterator: &mut dyn Iterator<Item = SignedTransaction>,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error>;
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialState>), Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`

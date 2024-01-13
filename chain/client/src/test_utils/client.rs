@@ -123,16 +123,17 @@ pub fn create_chunk(
 ) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
-    let ProduceChunkResult { mut chunk, mut merkle_paths, receipts, storage_proof } = client
-        .produce_chunk(
-            *last_block.hash(),
-            last_block.header().epoch_id(),
-            last_block.chunks()[0].clone(),
-            next_height,
-            0,
-        )
-        .unwrap()
-        .unwrap();
+    let ProduceChunkResult { mut chunk, mut merkle_paths, receipts, transactions_validation_state } =
+        client
+            .produce_chunk(
+                *last_block.hash(),
+                last_block.header().epoch_id(),
+                last_block.chunks()[0].clone(),
+                next_height,
+                0,
+            )
+            .unwrap()
+            .unwrap();
     let should_replace = replace_transactions.is_some() || replace_tx_root.is_some();
     let transactions = replace_transactions.unwrap_or_else(Vec::new);
     let tx_root = match replace_tx_root {
@@ -207,7 +208,7 @@ pub fn create_chunk(
         None,
     );
 
-    (ProduceChunkResult { chunk, merkle_paths, receipts, storage_proof }, block)
+    (ProduceChunkResult { chunk, merkle_paths, receipts, transactions_validation_state }, block)
 }
 
 /// Keep running catchup until there is no more catchup work that can be done

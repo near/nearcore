@@ -264,6 +264,18 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             None
         }
     }
+
+    fn current(&mut self) -> Option<&mut TransactionGroup> {
+        if self.sorted_groups.is_empty() {
+            None
+        } else {
+            Some(
+                self.sorted_groups
+                    .back_mut()
+                    .expect("we've just checked that the container is not empty"),
+            )
+        }
+    }
 }
 
 /// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
@@ -290,6 +302,40 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
         // We can update metrics only once for the whole batch of transactions.
         self.pool.transaction_pool_count_metric.set(self.pool.unique_transactions.len() as i64);
         self.pool.transaction_pool_size_metric.set(self.pool.transaction_size() as i64);
+    }
+}
+
+/// A wrapper around PoolIterator that returns signed transactions directly.
+pub struct TransactionIterator<P>
+where
+    P: PoolIterator,
+{
+    pool_iterator: P,
+}
+
+impl<'a, P> TransactionIterator<P>
+where
+    P: PoolIterator,
+{
+    pub fn new(pool_iterator: P) -> Self {
+        Self { pool_iterator }
+    }
+}
+
+impl<'a> Iterator for TransactionIterator<PoolIteratorWrapper<'a>> {
+    type Item = SignedTransaction;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(group) = self.pool_iterator.current() {
+                if let Some(transaction) = group.next() {
+                    return Some(transaction);
+                }
+            }
+            if self.pool_iterator.next().is_none() {
+                return None;
+            }
+        }
     }
 }
 

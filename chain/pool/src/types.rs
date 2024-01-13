@@ -7,6 +7,7 @@ use near_primitives::transaction::SignedTransaction;
 /// When this iterator is dropped the remaining transactions are returned back to the pool.
 pub trait PoolIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
+    fn current(&mut self) -> Option<&mut TransactionGroup>;
 }
 
 /// A hash of (an AccountId, a PublicKey and a seed).

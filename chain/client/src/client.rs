@@ -31,6 +31,7 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
+use near_chain::types::StorageDataSource;
 use near_chain::types::{ChainConfig, LatestKnown};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
@@ -53,11 +54,11 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::log_assert;
-use near_o11y::WithSpanContextExt;
-use near_pool::InsertTransactionResult;
+use near_o11y::{log_assert, WithSpanContextExt};
+use near_pool::{InsertTransactionResult, TransactionIterator};
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
+use near_primitives::challenge::PartialState;
 use near_primitives::challenge::{Challenge, ChallengeBody};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::EpochError;
@@ -65,10 +66,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
-use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
-    ShardChunkHeader, ShardInfo,
+    ShardChunkHeader, ShardInfo, StateSyncInfo,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
@@ -80,9 +80,8 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-
 use near_store::metadata::DbKind;
-use near_store::{PartialStorage, ShardUId};
+use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -230,7 +229,7 @@ pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
     pub merkle_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
-    pub storage_proof: Option<PartialStorage>,
+    pub transactions_validation_state: Option<PartialState>,
 }
 
 impl Client {
@@ -862,7 +861,7 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let (transactions, storage_proof) = self.prepare_transactions(
+        let (transactions, transactions_validation_state) = self.prepare_transactions(
             shard_uid,
             chunk_extra.gas_limit(),
             *chunk_extra.state_root(),
@@ -927,7 +926,7 @@ impl Client {
             chunk: encoded_chunk,
             merkle_paths,
             receipts: outgoing_receipts,
-            storage_proof,
+            transactions_validation_state,
         }))
     }
 
@@ -981,27 +980,40 @@ impl Client {
         gas_limit: Gas,
         state_root: StateRoot,
         prev_block_header: &BlockHeader,
-    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialState>), Error> {
         let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
 
         let shard_id = shard_uid.shard_id as ShardId;
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let (transactions, storage_proof) =
-            if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+        let (transactions, transactions_validation_state) =
+            if let Some(iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
                 let transaction_validity_period = chain.transaction_validity_period;
+                let me = self
+                    .validator_signer
+                    .as_ref()
+                    .map(|validator_signer| validator_signer.validator_id().clone());
+                let record_storage = chain
+                    .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
+                let storage_config = RuntimeStorageConfig {
+                    state_root,
+                    use_flat_storage: true,
+                    source: StorageDataSource::Db,
+                    state_patch: Default::default(),
+                    record_storage,
+                };
                 runtime.prepare_transactions(
                     prev_block_header.next_gas_price(),
                     gas_limit,
                     &next_epoch_id,
                     shard_id,
-                    RuntimeStorageConfig::new(state_root, true),
+                    storage_config,
                     // while the height of the next block that includes the chunk might not be prev_height + 1,
                     // passing it will result in a more conservative check and will not accidentally allow
                     // invalid transactions to be included.
                     prev_block_header.height() + 1,
-                    &mut iter,
+                    &mut TransactionIterator::new(iter),
                     &mut |tx: &SignedTransaction| -> bool {
                         chain
                             .chain_store()
@@ -1024,7 +1036,7 @@ impl Client {
         if reintroduced_count < transactions.len() {
             debug!(target: "client", reintroduced_count, num_tx = transactions.len(), "Reintroduced transactions");
         }
-        Ok((transactions, storage_proof))
+        Ok((transactions, transactions_validation_state))
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
@@ -1779,6 +1791,7 @@ impl Client {
                         &epoch_id,
                         last_header,
                         &shard_chunk,
+                        result.transactions_validation_state,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }

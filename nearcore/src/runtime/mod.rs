@@ -15,8 +15,9 @@ use near_chain_configs::{
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
-use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::challenge::PartialState;
+use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -41,7 +42,7 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, PartialStorage, ShardTries, StateSnapshotConfig, Store,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
@@ -713,39 +714,26 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        transaction_iterator: &mut dyn Iterator<Item = SignedTransaction>,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialState>), Error> {
         let start_time = std::time::Instant::now();
         let time_limit_reached = || match time_limit {
             Some(limit_duration) => start_time.elapsed() >= limit_duration,
             None => false,
         };
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let mut trie = match storage_config.source {
-            StorageDataSource::Db => {
-                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
-            }
-            StorageDataSource::DbTrieOnly => {
-                // If there is no flat storage on disk, use trie but simulate costs with enabled
-                // flat storage by not charging gas for trie nodes.
-                let mut trie = self.tries.get_trie_for_shard(shard_uid, storage_config.state_root);
-                trie.dont_charge_gas_for_trie_node_access();
-                trie
-            }
-            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
-                storage,
-                storage_config.state_root,
-                storage_config.use_flat_storage,
-            ),
-        };
-        if storage_config.record_storage {
-            trie = trie.recording_reads();
-        }
 
-        let mut state_update = self.tries.new_trie_update_from_trie(trie);
+        if checked_feature!("stable", ChunkValidation, current_protocol_version) {
+            debug_assert!(storage_config.record_storage)
+        }
+        let mut state_update = if storage_config.record_storage {
+            self.tries.new_trie_update_with_recording_reads(shard_uid, storage_config.state_root)
+        } else {
+            self.tries.new_trie_update(shard_uid, storage_config.state_root)
+        };
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
@@ -797,54 +785,50 @@ impl RuntimeAdapter for NightshadeRuntime {
             && transactions.len() < new_receipt_count_limit
             && !time_limit_reached()
         {
-            if let Some(iter) = pool_iterator.next() {
-                while let Some(tx) = iter.next() {
-                    num_checked_transactions += 1;
-                    // Verifying the transaction is on the same chain and hasn't expired yet.
-                    if !chain_validate(&tx) {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
-                        continue;
-                    }
-
-                    // Verifying the validity of the transaction based on the current state.
-                    match verify_and_charge_transaction(
-                        runtime_config,
-                        &mut state_update,
-                        gas_price,
-                        &tx,
-                        false,
-                        Some(next_block_height),
-                        current_protocol_version,
-                    ) {
-                        Ok(verification_result) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
-                            state_update.commit(StateChangeCause::NotWritableToDisk);
-                            total_gas_burnt += verification_result.gas_burnt;
-                            total_size += tx.get_size();
-                            transactions.push(tx);
-                            break;
-                        }
-                        Err(RuntimeError::InvalidTxError(err)) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
-                            state_update.rollback();
-                        }
-                        Err(RuntimeError::StorageError(err)) => {
-                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
-                            return Err(Error::StorageError(err));
-                        }
-                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
-                    }
+            while let Some(tx) = transaction_iterator.next() {
+                num_checked_transactions += 1;
+                // Verifying the transaction is on the same chain and hasn't expired yet.
+                if !chain_validate(&tx) {
+                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                    continue;
                 }
-            } else {
-                break;
+
+                // Verifying the validity of the transaction based on the current state.
+                match verify_and_charge_transaction(
+                    runtime_config,
+                    &mut state_update,
+                    gas_price,
+                    &tx,
+                    false,
+                    Some(next_block_height),
+                    current_protocol_version,
+                ) {
+                    Ok(verification_result) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                        state_update.commit(StateChangeCause::NotWritableToDisk);
+                        total_gas_burnt += verification_result.gas_burnt;
+                        total_size += tx.get_size();
+                        transactions.push(tx);
+                        break;
+                    }
+                    Err(RuntimeError::InvalidTxError(err)) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                        state_update.rollback();
+                    }
+                    Err(RuntimeError::StorageError(err)) => {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                        return Err(Error::StorageError(err));
+                    }
+                    Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
+                }
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
-        let storage_proof = state_update.trie.recorded_storage();
-        Ok((transactions, storage_proof))
+        let transactions_validation_state = state_update.trie.recorded_storage().map(|s| s.nodes);
+        Ok((transactions, transactions_validation_state))
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {

@@ -10,9 +10,9 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::challenge::PartialState;
 use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -22,8 +22,7 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::shard_layout;
-use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::shard_layout::{self, ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{
@@ -43,8 +42,8 @@ use near_primitives::views::{
 };
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, PartialStorage, ShardTries, StorageError,
-    Store, StoreUpdate, Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
+    Trie, TrieChanges, WrappedTrieChanges,
 };
 use num_rational::Ratio;
 use std::cmp::Ordering;
@@ -1037,16 +1036,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _storage_config: RuntimeStorageConfig,
         _next_block_height: BlockHeight,
-        transactions: &mut dyn PoolIterator,
+        transactions: &mut dyn Iterator<Item = SignedTransaction>,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
-    ) -> Result<(Vec<SignedTransaction>, Option<PartialStorage>), Error> {
-        let mut res = vec![];
-        while let Some(iter) = transactions.next() {
-            res.push(iter.next().unwrap());
-        }
-        Ok((res, None))
+    ) -> Result<(Vec<SignedTransaction>, Option<PartialState>), Error> {
+        Ok((transactions.collect(), None))
     }
 
     fn apply_chunk(
