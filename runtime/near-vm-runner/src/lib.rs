@@ -27,7 +27,6 @@ mod wasmtime_runner;
 pub use crate::logic::with_ext_cost_counter;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use code::ContractCode;
-pub use profile::ProfileDataV2;
 pub use profile::ProfileDataV3;
 pub use runner::{run, VM};
 

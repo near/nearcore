@@ -1,7 +1,5 @@
 //! External dependencies of the near-vm-logic.
-
 use super::types::ReceiptIndex;
-use super::TrieNodesCount;
 use super::VMLogicError;
 use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
@@ -10,7 +8,6 @@ use near_primitives_core::types::Gas;
 use near_primitives_core::types::GasWeight;
 use near_primitives_core::types::Nonce;
 use near_primitives_core::types::{AccountId, Balance};
-
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -115,6 +112,28 @@ pub trait ValuePtr {
     /// # Errors
     /// StorageError if reading from storage fails
     fn deref(&self) -> Result<Vec<u8>>;
+}
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+///
+/// NB: this is the near-vm-runner copy of the type. It should not be deduplicated by adding
+/// dependency edges. Convert between various versions of this type in a common crate, if needed.
+#[derive(Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+impl TrieNodesCount {
+    /// Used to determine the number of trie nodes charged during some operation.
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
+        Some(Self {
+            db_reads: self.db_reads.checked_sub(other.db_reads)?,
+            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
+        })
+    }
 }
 
 /// An external blockchain interface for the Runtime logic

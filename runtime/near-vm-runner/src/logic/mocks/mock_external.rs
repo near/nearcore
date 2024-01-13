@@ -1,5 +1,4 @@
 use crate::logic::types::ReceiptIndex;
-use crate::logic::TrieNodesCount;
 use crate::logic::{External, StorageGetMode, ValuePtr};
 use near_primitives_core::hash::{hash, CryptoHash};
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight};
@@ -101,7 +100,7 @@ impl MockedExternal {
     }
 }
 
-use crate::logic::dependencies::Result;
+use crate::logic::dependencies::{Result, TrieNodesCount};
 
 impl External for MockedExternal {
     fn storage_set(&mut self, key: &[u8], value: &[u8]) -> Result<()> {

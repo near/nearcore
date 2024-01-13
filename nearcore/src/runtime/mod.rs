@@ -34,8 +34,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
-    ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -929,8 +929,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let contract_code = self
                     .view_contract_code(&shard_uid,  *state_root, account_id)
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
+                let hash = *contract_code.hash();
+                let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewCode(contract_code.into()),
+                    kind: QueryResponseKind::ViewCode(contract_code_view),
                     block_height,
                     block_hash: *block_hash,
                 })
