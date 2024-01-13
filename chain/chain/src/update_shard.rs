@@ -45,15 +45,11 @@ pub struct ReshardingResult {
     pub(crate) results: Vec<ApplyResultForResharding>,
 }
 
-/// Result of processing shard update, covering both stateful and stateless scenarios.
+/// Result of processing shard update.
 #[derive(Debug)]
 pub enum ShardUpdateResult {
     /// Stateful scenario - processed update for a single block.
     Stateful(ShardBlockUpdateResult),
-    /// Stateless scenario - processed update based on state witness in a chunk.
-    /// Contains `ChunkExtra`s - results for processing updates corresponding
-    /// to state witness.
-    Stateless(Vec<(CryptoHash, ShardUId, ChunkExtra)>),
 }
 
 /// Result for a shard update for a single block.

@@ -149,25 +149,8 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
-        for result in apply_results {
-            match result {
-                ShardUpdateResult::Stateful(result) => {
-                    self.process_apply_chunk_result(block, result)?
-                }
-                ShardUpdateResult::Stateless(results) => {
-                    for (block_hash, shard_uid, chunk_extra) in results {
-                        let expected_chunk_extra =
-                            self.chain_store_update.get_chunk_extra(&block_hash, &shard_uid)?;
-                        assert_eq!(
-                            &chunk_extra,
-                            expected_chunk_extra.as_ref(),
-                            "For stateless validation, chunk extras for block {} and shard {} do not match",
-                            block_hash,
-                            shard_uid
-                        );
-                    }
-                }
-            }
+        for ShardUpdateResult::Stateful(result) in apply_results {
+            self.process_apply_chunk_result(block, result)?;
         }
         Ok(())
     }

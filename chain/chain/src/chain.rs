@@ -3203,13 +3203,13 @@ impl Chain {
 
     /// Checks whether `me` is chunk producer for this or next epoch, given
     /// block header which is not in DB yet. If this is the case, node must
-    /// record state witness.
+    /// produce necessary data for state witness.
     /// TODO(#9292): Check this for specific shard by extending EpochManager
     /// interface. Consider asserting that node tracks the shard. Consider
     /// returning true only if node produces state witness only for the next
     /// chunk. However, node can't determine this if next validators missed
     /// chunks.
-    fn is_chunk_producer_for_this_or_next_epoch(
+    fn should_produce_state_witness_for_this_or_next_epoch(
         &self,
         me: &Option<AccountId>,
         block_header: &BlockHeader,
@@ -3259,7 +3259,7 @@ impl Chain {
                 storage_data_source: StorageDataSource::Db,
                 state_patch,
                 record_storage: self
-                    .is_chunk_producer_for_this_or_next_epoch(me, block.header())?,
+                    .should_produce_state_witness_for_this_or_next_epoch(me, block.header())?,
             };
             let stateful_job = self.get_update_shard_job(
                 me,
