@@ -12,10 +12,10 @@ export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
-test: test-ci test-extra
+test *FLAGS: (test-ci FLAGS) test-extra
 
 # only the tests that are exactly the same as the ones in CI
-test-ci: (nextest "stable") (nextest "nightly") python-style-checks
+test-ci *FLAGS: (nextest "stable" FLAGS) (nextest "nightly" FLAGS) check-no-default-features python-style-checks
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -53,6 +53,10 @@ nextest-integration TYPE *FLAGS:
 [macos]
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
+
+check-no-default-features:
+    # Ensure that near-vm-runner always builds without default features enabled
+    cargo check -p near-vm-runner --no-default-features
 
 # generate a codecov report for RULE
 codecov RULE:
