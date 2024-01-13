@@ -78,14 +78,11 @@ impl ChunkValidator {
             return Err(Error::NotAChunkValidator);
         }
 
-        let pre_validation_result = match pre_validate_chunk_state_witness(
+        let pre_validation_result = pre_validate_chunk_state_witness(
             &state_witness,
             chain_store,
             self.epoch_manager.as_ref(),
-        )? {
-            Some(result) => result,
-            None => return Ok(()), // means that we are at genesis
-        };
+        )?;
 
         let block_producer =
             self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
@@ -134,7 +131,7 @@ fn pre_validate_chunk_state_witness(
     state_witness: &ChunkStateWitness,
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
-) -> Result<Option<PreValidationOutput>, Error> {
+) -> Result<PreValidationOutput, Error> {
     let shard_id = state_witness.chunk_header.shard_id();
 
     // First, go back through the blockchain history to locate the last new chunk
@@ -170,10 +167,6 @@ fn pre_validate_chunk_state_witness(
             if prev_chunks_seen == 2 {
                 break;
             }
-        }
-
-        if prev_chunks_seen < 2 {
-            return Ok(None);
         }
     }
 
