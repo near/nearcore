@@ -1,19 +1,24 @@
-const REFERENCE_TYPES: bool = false;
-const MULTI_VALUE: bool = false;
-const BULK_MEMORY: bool = false;
-const SIMD: bool = false;
-const THREADS: bool = false;
-const TAIL_CALL: bool = false;
-const MULTI_MEMORY: bool = false;
-const MEMORY64: bool = false;
-const SATURATING_FLOAT_TO_INT: bool = false;
-const EXCEPTIONS: bool = false;
-const RELAXED_SIMD: bool = false;
-const EXTENDED_COST: bool = false;
-const COMPONENT_MODEL: bool = false;
-const GC: bool = false;
-const FUNCTION_REFERENCES: bool = false;
-const MEMORY_CONTROL: bool = false;
+#[allow(dead_code)]
+mod opts {
+    pub(super) const REFERENCE_TYPES: bool = false;
+    pub(super) const MULTI_VALUE: bool = false;
+    pub(super) const BULK_MEMORY: bool = false;
+    pub(super) const SIMD: bool = false;
+    pub(super) const THREADS: bool = false;
+    pub(super) const TAIL_CALL: bool = false;
+    pub(super) const MULTI_MEMORY: bool = false;
+    pub(super) const MEMORY64: bool = false;
+    pub(super) const SATURATING_FLOAT_TO_INT: bool = false;
+    pub(super) const EXCEPTIONS: bool = false;
+    pub(super) const RELAXED_SIMD: bool = false;
+    pub(super) const EXTENDED_COST: bool = false;
+    pub(super) const COMPONENT_MODEL: bool = false;
+    pub(super) const GC: bool = false;
+    pub(super) const FUNCTION_REFERENCES: bool = false;
+    pub(super) const MEMORY_CONTROL: bool = false;
+}
+#[allow(unused_imports)]
+use opts::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WasmFeatures {
@@ -31,6 +36,7 @@ impl From<crate::logic::ContractPrepareVersion> for WasmFeatures {
     }
 }
 
+#[cfg(feature = "finite-wasm")]
 impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
     fn from(f: WasmFeatures) -> Self {
         finite_wasm::wasmparser::WasmFeatures {
@@ -59,6 +65,7 @@ impl From<WasmFeatures> for finite_wasm::wasmparser::WasmFeatures {
     }
 }
 
+#[cfg(feature = "wasmparser")]
 impl From<WasmFeatures> for wasmparser::WasmFeatures {
     fn from(_: WasmFeatures) -> Self {
         // /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\ /!\
