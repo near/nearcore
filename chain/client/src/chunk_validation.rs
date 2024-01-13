@@ -236,7 +236,7 @@ fn pre_validate_chunk_state_witness(
         )));
     }
 
-    Ok(Some(PreValidationOutput {
+    Ok(PreValidationOutput {
         main_transition_params: NewChunkData {
             chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
@@ -269,7 +269,7 @@ fn pre_validate_chunk_state_witness(
                 )?)
             })
             .collect::<Result<_, _>>()?,
-    }))
+    })
 }
 
 #[allow(unused)]
