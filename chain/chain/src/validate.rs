@@ -255,7 +255,7 @@ fn validate_chunk_proofs_challenge(
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let block_header = BlockHeader::try_from_slice(&chunk_proofs.block_header)?;
     validate_header_authorship(epoch_manager, &block_header)?;
-    let chunk_header = match &chunk_proofs.chunk {
+    let chunk_header = match &*chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => encoded_chunk.cloned_header(),
         MaybeEncodedShardChunk::Decoded(chunk) => chunk.cloned_header(),
     };
@@ -271,7 +271,7 @@ fn validate_chunk_proofs_challenge(
     }
     // Temporary holds the decoded chunk, since we use a reference below to avoid cloning it.
     let tmp_chunk;
-    let chunk_ref = match &chunk_proofs.chunk {
+    let chunk_ref = match &*chunk_proofs.chunk {
         MaybeEncodedShardChunk::Encoded(encoded_chunk) => {
             match encoded_chunk.decode_chunk(epoch_manager.num_data_parts()) {
                 Ok(chunk) => {

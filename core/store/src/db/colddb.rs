@@ -233,9 +233,7 @@ mod test {
         // State -> rc
         // Block -> no rc
 
-        let mut ops = vec![];
-        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
-        ops.push(set(DBCol::Block, HASH));
+        let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
         db.write(DBTransaction { ops }).unwrap();
 
         // Fetch data
@@ -295,9 +293,7 @@ mod test {
         // Block -> no rc
 
         // Populate data
-        let mut ops = vec![];
-        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
-        ops.push(set(DBCol::Block, HASH));
+        let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
         db.write(DBTransaction { ops }).unwrap();
 
         let mut result = Vec::<String>::new();

@@ -61,7 +61,7 @@ pub enum RuntimeError {
     /// It's possible the input state is invalid or malicious.
     StorageError(StorageError),
     /// An error happens if `check_balance` fails, which is likely an indication of an invalid state.
-    BalanceMismatchError(BalanceMismatchError),
+    BalanceMismatchError(Box<BalanceMismatchError>),
     /// The incoming receipt didn't pass the validation, it's likely a malicious behaviour.
     ReceiptValidationError(ReceiptValidationError),
     /// Error when accessing validator information. Happens inside epoch manager.
@@ -193,7 +193,7 @@ impl std::error::Error for InvalidTxError {}
 )]
 pub enum InvalidAccessKeyError {
     /// The access key identified by the `public_key` doesn't exist for the account
-    AccessKeyNotFound { account_id: AccountId, public_key: PublicKey },
+    AccessKeyNotFound { account_id: AccountId, public_key: Box<PublicKey> },
     /// Transaction `receiver_id` doesn't match the access key receiver_id
     ReceiverMismatch { tx_receiver: AccountId, ak_receiver: String },
     /// Transaction method name isn't allowed by the access key
@@ -203,7 +203,7 @@ pub enum InvalidAccessKeyError {
     /// Access Key does not have enough allowance to cover transaction cost
     NotEnoughAllowance {
         account_id: AccountId,
-        public_key: PublicKey,
+        public_key: Box<PublicKey>,
         #[serde(with = "dec_format")]
         allowance: Balance,
         #[serde(with = "dec_format")]
@@ -247,7 +247,7 @@ pub enum ActionsValidationError {
     /// The length of the arguments exceeded the limit in a Function Call action.
     FunctionCallArgumentsLengthExceeded { length: u64, limit: u64 },
     /// An attempt to stake with a public key that is not convertible to ristretto.
-    UnsuitableStakingKey { public_key: PublicKey },
+    UnsuitableStakingKey { public_key: Box<PublicKey> },
     /// The attached amount of gas in a FunctionCall action has to be a positive number.
     FunctionCallZeroAttachedGas,
     /// There should be the only one DelegateAction
@@ -443,15 +443,16 @@ pub enum ActionErrorKind {
         registrar_account_id: AccountId,
         predecessor_id: AccountId,
     },
+
     /// A newly created account must be under a namespace of the creator account
     CreateAccountNotAllowed { account_id: AccountId, predecessor_id: AccountId },
     /// Administrative actions like `DeployContract`, `Stake`, `AddKey`, `DeleteKey`. can be proceed only if sender=receiver
     /// or the first TX action is a `CreateAccount` action
     ActorNoPermission { account_id: AccountId, actor_id: AccountId },
     /// Account tries to remove an access key that doesn't exist
-    DeleteKeyDoesNotExist { account_id: AccountId, public_key: PublicKey },
+    DeleteKeyDoesNotExist { account_id: AccountId, public_key: Box<PublicKey> },
     /// The public key is already used for an existing access key
-    AddKeyAlreadyExists { account_id: AccountId, public_key: PublicKey },
+    AddKeyAlreadyExists { account_id: AccountId, public_key: Box<PublicKey> },
     /// Account is staking and can not be deleted
     DeleteAccountStaking { account_id: AccountId },
     /// ActionReceipt can't be completed, because the remaining balance will not be enough to cover storage.
@@ -744,7 +745,7 @@ impl From<StorageError> for RuntimeError {
 
 impl From<BalanceMismatchError> for RuntimeError {
     fn from(e: BalanceMismatchError) -> Self {
-        RuntimeError::BalanceMismatchError(e)
+        RuntimeError::BalanceMismatchError(Box::new(e))
     }
 }
 

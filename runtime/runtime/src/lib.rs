@@ -128,7 +128,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileDataV3,
+    pub profile: Box<ProfileDataV3>,
 }
 
 impl ActionResult {
