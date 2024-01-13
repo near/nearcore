@@ -279,6 +279,11 @@ pub enum DBCol {
     /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
     /// - *Column type*: arbitrary bytes
     Misc,
+    /// Column to store data necessary to generate part of state witness
+    /// corresponding to specific block and shard.
+    /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
+    /// - *Column type*: `StoredChunkStateTransitionData`
+    StateTransitionData,
     /// Column to store data for Epoch Sync.
     /// Does not contain data for genesis epoch.
     /// - *Rows*: `epoch_id`
@@ -478,7 +483,8 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus  => false,
+            | DBCol::FlatStorageStatus
+            | DBCol::StateTransitionData => false,
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => false
         }
@@ -549,6 +555,7 @@ impl DBCol {
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
+            DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }

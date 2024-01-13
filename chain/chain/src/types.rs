@@ -110,6 +110,11 @@ pub struct ApplyChunkResult {
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
     pub processed_delayed_receipts: Vec<Receipt>,
+    /// Hash of Vec<Receipt> which were applied in a chunk, later used for
+    /// chunk validation with state witness.
+    /// Note that applied receipts are not necessarily executed as they can
+    /// be delayed.
+    pub applied_receipts_hash: CryptoHash,
 }
 
 impl ApplyChunkResult {
