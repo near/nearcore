@@ -219,11 +219,11 @@ fn pre_validate_chunk_state_witness(
         blocks_after_last_last_chunk.last().unwrap().header().height(),
     )?;
     let receipts_to_apply = near_chain::chain::collect_receipts_from_response(receipts_response);
-    let exact_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
-    if exact_receipts_hash != state_witness.exact_receipts_hash {
+    let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
+    if applied_receipts_hash != state_witness.applied_receipts_hash {
         return Err(Error::InvalidChunkStateWitness(format!(
             "Receipts hash {:?} does not match expected receipts hash {:?}",
-            exact_receipts_hash, state_witness.exact_receipts_hash
+            applied_receipts_hash, state_witness.applied_receipts_hash
         )));
     }
     let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions);
@@ -494,7 +494,7 @@ impl Client {
             chunk_header.height_created(),
         )?;
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
-        let (main_state_transition, implicit_transitions, exact_receipts_hash) =
+        let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
         let witness = ChunkStateWitness {
             chunk_header: chunk_header.clone(),
@@ -505,7 +505,7 @@ impl Client {
             // (Could also be derived from iterating through the receipts, but
             // that defeats the purpose of this check being a debugging
             // mechanism.)
-            exact_receipts_hash,
+            applied_receipts_hash,
             implicit_transitions,
             new_transactions: chunk.transactions().to_vec(),
             // TODO(#9292): Derive this during chunk production, during

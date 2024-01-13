@@ -2083,14 +2083,14 @@ impl<'a> ChainStoreUpdate<'a> {
         block_hash: CryptoHash,
         shard_id: ShardId,
         partial_storage: Option<PartialStorage>,
-        exact_receipts_hash: CryptoHash,
+        applied_receipts_hash: CryptoHash,
     ) {
         if let Some(partial_storage) = partial_storage {
             self.state_transition_data.insert(
                 (block_hash, shard_id),
                 StoredChunkStateTransitionData {
                     base_state: partial_storage.nodes,
-                    receipts_hash: exact_receipts_hash,
+                    receipts_hash: applied_receipts_hash,
                 },
             );
         }

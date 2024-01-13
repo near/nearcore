@@ -357,7 +357,7 @@ impl<'a> ChainUpdate<'a> {
                     *block_hash,
                     shard_id,
                     apply_result.proof,
-                    apply_result.exact_receipts_hash,
+                    apply_result.applied_receipts_hash,
                 );
                 if let Some(resharding_results) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_results)?;
@@ -389,7 +389,7 @@ impl<'a> ChainUpdate<'a> {
                     *block_hash,
                     shard_uid.shard_id(),
                     apply_result.proof,
-                    apply_result.exact_receipts_hash,
+                    apply_result.applied_receipts_hash,
                 );
 
                 if let Some(resharding_config) = resharding_results {

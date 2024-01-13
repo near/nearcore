@@ -475,7 +475,7 @@ impl NightshadeRuntime {
             total_balance_burnt,
             proof: apply_result.proof,
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
-            exact_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
+            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         };
 
         Ok(result)
