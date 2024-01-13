@@ -1,13 +1,15 @@
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
-use near_o11y::testonly::init_test_logger;
+use near_crypto::{InMemorySigner, KeyType};
+use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountInfo;
-use near_primitives_core::account::Account;
+use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
@@ -20,18 +22,20 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 // TODO(#9292): This does not pass yet because state witness production
 // needs to be implemented.
-#[cfg_attr(feature = "nightly", should_panic)]
 fn test_chunk_validation_basic() {
-    init_test_logger();
+    init_integration_logger();
 
     if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
         println!("Test not applicable without ChunkValidation enabled");
         return;
     }
 
+    let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let accounts =
-        (0..9).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let num_accounts = 9;
+    let accounts = (0..num_accounts)
+        .map(|i| format!("account{}", i).parse().unwrap())
+        .collect::<Vec<AccountId>>();
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
@@ -63,6 +67,8 @@ fn test_chunk_validation_basic() {
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
         num_block_producer_seats_per_shard: vec![8, 8, 8, 8],
+        gas_limit: 10u64.pow(15),
+        transaction_validity_period: 120,
         ..Default::default()
     };
 
@@ -73,10 +79,15 @@ fn test_chunk_validation_basic() {
         let staked = if i < 8 { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(0, staked, CryptoHash::default(), 0),
+            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+        });
+        records.push(StateRecord::AccessKey {
+            account_id: account.clone(),
+            public_key: create_test_signer(account.as_str()).public_key(),
+            access_key: AccessKey::full_access(),
         });
         // The total supply must be correct to pass validation.
-        genesis_config.total_supply += staked;
+        genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let chain_genesis = ChainGenesis::new(&genesis);
@@ -95,6 +106,26 @@ fn test_chunk_validation_basic() {
             .collect::<HashSet<_>>();
         assert_eq!(heads.len(), 1, "All clients should have the same head");
         let tip = env.clients[0].chain.head().unwrap();
+
+        let sender_account = accounts[round % num_accounts].clone();
+        let receiver_account = accounts[(round + 1) % num_accounts].clone();
+        let signer = InMemorySigner::from_seed(
+            sender_account.clone(),
+            KeyType::ED25519,
+            sender_account.as_ref(),
+        );
+        let _ = env.clients[0].process_tx(
+            SignedTransaction::send_money(
+                round as u64,
+                sender_account,
+                receiver_account,
+                &signer,
+                ONE_NEAR,
+                tip.last_block_hash,
+            ),
+            false,
+            false,
+        );
 
         let block_producer = get_block_producer(&env, &tip, 1);
         println!("Producing block at height {} by {}", tip.height + 1, block_producer);

@@ -55,7 +55,7 @@ pub struct ChunkStateWitness {
     /// redundant information but is useful for diagnosing why a witness might
     /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
     /// order that they should be applied.
-    pub exact_receipts_hash: CryptoHash,
+    pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
     pub transactions: Vec<SignedTransaction>,
