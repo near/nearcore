@@ -13,6 +13,7 @@ use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
@@ -2016,15 +2017,43 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// TODO: document this
+    /// Creates a promise that will execute a method on the current account. The specified
+    /// amount of gas is attached, as well as the specified weight of remaining gas.
+    ///
+    /// Unlike in promise_create, the arguments for the callback method are not provided here.
+    /// A data_id is returned identifying an anticipated DataReceipt with the arguments.
+    /// If such a receipt does not arrive within yield_num_blocks, the method will be called
+    /// with a timeout error.
+    ///
+    /// # Errors
+    ///
+    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
+    /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
+    /// or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Returns
+    ///
+    /// (promise_index, data_id)
+    ///
+    /// promise_index: Index of the new promise that uniquely identifies it within
+    /// the current execution of the method.
+    ///
+    /// data_id: Unique identifier used to submit a DataReceipt with the arguments for the
+    /// callback.
+    ///
+    /// # Cost
+    ///
+    ///  TODO
     pub fn promise_yield_create(
         &mut self,
         _method_name_len: u64,
         _method_name_ptr: u64,
         _yield_num_blocks: u64,
+        _amount_ptr: u64,
         _gas: Gas,
         _gas_weight: u64,
-    ) -> Result<u64> {
+    ) -> Result<(u64, CryptoHash)> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -2032,7 +2061,7 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        Ok(0u64)
+        Ok((0u64, CryptoHash::new()))
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
