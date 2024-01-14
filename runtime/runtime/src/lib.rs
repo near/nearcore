@@ -363,9 +363,6 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::YieldedFunctionCall(_yielded_function_call) => {
-                // TODO
-            }
             Action::Transfer(transfer) => {
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;

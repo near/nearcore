@@ -127,7 +127,6 @@ pub(crate) enum ActionType {
     CreateAccount,
     DeployContract,
     FunctionCall,
-    YieldedFunctionCall,
     Transfer,
     Stake,
     AddKey,
@@ -333,9 +332,6 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::CreateAccount(_) => ActionType::CreateAccount,
                                     Action::DeployContract(_) => ActionType::DeployContract,
                                     Action::FunctionCall(_) => ActionType::FunctionCall,
-                                    Action::YieldedFunctionCall(_) => {
-                                        ActionType::YieldedFunctionCall
-                                    }
                                     Action::Transfer(_) => ActionType::Transfer,
                                     Action::Stake(_) => ActionType::Stake,
                                     Action::AddKey(_) => ActionType::AddKey,
@@ -549,8 +545,8 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          0          0
-        bob.near                                                               200          0          0
+        alice.near                                                             100          0          0 
+        bob.near                                                               200          0          0 
 
         Finished without errors!
         "###);
@@ -619,7 +615,7 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          1          0
+        alice.near                                                             100          1          0 
         bob.near                                                               200          1          1 CreateAccount,DeployContract,Transfer
 
         Finished without errors!

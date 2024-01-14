@@ -92,13 +92,6 @@ pub fn total_send_fees(
                     + fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
                         * num_bytes
             }
-            YieldedFunctionCall(yielded_function_call_action) => {
-                // todo: revisit and properly think about this
-                let num_bytes = yielded_function_call_action.method_name.as_bytes().len() as u64;
-                fees.fee(ActionCosts::function_call_base).send_fee(sender_is_receiver)
-                    + fees.fee(ActionCosts::function_call_byte).send_fee(sender_is_receiver)
-                        * num_bytes
-            }
             Transfer(_) => {
                 // Account for implicit account creation
                 transfer_send_fee(
@@ -192,12 +185,6 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
         FunctionCall(function_call_action) => {
             let num_bytes = function_call_action.method_name.as_bytes().len() as u64
                 + function_call_action.args.len() as u64;
-            fees.fee(ActionCosts::function_call_base).exec_fee()
-                + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
-        }
-        YieldedFunctionCall(yielded_function_call_action) => {
-            // todo: revisit and think about what this should really be
-            let num_bytes = yielded_function_call_action.method_name.as_bytes().len() as u64;
             fees.fee(ActionCosts::function_call_base).exec_fee()
                 + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }

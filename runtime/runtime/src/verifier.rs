@@ -396,7 +396,6 @@ pub fn validate_action(
         Action::CreateAccount(_) => Ok(()),
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
-        Action::YieldedFunctionCall(_) => Ok(()), // todo!
         Action::Transfer(_) => Ok(()),
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),

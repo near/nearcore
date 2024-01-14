@@ -118,27 +118,6 @@ impl fmt::Debug for FunctionCallAction {
     }
 }
 
-#[serde_as]
-#[derive(
-    BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
-)]
-pub struct YieldedFunctionCallAction {
-    pub method_name: String,
-    pub gas: Gas,
-    #[serde(with = "dec_format")]
-    pub deposit: Balance,
-}
-
-impl fmt::Debug for YieldedFunctionCallAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("YieldedFunctionCallAction")
-            .field("method_name", &format_args!("{}", &self.method_name))
-            .field("gas", &format_args!("{}", &self.gas))
-            .field("deposit", &format_args!("{}", &self.deposit))
-            .finish()
-    }
-}
-
 /// An action which stakes signer_id tokens and setup's validator public key
 #[derive(
     BorshSerialize,
@@ -192,7 +171,6 @@ pub enum Action {
     /// Sets a Wasm code to a receiver_id
     DeployContract(DeployContractAction),
     FunctionCall(Box<FunctionCallAction>),
-    YieldedFunctionCall(Box<YieldedFunctionCallAction>),
     Transfer(TransferAction),
     Stake(Box<StakeAction>),
     AddKey(Box<AddKeyAction>),
@@ -242,12 +220,6 @@ impl From<DeployContractAction> for Action {
 impl From<FunctionCallAction> for Action {
     fn from(function_call_action: FunctionCallAction) -> Self {
         Self::FunctionCall(Box::new(function_call_action))
-    }
-}
-
-impl From<YieldedFunctionCallAction> for Action {
-    fn from(yielded_function_call_action: YieldedFunctionCallAction) -> Self {
-        Self::YieldedFunctionCall(Box::new(yielded_function_call_action))
     }
 }
 
