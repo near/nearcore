@@ -2017,13 +2017,15 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Creates a promise that will execute a method on the current account. The specified
-    /// amount of gas is attached, as well as the specified weight of remaining gas.
+    /// Creates a promise that will execute a method on the current account.
     ///
-    /// Unlike in promise_create, the arguments for the callback method are not provided here.
-    /// A data_id is returned identifying an anticipated DataReceipt with the arguments.
-    /// If such a receipt does not arrive within yield_num_blocks, the method will be called
-    /// with a timeout error.
+    /// Unlike in promise_create, the arguments for the method are not provided here. A data_id is
+    /// returned identifying an anticipated DataReceipt which will provide the arguments. If such a
+    /// receipt does not arrive within yield_num_blocks, the method will still be called but will
+    /// receive a TimeoutError.
+    ///
+    /// Gas for the callback method can be specified as a static amount or as a weight of remaining
+    /// prepaid gas. See documentation for `promise_batch_action_function_call_weight` for details.
     ///
     /// # Errors
     ///
