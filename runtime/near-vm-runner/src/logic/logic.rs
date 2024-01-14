@@ -2017,21 +2017,19 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Creates a promise that will execute a method on the current account.
+    /// Creates a promise on the specified account that will act as a placeholder awaiting data.
     ///
-    /// Unlike in promise_create, the arguments for the method are not provided here. A data_id is
-    /// returned identifying an anticipated DataReceipt which will provide the arguments. If such a
-    /// receipt does not arrive within yield_num_blocks, the method will still be called but will
-    /// receive a TimeoutError.
+    /// Returns both the promise id and a `data_id`. Subsequently, a call to `promise_submit_data`
+    /// can be made within `yield_num_blocks` passing the `data_id` and the value to which the
+    /// promise should resolve.
     ///
-    /// Gas for the callback method can be specified as a static amount or as a weight of remaining
-    /// prepaid gas. See documentation for `promise_batch_action_function_call_weight` for details.
+    /// If data is not submitted within `yield_num_blocks`, the created promise will instead
+    /// resolve to a Result<DataTimeoutError>.
     ///
     /// # Errors
     ///
-    /// * If `account_id_len + account_id_ptr` or `method_name_len + method_name_ptr` or
-    /// `arguments_len + arguments_ptr` or `amount_ptr + 16` points outside the memory of the guest
-    /// or host returns `MemoryAccessViolation`.
+    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
@@ -2041,29 +2039,22 @@ impl<'a> VMLogic<'a> {
     /// promise_index: Index of the new promise that uniquely identifies it within
     /// the current execution of the method.
     ///
-    /// data_id: Unique identifier used to submit a DataReceipt with the arguments for the
-    /// callback.
+    /// data_id: Unique identifier used to later submit the value for the promise.
     ///
     /// # Cost
+    /// TODO
     ///
-    ///  TODO
-    pub fn promise_yield_create(
+    pub fn promise_create_awaiting_data(
         &mut self,
-        _method_name_len: u64,
-        _method_name_ptr: u64,
+        account_id_len: u64,
+        account_id_ptr: u64,
         _yield_num_blocks: u64,
-        _amount_ptr: u64,
-        _gas: Gas,
-        _gas_weight: u64,
     ) -> Result<(u64, CryptoHash)> {
-        self.gas_counter.pay_base(base)?;
-        if self.context.is_view() {
-            return Err(HostError::ProhibitedInView {
-                method_name: "promise_yield_create".to_string(),
-            }
-            .into());
-        }
-        Ok((0u64, CryptoHash::new()))
+        let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
+        // so here we want to create an input data dependency for this "batch"
+        // and somehow set that data as the return value for the promise
+        let data_id = CryptoHash::new(); // TODO
+        Ok((new_promise_idx, data_id))
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
