@@ -860,11 +860,14 @@ impl Client {
             &prev_block_header,
         )?;
         #[cfg(feature = "test_features")]
-        let transactions = Self::maybe_insert_invalid_transaction(
-            transactions,
-            prev_block_hash,
-            self.produce_invalid_tx_in_chunks,
-        );
+        let prepared_transactions = PreparedTransactions {
+            transactions: Self::maybe_insert_invalid_transaction(
+                prepared_transactions.transactions,
+                prev_block_hash,
+                self.produce_invalid_tx_in_chunks,
+            ),
+            limited_by: prepared_transactions.limited_by,
+        };
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
