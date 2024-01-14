@@ -2026,6 +2026,9 @@ impl<'a> VMLogic<'a> {
     /// If data is not submitted within `yield_num_blocks`, the created promise will instead
     /// resolve to a Result<DataTimeoutError>.
     ///
+    /// Only the account which creates the data-awaiting promise will be allowed to call
+    /// `promise_submit_data`.
+    ///
     /// # Errors
     ///
     /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
@@ -2055,6 +2058,29 @@ impl<'a> VMLogic<'a> {
         // and somehow set that data as the return value for the promise
         let data_id = CryptoHash::new(); // TODO
         Ok((new_promise_idx, data_id))
+    }
+
+    /// Submits the data for a promise which is awaiting its value.
+    /// See `promise_create_awaiting_data`.
+    ///
+    /// TODO: We need to make sure that ONLY those `data_ids` which were created by
+    /// promise_create_awaiting_data above can be passed here. It should not be possible to
+    /// interfere with other kinds of promises by creating the DataReceipts they expect.
+    ///
+    /// # Errors
+    ///
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    /// TODO
+    ///
+    pub fn promise_submit_data(
+        &mut self,
+        data_id: CryptoHash,
+        data_len: u64,
+        data_ptr: u64,
+    ) -> Result<()> {
+        Ok(())
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
