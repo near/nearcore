@@ -1,7 +1,5 @@
 mod random_epochs;
 
-use std::str::FromStr;
-
 use super::*;
 use crate::reward_calculator::NUM_NS_IN_SECOND;
 use crate::test_utils::{
@@ -11,16 +9,11 @@ use crate::test_utils::{
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
-use near_chain_primitives::Error;
-use near_crypto::Signature;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
@@ -2664,6 +2657,13 @@ fn test_max_kickout_stake_ratio() {
 #[test]
 #[cfg(feature = "nightly")]
 fn test_verify_chunk_endorsements() {
+    use near_chain_primitives::Error;
+    use near_crypto::Signature;
+    use near_primitives::chunk_validation::ChunkEndorsement;
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::test_utils::create_test_signer;
+    use std::str::FromStr;
+
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
