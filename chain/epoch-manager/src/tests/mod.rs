@@ -2662,6 +2662,7 @@ fn test_max_kickout_stake_ratio() {
 }
 
 #[test]
+#[cfg(feature = "nightly")]
 fn test_verify_chunk_endorsements() {
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
