@@ -150,7 +150,7 @@ The resharding process can be quite resource intensive and affect the regular op
 * batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.
 * batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. 
 
-The remainig fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. 
+The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. 
 
 The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. 
 
