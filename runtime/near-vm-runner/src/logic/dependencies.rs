@@ -268,6 +268,18 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError>;
 
+    /// Create a receipt which will be executed after some data is received.
+    ///
+    /// Returns the ReceiptIndex along with a `data_id` which can be used to submit the data.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    fn create_receipt_awaiting_data(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
+
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

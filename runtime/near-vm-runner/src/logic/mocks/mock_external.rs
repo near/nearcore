@@ -160,6 +160,16 @@ impl External for MockedExternal {
         Ok(index as u64)
     }
 
+    fn create_receipt_awaiting_data(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
+        let index = self.action_log.len();
+        let data_id = self.generate_data_id();
+        self.action_log.push(MockAction::CreateReceipt { receipt_indices: vec![], receiver_id });
+        Ok((index as u64, data_id))
+    }
+
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,

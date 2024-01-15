@@ -105,6 +105,29 @@ impl ReceiptManager {
         Ok(new_receipt_index)
     }
 
+    /// Special case of create_receipt allowing a data dependency without a corresponding
+    /// ActionReceipt that will produce the data.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_data_id` - data id which will be used to later submit the receipt input
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    pub(super) fn create_receipt_awaiting_data(
+        &mut self,
+        input_data_id: CryptoHash,
+        receiver_id: AccountId,
+    ) -> Result<ReceiptIndex, VMLogicError> {
+        let new_receipt = ReceiptMetadata {
+            output_data_receivers: vec![],
+            input_data_ids: vec![input_data_id],
+            actions: vec![],
+        };
+        let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
+        println!("Created a receipt with index={}", new_receipt_index);
+        self.action_receipts.push((receiver_id, new_receipt));
+        Ok(new_receipt_index)
+    }
+
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

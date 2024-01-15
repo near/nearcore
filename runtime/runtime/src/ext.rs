@@ -212,6 +212,16 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
     }
 
+    fn create_receipt_awaiting_data(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
+        let input_data_id = self.generate_data_id();
+        self.receipt_manager
+            .create_receipt_awaiting_data(input_data_id, receiver_id)
+            .map(|receipt_index| (receipt_index, input_data_id))
+    }
+
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,

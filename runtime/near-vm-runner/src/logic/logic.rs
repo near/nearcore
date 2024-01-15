@@ -2076,9 +2076,9 @@ impl<'a> VMLogic<'a> {
     ///
     pub fn promise_submit_data(
         &mut self,
-        data_id: CryptoHash,
-        data_len: u64,
-        data_ptr: u64,
+        _data_id: CryptoHash,
+        _data_len: u64,
+        _data_ptr: u64,
     ) -> Result<()> {
         Ok(())
     }
