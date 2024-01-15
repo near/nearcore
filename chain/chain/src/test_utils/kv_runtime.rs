@@ -707,7 +707,7 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
-    fn get_chunk_validators(
+    fn get_ordered_chunk_validators(
         &self,
         _epoch_id: &EpochId,
         _shard_id: ShardId,

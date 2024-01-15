@@ -917,8 +917,8 @@ impl EpochManager {
         })
     }
 
-    /// Returns the list of chunk validators for the given shard_id and height.
-    pub fn get_chunk_validators(
+    /// Returns an ordered list of chunk validators for the given shard_id and height.
+    pub fn get_ordered_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,

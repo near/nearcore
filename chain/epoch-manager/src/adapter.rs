@@ -188,8 +188,9 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError>;
 
-    /// Gets the chunk validators for a given height and shard.
-    fn get_chunk_validators(
+    /// Gets the ordered list of chunk validators for a given height and shard.
+    /// Note that calls to this function would maintain order across all the nodes in the network.
+    fn get_ordered_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
@@ -658,14 +659,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
 
-    fn get_chunk_validators(
+    fn get_ordered_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
     ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_chunk_validators(epoch_id, shard_id, height)
+        epoch_manager.get_ordered_chunk_validators(epoch_id, shard_id, height)
     }
 
     fn get_validator_by_account_id(
@@ -974,7 +975,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_id = self.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         // Note that we are using the chunk_header.height_created param here to determine the chunk validators
         // This only works when height created for a chunk is the same as the height_included during block production
-        let chunk_validators = self.get_chunk_validators(
+        let chunk_validators = self.get_ordered_chunk_validators(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),

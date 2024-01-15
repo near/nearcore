@@ -1090,6 +1090,8 @@ pub mod epoch_info {
             }
         }
 
+        // Note that we can rely on the order in which we sample chunk validators as we are
+        // using epoch_info and height to generate random seed.
         pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {

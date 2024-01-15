@@ -1,5 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::vrf::{Proof, Value};
+use near_crypto::Signature;
+use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::ProtocolVersion;
 
@@ -17,9 +19,28 @@ pub struct BlockBodyV1 {
 }
 
 impl BlockBodyV1 {
+    // Required as we have raw reference to BlockBodyV1 in BlockV3
     pub fn compute_hash(&self) -> CryptoHash {
         CryptoHash::hash_borsh(self)
     }
+}
+
+/// V1 -> V2: added chunk_endorsements from chunk_validators
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlockBodyV2 {
+    pub chunks: Vec<ShardChunkHeader>,
+    pub challenges: Challenges,
+
+    // Data to confirm the correctness of randomness beacon output
+    pub vrf_value: Value,
+    pub vrf_proof: Proof,
+
+    // Chunk endorsements
+    // These are structured as a vector of Signatures from all ordered chunk_validators
+    // for each shard got from fn get_ordered_chunk_validators
+    // chunk_endorsements[shard_id][chunk_validator_index] is the signature (if present).
+    // If the chunk_validator did not endorse the chunk, the signature is None.
+    pub chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
 }
 
 // For now, we only have one version of block body.
@@ -27,24 +48,36 @@ impl BlockBodyV1 {
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, Debug)]
 pub enum BlockBody {
     V1(BlockBodyV1),
+    V2(BlockBodyV2),
 }
 
 impl BlockBody {
     pub fn new(
-        _protocol_version: ProtocolVersion,
+        protocol_version: ProtocolVersion,
         chunks: Vec<ShardChunkHeader>,
         challenges: Challenges,
         vrf_value: Value,
         vrf_proof: Proof,
+        chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
     ) -> Self {
-        // Eventually we will have different versions of block body, but for now we only have V1.
-        BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
+        if !checked_feature!("stable", ChunkValidation, protocol_version) {
+            BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
+        } else {
+            BlockBody::V2(BlockBodyV2 {
+                chunks,
+                challenges,
+                vrf_value,
+                vrf_proof,
+                chunk_endorsements,
+            })
+        }
     }
 
     #[inline]
     pub fn chunks(&self) -> &[ShardChunkHeader] {
         match self {
             BlockBody::V1(body) => &body.chunks,
+            BlockBody::V2(body) => &body.chunks,
         }
     }
 
@@ -52,6 +85,7 @@ impl BlockBody {
     pub fn challenges(&self) -> &Challenges {
         match self {
             BlockBody::V1(body) => &body.challenges,
+            BlockBody::V2(body) => &body.challenges,
         }
     }
 
@@ -59,6 +93,7 @@ impl BlockBody {
     pub fn vrf_value(&self) -> &Value {
         match self {
             BlockBody::V1(body) => &body.vrf_value,
+            BlockBody::V2(body) => &body.vrf_value,
         }
     }
 
@@ -66,12 +101,22 @@ impl BlockBody {
     pub fn vrf_proof(&self) -> &Proof {
         match self {
             BlockBody::V1(body) => &body.vrf_proof,
+            BlockBody::V2(body) => &body.vrf_proof,
+        }
+    }
+
+    #[inline]
+    pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
+        match self {
+            BlockBody::V1(_) => &[],
+            BlockBody::V2(body) => &body.chunk_endorsements,
         }
     }
 
     pub fn compute_hash(&self) -> CryptoHash {
         match self {
             BlockBody::V1(body) => body.compute_hash(),
+            BlockBody::V2(body) => CryptoHash::hash_borsh(body),
         }
     }
 }

@@ -777,6 +777,7 @@ impl Client {
             height,
             block_ordinal,
             chunks,
+            vec![],
             epoch_id,
             next_epoch_id,
             epoch_sync_data_hash,
