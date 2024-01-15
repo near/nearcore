@@ -280,6 +280,19 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
+    /// Creates a DataReceipt corresponding to a `data_id` created by
+    /// `create_receipt_awaiting_data`.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - `data_id` with which the DataReceipt should be created
+    /// * `data` - contents of the DataReceipt
+    fn create_external_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError>;
+
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

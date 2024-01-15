@@ -173,6 +173,15 @@ impl External for MockedExternal {
         Ok((index as u64, data_id))
     }
 
+    fn create_external_data_receipt(
+        &mut self,
+        _data_id: CryptoHash,
+        _data: Vec<u8>,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        // TODO
+        Ok(())
+    }
+
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,

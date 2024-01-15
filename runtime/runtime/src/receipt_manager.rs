@@ -17,6 +17,7 @@ use crate::config::safe_add_gas;
 type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
+type ExternalDataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiptMetadata {
@@ -35,6 +36,7 @@ pub struct ReceiptMetadata {
 #[derive(Default, Clone, PartialEq)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
+    pub(super) external_data_receipts: ExternalDataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
@@ -126,6 +128,22 @@ impl ReceiptManager {
         println!("Created a receipt with index={}", new_receipt_index);
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
+    }
+
+    /// Creation of an "external" DataReceipt corresponding to a `data_id` produced by
+    /// `create_receipt_awaiting_data`.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - id of the DataReceipt being submitted
+    /// * `data` - contents of the DataReceipt
+    pub(super) fn create_external_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.external_data_receipts.push((data_id, data));
+        Ok(())
     }
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
@@ -398,7 +416,7 @@ impl ReceiptManager {
     ///
     /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
     pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
-        let ReceiptManager { action_receipts, gas_weights } = self;
+        let ReceiptManager { action_receipts, external_data_receipts: _, gas_weights } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
             return Ok(0);

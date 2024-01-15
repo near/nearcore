@@ -222,6 +222,14 @@ impl<'a> External for RuntimeExt<'a> {
             .map(|receipt_index| (receipt_index, input_data_id))
     }
 
+    fn create_external_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        self.receipt_manager.create_external_data_receipt(data_id, data)
+    }
+
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,

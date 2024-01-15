@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -286,7 +286,7 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        let new_receipts: Vec<_> = receipt_manager
+        let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
             .map(|(receiver_id, receipt)| Receipt {
@@ -305,6 +305,15 @@ pub(crate) fn action_function_call(
                 }),
             })
             .collect();
+
+        new_receipts.extend(receipt_manager.external_data_receipts.into_iter().map(
+            |(data_id, data)| Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
+            },
+        ));
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
