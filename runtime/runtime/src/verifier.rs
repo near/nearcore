@@ -402,6 +402,7 @@ pub fn validate_action(
         Action::DeleteKey(_) => Ok(()),
         Action::DeleteAccount(a) => validate_delete_action(a),
         Action::Delegate(a) => validate_delegate_action(limit_config, a, current_protocol_version),
+        Action::ReadExternalData() => Ok(()), // TODO
     }
 }
 

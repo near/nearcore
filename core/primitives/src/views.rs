@@ -1204,6 +1204,7 @@ pub enum ActionView {
         delegate_action: DelegateAction,
         signature: Signature,
     },
+    ReadExternalData,
 }
 
 impl From<Action> for ActionView {
@@ -1236,6 +1237,7 @@ impl From<Action> for ActionView {
                 delegate_action: action.delegate_action,
                 signature: action.signature,
             },
+            Action::ReadExternalData() => ActionView::ReadExternalData,
         }
     }
 }
@@ -1273,6 +1275,7 @@ impl TryFrom<ActionView> for Action {
             ActionView::Delegate { delegate_action, signature } => {
                 Action::Delegate(Box::new(SignedDelegateAction { delegate_action, signature }))
             }
+            ActionView::ReadExternalData => Action::ReadExternalData(),
         })
     }
 }

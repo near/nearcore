@@ -177,6 +177,7 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
+    ReadExternalData(),
 }
 // Note: If this number ever goes down, please adjust the equality accordingly. Otherwise,
 // we would get used to better performance and would be subject to a performance loss should

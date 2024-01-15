@@ -134,6 +134,7 @@ pub(crate) enum ActionType {
     DeleteAccount,
     DataReceipt,
     Delegate,
+    ReadExternalData,
 }
 
 impl ContractAccount {
@@ -338,6 +339,7 @@ fn try_find_actions_spawned_by_receipt(
                                     Action::DeleteKey(_) => ActionType::DeleteKey,
                                     Action::DeleteAccount(_) => ActionType::DeleteAccount,
                                     Action::Delegate(_) => ActionType::Delegate,
+                                    Action::ReadExternalData() => ActionType::ReadExternalData,
                                 };
                                 entry
                                     .actions
@@ -545,8 +547,8 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          0          0 
-        bob.near                                                               200          0          0 
+        alice.near                                                             100          0          0
+        bob.near                                                               200          0          0
 
         Finished without errors!
         "###);
@@ -615,7 +617,7 @@ mod tests {
         write!(&mut output, "{summary}").unwrap();
         insta::assert_snapshot!(output, @r###"
         ACCOUNT_ID                                                         SIZE[B]   RCPTS_IN  RCPTS_OUT ACTIONS
-        alice.near                                                             100          1          0 
+        alice.near                                                             100          1          0
         bob.near                                                               200          1          1 CreateAccount,DeployContract,Transfer
 
         Finished without errors!

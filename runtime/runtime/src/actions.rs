@@ -927,7 +927,7 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
-        Action::Delegate(_) => (),
+        Action::Delegate(_) | Action::ReadExternalData() => (),
     };
     Ok(())
 }
@@ -995,6 +995,7 @@ pub(crate) fn check_account_existence(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
+        | Action::ReadExternalData()
         | Action::DeleteAccount(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
