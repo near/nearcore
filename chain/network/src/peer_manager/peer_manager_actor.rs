@@ -968,11 +968,11 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkEndorsement(approval) => {
+            NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 self.state.send_message_to_account(
                     &self.clock,
-                    &approval.target,
-                    RoutedMessageBody::ChunkEndorsement(approval.endorsement),
+                    &target,
+                    RoutedMessageBody::ChunkEndorsement(endorsement),
                 );
                 NetworkResponses::NoResponse
             }

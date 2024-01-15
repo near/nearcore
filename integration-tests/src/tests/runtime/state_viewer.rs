@@ -58,7 +58,7 @@ impl ProofVerifier {
                     return if &key != nib {
                         expected.is_none()
                     } else {
-                        expected.map_or(false, |expected| value == expected)
+                        expected.is_some_and(|expected| value == expected)
                     };
                 }
                 RawTrieNode::Extension(node_key, child_hash) => {
@@ -85,7 +85,7 @@ impl ProofVerifier {
                 }
                 RawTrieNode::BranchWithValue(value, children) => {
                     if key.is_empty() {
-                        return expected.map_or(false, |exp| value == exp);
+                        return expected.is_some_and(|exp| value == exp);
                     }
                     match children[key.at(0)] {
                         Some(ref child_hash) => {

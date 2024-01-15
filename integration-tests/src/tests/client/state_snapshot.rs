@@ -35,7 +35,7 @@ impl StateSnaptshotTestEnv {
         store: &Store,
     ) -> Self {
         let trie_cache_config = TrieCacheConfig {
-            default_max_bytes: 50_000_000,
+            default_max_bytes: bytesize::ByteSize::mb(50),
             per_shard_max_bytes: Default::default(),
             shard_cache_deletions_queue_capacity: 0,
         };
@@ -138,7 +138,7 @@ fn verify_make_snapshot(
     state_snapshot_test_env.shard_tries.delete_state_snapshot();
     state_snapshot_test_env.shard_tries.create_state_snapshot(
         block_hash,
-        &vec![ShardUId::single_shard()],
+        &[ShardUId::single_shard()],
         block,
     )?;
     // check that make_state_snapshot does not panic or err out

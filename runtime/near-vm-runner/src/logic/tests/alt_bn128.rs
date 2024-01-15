@@ -79,7 +79,7 @@ fn check_result<T, U>(
             None
         }
         (Ok(_), Err(msg)) => panic!("expected `{msg}` error"),
-        (Err(err), _) => panic!("unexpected eror: `{}`", err.to_string()),
+        (Err(err), _) => panic!("unexpected eror: `{}`", err),
     }
 }
 

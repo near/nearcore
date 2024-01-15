@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 mod rpc;
 mod runtime;
 
@@ -15,13 +13,15 @@ use near_primitives::errors::{
     MethodResolveError, TxExecutionError,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, TrieNodesCount};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
+use near_store::trie::TrieNodesCount;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::User;
@@ -750,7 +750,7 @@ pub fn test_add_existing_key(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::AddKeyAlreadyExists {
                     account_id: account_id.clone(),
-                    public_key: node.signer().public_key()
+                    public_key: node.signer().public_key().into()
                 }
             }
             .into()
@@ -802,7 +802,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::DeleteKeyDoesNotExist {
                     account_id: account_id.clone(),
-                    public_key: signer2.public_key.clone()
+                    public_key: signer2.public_key.clone().into()
                 }
             }
             .into()
@@ -840,7 +840,7 @@ pub fn test_delete_key_last(node: impl Node) {
                     InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::AccessKeyNotFound {
                             account_id: account_id.clone(),
-                            public_key: node.signer().public_key(),
+                            public_key: node.signer().public_key().into(),
                         },
                     )
                 ))

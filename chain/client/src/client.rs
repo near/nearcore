@@ -1489,12 +1489,15 @@ impl Client {
         let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
             + self.config.max_block_production_delay.as_nanos())
             / 2;
-        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time).try_into().expect(
-            &format!(
-                "Too high of a delta_height {} to convert into u64",
-                self.accrued_fastforward_delta
-            ),
-        );
+
+        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time)
+            .try_into()
+            .unwrap_or_else(|_| {
+                panic!(
+                    "Too high of a delta_height {} to convert into u64",
+                    self.accrued_fastforward_delta
+                )
+            });
 
         chrono::Duration::nanoseconds(ns)
     }
@@ -1741,9 +1744,14 @@ impl Client {
                 .with_label_values(&[&shard_id.to_string()])
                 .start_timer();
             let last_header = Chain::get_prev_chunk_header(epoch_manager, block, shard_id).unwrap();
-            match self.produce_chunk(*block.hash(), &epoch_id, last_header, next_height, shard_id) {
+            match self.produce_chunk(
+                *block.hash(),
+                &epoch_id,
+                last_header.clone(),
+                next_height,
+                shard_id,
+            ) {
                 Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
-                    let chunk_header = encoded_chunk.cloned_header();
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
                             encoded_chunk,
@@ -1754,7 +1762,7 @@ impl Client {
                         .expect("Failed to process produced chunk");
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
-                        &chunk_header,
+                        last_header,
                         &shard_chunk,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");

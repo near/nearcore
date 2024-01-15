@@ -35,7 +35,7 @@ fn one_iter(
     delta: Duration,
     height_goal: BlockHeight,
 ) -> (Duration, BlockHeight) {
-    let account_ids = vec!["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
+    let account_ids = ["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
     let stakes = account_ids
         .iter()
         .map(|account_id| ApprovalStake {

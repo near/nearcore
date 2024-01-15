@@ -434,7 +434,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -617,7 +617,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -669,7 +669,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -764,7 +764,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
     }
@@ -847,7 +847,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;

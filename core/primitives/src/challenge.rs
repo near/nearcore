@@ -51,13 +51,14 @@ pub struct ChunkProofs {
     /// Merkle proof of inclusion of this chunk.
     pub merkle_proof: MerklePath,
     /// Invalid chunk in an encoded form or in a decoded form.
-    pub chunk: MaybeEncodedShardChunk,
+    pub chunk: Box<MaybeEncodedShardChunk>,
 }
 
 /// Either `EncodedShardChunk` or `ShardChunk`. Used for `ChunkProofs`.
 /// `Decoded` is used to avoid re-encoding an already decoded chunk to construct a challenge.
 /// `Encoded` is still needed in case a challenge challenges an invalid encoded chunk that can't be
 /// decoded.
+#[allow(clippy::large_enum_variant)] // both variants are large
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug)]
 pub enum MaybeEncodedShardChunk {
     Encoded(EncodedShardChunk),

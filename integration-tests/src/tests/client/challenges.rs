@@ -26,7 +26,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use std::sync::Arc;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -45,17 +44,7 @@ fn test_block_with_challenges() {
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
-        match &mut block {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => {
-                let body = Arc::make_mut(body);
-                body.challenges = challenges.clone();
-            }
-            Block::BlockV3(body) => {
-                let body = Arc::make_mut(body);
-                body.body.challenges = challenges.clone();
-            }
-        };
+        block.set_challenges(challenges.clone());
         let block_body_hash = block.compute_block_body_hash().unwrap();
         block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
         block.mut_header().get_mut().inner_rest.challenges_root =
@@ -213,7 +202,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -228,7 +217,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -241,7 +230,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -277,7 +266,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -313,14 +302,14 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 fn challenge(
     env: TestEnv,
     shard_id: usize,
-    chunk: MaybeEncodedShardChunk,
+    chunk: Box<MaybeEncodedShardChunk>,
     block: &Block,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;

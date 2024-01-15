@@ -13,6 +13,7 @@ use near_network::types::{
 };
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -305,4 +306,6 @@ impl near_network::client::Client for Network {
     }
 
     async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
+
+    async fn chunk_endorsement(&self, _endorsement: ChunkEndorsement) {}
 }

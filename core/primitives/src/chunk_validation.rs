@@ -55,7 +55,7 @@ pub struct ChunkStateWitness {
     /// redundant information but is useful for diagnosing why a witness might
     /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
     /// order that they should be applied.
-    pub exact_receipts_hash: CryptoHash,
+    pub applied_receipts_hash: CryptoHash,
     /// The transactions to apply. These must be in the correct order in which
     /// they are to be applied.
     pub transactions: Vec<SignedTransaction>,
@@ -120,14 +120,6 @@ impl ChunkEndorsementInner {
     pub fn new(chunk_hash: ChunkHash) -> Self {
         Self { chunk_hash, signature_differentiator: "ChunkEndorsement".to_owned() }
     }
-}
-
-/// Message intended for the network layer to send a chunk endorsement.
-/// It just includes an additional target account ID to send it to.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkEndorsementMessage {
-    pub endorsement: ChunkEndorsement,
-    pub target: AccountId,
 }
 
 /// Stored on disk for each chunk, including missing chunks, in order to

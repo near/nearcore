@@ -19,12 +19,11 @@ bn.workspace = true
 borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
-finite-wasm = { workspace = true, features = ["instrument"] }
-loupe.workspace = true
+finite-wasm = { workspace = true, features = ["instrument"], optional = true }
 memoffset.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
-parity-wasm.workspace = true
+parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
 serde_repr.workspace = true
@@ -36,8 +35,8 @@ stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-wasm-encoder.workspace = true
-wasmparser.workspace = true
+wasm-encoder = { workspace = true, optional = true }
+wasmparser = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 
 near-crypto.workspace = true
@@ -46,8 +45,8 @@ near-parameters.workspace = true
 
 # Old versions of pwasm-utils we need to preserve backwards compatibility under
 # old protocol versions.
-pwasm-utils_12.workspace = true
-parity-wasm_41.workspace = true
+pwasm-utils_12 = { workspace = true, optional = true }
+parity-wasm_41 = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 wasmer-runtime = { workspace = true, optional = true }
@@ -82,30 +81,26 @@ nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
 ]
-# all vms enabled for now
-default = [
-  "wasmer0_vm",
-  "wasmtime_vm",
-  "wasmer2_vm",
-  "near_vm",
-]
-wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core" ]
-wasmtime_vm = [ "wasmtime", "anyhow"]
+wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core", "prepare" ]
+wasmtime_vm = [ "wasmtime", "anyhow", "prepare" ]
 wasmer2_vm = [
     "wasmer-compiler",
     "wasmer-compiler-singlepass",
     "wasmer-engine",
     "wasmer-engine-universal",
     "wasmer-types",
-    "wasmer-vm"
+    "wasmer-vm",
+    "prepare",
 ]
 near_vm = [
     "near-vm-compiler",
     "near-vm-compiler-singlepass",
     "near-vm-engine",
     "near-vm-types",
-    "near-vm-vm"
+    "near-vm-vm",
+    "prepare",
 ]
+prepare = [ "finite-wasm", "wasm-encoder", "wasmparser", "parity-wasm", "parity-wasm_41", "pwasm-utils_12" ]
 
 no_cpu_compatibility_checks = []
 

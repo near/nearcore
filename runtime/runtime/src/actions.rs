@@ -271,7 +271,8 @@ pub(crate) fn action_function_call(
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
-        let action_err: ActionError = ActionErrorKind::FunctionCallError(err.into()).into();
+        let action_err: ActionError =
+            ActionErrorKind::FunctionCallError(crate::conversions::Convert::convert(err)).into();
         result.result = Err(action_err);
     }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
@@ -638,7 +639,7 @@ pub(crate) fn action_delete_key(
         account.set_storage_usage(account.storage_usage().saturating_sub(storage_usage));
     } else {
         result.result = Err(ActionErrorKind::DeleteKeyDoesNotExist {
-            public_key: delete_key.public_key.clone(),
+            public_key: delete_key.public_key.clone().into(),
             account_id: account_id.clone(),
         }
         .into());
@@ -657,7 +658,7 @@ pub(crate) fn action_add_key(
     if get_access_key(state_update, account_id, &add_key.public_key)?.is_some() {
         result.result = Err(ActionErrorKind::AddKeyAlreadyExists {
             account_id: account_id.to_owned(),
-            public_key: add_key.public_key.clone(),
+            public_key: add_key.public_key.clone().into(),
         }
         .into());
         return Ok(());
@@ -833,7 +834,7 @@ fn validate_delegate_action_key(
             result.result = Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: delegate_action.sender_id.clone(),
-                    public_key: delegate_action.public_key.clone(),
+                    public_key: delegate_action.public_key.clone().into(),
                 },
             )
             .into());
@@ -1027,16 +1028,9 @@ pub(crate) fn check_account_existence(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
-        | Action::ReadExternalData()
-        | Action::DeleteAccount(_) => {
-            if account.is_none() {
-                return Err(ActionErrorKind::AccountDoesNotExist {
-                    account_id: account_id.clone(),
-                }
-                .into());
-            }
-        }
-        Action::Delegate(_) => {
+        | Action::DeleteAccount(_)
+        | Action::Delegate(_)
+        | Action::ReadExternalData() => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
@@ -1547,7 +1541,7 @@ mod tests {
             Err(ActionErrorKind::DelegateActionAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: sender_id,
-                    public_key: sender_pub_key,
+                    public_key: sender_pub_key.into(),
                 },
             )
             .into())

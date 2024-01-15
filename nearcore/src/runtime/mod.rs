@@ -34,8 +34,8 @@ use near_primitives::types::{
 };
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccessKeyInfoView, CallResult, QueryRequest, QueryResponse, QueryResponseKind, ViewApplyState,
-    ViewStateResult,
+    AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
+    QueryResponseKind, ViewApplyState, ViewStateResult,
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
@@ -475,6 +475,7 @@ impl NightshadeRuntime {
             total_balance_burnt,
             proof: apply_result.proof,
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
+            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         };
 
         Ok(result)
@@ -887,7 +888,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
+                    StorageError::FlatStorageBlockNotSupported(_)
+                    | StorageError::MissingTrieValue(..) => Err(err.into()),
                     _ => panic!("{err}"),
                 },
                 _ => Err(e),
@@ -927,8 +929,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 let contract_code = self
                     .view_contract_code(&shard_uid,  *state_root, account_id)
                     .map_err(|err| near_chain::near_chain_primitives::error::QueryError::from_view_contract_code_error(err, block_height, *block_hash))?;
+                let hash = *contract_code.hash();
+                let contract_code_view = ContractCodeView { hash, code: contract_code.into_code() };
                 Ok(QueryResponse {
-                    kind: QueryResponseKind::ViewCode(contract_code.into()),
+                    kind: QueryResponseKind::ViewCode(contract_code_view),
                     block_height,
                     block_hash: *block_hash,
                 })
