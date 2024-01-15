@@ -11,9 +11,9 @@ use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyTransactionResult;
-use near_chain::types::ApplyTransactionsBlockContext;
-use near_chain::types::ApplyTransactionsChunkContext;
+use near_chain::types::ApplyChunkBlockContext;
+use near_chain::types::ApplyChunkResult;
+use near_chain::types::ApplyChunkShardContext;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
@@ -58,7 +58,7 @@ pub(crate) fn apply_block(
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     use_flat_storage: bool,
-) -> (Block, ApplyTransactionResult) {
+) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
@@ -89,16 +89,16 @@ pub(crate) fn apply_block(
         .unwrap();
 
         runtime
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
                 ),
@@ -111,16 +111,16 @@ pub(crate) fn apply_block(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
 
         runtime
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     is_first_block_with_chunk_of_version: false,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
                 ),
@@ -523,7 +523,7 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
 
 pub(crate) fn check_apply_block_result(
     block: &Block,
-    apply_result: &ApplyTransactionResult,
+    apply_result: &ApplyChunkResult,
     epoch_manager: &EpochManagerHandle,
     chain_store: &ChainStore,
     shard_id: ShardId,
@@ -712,8 +712,8 @@ pub(crate) fn replay_chain(
     }
 }
 
-pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes);
+pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
         &result.new_root,
         outcome_root,

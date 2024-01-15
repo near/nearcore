@@ -4,8 +4,8 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplyTransactionResult, ApplyTransactionsBlockContext, ApplyTransactionsChunkContext,
-    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ReshardingResults,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::update_shard::{
     NewChunkResult, OldChunkResult, ReshardingResult, ShardBlockUpdateResult, ShardUpdateResult,
@@ -149,25 +149,8 @@ impl<'a> ChainUpdate<'a> {
         apply_results: Vec<ShardUpdateResult>,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
-        for result in apply_results {
-            match result {
-                ShardUpdateResult::Stateful(result) => {
-                    self.process_apply_chunk_result(block, result)?
-                }
-                ShardUpdateResult::Stateless(results) => {
-                    for (block_hash, shard_uid, chunk_extra) in results {
-                        let expected_chunk_extra =
-                            self.chain_store_update.get_chunk_extra(&block_hash, &shard_uid)?;
-                        assert_eq!(
-                            &chunk_extra,
-                            expected_chunk_extra.as_ref(),
-                            "For stateless validation, chunk extras for block {} and shard {} do not match",
-                            block_hash,
-                            shard_uid
-                        );
-                    }
-                }
-            }
+        for ShardUpdateResult::Stateful(result) in apply_results {
+            self.process_apply_chunk_result(block, result)?;
         }
         Ok(())
     }
@@ -330,7 +313,7 @@ impl<'a> ChainUpdate<'a> {
                 resharding_results,
             }) => {
                 let (outcome_root, outcome_paths) =
-                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
@@ -370,6 +353,12 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
+                self.chain_store_update.save_state_transition_data(
+                    *block_hash,
+                    shard_id,
+                    apply_result.proof,
+                    apply_result.applied_receipts_hash,
+                );
                 if let Some(resharding_results) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
@@ -396,6 +385,12 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_state_transition_data(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.proof,
+                    apply_result.applied_receipts_hash,
+                );
 
                 if let Some(resharding_config) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;
@@ -732,16 +727,16 @@ impl<'a> ChainUpdate<'a> {
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
 
-        let apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
-            ApplyTransactionsBlockContext {
+            ApplyChunkBlockContext {
                 height: chunk_header.height_included(),
                 block_hash: *block_header.hash(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
@@ -755,7 +750,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
 
         let (outcome_root, outcome_proofs) =
-            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -829,19 +824,16 @@ impl<'a> ChainUpdate<'a> {
         let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
 
-        let apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
                 is_first_block_with_chunk_of_version: false,
             },
-            ApplyTransactionsBlockContext::from_header(
-                &block_header,
-                prev_block_header.next_gas_price(),
-            ),
+            ApplyChunkBlockContext::from_header(&block_header, prev_block_header.next_gas_price()),
             &[],
             &[],
         )?;

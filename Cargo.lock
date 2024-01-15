@@ -2814,6 +2814,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "borsh 1.0.0",
+ "bytesize",
  "chrono",
  "clap",
  "futures",

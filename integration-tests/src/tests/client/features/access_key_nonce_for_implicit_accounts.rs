@@ -683,7 +683,7 @@ impl ChunkForwardingOptimizationTestData {
                 );
             }
             NetworkRequests::ChunkStateWitness(_, _) => {}
-            NetworkRequests::ChunkEndorsement(_) => {}
+            NetworkRequests::ChunkEndorsement(_, _) => {}
             _ => {
                 panic!("Unexpected network request: {:?}", requests);
             }

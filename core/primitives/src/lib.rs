@@ -7,6 +7,7 @@ pub use near_primitives_core::serialize;
 
 pub mod action;
 pub mod block;
+pub mod block_body;
 pub mod block_header;
 pub mod challenge;
 pub mod chunk_validation;

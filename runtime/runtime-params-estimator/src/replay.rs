@@ -84,7 +84,7 @@ impl ReplayCmd {
                 if self.account.is_some() {
                     unimplemented!("account filter does not work with gas charges");
                 }
-                Box::new(ChargedVsFree::default())
+                Box::<ChargedVsFree>::default()
             }
         }
     }
@@ -246,7 +246,7 @@ mod tests {
 GET BlockHeader "`fAkeHeAd3R`" size=6000
 GET BlockInfo "`FAk31nf0`" size=1
 apply_transactions shard_id=0
-    process_state_update 
+    process_state_update
         apply num_transactions=1 shard_cache_hit=10 shard_cache_miss=1
             process_transaction tx_hash=txHash0 shard_cache_miss=1 shard_cache_hit=20
                 GET State "'stateKey0'" size=300
@@ -259,10 +259,10 @@ apply_transactions shard_id=0
                 GET State "'stateKey5'" size=9000
             process_receipt receipt_id=id2 predecessor=system receiver=alice.near id=id2 shard_cache_miss=1 shard_cache_hit=6
                 GET State "'stateKey6'" size=30
-                attached_deposit 
-                input 
-                register_len 
-                read_register 
+                attached_deposit
+                input
+                register_len
+                read_register
                 storage_read READ key=StorageKey0 size=1000 tn_db_reads=20 tn_mem_reads=0 shard_cache_hit=19 shard_cache_miss=1
                     GET State "'stateKey7'" size=5
             process_receipt receipt_id=id3 predecessor=utiha.near receiver=alice.near id=id3 shard_cache_miss=0 shard_cache_hit=15

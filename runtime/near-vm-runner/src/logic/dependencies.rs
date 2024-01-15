@@ -259,7 +259,6 @@ pub trait External {
     ///
     /// # Arguments
     ///
-    /// * `generate_data_id` - function to generate a data id to connect receipt output to
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
     fn create_receipt(

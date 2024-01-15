@@ -103,7 +103,7 @@ fn test_bad_block_content_vrf() {
     env.process_block(0, prev_block, Provenance::PRODUCED);
     let block = env.clients[0].produce_block(2).unwrap().unwrap();
     let mut bad_block = block.clone();
-    bad_block.get_mut().body.vrf_value = Value([0u8; 32]);
+    bad_block.set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
         .receive_block_impl(

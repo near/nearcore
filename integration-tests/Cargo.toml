@@ -15,6 +15,7 @@ workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
+bytesize.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 clap.workspace = true
