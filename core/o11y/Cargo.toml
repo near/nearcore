@@ -45,9 +45,9 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-fmt/nightly",
   "near-primitives-core/nightly",
+  "nightly_protocol",
 ]
 io_trace = [ "near-fmt", "strum" ]
 

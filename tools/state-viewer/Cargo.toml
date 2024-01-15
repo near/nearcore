@@ -57,7 +57,6 @@ testlib.workspace = true
 [features]
 sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-client/sandbox"]
 nightly = [
-  "nightly_protocol",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-client/nightly",
@@ -68,7 +67,9 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
+  "testlib/nightly",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
@@ -82,4 +83,5 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
+  "testlib/nightly_protocol",
 ]

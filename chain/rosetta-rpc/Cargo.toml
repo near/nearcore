@@ -44,6 +44,7 @@ near-actix-test-utils.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-actix-test-utils/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-client/nightly_protocol",
@@ -54,7 +55,7 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-actix-test-utils/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-client/nightly",
@@ -62,5 +63,6 @@ nightly = [
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
 ]

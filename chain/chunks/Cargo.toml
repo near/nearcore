@@ -58,7 +58,6 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
@@ -68,6 +67,7 @@ nightly = [
   "near-pool/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
+  "nightly_protocol",
 ]
 byzantine_asserts = ["near-chain/byzantine_asserts"]
 expensive_tests = []

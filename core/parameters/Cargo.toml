@@ -33,8 +33,8 @@ insta.workspace = true
 
 [features]
 nightly = [
-  "nightly_protocol",
   "near-primitives-core/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
   "near-primitives-core/nightly_protocol",

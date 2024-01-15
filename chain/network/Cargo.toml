@@ -77,12 +77,12 @@ nightly_protocol = [
   "near-store/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-async/nightly",
   "near-fmt/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",
   "near-store/nightly",
+  "nightly_protocol",
 ]
 performance_stats = [
     "near-performance-metrics/performance_stats",

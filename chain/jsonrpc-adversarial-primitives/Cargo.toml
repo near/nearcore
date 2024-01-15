@@ -21,7 +21,7 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-primitives/nightly",
+  "nightly_protocol",
 ]
 test_features = []

@@ -110,10 +110,10 @@ protocol_feature_fix_contract_loading_cost = [
 ]
 
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = []
 io_trace = []
