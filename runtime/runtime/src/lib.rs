@@ -363,9 +363,6 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::ReadExternalData() => {
-                // TODO
-            }
             Action::Transfer(transfer) => {
                 if let Some(account) = account.as_mut() {
                     action_transfer(account, transfer)?;
@@ -447,6 +444,9 @@ impl Runtime {
                     signed_delegate_action,
                     &mut result,
                 )?;
+            }
+            Action::ReadExternalData() => {
+                action_read_external_data(promise_results, action_index, &mut result);
             }
         };
         Ok(result)

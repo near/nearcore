@@ -34,7 +34,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{VMContext, VMOutcome};
+use near_vm_runner::logic::{ReturnData, VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -754,6 +754,29 @@ pub(crate) fn apply_delegate_action(
     result.new_receipts.push(new_receipt);
 
     Ok(())
+}
+
+pub(crate) fn action_read_external_data(
+    promise_results: &[PromiseResult],
+    action_index: usize,
+    result: &mut ActionResult,
+) {
+    if promise_results.len() != 1 {
+        // TODO: distinguish this type of error from the case below
+        result.result = Err(ActionError {
+            index: Some(action_index as u64),
+            kind: ActionErrorKind::ReadExternalDataError,
+        });
+        return;
+    }
+
+    result.result = match &promise_results[0] {
+        PromiseResult::Successful(data) => Ok(ReturnData::Value(data.to_vec())),
+        _ => Err(ActionError {
+            index: Some(action_index as u64),
+            kind: ActionErrorKind::ReadExternalDataError,
+        }),
+    };
 }
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
