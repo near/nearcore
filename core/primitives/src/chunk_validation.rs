@@ -100,9 +100,9 @@ pub struct ChunkStateTransition {
 /// chunk validator has verified that the chunk state witness is correct.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkEndorsement {
-    pub account_id: AccountId,
     inner: ChunkEndorsementInner,
-    signature: Signature,
+    pub account_id: AccountId,
+    pub signature: Signature,
 }
 
 impl ChunkEndorsement {

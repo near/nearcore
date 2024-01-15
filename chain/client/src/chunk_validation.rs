@@ -542,6 +542,23 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
+        let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
+
+        // Note that we are using the chunk_header.height_created param here to determine the block_producer
+        // This only works when height created for a chunk is the same as the height_included during block production
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let block_producer =
+            self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+        // Verify that we are the block producer for this height.
+        if !self
+            .validator_signer
+            .as_ref()
+            .is_some_and(|my_signer| my_signer.validator_id() == &block_producer)
+        {
+            tracing::error!(target: "chunk_validation", ?endorsement, ?block_producer, "Received chunk endorsement for non-block producer.");
+            return Err(Error::InvalidChunkEndorsement);
+        }
 
         // If we have already processed this chunk endorsement, return early.
         if self
@@ -554,7 +571,6 @@ impl Client {
             return Ok(());
         }
 
-        let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
         if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
             tracing::error!(target: "chunk_validation", ?endorsement, "Invalid chunk endorsement.");
             return Err(Error::InvalidChunkEndorsement);

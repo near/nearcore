@@ -968,7 +968,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
         chunk_header: &ShardChunkHeader,
         endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error> {
+        if &chunk_header.chunk_hash() != endorsement.chunk_hash() {
+            return Err(Error::InvalidChunkEndorsement);
+        }
         let epoch_id = self.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        // Note that we are using the chunk_header.height_created param here to determine the chunk validators
+        // This only works when height created for a chunk is the same as the height_included during block production
         let chunk_validators = self.get_chunk_validators(
             &epoch_id,
             chunk_header.shard_id(),
@@ -977,14 +982,11 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if !chunk_validators.contains_key(&endorsement.account_id) {
             return Err(Error::NotAValidator);
         }
-        let (validator, is_slashed) = self.get_validator_by_account_id(
+        let (validator, _) = self.get_validator_by_account_id(
             &epoch_id,
             chunk_header.prev_block_hash(),
             &endorsement.account_id,
         )?;
-        if is_slashed {
-            return Ok(false);
-        }
         Ok(endorsement.verify(validator.public_key()))
     }
 
