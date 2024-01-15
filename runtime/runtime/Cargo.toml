@@ -33,7 +33,7 @@ near-parameters.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
 near-store.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = [ "wasmer0_vm", "wasmer2_vm", "near_vm", "wasmtime_vm" ] }
 near-wallet-contract.workspace = true
 
 [features]
