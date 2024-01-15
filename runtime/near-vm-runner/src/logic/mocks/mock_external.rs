@@ -61,6 +61,9 @@ pub enum MockAction {
         public_key: near_crypto::PublicKey,
         nonce: u64,
     },
+    ReadExternalData {
+        receipt_index: ReceiptIndex,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -268,6 +271,14 @@ impl External for MockedExternal {
         beneficiary_id: AccountId,
     ) -> Result<(), crate::logic::VMLogicError> {
         self.action_log.push(MockAction::DeleteAccount { receipt_index, beneficiary_id });
+        Ok(())
+    }
+
+    fn append_action_read_external_data(
+        &mut self,
+        receipt_index: ReceiptIndex,
+    ) -> Result<(), crate::logic::VMLogicError> {
+        self.action_log.push(MockAction::ReadExternalData { receipt_index });
         Ok(())
     }
 

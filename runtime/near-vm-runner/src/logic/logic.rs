@@ -2068,7 +2068,9 @@ impl<'a> VMLogic<'a> {
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
 
-        // TODO:  somehow set that data as the return value for the promise
+        // TODO pay gas for this?
+        self.ext.append_action_read_external_data(new_receipt_idx)?;
+
         Ok((new_promise_idx, data_id))
     }
 
