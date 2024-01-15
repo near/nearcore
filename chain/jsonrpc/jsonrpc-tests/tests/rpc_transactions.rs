@@ -107,7 +107,7 @@ fn test_send_tx_commit() {
             FinalExecutionStatus::SuccessValue(Vec::new())
         );
         assert!(
-            vec![TxExecutionStatus::Executed, TxExecutionStatus::Final]
+            [TxExecutionStatus::Executed, TxExecutionStatus::Final]
                 .contains(&result.final_execution_status),
             "All the receipts should be already executed"
         );

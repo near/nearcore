@@ -475,6 +475,7 @@ impl NightshadeRuntime {
             total_balance_burnt,
             proof: apply_result.proof,
             processed_delayed_receipts: apply_result.processed_delayed_receipts,
+            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         };
 
         Ok(result)
@@ -887,7 +888,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             Ok(result) => Ok(result),
             Err(e) => match e {
                 Error::StorageError(err) => match &err {
-                    StorageError::FlatStorageBlockNotSupported(_) => Err(err.into()),
+                    StorageError::FlatStorageBlockNotSupported(_)
+                    | StorageError::MissingTrieValue(..) => Err(err.into()),
                     _ => panic!("{err}"),
                 },
                 _ => Err(e),

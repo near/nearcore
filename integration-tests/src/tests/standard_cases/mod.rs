@@ -750,7 +750,7 @@ pub fn test_add_existing_key(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::AddKeyAlreadyExists {
                     account_id: account_id.clone(),
-                    public_key: node.signer().public_key()
+                    public_key: node.signer().public_key().into()
                 }
             }
             .into()
@@ -802,7 +802,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::DeleteKeyDoesNotExist {
                     account_id: account_id.clone(),
-                    public_key: signer2.public_key.clone()
+                    public_key: signer2.public_key.clone().into()
                 }
             }
             .into()
@@ -840,7 +840,7 @@ pub fn test_delete_key_last(node: impl Node) {
                     InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::AccessKeyNotFound {
                             account_id: account_id.clone(),
-                            public_key: node.signer().public_key(),
+                            public_key: node.signer().public_key().into(),
                         },
                     )
                 ))

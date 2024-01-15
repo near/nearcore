@@ -32,6 +32,7 @@ pub mod test_utils;
 pub mod types;
 pub mod validate;
 
+pub mod sharding;
 #[cfg(test)]
 mod tests;
 mod update_shard;

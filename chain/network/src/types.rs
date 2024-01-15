@@ -18,7 +18,7 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsementMessage, ChunkStateWitness};
+use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
@@ -251,7 +251,6 @@ pub enum NetworkRequests {
     },
     /// Forwarding a chunk part to a validator tracking the shard
     PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
-
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
@@ -260,9 +259,8 @@ pub enum NetworkRequests {
     Challenge(Challenge),
     /// A chunk's state witness.
     ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
-    /// Message for a chunk endorsement, sent by a chunk validator to
-    /// the block producer.
-    ChunkEndorsement(ChunkEndorsementMessage),
+    /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
+    ChunkEndorsement(AccountId, ChunkEndorsement),
 }
 
 /// Combines peer address info, chain.

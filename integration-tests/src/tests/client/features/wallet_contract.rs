@@ -173,7 +173,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
     let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
         InvalidAccessKeyError::AccessKeyNotFound {
             account_id: eth_implicit_account_id.clone(),
-            public_key: public_key.clone(),
+            public_key: public_key.clone().into(),
         },
     ));
     assert_eq!(response, expected_tx_error);

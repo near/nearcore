@@ -227,10 +227,10 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
             .unwrap(),
         &next_height,
     )
-    .expect(&std::format!("Failed to copy block at height {} to cold db", next_height));
+    .unwrap_or_else(|_| panic!("Failed to copy block at height {} to cold db", next_height));
 
     update_cold_head(&*store.cold_db().unwrap(), &store.get_hot_store(), &next_height)
-        .expect(&std::format!("Failed to update cold HEAD to {}", next_height));
+        .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", next_height));
 }
 
 fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
@@ -256,7 +256,7 @@ fn copy_all_blocks(storage: &NodeStorage, batch_size: usize, check: bool) {
     // Setting cold head to hot_final_head captured BEFORE the start of initial migration.
     // Doesn't really matter here, but very important in case of migration during `neard run`.
     update_cold_head(&*storage.cold_db().unwrap(), &storage.get_hot_store(), &hot_final_head)
-        .expect(&std::format!("Failed to update cold HEAD to {}", hot_final_head));
+        .unwrap_or_else(|_| panic!("Failed to update cold HEAD to {}", hot_final_head));
 
     if check {
         for col in DBCol::iter() {
@@ -306,7 +306,7 @@ fn get_ser_from_store<T: near_primitives::borsh::BorshDeserialize>(
     col: DBCol,
     key: &[u8],
 ) -> Option<T> {
-    store.get_ser(col, key).expect(&std::format!("Error reading {} {:?} from store", col, key,))
+    store.get_ser(col, key).unwrap_or_else(|_| panic!("Error reading {} {:?} from store", col, key))
 }
 
 #[derive(clap::Parser)]

@@ -1198,6 +1198,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_balance_burnt: 0,
             proof: None,
             processed_delayed_receipts: vec![],
+            applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
     }
 
