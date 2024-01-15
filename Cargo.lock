@@ -4219,6 +4219,7 @@ dependencies = [
  "derive_more",
  "easy-ext",
  "enum-map",
+ "expect-test",
  "hex",
  "insta",
  "near-crypto",

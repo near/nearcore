@@ -1,12 +1,12 @@
 use crate::test_utils::{gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
+use crate::trie::TrieNodesCount;
 use crate::{PartialStorage, Trie, TrieUpdate};
 use assert_matches::assert_matches;
 use near_primitives::challenge::PartialState;
 use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::types::TrieNodesCount;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::cell::RefCell;

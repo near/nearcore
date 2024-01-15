@@ -271,7 +271,8 @@ pub(crate) fn action_function_call(
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
-        let action_err: ActionError = ActionErrorKind::FunctionCallError(err.into()).into();
+        let action_err: ActionError =
+            ActionErrorKind::FunctionCallError(crate::conversions::Convert::convert(err)).into();
         result.result = Err(action_err);
     }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;

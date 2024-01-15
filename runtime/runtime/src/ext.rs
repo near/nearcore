@@ -1,10 +1,9 @@
+use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{
-    AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode, TrieNodesCount,
-};
+use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
@@ -185,8 +184,8 @@ impl<'a> External for RuntimeExt<'a> {
         data_id
     }
 
-    fn get_trie_nodes_count(&self) -> TrieNodesCount {
-        self.trie_update.trie().get_trie_nodes_count()
+    fn get_trie_nodes_count(&self) -> near_vm_runner::logic::TrieNodesCount {
+        Convert::convert(self.trie_update.trie().get_trie_nodes_count())
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
