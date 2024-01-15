@@ -20,7 +20,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
 };
-pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
@@ -30,8 +29,8 @@ use near_primitives::transaction::{
 };
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
     create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
@@ -44,6 +43,7 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
@@ -65,6 +65,42 @@ pub mod state_viewer;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
+
+#[derive(Debug)]
+pub struct ApplyState {
+    /// Currently building block height.
+    pub block_height: BlockHeight,
+    /// Prev block hash
+    pub prev_block_hash: CryptoHash,
+    /// Current block hash
+    pub block_hash: CryptoHash,
+    /// Current epoch id
+    pub epoch_id: EpochId,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
+    /// Price for the gas.
+    pub gas_price: Balance,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub block_timestamp: u64,
+    /// Gas limit for a given chunk.
+    /// If None is given, assumes there is no gas limit.
+    pub gas_limit: Option<Gas>,
+    /// Current random seed (from current block vrf output).
+    pub random_seed: CryptoHash,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
+    /// The Runtime config to use for the current transition.
+    pub config: Arc<RuntimeConfig>,
+    /// Cache for compiled contracts.
+    pub cache: Option<Box<dyn CompiledContractCache>>,
+    /// Whether the chunk being applied is new.
+    pub is_new_chunk: bool,
+    /// Data for migrations that may need to be applied at the start of an epoch when protocol
+    /// version changes
+    pub migration_data: Arc<MigrationData>,
+    /// Flags for migrations indicating whether they can be applied at this block
+    pub migration_flags: MigrationFlags,
+}
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -2610,17 +2646,14 @@ mod tests {
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
+    use super::Runtime;
+    use crate::{ApplyState, ApplyStats};
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
-    use near_primitives::runtime::apply_state::ApplyState;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
     use near_store::TrieUpdate;
-
-    use crate::ApplyStats;
-
-    use super::Runtime;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,
