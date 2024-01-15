@@ -781,8 +781,8 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
                 break;
             }
-            if let Some(tlimit) = &time_limit {
-                if start_time.elapsed() >= *tlimit {
+            if let Some(time_limit) = &time_limit {
+                if start_time.elapsed() >= *time_limit {
                     result.limited_by = Some(PrepareTransactionsLimit::Time);
                     break;
                 }
