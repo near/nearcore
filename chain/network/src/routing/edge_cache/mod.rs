@@ -111,7 +111,7 @@ impl EdgeCache {
     pub fn has_edge_nonce_or_newer(&self, edge: &Edge) -> bool {
         self.verified_nonces
             .get(&edge.key().into())
-            .map_or(false, |cached_nonce| cached_nonce >= &edge.nonce())
+            .is_some_and(|cached_nonce| cached_nonce >= &edge.nonce())
     }
 
     /// Returns the u32 id associated with the given PeerId.
