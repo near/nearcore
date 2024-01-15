@@ -2047,25 +2047,39 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// TODO
     ///
-    pub fn promise_create_awaiting_data(
+    pub fn promise_await_data(
         &mut self,
         account_id_len: u64,
         account_id_ptr: u64,
         _yield_num_blocks: u64,
     ) -> Result<(u64, CryptoHash)> {
-        let new_promise_idx = self.promise_batch_create(account_id_len, account_id_ptr)?;
-        // so here we want to create an input data dependency for this "batch"
-        // and somehow set that data as the return value for the promise
-        let data_id = CryptoHash::new(); // TODO
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_await_data".to_string(),
+            }
+            .into());
+        }
+        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
+        let sir = account_id == self.context.current_account_id;
+        self.pay_gas_for_new_receipt(sir, &[])?;
+
+        let (new_receipt_idx, data_id) = self.ext.create_receipt_awaiting_data(account_id)?;
+
+        let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
+
+        // TODO:  somehow set that data as the return value for the promise
         Ok((new_promise_idx, data_id))
     }
 
     /// Submits the data for a promise which is awaiting its value.
-    /// See `promise_create_awaiting_data`.
+    /// See `promise_await_data`.
     ///
     /// TODO: We need to make sure that ONLY those `data_ids` which were created by
-    /// promise_create_awaiting_data above can be passed here. It should not be possible to
+    /// promise_await_data above can be passed here. It should not be possible to
     /// interfere with other kinds of promises by creating the DataReceipts they expect.
+    /// Also, only the account which called promise_await_data should be allowed to
+    /// respond with promise_submit_data.
     ///
     /// # Errors
     ///
