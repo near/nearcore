@@ -253,7 +253,7 @@ be needed in next epoch (X+2).</p>
 <li>batch_size - controls the size of batches in which resharding moves data around. Setting a smaller batch size will slow down the resharding process and make it less resource consuming.</li>
 <li>batch_delay - controls the delay between processing of batches. Setting a smaller batch delay will speed up the resharding process and make it more resource consuming. </li>
 </ul>
-<p>The remainig fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
+<p>The remaining fields in the ReshardingConfig are only intended for testing purposes and should remain set to their default values. </p>
 <p>The default configuration for ReshardingConfig should provide a good and safe setting for resharding in the production networks. There is no need for node operators to make any changes to it unless they observe issues. </p>
 <p>The resharding config can be adjusted at runtime, without restarting the node. The config needs to be updated first and then a SIGHUP signal should be sent to the neard process. When received the signal neard will update the config and print a log message showing what fields were changed. It's recommended to check the log to make sure the relevant config change was correctly picked up. </p>
 <h2 id="future-possibilities"><a class="header" href="#future-possibilities">Future possibilities</a></h2>
