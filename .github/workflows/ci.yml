@@ -58,6 +58,9 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-audit
 
       # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
@@ -294,16 +297,6 @@ jobs:
         with:
           crate: just
       - run: just check-non-default
-
-  cargo_audit:
-    name: "Cargo Audit"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-audit
-      - run: cargo audit -D warnings
 
   upload_coverage:
     name: "Upload Coverage"

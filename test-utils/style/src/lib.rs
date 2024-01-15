@@ -77,3 +77,10 @@ fn themis() {
     cmd.args(&["run", "--locked", "-p", "themis"]);
     ensure_success(cmd);
 }
+
+#[test]
+fn audit() {
+    let mut cmd = cargo(None);
+    cmd.args(&["audit", "-D", "warnings"]);
+    ensure_success(cmd);
+}
