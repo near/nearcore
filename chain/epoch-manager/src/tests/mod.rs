@@ -2668,7 +2668,7 @@ fn test_verify_chunk_endorsements() {
     let validators = vec![(account_id.clone(), amount_staked)];
     let h = hash_range(6);
 
-    let mut epoch_manager = setup_default_epoch_manager(validators.clone(), 5, 1, 2, 2, 90, 60);
+    let mut epoch_manager = setup_default_epoch_manager(validators, 5, 1, 2, 2, 90, 60);
     record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
     record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
 
