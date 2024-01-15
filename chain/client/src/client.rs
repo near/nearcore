@@ -983,43 +983,44 @@ impl Client {
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let prepared = if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
-            let transaction_validity_period = chain.transaction_validity_period;
-            runtime.prepare_transactions(
-                prev_block_header.next_gas_price(),
-                gas_limit,
-                &next_epoch_id,
-                shard_id,
-                state_root,
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
-                prev_block_header.height() + 1,
-                &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .chain_store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
-                protocol_version,
-                self.config.produce_chunk_add_transactions_time_limit.get(),
-            )?
-        } else {
-            PreparedTransactions { transactions: Vec::new(), limited_by: None }
-        };
+        let prepared_transactions =
+            if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
+                let transaction_validity_period = chain.transaction_validity_period;
+                runtime.prepare_transactions(
+                    prev_block_header.next_gas_price(),
+                    gas_limit,
+                    &next_epoch_id,
+                    shard_id,
+                    state_root,
+                    // while the height of the next block that includes the chunk might not be prev_height + 1,
+                    // passing it will result in a more conservative check and will not accidentally allow
+                    // invalid transactions to be included.
+                    prev_block_header.height() + 1,
+                    &mut iter,
+                    &mut |tx: &SignedTransaction| -> bool {
+                        chain
+                            .chain_store()
+                            .check_transaction_validity_period(
+                                prev_block_header,
+                                &tx.transaction.block_hash,
+                                transaction_validity_period,
+                            )
+                            .is_ok()
+                    },
+                    protocol_version,
+                    self.config.produce_chunk_add_transactions_time_limit.get(),
+                )?
+            } else {
+                PreparedTransactions { transactions: Vec::new(), limited_by: None }
+            };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
-        let reintroduced_count =
-            sharded_tx_pool.reintroduce_transactions(shard_uid, &prepared.transactions);
-        if reintroduced_count < prepared.transactions.len() {
-            debug!(target: "client", reintroduced_count, num_tx = prepared.transactions.len(), "Reintroduced transactions");
+        let reintroduced_count = sharded_tx_pool
+            .reintroduce_transactions(shard_uid, &prepared_transactions.transactions);
+        if reintroduced_count < prepared_transactions.transactions.len() {
+            debug!(target: "client", reintroduced_count, num_tx = prepared_transactions.transactions.len(), "Reintroduced transactions");
         }
-        Ok(prepared)
+        Ok(prepared_transactions)
     }
 
     pub fn send_challenges(&mut self, challenges: Vec<ChallengeBody>) {
