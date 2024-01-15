@@ -995,15 +995,8 @@ pub(crate) fn check_account_existence(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
-        | Action::DeleteAccount(_) => {
-            if account.is_none() {
-                return Err(ActionErrorKind::AccountDoesNotExist {
-                    account_id: account_id.clone(),
-                }
-                .into());
-            }
-        }
-        Action::Delegate(_) => {
+        | Action::DeleteAccount(_)
+        | Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),
