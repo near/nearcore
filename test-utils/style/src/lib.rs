@@ -77,3 +77,12 @@ fn themis() {
     cmd.args(&["run", "--locked", "-p", "themis"]);
     ensure_success(cmd);
 }
+
+#[test]
+fn udeps() {
+    let mut cmd = cargo(Some("udeps"));
+    cmd.env("RUSTUP_TOOLCHAIN", "nightly");
+    cmd.env("RUSTFLAGS", "--cfg udeps");
+    cmd.args(&["udeps"]);
+    ensure_success(cmd);
+}

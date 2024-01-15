@@ -21,7 +21,6 @@ crossbeam.workspace = true
 derive_more.workspace = true
 elastic-array.workspace = true
 enum-map.workspace = true
-fs2.workspace = true
 hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true

@@ -26,7 +26,6 @@ serde_json.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-validator.workspace = true
 
 near-account-id.workspace = true
 near-chain-configs.workspace = true

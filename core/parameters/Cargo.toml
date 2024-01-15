@@ -12,7 +12,6 @@ publish = true
 workspace = true
 
 [dependencies]
-assert_matches.workspace = true
 enum-map.workspace = true
 num-rational.workspace = true
 serde.workspace = true
@@ -29,6 +28,7 @@ near-primitives-core.workspace = true
 near-account-id.workspace = true
 
 [dev-dependencies]
+assert_matches.workspace = true
 insta.workspace = true
 
 [features]

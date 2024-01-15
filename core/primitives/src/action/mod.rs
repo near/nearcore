@@ -183,7 +183,7 @@ pub enum Action {
 // we come back up to 32 bytes later on.
 // If compiling with nightly, this check may fail due to new optimizations introduced by
 // rustc. So, cfg-them out, as our production system only runs with stable.
-#[cfg(not(fuzz))]
+#[cfg(not(any(fuzz, udeps)))]
 const _: () = assert!(
     cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
     "Action is 32 bytes for performance reasons, see #9451"

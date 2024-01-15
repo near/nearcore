@@ -15,7 +15,6 @@ workspace = true
 blake2.workspace = true
 borsh.workspace = true
 bs58.workspace = true
-c2-chacha.workspace = true
 curve25519-dalek.workspace = true
 derive_more.workspace = true
 ed25519-dalek.workspace = true
