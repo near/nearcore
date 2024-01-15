@@ -1,3 +1,4 @@
+use crate::conversions::Convert;
 use crate::receipt_manager::ReceiptManager;
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
@@ -184,11 +185,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn get_trie_nodes_count(&self) -> near_vm_runner::logic::TrieNodesCount {
-        let store_trie_nodes_count = self.trie_update.trie().get_trie_nodes_count();
-        near_vm_runner::logic::TrieNodesCount {
-            db_reads: store_trie_nodes_count.db_reads,
-            mem_reads: store_trie_nodes_count.mem_reads,
-        }
+        Convert::convert(self.trie_update.trie().get_trie_nodes_count())
     }
 
     fn validator_stake(&self, account_id: &AccountId) -> ExtResult<Option<Balance>> {
