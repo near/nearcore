@@ -77,6 +77,7 @@ pub fn update_cold_db(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
+    num_threads: usize,
 ) -> io::Result<bool> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
@@ -92,22 +93,33 @@ pub fn update_cold_db(
     let key_type_to_keys =
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
     let cold_columns = DBCol::iter().filter(|col| col.is_cold()).collect::<Vec<DBCol>>();
-    cold_columns
-        .into_par_iter()
-        .map(|col: DBCol| -> io::Result<()> {
-            if col == DBCol::State {
-                copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
-            } else {
-                let keys = combine_keys(&key_type_to_keys, &col.key_type());
-                copy_from_store(cold_db, &hot_store, col, keys)
-            }
-        })
-        .reduce(
-            || Ok(()),
-            |left, right| -> io::Result<()> {
-                vec![left, right].into_iter().filter(|res| res.is_err()).next().unwrap_or(Ok(()))
-            },
-        )?;
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create rayon pool"))?
+        .install(|| {
+            cold_columns
+                .into_par_iter()
+                .map(|col: DBCol| -> io::Result<()> {
+                    if col == DBCol::State {
+                        copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
+                    } else {
+                        let keys = combine_keys(&key_type_to_keys, &col.key_type());
+                        copy_from_store(cold_db, &hot_store, col, keys)
+                    }
+                })
+                .reduce(
+                    || Ok(()),
+                    |left, right| -> io::Result<()> {
+                        vec![left, right]
+                            .into_iter()
+                            .filter(|res| res.is_err())
+                            .next()
+                            .unwrap_or(Ok(()))
+                    },
+                )
+        })?;
 
     Ok(true)
 }
@@ -528,7 +540,7 @@ impl ColdMigrationStore for Store {
 
     fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
-       Ok(self.get(column, key)?.map(|x| x.as_slice().to_vec()))
+        Ok(self.get(column, key)?.map(|x| x.as_slice().to_vec()))
     }
 
     fn get_ser_for_cold<T: BorshDeserialize>(
