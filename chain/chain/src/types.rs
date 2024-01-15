@@ -311,8 +311,8 @@ pub struct ApplyChunkShardContext<'a> {
     pub is_first_block_with_chunk_of_version: bool,
 }
 
-// Contains transactions that were fetched from the transaction pool
-// and prepared for adding them to a new chunk that is being produced.
+/// Contains transactions that were fetched from the transaction pool
+/// and prepared for adding them to a new chunk that is being produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTransactions {
     /// Prepared transactions
@@ -321,9 +321,9 @@ pub struct PreparedTransactions {
     pub limited_by: Option<PrepareTransactionsLimit>,
 }
 
-// Chunk producer prepares transactions from the transaction pool
-// until it hits some limit (too many transactions, too much gas used, etc).
-// This enum describes which limit was hit when preparing transactions.
+/// Chunk producer prepares transactions from the transaction pool
+/// until it hits some limit (too many transactions, too much gas used, etc).
+/// This enum describes which limit was hit when preparing transactions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
 pub enum PrepareTransactionsLimit {
     Gas,
