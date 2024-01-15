@@ -444,11 +444,6 @@ impl StoreWithCache<'_> {
 
     pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
         if !self.cache.contains_key(&(column, key.to_vec())) {
-            // All needed State key-value pairs were inserted in cache from TrieChanges in `insert_state_to_cache_from_op`.
-            // So, we will only read None from store with this key.
-            if column == DBCol::State {
-                return Ok(None);
-            }
             crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
             self.cache.insert(
                 (column, key.to_vec()),
