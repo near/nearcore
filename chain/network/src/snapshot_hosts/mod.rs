@@ -217,7 +217,7 @@ impl Inner {
             if new_peers.len() < max_entries_added {
                 do_insert(&mut new_peers, peer_id.clone(), part_id, score);
             } else {
-                let worst_score = new_peers.last_key_value().unwrap().0.clone();
+                let worst_score = *new_peers.last_key_value().unwrap().0;
                 // we say <= instead of < to emphasize the warn! log in do_insert()
                 if score <= worst_score {
                     do_insert(&mut new_peers, peer_id.clone(), part_id, score);
