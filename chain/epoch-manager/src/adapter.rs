@@ -24,7 +24,9 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
+#[cfg(feature = "new_epoch_sync")]
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager.
