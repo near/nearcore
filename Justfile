@@ -94,7 +94,7 @@ codecov RULE:
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
     cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS > env
     source ./env
-    export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
+    export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/coverage-wrapper-rustc") }}"
     {{ just_executable() }} {{ RULE }}
     cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
     # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
