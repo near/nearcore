@@ -1014,6 +1014,7 @@ impl Chain {
             Err(err) => return Err(err.into()),
         };
         let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
         if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
@@ -1024,6 +1025,14 @@ impl Chain {
             }
             if block.header().block_body_hash() != block_body_hash {
                 tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
+                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+            }
+        }
+
+        // Check that block has chunk endorsements.
+        if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
+            if block.chunk_endorsements().is_empty() {
+                tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
                 return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
             }
         }

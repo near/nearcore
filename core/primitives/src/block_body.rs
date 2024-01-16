@@ -40,6 +40,8 @@ pub struct BlockBodyV2 {
     // for each shard got from fn get_ordered_chunk_validators
     // chunk_endorsements[shard_id][chunk_validator_index] is the signature (if present).
     // If the chunk_validator did not endorse the chunk, the signature is None.
+    // For cases of missing chunk, we include the chunk endorsements from the previous
+    // block just like we do for chunks.
     pub chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
 }
 
@@ -114,9 +116,10 @@ impl BlockBody {
     }
 
     pub fn compute_hash(&self) -> CryptoHash {
+        // From BlockBodyV2 onwards, we hash the entire body including version.
         match self {
             BlockBody::V1(body) => body.compute_hash(),
-            BlockBody::V2(body) => CryptoHash::hash_borsh(body),
+            _ => CryptoHash::hash_borsh(self),
         }
     }
 }

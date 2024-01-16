@@ -174,6 +174,7 @@ impl Block {
                 vrf_proof: *body.vrf_proof(),
             }))
         } else if !checked_feature!("stable", ChunkValidation, this_epoch_protocol_version) {
+            // BlockV3 should only have BlockBodyV1
             match body {
                 BlockBody::V1(body) => Block::BlockV3(Arc::new(BlockV3 { header, body })),
                 _ => {
@@ -181,7 +182,14 @@ impl Block {
                 }
             }
         } else {
-            Block::BlockV4(Arc::new(BlockV4 { header, body }))
+            // BlockV4 and BlockBodyV2 were introduced in the same protocol version `ChunkValidation`
+            // We should not expect BlockV4 to have BlockBodyV1
+            match body {
+                BlockBody::V1(_) => {
+                    panic!("Attempted to include BlockBodyV1 in new protocol version")
+                }
+                _ => Block::BlockV4(Arc::new(BlockV4 { header, body })),
+            }
         }
     }
 
@@ -571,6 +579,16 @@ impl Block {
             Block::BlockV2(block) => &block.vrf_proof,
             Block::BlockV3(block) => &block.body.vrf_proof,
             Block::BlockV4(block) => &block.body.vrf_proof(),
+        }
+    }
+
+    #[inline]
+    pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
+        match self {
+            Block::BlockV1(_) => &[],
+            Block::BlockV2(_) => &[],
+            Block::BlockV3(_) => &[],
+            Block::BlockV4(block) => block.body.chunk_endorsements(),
         }
     }
 
