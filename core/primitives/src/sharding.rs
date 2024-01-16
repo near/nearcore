@@ -279,10 +279,6 @@ impl ShardChunkHeader {
         }
     }
 
-    pub fn is_new_chunk(&self) -> bool {
-        self.height_created() == self.height_included()
-    }
-
     #[inline]
     pub fn prev_validator_proposals(&self) -> ValidatorStakeIter {
         match self {

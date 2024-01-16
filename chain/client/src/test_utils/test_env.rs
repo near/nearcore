@@ -293,6 +293,7 @@ impl TestEnv {
                 tracing::debug_span!(target: "test", "get_all_chunk_endorsements", client=idx)
                     .entered();
 
+            self.clients[idx].chunk_validator.wait_for_chunks_in_validation();
             self.network_adapters[idx].handle_filtered(|msg| {
                 if let PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::ChunkEndorsement(_, endorsement),
