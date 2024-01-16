@@ -69,7 +69,6 @@ members = [
     "test-utils/runtime-tester/fuzz",
     "test-utils/store-validator",
     "test-utils/testlib",
-    "test-utils/style",
     "tools/database",
     "tools/chainsync-loadtest",
     "tools/fork-network",
