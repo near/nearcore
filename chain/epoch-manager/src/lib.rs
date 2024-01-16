@@ -3,6 +3,7 @@ use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
+use near_primitives::chunk_validation::ChunkValidators;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
@@ -18,7 +19,6 @@ use near_primitives::types::{
     EpochInfoProvider, NumBlocks, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -142,6 +142,8 @@ pub struct EpochManager {
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+    /// Cache for chunk_validators
+    chunk_validators_cache: SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidators>>,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
     /// Used for tests as a bit of white-box testing.
@@ -235,6 +237,7 @@ impl EpochManager {
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
+            chunk_validators_cache: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_info_aggregator,
             #[cfg(test)]
             epoch_info_aggregator_loop_counter: Default::default(),
@@ -923,22 +926,31 @@ impl EpochManager {
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<Arc<ChunkValidators>, EpochError> {
+        let cache_key = (epoch_id.clone(), shard_id, height);
+        if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
+            return Ok(chunk_validators);
+        }
+
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
-        let chunk_validators =
-            chunk_validators_per_shard.get(shard_id as usize).ok_or_else(|| {
-                EpochError::ChunkValidatorSelectionError(format!(
-                    "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
-                    shard_id, height, epoch_id,
-                ))
-            })?;
-        Ok(chunk_validators
-            .iter()
-            .map(|(validator_id, seats)| {
-                (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
-            })
-            .collect())
+        for (shard_id, chunk_validators) in chunk_validators_per_shard.iter().enumerate() {
+            let chunk_validators = chunk_validators
+                .iter()
+                .map(|(validator_id, seats)| {
+                    (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
+                })
+                .collect();
+            let cache_key = (epoch_id.clone(), shard_id as ShardId, height);
+            self.chunk_validators_cache.put(cache_key, Arc::new(chunk_validators));
+        }
+
+        self.chunk_validators_cache.get(&cache_key).ok_or_else(|| {
+            EpochError::ChunkValidatorSelectionError(format!(
+                "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
+                shard_id, height, epoch_id,
+            ))
+        })
     }
 
     /// get_heuristic_block_approvers_ordered: block producers for epoch

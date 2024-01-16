@@ -528,7 +528,7 @@ impl Client {
             chunk_validators.keys(),
         );
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators.into_keys().collect(), witness),
+            NetworkRequests::ChunkStateWitness(chunk_validators.keys().cloned().collect(), witness),
         ));
         Ok(())
     }
