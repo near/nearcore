@@ -48,7 +48,7 @@ near-parameters = { workspace = true, features = ["clap"] }
 near-primitives.workspace = true
 near-store.workspace = true
 near-test-contracts.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = [ "near_vm", "prepare" ] }
 nearcore.workspace = true
 node-runtime.workspace = true
 

@@ -2662,7 +2662,15 @@ fn test_max_kickout_stake_ratio() {
 }
 
 #[test]
+#[cfg(feature = "nightly")]
 fn test_verify_chunk_endorsements() {
+    use near_chain_primitives::Error;
+    use near_crypto::Signature;
+    use near_primitives::chunk_validation::ChunkEndorsement;
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::test_utils::create_test_signer;
+    use std::str::FromStr;
+
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];

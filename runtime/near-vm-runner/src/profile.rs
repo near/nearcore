@@ -1,13 +1,9 @@
-pub use profile_v2::ProfileDataV2;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::{Compute, Gas};
 use std::fmt;
 use strum::IntoEnumIterator;
-
-mod profile_v2;
 
 /// Profile of gas consumption.
 #[derive(Clone, PartialEq, Eq)]

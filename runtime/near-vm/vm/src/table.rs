@@ -298,7 +298,7 @@ impl Table for LinearTable {
         let vec = vec_guard.borrow_mut();
         let size = self.size();
         let new_len = size.checked_add(delta)?;
-        if self.maximum.map_or(false, |max| new_len > max) {
+        if self.maximum.is_some_and(|max| new_len > max) {
             return None;
         }
         if new_len == size {

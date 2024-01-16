@@ -82,6 +82,7 @@ calimero_zero_storage = []
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+expect-test.workspace = true
 
 [[bench]]
 name = "serialization"

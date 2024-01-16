@@ -187,7 +187,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
     }
 
     // SplitStore should only be used in the view client if it is enabled.
-    if !config.config.split_storage.as_ref().map_or(false, |c| c.enable_split_storage_view_client) {
+    if !config.config.split_storage.as_ref().is_some_and(|c| c.enable_split_storage_view_client) {
         return Ok(None);
     }
 

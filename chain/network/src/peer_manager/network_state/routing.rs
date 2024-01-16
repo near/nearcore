@@ -214,7 +214,7 @@ impl NetworkState {
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
+        self.tier2_route_back.lock().get(&hash).is_some_and(|value| value == peer_id)
     }
 
     /// Accepts NetworkTopologyChange events.
