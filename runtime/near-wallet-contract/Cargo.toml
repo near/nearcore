@@ -22,6 +22,7 @@ near-primitives-core.workspace = true
 anyhow.workspace = true
 
 [features]
+build_wallet_contract = []
 nightly_protocol = [
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
