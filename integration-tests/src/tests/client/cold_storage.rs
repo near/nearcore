@@ -134,7 +134,6 @@ fn test_storage_after_commit_of_cold_update() {
     test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
-    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
