@@ -134,7 +134,6 @@ borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
-c2-chacha = "0.3"
 cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"
@@ -183,7 +182,6 @@ libc = "0.2.81"
 libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
 log = "0.4"
 lru = "0.7.2"
-memmap2 = "0.5"
 memoffset = "0.8"
 more-asserts = "0.2"
 near-account-id = { version = "1.0.0-alpha.4", features = ["internal_unstable", "serde", "borsh"] }
@@ -230,7 +228,6 @@ near-primitives-core = { path = "core/primitives-core" }
 near-rosetta-rpc = { path = "chain/rosetta-rpc" }
 near-rpc-error-core = { path = "tools/rpctypegen/core" }
 near-rpc-error-macro = { path = "tools/rpctypegen/macro" }
-near-stable-hasher = { path = "utils/near-stable-hasher" }
 near-state-parts = { path = "tools/state-parts" }
 near-state-parts-dump-check = { path = "tools/state-parts-dump-check" }
 near-state-viewer = { path = "tools/state-viewer", package = "state-viewer" }
@@ -308,7 +305,6 @@ serde_yaml = "0.9"
 serial_test = "0.5"
 sha2 = "0.10"
 sha3 = "0.10"
-shell-escape = "0.1.5"
 smallvec = "1.6"
 smart-default = "0.6"
 smartstring = "1.0.1"
@@ -343,7 +339,6 @@ tracing-span-tree = "0.1"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter", "fmt", "registry", "std"] }
 trybuild = "1.0.11"
 turn = "0.6"
-validator = "0.12"
 wasm-encoder = "0.27.0"
 wasmer-compiler = { package = "wasmer-compiler-near", version = "=2.4.1" }
 wasmer-compiler-singlepass = { package = "wasmer-compiler-singlepass-near", version = "=2.4.1" }

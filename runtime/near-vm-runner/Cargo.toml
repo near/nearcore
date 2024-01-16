@@ -27,7 +27,6 @@ parity-wasm = { workspace = true, optional = true }
 prefix-sum-vec.workspace = true
 ripemd.workspace = true
 serde_repr.workspace = true
-serde_with.workspace = true
 serde.workspace = true
 sha2.workspace = true
 sha3.workspace = true
@@ -111,10 +110,10 @@ protocol_feature_fix_contract_loading_cost = [
 ]
 
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
 ]
 sandbox = []
 io_trace = []
