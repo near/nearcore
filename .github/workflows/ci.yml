@@ -80,7 +80,7 @@ jobs:
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -90,7 +90,7 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -119,7 +119,7 @@ jobs:
 
   py_db_migration:
     name: "Database Migration"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -216,7 +216,7 @@ jobs:
 
   py_style_check:
     name: "Style"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
@@ -260,7 +260,7 @@ jobs:
 
   rpc_error_schema:
     name: "RPC Schema"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
