@@ -54,13 +54,7 @@ jobs:
           crate: cargo-nextest
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
-          crate: cargo-deny
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
           crate: cargo-llvm-cov
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-udeps
 
       # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
@@ -288,8 +282,51 @@ jobs:
         with:
           fail: true
 
+  check_fmt:
+    name: "Cargo Fmt"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-rustfmt
+
+  check_clippy:
+    name: "Cargo Clippy"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-clippy
+
+  check_cargo_deny:
+    name: "Cargo Deny"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-deny
+      - run: just check-cargo-deny
+
+  check_themis:
+    name: "Themis"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-themis
+
   check_non_default:
-    name: "Non-default configuration builds"
+    name: "Non-default Configuration Builds"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -299,7 +336,7 @@ jobs:
       - run: just check-non-default
 
   check_udeps:
-    name: "Unused dependencies"
+    name: "Unused Dependencies"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
