@@ -13,6 +13,7 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -23,7 +24,7 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -908,6 +909,14 @@ impl EpochManagerAdapter for MockEpochManager {
         } else {
             Ok(())
         }
+    }
+
+    fn verify_chunk_endorsement(
+        &self,
+        _chunk_header: &ShardChunkHeader,
+        _endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error> {
+        Ok(true)
     }
 
     fn cares_about_shard_from_prev_block(

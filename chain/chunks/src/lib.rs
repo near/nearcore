@@ -382,7 +382,7 @@ impl ShardsManager {
 
         for part_ord in 0..self.rs.total_shard_count() {
             let part_ord = part_ord as u64;
-            if cache_entry.map_or(false, |cache_entry| cache_entry.parts.contains_key(&part_ord)) {
+            if cache_entry.is_some_and(|cache_entry| cache_entry.parts.contains_key(&part_ord)) {
                 continue;
             }
 
@@ -1757,7 +1757,7 @@ impl ShardsManager {
                     && self
                         .epoch_manager
                         .get_part_owner(epoch_id, part.part_ord)
-                        .map_or(false, |owner| &owner == me)
+                        .is_ok_and(|owner| &owner == me)
             })
             .cloned()
             .collect();

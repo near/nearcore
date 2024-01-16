@@ -1158,63 +1158,6 @@ pub enum FunctionCallError {
     ExecutionError(String),
 }
 
-impl From<near_vm_runner::logic::errors::MethodResolveError> for MethodResolveError {
-    fn from(outer_err: near_vm_runner::logic::errors::MethodResolveError) -> Self {
-        use near_vm_runner::logic::errors::MethodResolveError as MRE;
-        match outer_err {
-            MRE::MethodEmptyName => Self::MethodEmptyName,
-            MRE::MethodNotFound => Self::MethodNotFound,
-            MRE::MethodInvalidSignature => Self::MethodInvalidSignature,
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::PrepareError> for PrepareError {
-    fn from(outer_err: near_vm_runner::logic::errors::PrepareError) -> Self {
-        use near_vm_runner::logic::errors::PrepareError as PE;
-        match outer_err {
-            PE::Serialization => Self::Serialization,
-            PE::Deserialization => Self::Deserialization,
-            PE::InternalMemoryDeclared => Self::InternalMemoryDeclared,
-            PE::GasInstrumentation => Self::GasInstrumentation,
-            PE::StackHeightInstrumentation => Self::StackHeightInstrumentation,
-            PE::Instantiate => Self::Instantiate,
-            PE::Memory => Self::Memory,
-            PE::TooManyFunctions => Self::TooManyFunctions,
-            PE::TooManyLocals => Self::TooManyLocals,
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::CompilationError> for CompilationError {
-    fn from(outer_err: near_vm_runner::logic::errors::CompilationError) -> Self {
-        use near_vm_runner::logic::errors::CompilationError as CE;
-        match outer_err {
-            CE::CodeDoesNotExist { account_id } => Self::CodeDoesNotExist {
-                account_id: account_id.parse().expect("account_id in error must be valid"),
-            },
-            CE::PrepareError(pe) => Self::PrepareError(pe.into()),
-            CE::WasmerCompileError { msg } => Self::WasmerCompileError { msg },
-        }
-    }
-}
-
-impl From<near_vm_runner::logic::errors::FunctionCallError> for FunctionCallError {
-    fn from(outer_err: near_vm_runner::logic::errors::FunctionCallError) -> Self {
-        use near_vm_runner::logic::errors::FunctionCallError as FCE;
-        match outer_err {
-            FCE::CompilationError(e) => Self::CompilationError(e.into()),
-            FCE::MethodResolveError(e) => Self::MethodResolveError(e.into()),
-            // Note: We deliberately collapse all execution errors for
-            // serialization to make the DB representation less dependent
-            // on specific types in Rust code.
-            FCE::HostError(ref _e) => Self::ExecutionError(outer_err.to_string()),
-            FCE::LinkError { msg } => Self::ExecutionError(format!("Link Error: {}", msg)),
-            FCE::WasmTrap(ref _e) => Self::ExecutionError(outer_err.to_string()),
-        }
-    }
-}
-
 #[cfg(feature = "new_epoch_sync")]
 pub mod epoch_sync {
     use near_primitives_core::hash::CryptoHash;

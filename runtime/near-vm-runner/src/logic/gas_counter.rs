@@ -1,5 +1,5 @@
+use super::dependencies::TrieNodesCount;
 use super::errors::{HostError, VMLogicError};
-use super::TrieNodesCount;
 use crate::ProfileDataV3;
 use near_parameters::ExtCosts::{read_cached_trie_node, touching_trie_node};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};

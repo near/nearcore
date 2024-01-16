@@ -285,6 +285,16 @@ jobs:
         with:
           fail: true
 
+  check_non_default:
+    name: "Non-default configuration builds"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-non-default
+
   cargo_audit:
     name: "Cargo Audit"
     runs-on: ubuntu-latest

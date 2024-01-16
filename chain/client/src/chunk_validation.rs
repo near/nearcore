@@ -14,20 +14,23 @@ use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
-    ChunkEndorsement, ChunkEndorsementInner, ChunkStateTransition, ChunkStateWitness,
-    StoredChunkStateTransitionData,
+    ChunkEndorsement, ChunkStateTransition, ChunkStateWitness, StoredChunkStateTransitionData,
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::EpochId;
+use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::Client;
+
+// This is the number of unique chunks for which we would track the chunk endorsements.
+// Ideally, we should not be processing more than num_shards chunks at a time.
+const NUM_CHUNK_ENDORSEMENTS_CACHE_COUNT: usize = 100;
 
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
@@ -40,6 +43,11 @@ pub struct ChunkValidator {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
+
+    /// We store the validated chunk endorsements received from chunk validators
+    /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
+    /// Chunk endorsements would later be used as a part of block production.
+    chunk_endorsements: lru::LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
 }
 
 impl ChunkValidator {
@@ -49,7 +57,13 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Self {
-        Self { my_signer, epoch_manager, network_sender, runtime_adapter }
+        Self {
+            my_signer,
+            epoch_manager,
+            network_sender,
+            runtime_adapter,
+            chunk_endorsements: lru::LruCache::new(NUM_CHUNK_ENDORSEMENTS_CACHE_COUNT),
+        }
     }
 
     /// Performs the chunk validation logic. When done, it will send the chunk
@@ -105,12 +119,7 @@ impl ChunkValidator {
                         block_producer=%block_producer,
                         "Chunk validated successfully, sending endorsement",
                     );
-                    let endorsement_to_sign = ChunkEndorsementInner::new(chunk_header.chunk_hash());
-                    let endorsement = ChunkEndorsement {
-                        account_id: signer.validator_id().clone(),
-                        signature: signer.sign_chunk_endorsement(&endorsement_to_sign),
-                        inner: endorsement_to_sign,
-                    };
+                    let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
                     network_sender.send(PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(block_producer, endorsement),
                     ));
@@ -525,13 +534,58 @@ impl Client {
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
+    /// We first verify the chunk endorsement and then store it in a cache.
+    /// We would later include the endorsements in the block production.
     pub fn process_chunk_endorsement(
         &mut self,
-        _endorsement: ChunkEndorsement,
+        endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        // TODO(10265): Here if we are the current block producer, we would store the chunk endorsement
-        // for each chunk which would later be used during block production to check whether to include the
-        // chunk or not.
+        let chunk_hash = endorsement.chunk_hash();
+        let account_id = &endorsement.account_id;
+        let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
+
+        // Note that we are using the chunk_header.height_created param here to determine the block_producer
+        // This only works when height created for a chunk is the same as the height_included during block production
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let block_producer =
+            self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+        // Verify that we are the block producer for this height.
+        if !self
+            .validator_signer
+            .as_ref()
+            .is_some_and(|my_signer| my_signer.validator_id() == &block_producer)
+        {
+            tracing::error!(target: "chunk_validation", ?endorsement, ?block_producer, "Received chunk endorsement for non-block producer.");
+            return Err(Error::InvalidChunkEndorsement);
+        }
+
+        // If we have already processed this chunk endorsement, return early.
+        if self
+            .chunk_validator
+            .chunk_endorsements
+            .get(chunk_hash)
+            .is_some_and(|existing_endorsements| existing_endorsements.get(account_id).is_some())
+        {
+            tracing::debug!(target: "chunk_validation", ?endorsement, "Already received chunk endorsement.");
+            return Ok(());
+        }
+
+        if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
+            tracing::error!(target: "chunk_validation", ?endorsement, "Invalid chunk endorsement.");
+            return Err(Error::InvalidChunkEndorsement);
+        }
+
+        // If we are the current block producer, we store the chunk endorsement for each chunk which
+        // would later be used during block production to check whether to include the chunk or not.
+        tracing::debug!(target: "chunk_validation", ?endorsement, "Received and saved chunk endorsement.");
+        self.chunk_validator
+            .chunk_endorsements
+            .get_or_insert(chunk_hash.clone(), || HashMap::new());
+        let chunk_endorsements =
+            self.chunk_validator.chunk_endorsements.get_mut(chunk_hash).unwrap();
+        chunk_endorsements.insert(account_id.clone(), endorsement);
+
         Ok(())
     }
 }
