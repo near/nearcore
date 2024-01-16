@@ -917,13 +917,13 @@ impl EpochManager {
         })
     }
 
-    /// Returns an ordered list of chunk validators for the given shard_id and height.
-    pub fn get_ordered_chunk_validators(
+    /// Returns the list of chunk validators for the given shard_id and height.
+    pub fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
         let chunk_validators =

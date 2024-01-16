@@ -24,8 +24,6 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
-#[cfg(feature = "new_epoch_sync")]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -190,14 +188,13 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError>;
 
-    /// Gets the ordered list of chunk validators for a given height and shard.
-    /// Note that calls to this function would maintain order across all the nodes in the network.
-    fn get_ordered_chunk_validators(
+    /// Gets the chunk validators for a given height and shard.
+    fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError>;
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -661,14 +658,14 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
 
-    fn get_ordered_chunk_validators(
+    fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_ordered_chunk_validators(epoch_id, shard_id, height)
+        epoch_manager.get_chunk_validators(epoch_id, shard_id, height)
     }
 
     fn get_validator_by_account_id(
@@ -977,7 +974,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_id = self.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         // Note that we are using the chunk_header.height_created param here to determine the chunk validators
         // This only works when height created for a chunk is the same as the height_included during block production
-        let chunk_validators = self.get_ordered_chunk_validators(
+        let chunk_validators = self.get_chunk_validators(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),

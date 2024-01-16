@@ -83,7 +83,7 @@ impl ChunkValidator {
         // We will only validate something if we are a chunk validator for this chunk.
         // Note this also covers the case before the protocol upgrade for chunk validators,
         // because the chunk validators will be empty.
-        let chunk_validators = self.epoch_manager.get_ordered_chunk_validators(
+        let chunk_validators = self.epoch_manager.get_chunk_validators(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
@@ -497,7 +497,7 @@ impl Client {
             return Ok(());
         }
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self.epoch_manager.get_ordered_chunk_validators(
+        let chunk_validators = self.epoch_manager.get_chunk_validators(
             epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),

@@ -2678,7 +2678,7 @@ fn test_verify_chunk_endorsements() {
     let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
 
     // verify if we have one chunk validator
-    let chunk_validators = epoch_manager.get_ordered_chunk_validators(&epoch_id, 0, 1).unwrap();
+    let chunk_validators = epoch_manager.get_chunk_validators(&epoch_id, 0, 1).unwrap();
     assert_eq!(chunk_validators.len(), 1);
     assert!(chunk_validators.contains_key(&account_id));
 

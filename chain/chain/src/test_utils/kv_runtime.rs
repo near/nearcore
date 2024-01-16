@@ -707,13 +707,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
-    fn get_ordered_chunk_validators(
+    fn get_chunk_validators(
         &self,
         _epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
-    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
-        Ok(BTreeMap::new())
+    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+        Ok(HashMap::new())
     }
 
     fn get_validator_by_account_id(
