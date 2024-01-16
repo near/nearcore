@@ -264,10 +264,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
