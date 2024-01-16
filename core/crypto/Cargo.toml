@@ -22,7 +22,6 @@ hex.workspace = true
 near-account-id.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
-rand = "0.7" # TODO: this is probably wrong?
 secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true

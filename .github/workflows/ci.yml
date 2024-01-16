@@ -298,6 +298,19 @@ jobs:
           crate: just
       - run: just check-non-default
 
+  check_udeps:
+    name: "Unused dependencies"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-udeps
+      - run: just check-udeps
+
   cargo_audit:
     name: "Cargo Audit"
     runs-on: ubuntu-latest

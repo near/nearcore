@@ -88,7 +88,7 @@ dependencies = [
  "mime",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand",
  "sha1",
  "smallvec",
  "tokio",
@@ -534,7 +534,7 @@ dependencies = [
  "openssl",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand",
  "serde",
  "serde_json",
  "serde_urlencoded",
@@ -734,7 +734,7 @@ dependencies = [
  "bolero-kani",
  "bolero-libfuzzer",
  "cfg-if 1.0.0",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -756,7 +756,7 @@ dependencies = [
  "bolero-generator",
  "lazy_static",
  "pretty-hex",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -1065,7 +1065,7 @@ dependencies = [
  "nearcore",
  "openssl-probe",
  "parking_lot 0.12.1",
- "rand 0.8.5",
+ "rand",
  "tokio",
 ]
 
@@ -1218,7 +1218,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
- "rand 0.8.5",
+ "rand",
  "strum",
  "tracing",
 ]
@@ -2822,7 +2822,7 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "primitive-types",
- "rand 0.8.5",
+ "rand",
  "rlp",
  "serde",
  "serde_json",
@@ -3327,7 +3327,7 @@ dependencies = [
  "near-telemetry",
  "nearcore",
  "pin-project",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "serde",
  "serde_json",
@@ -3432,7 +3432,7 @@ version = "0.0.0"
 dependencies = [
  "bencher",
  "lru",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -3466,8 +3466,8 @@ dependencies = [
  "near-store",
  "num-rational",
  "once_cell",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
+ "rand",
+ "rand_chacha",
  "rayon",
  "strum",
  "thiserror",
@@ -3535,7 +3535,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "once_cell",
- "rand 0.8.5",
+ "rand",
  "reed-solomon-erasure",
  "strum",
  "time",
@@ -3588,7 +3588,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "percent-encoding",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "reed-solomon-erasure",
  "regex",
@@ -3652,7 +3652,6 @@ dependencies = [
  "near-stdx",
  "once_cell",
  "primitive-types",
- "rand 0.7.3",
  "secp256k1",
  "serde",
  "serde_json",
@@ -3676,7 +3675,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "nearcore",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "rocksdb",
  "strum",
@@ -3715,8 +3714,8 @@ dependencies = [
  "near-store",
  "num-rational",
  "primitive-types",
- "rand 0.8.5",
- "rand_hc 0.3.1",
+ "rand",
+ "rand_hc",
  "serde_json",
  "smart-default",
  "tracing",
@@ -4019,7 +4018,7 @@ dependencies = [
  "pretty_assertions",
  "protobuf 3.0.2",
  "protobuf-codegen",
- "rand 0.8.5",
+ "rand",
  "rand_xorshift",
  "rayon",
  "rlimit",
@@ -4138,7 +4137,7 @@ dependencies = [
  "near-o11y",
  "near-primitives",
  "once_cell",
- "rand 0.8.5",
+ "rand",
 ]
 
 [[package]]
@@ -4170,8 +4169,8 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
+ "rand",
+ "rand_chacha",
  "reed-solomon-erasure",
  "serde",
  "serde_json",
@@ -4336,7 +4335,7 @@ dependencies = [
  "near-vm-runner",
  "num_cpus",
  "once_cell",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "rlimit",
  "rocksdb",
@@ -4373,7 +4372,7 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "once_cell",
- "rand 0.8.5",
+ "rand",
  "wasm-encoder 0.27.0",
  "wasm-smith",
  "wat",
@@ -4499,7 +4498,7 @@ dependencies = [
  "parity-wasm 0.42.2",
  "prefix-sum-vec",
  "pwasm-utils",
- "rand 0.8.5",
+ "rand",
  "ripemd",
  "serde",
  "serde_json",
@@ -4674,7 +4673,7 @@ dependencies = [
  "num-rational",
  "once_cell",
  "primitive-types",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "regex",
  "reqwest",
@@ -4788,7 +4787,7 @@ dependencies = [
  "num-rational",
  "num-traits",
  "once_cell",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "serde",
  "serde_json",
@@ -5006,7 +5005,7 @@ dependencies = [
  "lazy_static",
  "percent-encoding",
  "pin-project",
- "rand 0.8.5",
+ "rand",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -5612,36 +5611,13 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a6b1679d49b24bbfe0c803429aa1874472f50d9b363131f0e89fc356b544d03"
-dependencies = [
- "getrandom 0.1.16",
- "libc",
- "rand_chacha 0.2.2",
- "rand_core 0.5.1",
- "rand_hc 0.2.0",
-]
-
-[[package]]
-name = "rand"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
- "rand_chacha 0.3.1",
+ "rand_chacha",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4c8ed856279c9737206bf725bf36935d8666ead7aa69b52be55af369d193402"
-dependencies = [
- "ppv-lite86",
- "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -5670,15 +5646,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.9",
-]
-
-[[package]]
-name = "rand_hc"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
-dependencies = [
- "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -6011,7 +5978,7 @@ dependencies = [
  "node-runtime",
  "num-rational",
  "num-traits",
- "rand 0.8.5",
+ "rand",
  "rand_xorshift",
  "rocksdb",
  "serde_json",
@@ -6265,7 +6232,7 @@ version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25996b82292a7a57ed3508f052cfff8640d38d32018784acd714758b43da9c8f"
 dependencies = [
- "rand 0.8.5",
+ "rand",
  "secp256k1-sys",
 ]
 
@@ -6720,7 +6687,7 @@ dependencies = [
  "nearcore",
  "node-runtime",
  "once_cell",
- "rand 0.8.5",
+ "rand",
  "rayon",
  "redis",
  "regex",
@@ -6813,7 +6780,7 @@ dependencies = [
  "crc",
  "lazy_static",
  "md-5",
- "rand 0.8.5",
+ "rand",
  "ring",
  "subtle",
  "thiserror",
@@ -7241,7 +7208,7 @@ dependencies = [
  "indexmap 1.9.2",
  "pin-project",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand",
  "slab",
  "tokio",
  "tokio-util 0.7.2",
@@ -7422,7 +7389,7 @@ dependencies = [
  "futures",
  "log",
  "md-5",
- "rand 0.8.5",
+ "rand",
  "ring",
  "stun",
  "thiserror",
@@ -8100,7 +8067,7 @@ dependencies = [
  "memfd",
  "memoffset 0.9.0",
  "paste",
- "rand 0.8.5",
+ "rand",
  "rustix 0.38.24",
  "sptr",
  "wasm-encoder 0.35.0",
@@ -8187,7 +8154,7 @@ dependencies = [
  "libc",
  "log",
  "nix 0.24.3",
- "rand 0.8.5",
+ "rand",
  "thiserror",
  "tokio",
  "winapi",
@@ -8547,7 +8514,7 @@ dependencies = [
  "byteorder",
  "crunchy",
  "lazy_static",
- "rand 0.8.5",
+ "rand",
  "rustc-hex",
 ]
 

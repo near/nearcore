@@ -15,7 +15,7 @@ ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } els
 test *FLAGS: (test-ci FLAGS) test-extra
 
 # only the tests that are exactly the same as the ones in CI
-test-ci *FLAGS: (nextest "stable" FLAGS) (nextest "nightly" FLAGS) check-non-default python-style-checks
+test-ci *FLAGS: (nextest "stable" FLAGS) (nextest "nightly" FLAGS) check-non-default check-udeps python-style-checks
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -81,6 +81,11 @@ python-style-checks:
     python3 scripts/check_pytests.py
     python3 scripts/fix_nightly_feature_flags.py
     ./scripts/formatting --check
+
+check-udeps:
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+    env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
 
 # lychee-based url validity checks
 check-lychee:

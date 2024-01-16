@@ -23,7 +23,7 @@ hex.workspace = true
 hkdf.workspace = true
 once_cell.workspace = true
 openssl-probe.workspace = true
-rand_core.workspace = true
+rand_core = { workspace = true, features = ["getrandom"] }
 rocksdb.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
