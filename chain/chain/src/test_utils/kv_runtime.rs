@@ -712,8 +712,8 @@ impl EpochManagerAdapter for MockEpochManager {
         _epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
-        Ok(HashMap::new())
+    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
+        Ok(BTreeMap::new())
     }
 
     fn get_validator_by_account_id(
