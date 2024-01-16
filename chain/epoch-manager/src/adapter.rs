@@ -24,7 +24,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager.
@@ -195,7 +195,7 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError>;
+    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -664,7 +664,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.get_ordered_chunk_validators(epoch_id, shard_id, height)
     }

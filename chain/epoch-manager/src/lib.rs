@@ -923,7 +923,7 @@ impl EpochManager {
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<BTreeMap<AccountId, AssignmentWeight>, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
         let chunk_validators =
