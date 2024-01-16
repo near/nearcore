@@ -15,13 +15,13 @@ ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } els
 test *FLAGS: (test-ci FLAGS) test-extra
 
 # only the tests that are exactly the same as the ones in CI
-test-ci *FLAGS: check-rustfmt \
-                check-udeps \
+test-ci *FLAGS: check-cargo-fmt \
                 python-style-checks \
                 check-cargo-deny \
                 check-themis \
-                check-clippy \
+                check-cargo-clippy \
                 check-non-default \
+                check-cargo-udeps \
                 (nextest "nightly" FLAGS) \
                 (nextest "stable" FLAGS)
 # order them with the fastest / most likely to fail checks first
@@ -70,11 +70,11 @@ check-non-default:
     cargo check -p near-vm-runner --no-default-features
 
 # check rust formatting
-check-rustfmt:
+check-cargo-fmt:
     cargo fmt -- --check
 
 # check clippy lints
-check-clippy:
+check-cargo-clippy:
     env CARGO_TARGET_DIR="target/clippy" cargo clippy --all-features --all-targets --locked
 
 # check cargo deny lints
@@ -108,7 +108,7 @@ python-style-checks:
     ./scripts/formatting --check
 
 # verify there is no unused dependency specified in a Cargo.toml
-check-udeps:
+check-cargo-udeps:
     rustup toolchain install nightly
     rustup target add wasm32-unknown-unknown --toolchain nightly
     env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
