@@ -2092,9 +2092,9 @@ impl<'a> VMLogic<'a> {
     ///
     pub fn promise_submit_data(
         &mut self,
-        data_id: CryptoHash,
-        data_len: u64,
-        data_ptr: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
     ) -> Result<(), VMLogicError> {
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -2103,11 +2103,15 @@ impl<'a> VMLogic<'a> {
             .into());
         }
 
-        let data = get_memory_or_register!(self, data_ptr, data_len)?;
-        let data = data.into_owned();
+        let data_id = get_memory_or_register!(self, data_id_ptr, CryptoHash::LENGTH as u64)?;
+        let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
+
+        let data_id =
+            CryptoHash(data_id.into_owned().try_into().expect("exactly CryptoHash::LENGTH bytes"));
+        let payload = payload.into_owned();
 
         // TODO gas costs
-        self.ext.create_external_data_receipt(data_id, data)
+        self.ext.create_external_data_receipt(data_id, payload)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
