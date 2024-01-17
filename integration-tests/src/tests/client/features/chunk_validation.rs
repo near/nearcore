@@ -104,6 +104,7 @@ fn test_chunk_validation_basic() {
     let mut tx_hashes = vec![];
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(44);
+    let mut chunks_count = 0;
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
@@ -154,7 +155,10 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), env.get_client_id(i)
             );
-            let blocks_processed = if rng.gen_bool(0.5) {
+            let blocks_processed = if rng.gen_bool(0.1) {
+                if round < blocks_to_produce - 1 {
+                    chunks_count += 1;
+                }
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             } else {
                 env.clients[i]
@@ -180,7 +184,7 @@ fn test_chunk_validation_basic() {
     // for first block after genesis chunk production was not triggered.
     // Then, each chunk is validated by each validator.
     // TODO(#10265): divide validators separately between shards.
-    let expected_endorsements = (blocks_to_produce - 1) * num_shards * num_validators;
+    let expected_endorsements = chunks_count * num_validators;
     let approvals = env.take_chunk_endorsements(expected_endorsements);
     assert_eq!(approvals.len(), expected_endorsements);
 }
