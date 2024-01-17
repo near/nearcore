@@ -165,17 +165,6 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
 
-        let epoch_id = block.header().epoch_id();
-        let chunk_height = block.header().height() + 1;
-        let epoch_manager = &env.clients[0].epoch_manager;
-        let mut chunk_producers: HashMap<_, Vec<_>> = HashMap::new();
-        for shard_id in epoch_manager.shard_ids(epoch_id).unwrap() {
-            chunk_producers
-                .entry(epoch_manager.get_chunk_producer(epoch_id, chunk_height, shard_id).unwrap())
-                .or_default()
-                .push(shard_id);
-        }
-
         // Apply the block.
         for i in 0..env.clients.len() {
             let validator_id = env.get_client_id(i);
