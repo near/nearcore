@@ -290,22 +290,22 @@ impl TestEnv {
     /// Collects all chunk endorsements from network adapters until
     /// at least `count` endorsements are collected, or, if it doesn't happen,
     /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
-    pub fn take_chunk_endorsements(
+    pub fn wait_for_chunk_endorsements(
         &mut self,
-        mut hashes: HashMap<ChunkHash, (BlockHeight, ShardId)>,
+        mut chunk_hashes: HashMap<ChunkHash, (BlockHeight, ShardId)>,
     ) {
         let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
         let timer = Instant::now();
         // let mut approvals = Vec::new();
         loop {
-            tracing::debug!(target: "test", "remaining endorsements: {:?}", hashes);
+            tracing::debug!(target: "test", "remaining endorsements: {:?}", chunk_hashes);
             for idx in 0..self.clients.len() {
                 self.network_adapters[idx].handle_filtered(|msg| {
                     if let PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_, endorsement),
                     ) = msg
                     {
-                        hashes.remove(endorsement.chunk_hash());
+                        chunk_hashes.remove(endorsement.chunk_hash());
                         None
                     } else {
                         Some(msg)
@@ -313,11 +313,11 @@ impl TestEnv {
                 });
             }
 
-            if hashes.is_empty() {
+            if chunk_hashes.is_empty() {
                 break;
             }
             if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
-                panic!("TIMEOUT");
+                panic!("Missing chunk endorsements: {:?}", chunk_hashes);
             }
             std::thread::sleep(Duration::from_micros(100));
         }

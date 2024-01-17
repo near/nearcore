@@ -11,6 +11,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountInfo;
+use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
@@ -39,6 +40,7 @@ fn test_chunk_validation_basic() {
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
+    let num_validators = 8;
     // We'll use four shards for this test.
     let shard_layout = ShardLayout::v1(
         vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
@@ -46,7 +48,6 @@ fn test_chunk_validation_basic() {
         1,
     );
     let num_shards = shard_layout.shard_ids().count();
-    let num_validators = 8;
     let mut genesis_config = GenesisConfig {
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
@@ -118,7 +119,6 @@ fn test_chunk_validation_basic() {
     let mut tx_hashes = vec![];
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(44);
-    // let mut chunks_count = 0;
     let mut expected_chunks = HashMap::new();
     for round in 0..blocks_to_produce {
         let heads = env
@@ -137,7 +137,7 @@ fn test_chunk_validation_basic() {
             sender_account.as_ref(),
         );
         // Give each transaction 10 blocks to be fully executed.
-        if round > 1 && blocks_to_produce - round >= 10 {
+        if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
@@ -157,13 +157,6 @@ fn test_chunk_validation_basic() {
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
 
-        // if round > 1 {
-        //     for i in 0..num_shards {
-        //         let chunks = block.chunks();
-        //         let chunk = chunks.get(i).unwrap();
-        //         assert!(chunk.is_new_chunk(block.header().height()));
-        //     }
-        // }
         let epoch_id = block.header().epoch_id();
         let chunk_height = block.header().height() + 1;
         let epoch_manager = &env.clients[0].epoch_manager;
@@ -183,17 +176,6 @@ fn test_chunk_validation_basic() {
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(0.3) {
-                // if round < blocks_to_produce - 1 {
-                //     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
-                //         let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
-                //         if last_chunk.prev_block_hash() != &CryptoHash::default() {
-                //             expected_chunks.insert(
-                //                 last_chunk.chunk_hash(),
-                //                 (block.header().height(), *shard_id),
-                //             );
-                //         }
-                //     }
-                // }
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             } else {
                 env.clients[i]
@@ -210,10 +192,14 @@ fn test_chunk_validation_basic() {
         env.propagate_chunk_state_witnesses();
     }
 
-    for _tx_hash in tx_hashes {
-        // let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-        // assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+    let mut has_executed_txs = false;
+    for tx_hash in tx_hashes {
+        let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        if FinalExecutionStatus::SuccessValue(_) = outcome.status {
+            has_executed_txs = true;
+        }
     }
+    assert!(has_executed_txs);
 
     let mut block = env.clients[0]
         .chain
@@ -235,14 +221,8 @@ fn test_chunk_validation_basic() {
         }
         block = prev_block;
     }
-    // Check that number of chunk endorsements is correct.
-    // There should be `(blocks_to_produce - 1) * num_shards` chunks, because
-    // for first block after genesis chunk production was not triggered.
-    // Then, each chunk is validated by each validator.
-    // TODO(#10265): divide validators separately between shards.
-    // let expected_endorsements = chunks_count * num_validators;
-    env.take_chunk_endorsements(expected_chunks);
-    // assert!(approvals.len() >= expected_endorsements);
+
+    env.wait_for_chunk_endorsements(expected_chunks);
 }
 
 /// Returns the block producer for the height of head + height_offset.
