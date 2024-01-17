@@ -3492,24 +3492,43 @@ impl Chain {
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
-            if make_snapshot {
-                let head = self.head()?;
-                let epoch_height =
-                    self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
-                let shard_uids = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                    .shard_uids()
-                    .collect();
-                let last_block = self.get_block(&head.last_block_hash)?;
-                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);
-            } else if delete_snapshot {
-                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-                delete_snapshot_callback();
-            }
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        if make_snapshot {
+            let head = self.head()?;
+            let parent_hash = head.prev_block_hash;
+            let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(&parent_hash)?;
+            let shard_layout =
+                &self.epoch_manager.get_shard_layout_from_prev_block(&parent_hash)?;
+            let shard_uids = shard_layout.shard_uids().collect();
+            let last_block = self.get_block(&head.last_block_hash)?;
+            let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
+            make_snapshot_callback(parent_hash, epoch_height, shard_uids, last_block);
+        } else if delete_snapshot {
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
         }
+        Ok(())
+    }
+
+    pub fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
+        tracing::debug!(target: "resharding", "boom 1");
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+
+        let tries = self.runtime_adapter.get_tries();
+        let snapshot_config = tries.state_snapshot_config();
+        let delete_snapshot = match snapshot_config.state_snapshot_type {
+            StateSnapshotType::EveryEpoch => false,
+            StateSnapshotType::ForReshardingOnly => true,
+        };
+
+        tracing::debug!(target: "resharding", ?delete_snapshot, "boom 2");
+
+        if delete_snapshot {
+            tracing::debug!(target: "resharding", "deleting snapshot after resharding");
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
+        }
+
         Ok(())
     }
 
