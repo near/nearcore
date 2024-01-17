@@ -1637,6 +1637,7 @@ impl Client {
                 && !self.sync_status.is_syncing()
                 && !skip_produce_chunk
             {
+                info!(target: "client", "producing a chunk");
                 self.produce_chunks(&block, validator_id);
             } else {
                 info!(target: "client", "not producing a chunk");
