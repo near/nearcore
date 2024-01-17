@@ -149,7 +149,7 @@ fn pre_validate_chunk_state_witness(
             .iter()
             .map(|t| (
                 store.get_block_height(&t.block_hash),
-                store.get_block_header(&t.block_hash).unwrap().epoch_id(),
+                store.get_block_header(&t.block_hash).unwrap().clone().epoch_id(),
                 t.post_state_root
             ))
             .collect::<Vec<_>>()
