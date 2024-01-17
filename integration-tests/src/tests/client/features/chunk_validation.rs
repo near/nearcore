@@ -78,7 +78,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: 10u64.pow(15),
         transaction_validity_period: 120,
-        // Needed to avoid kickouts
+        // Needed to completely avoid validator kickouts as we want to test
+        // missing chunks functionality.
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
         // Needed to distribute full non-trivial reward to each validator if at
@@ -87,11 +88,15 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         // non-trivial even if chunk is missing, so that functionality of
         // storing and validating implicit state transitions can be checked.
         online_min_threshold: Rational32::new(0, 1),
-        online_max_threshold: Rational32::new(2, 1000),
+        online_max_threshold: Rational32::new(1, 1000),
         protocol_reward_rate: Rational32::new(1, 10),
         max_inflation_rate: Rational32::new(1, 1),
         ..Default::default()
     };
+    let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+        block_producer_kickout_threshold: Some(0),
+        chunk_producer_kickout_threshold: Some(0),
+    });
 
     // Set up the records corresponding to the validator accounts.
     let mut records = Vec::new();
@@ -113,10 +118,6 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let chain_genesis = ChainGenesis::new(&genesis);
 
-    let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
-        block_producer_kickout_threshold: Some(0),
-        chunk_producer_kickout_threshold: Some(0),
-    });
     let mut env = TestEnv::builder(chain_genesis)
         .clients(accounts.iter().take(8).cloned().collect())
         .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
