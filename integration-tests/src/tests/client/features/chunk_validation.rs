@@ -188,7 +188,7 @@ fn test_chunk_validation_basic() {
                         let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
                         if last_chunk.prev_block_hash() != &CryptoHash::default() {
                             expected_chunks.insert(
-                                *last_chunk.chunk_hash(),
+                                last_chunk.chunk_hash(),
                                 (block.header().height(), *shard_id),
                             );
                         }
