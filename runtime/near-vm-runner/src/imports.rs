@@ -237,8 +237,6 @@ imports! {
     // # Promise API await/submit #
     // #######################
     promise_await_data<[
-        account_id_len: u64,
-        account_id_ptr: u64,
         yield_num_blocks: u64,
         register_id: u64
     ] -> [u64]>,

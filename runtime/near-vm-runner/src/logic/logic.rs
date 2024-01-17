@@ -2017,22 +2017,20 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Creates a promise on the specified account that will act as a placeholder awaiting data.
+    /// Creates a promise on the current account which will act as a placeholder awaiting data.
     ///
-    /// Generates a hash stored in `register_id`. Subsequently, a call to `promise_submit_data`
-    /// can be made within `yield_num_blocks` passing the hash and the value to which the
-    /// created promise should resolve.
+    /// Generates a token which is stored in register `register_id`.
     ///
-    /// If data is not submitted within `yield_num_blocks`, the created promise will instead
-    /// resolve to a Result<DataTimeoutError>.
+    /// Subsequently, a call to `promise_submit_data` can be made passing the token and the data to
+    /// which the created promise should resolve.
     ///
-    /// Only the account which creates the data-awaiting promise will be allowed to call
-    /// `promise_submit_data`.
+    /// TODO: If data is not submitted within `yield_num_blocks`, the created promise will instead
+    /// resolve to a DataTimeoutError.
+    ///
+    /// TODO: Only the current account will be allowed to make the corresponding `promise_submit_data`.
     ///
     /// # Errors
     ///
-    /// * If `account_id_len + account_id_ptr` points outside the memory of the guest or host
-    /// returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
@@ -2043,13 +2041,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// TODO
     ///
-    pub fn promise_await_data(
-        &mut self,
-        account_id_len: u64,
-        account_id_ptr: u64,
-        _yield_num_blocks: u64,
-        register_id: u64,
-    ) -> Result<u64> {
+    pub fn promise_await_data(&mut self, _yield_num_blocks: u64, register_id: u64) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -2057,11 +2049,10 @@ impl<'a> VMLogic<'a> {
             }
             .into());
         }
-        let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
-        let sir = account_id == self.context.current_account_id;
-        self.pay_gas_for_new_receipt(sir, &[])?;
+        self.pay_gas_for_new_receipt(true, &[])?;
 
-        let (new_receipt_idx, data_id) = self.ext.create_receipt_awaiting_data(account_id)?;
+        let (new_receipt_idx, data_id) =
+            self.ext.create_receipt_awaiting_data(self.context.current_account_id.clone())?;
 
         self.registers.set(
             &mut self.gas_counter,
