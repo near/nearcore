@@ -195,7 +195,7 @@ impl Inner {
     }
 
     // Try to insert up to max_entries_added more peers into the state part selector for this part ID
-    fn insert_peers(
+    fn insert_part_hosts(
         &mut self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
@@ -330,7 +330,7 @@ impl SnapshotHostsCache {
 
         if selector.tried_everybody(part_id) && selector.len(part_id) < num_hosts {
             let max_entries_added = inner.part_selection_cache_batch_size;
-            inner.insert_peers(sync_hash, shard_id, part_id, max_entries_added);
+            inner.insert_part_hosts(sync_hash, shard_id, part_id, max_entries_added);
         }
         let selector = inner.state_part_selectors.get_mut(&shard_id).unwrap();
         selector.next(part_id)
