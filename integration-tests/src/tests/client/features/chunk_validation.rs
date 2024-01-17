@@ -120,6 +120,7 @@ fn test_chunk_validation_basic() {
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(44);
     let mut expected_chunks = HashMap::new();
+    let mut found_different_post_state_roots = false;
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
@@ -189,7 +190,8 @@ fn test_chunk_validation_basic() {
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
-        env.propagate_chunk_state_witnesses();
+        let result = env.propagate_chunk_state_witnesses();
+        found_different_post_state_roots |= result.found_different_post_state_roots;
     }
 
     let mut has_executed_txs = false;
@@ -202,6 +204,8 @@ fn test_chunk_validation_basic() {
         }
     }
     assert!(has_executed_txs);
+
+    assert!(found_different_post_state_roots);
 
     let mut block = env.clients[0]
         .chain

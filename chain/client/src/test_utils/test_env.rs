@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -55,6 +55,12 @@ pub struct TestEnv {
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) archive: bool,
     pub(crate) save_trie_changes: bool,
+}
+
+pub struct StateWitnessPropagationResult {
+    /// Whether some propagated state witness includes two different post state
+    /// roots.
+    pub found_different_post_state_roots: bool,
 }
 
 impl TestEnv {
@@ -262,7 +268,9 @@ impl TestEnv {
         }
     }
 
-    pub fn propagate_chunk_state_witnesses(&mut self) {
+    /// Triggers processing of all chunk state witnesses received by network.
+    pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationResult {
+        let mut found_different_post_state_roots = false;
         for idx in 0..self.clients.len() {
             let _span =
                 tracing::debug_span!(target: "test", "propagate_chunk_state_witnesses", client=idx)
@@ -273,6 +281,12 @@ impl TestEnv {
                     NetworkRequests::ChunkStateWitness(accounts, chunk_state_witness),
                 ) = msg
                 {
+                    let mut post_state_roots =
+                        HashSet::from([chunk_state_witness.main_state_transition.post_state_root]);
+                    post_state_roots.extend(
+                        chunk_state_witness.implicit_transitions.iter().map(|t| t.post_state_root),
+                    );
+                    found_different_post_state_roots |= post_state_roots.len() >= 2;
                     for account in accounts {
                         self.account_indices
                             .lookup_mut(&mut self.clients, &account)
@@ -285,6 +299,7 @@ impl TestEnv {
                 }
             });
         }
+        StateWitnessPropagationResult { found_different_post_state_roots }
     }
 
     /// Waits for `CHUNK_ENDORSEMENTS_TIMEOUT` to receive at least one chunk

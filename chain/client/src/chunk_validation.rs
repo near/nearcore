@@ -101,32 +101,6 @@ impl ChunkValidator {
             return Err(Error::NotAChunkValidator);
         }
 
-        if my_signer.validator_id() == &AccountId::from_str("account0").unwrap() {
-            let implicit_data = state_witness
-                .implicit_transitions
-                .iter()
-                .map(|t| {
-                    (
-                        chain_store.get_block_height(&t.block_hash).unwrap(),
-                        chain_store
-                            .get_block_header(&t.block_hash)
-                            .unwrap()
-                            .clone()
-                            .epoch_id()
-                            .clone(),
-                        t.post_state_root,
-                    )
-                })
-                .collect::<Vec<_>>();
-            let psrs: std::collections::HashSet<_> = implicit_data.iter().map(|it| it.2).collect();
-            if psrs.len() > 1 {
-                println!(
-                    "preval implicit len = {}, psr = {:?}",
-                    state_witness.implicit_transitions.len(),
-                    implicit_data,
-                );
-            }
-        }
         let pre_validation_result = pre_validate_chunk_state_witness(
             &state_witness,
             chain_store,
