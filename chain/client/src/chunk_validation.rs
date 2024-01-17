@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
@@ -31,6 +32,13 @@ use crate::Client;
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
 const NUM_CHUNK_ENDORSEMENTS_CACHE_COUNT: usize = 100;
+
+// After validating a chunk state witness, we ideally need to send the chunk endorsement
+// to just the next block producer at height h. However, it's possible that blocks at height
+// h may be skipped and block producer at height h+1 picks up the chunk. We need to ensure
+// that these later block producers also receive the chunk endorsement.
+// Keeping a threshold of 5 block producers should be sufficient for most scenarios.
+const NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT: u64 = 5;
 
 /// A module that handles chunk validation logic. Chunk validation refers to a
 /// critical process of stateless validation, where chunk validators (certain
@@ -98,8 +106,13 @@ impl ChunkValidator {
             self.epoch_manager.as_ref(),
         )?;
 
-        let block_producer =
-            self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+        // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
+        // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
+        let block_height = chunk_header.height_created();
+        let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
+            .map_while(|i| self.epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
+            .collect_vec();
+        assert!(!block_producers.is_empty());
 
         let network_sender = self.network_sender.clone();
         let signer = self.my_signer.clone().unwrap();
@@ -116,13 +129,15 @@ impl ChunkValidator {
                     tracing::debug!(
                         target: "chunk_validation",
                         chunk_hash=?chunk_header.chunk_hash(),
-                        block_producer=%block_producer,
+                        ?block_producers,
                         "Chunk validated successfully, sending endorsement",
                     );
                     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
-                    network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(block_producer, endorsement),
-                    ));
+                    for block_producer in block_producers {
+                        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
+                        ));
+                    }
                 }
                 Err(err) => {
                     tracing::error!("Failed to validate chunk: {:?}", err);
@@ -542,23 +557,6 @@ impl Client {
     ) -> Result<(), Error> {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
-        let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
-
-        // Note that we are using the chunk_header.height_created param here to determine the block_producer
-        // This only works when height created for a chunk is the same as the height_included during block production
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let block_producer =
-            self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
-        // Verify that we are the block producer for this height.
-        if !self
-            .validator_signer
-            .as_ref()
-            .is_some_and(|my_signer| my_signer.validator_id() == &block_producer)
-        {
-            tracing::error!(target: "chunk_validation", ?endorsement, ?block_producer, "Received chunk endorsement for non-block producer.");
-            return Err(Error::InvalidChunkEndorsement);
-        }
 
         // If we have already processed this chunk endorsement, return early.
         if self
@@ -571,6 +569,7 @@ impl Client {
             return Ok(());
         }
 
+        let chunk_header = self.chain.get_chunk(chunk_hash)?.cloned_header();
         if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
             tracing::error!(target: "chunk_validation", ?endorsement, "Invalid chunk endorsement.");
             return Err(Error::InvalidChunkEndorsement);
@@ -578,6 +577,10 @@ impl Client {
 
         // If we are the current block producer, we store the chunk endorsement for each chunk which
         // would later be used during block production to check whether to include the chunk or not.
+        // TODO(stateless_validation): It's possible for a malicious validator to send endorsements
+        // for 100 unique chunks thus pushing out current valid endorsements from our cache.
+        // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
+        // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
         tracing::debug!(target: "chunk_validation", ?endorsement, "Received and saved chunk endorsement.");
         self.chunk_validator
             .chunk_endorsements
