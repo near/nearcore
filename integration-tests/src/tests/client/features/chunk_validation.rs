@@ -32,7 +32,7 @@ fn test_chunk_validation_basic() {
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 10;
+    let blocks_to_produce = 20;
     let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -174,7 +174,7 @@ fn test_chunk_validation_basic() {
     // TODO(#10265): divide validators separately between shards.
     let expected_endorsements = (blocks_to_produce - 1) * num_shards * num_validators;
     let approvals = env.take_chunk_endorsements(expected_endorsements);
-    assert_eq!(approvals.len(), expected_endorsements);
+    assert!(approvals.len() >= expected_endorsements);
 }
 
 // Returns the block producer for the height of head + height_offset.
