@@ -182,7 +182,7 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
-            let blocks_processed = if rng.gen_bool(0.2) {
+            let blocks_processed = if rng.gen_bool(0.3) {
                 // if round < blocks_to_produce - 1 {
                 //     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
                 //         let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
@@ -225,11 +225,9 @@ fn test_chunk_validation_basic() {
             break;
         }
         let prev_block = env.clients[0].chain.get_block(&prev_hash).unwrap();
-        let prev_chunks = prev_block.chunks();
-        for chunk in block.chunks().iter() {
+        for (chunk, prev_chunk) in block.chunks().iter().zip(prev_block.chunks().iter()) {
             if chunk.is_new_chunk(block.header().height()) {
-                let last_chunk = prev_chunks.get(chunk.shard_id() as usize).unwrap();
-                if last_chunk.prev_block_hash() != &CryptoHash::default() {
+                if prev_chunk.prev_block_hash() != &CryptoHash::default() {
                     expected_chunks
                         .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
                 }
