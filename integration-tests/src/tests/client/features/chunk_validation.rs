@@ -1,8 +1,7 @@
 use assert_matches::assert_matches;
-use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
-use near_client::test_utils::{run_catchup, TestEnv};
+use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Tip;
@@ -11,7 +10,6 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountInfo;
-use near_primitives::utils::MaybeValidated;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
@@ -19,9 +17,9 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
