@@ -154,7 +154,7 @@ fn pre_validate_chunk_state_witness(
                     shard_id, block_hash
                 )));
             };
-            let is_new_chunk = chunk.height_created() == block.header().height();
+            let is_new_chunk = chunk.is_new_chunk(block.header().height());
             block_hash = *block.header().prev_hash();
             if prev_chunks_seen == 0 {
                 blocks_after_last_chunk.push(block);
