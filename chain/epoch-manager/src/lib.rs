@@ -1,6 +1,5 @@
 use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
-use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
@@ -944,7 +943,7 @@ impl EpochManager {
                 .map(|(validator_id, assignment_weight)| {
                     (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
-                .collect_vec();
+                .collect();
             let cache_key = (epoch_id.clone(), shard_id as ShardId, height);
             self.chunk_validators_cache
                 .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
