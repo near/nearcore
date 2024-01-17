@@ -146,15 +146,25 @@ fn test_chunk_validation_basic() {
         //         assert!(chunk.is_new_chunk(block.header().height()));
         //     }
         // }
+        let epoch_id = block.header().epoch_id();
+        let chunk_height = block.header().height() + 1;
+        let epoch_manager = &env.clients[0].epoch_manager;
+        let mut chunk_producers = HashSet::new();
+        for shard_id in epoch_manager.shard_ids(epoch_id).unwrap() {
+            chunk_producers.insert(
+                epoch_manager.get_chunk_producer(epoch_id, chunk_height, shard_id).unwrap(),
+            );
+        }
 
         // Apply the block.
         for i in 0..env.clients.len() {
+            let validator_id = env.get_client_id(i);
             tracing::debug!(
                 target: "chunk_validation",
-                "Applying block at height {} at {}", block.header().height(), env.get_client_id(i)
+                "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(0.1) {
-                if round < blocks_to_produce - 1 {
+                if round < blocks_to_produce - 1 && chunk_producers.contains(validator_id) {
                     chunks_count += 1;
                 }
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
@@ -187,7 +197,7 @@ fn test_chunk_validation_basic() {
     assert_eq!(approvals.len(), expected_endorsements);
 }
 
-// Returns the block producer for the height of head + height_offset.
+/// Returns the block producer for the height of head + height_offset.
 fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountId {
     let client = &env.clients[0];
     let epoch_manager = &client.epoch_manager;
