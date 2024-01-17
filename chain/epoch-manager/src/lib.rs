@@ -1,5 +1,6 @@
 use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
+use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
@@ -143,7 +144,12 @@ pub struct EpochManager {
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
     /// Cache for chunk_validators
-    chunk_validators_cache: SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidators>>,
+    /// key (epoch_id, shard_id, block_height)
+    ///     -> value (vector of chunk_validator with assignment_weight, chunk_validators account_id set)
+    chunk_validators_cache: SyncLruCache<
+        (EpochId, ShardId, BlockHeight),
+        (Arc<ChunkValidators>, Arc<HashSet<AccountId>>),
+    >,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
     /// Used for tests as a bit of white-box testing.
@@ -920,13 +926,15 @@ impl EpochManager {
         })
     }
 
-    /// Returns the list of chunk validators for the given shard_id and height.
+    /// Returns the list of chunk validators for the given shard_id and height and set of account ids.
+    /// Generation of chunk validators is deterministic and depends on the shard_id and height.
+    /// We cache the generated chunk validators and the corresponding set of account_ids.
     pub fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<Arc<ChunkValidators>, EpochError> {
+    ) -> Result<(Arc<ChunkValidators>, Arc<HashSet<AccountId>>), EpochError> {
         let cache_key = (epoch_id.clone(), shard_id, height);
         if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
             return Ok(chunk_validators);
@@ -934,15 +942,18 @@ impl EpochManager {
 
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
-        for (shard_id, chunk_validators) in chunk_validators_per_shard.iter().enumerate() {
+        for (shard_id, chunk_validators) in chunk_validators_per_shard.into_iter().enumerate() {
             let chunk_validators = chunk_validators
-                .iter()
-                .map(|(validator_id, seats)| {
-                    (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
+                .into_iter()
+                .map(|(validator_id, assignment_weight)| {
+                    (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
                 })
-                .collect();
+                .collect_vec();
+            let account_ids =
+                chunk_validators.iter().map(|(account_id, _)| account_id.clone()).collect();
             let cache_key = (epoch_id.clone(), shard_id as ShardId, height);
-            self.chunk_validators_cache.put(cache_key, Arc::new(chunk_validators));
+            self.chunk_validators_cache
+                .put(cache_key, (Arc::new(chunk_validators), Arc::new(account_ids)));
         }
 
         self.chunk_validators_cache.get(&cache_key).ok_or_else(|| {

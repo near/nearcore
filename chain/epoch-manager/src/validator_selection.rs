@@ -391,7 +391,7 @@ mod tests {
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
     #[cfg(feature = "nightly")]
-    use near_primitives::validator_mandates::{AssignmentWeight, ValidatorMandatesAssignment};
+    use near_primitives::validator_mandates::AssignmentWeight;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -645,12 +645,8 @@ mod tests {
         }
     }
 
-    /// This test only verifies that chunk validator mandates are correctly wired up with
-    /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
-    /// [`ValidatorMandates`].
-    #[test]
     #[cfg(feature = "nightly")]
-    fn test_chunk_validators_sampling() {
+    fn get_epoch_info_for_chunk_validators_sampling() -> EpochInfo {
         let num_shards = 4;
         let epoch_config = create_epoch_config(
             num_shards,
@@ -694,34 +690,54 @@ mod tests {
         )
         .unwrap();
 
+        epoch_info
+    }
+
+    /// This test only verifies that chunk validator mandates are correctly wired up with
+    /// `EpochInfo`. The internals of mandate assignment are tested in the module containing
+    /// [`ValidatorMandates`].
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_chunk_validators_sampling() {
+        let epoch_info = get_epoch_info_for_chunk_validators_sampling();
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
-        let expected_assignments: ValidatorMandatesAssignment = vec![
-            HashMap::from([
-                (0, AssignmentWeight::new(3, 0)),
+        let expected_assignments = vec![
+            vec![
                 (1, AssignmentWeight::new(3, 0)),
+                (0, AssignmentWeight::new(3, 0)),
                 (2, AssignmentWeight::new(3, 0)),
                 (3, AssignmentWeight::new(0, 60)),
-            ]),
-            HashMap::from([
+            ],
+            vec![
                 (0, AssignmentWeight::new(6, 0)),
-                (1, AssignmentWeight::new(2, 0)),
                 (2, AssignmentWeight::new(2, 0)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(4, 0)),
-                (1, AssignmentWeight::new(1, 0)),
-                (2, AssignmentWeight::new(3, 0)),
+                (1, AssignmentWeight::new(2, 0)),
+            ],
+            vec![
                 (3, AssignmentWeight::new(2, 0)),
-            ]),
-            HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
-                (1, AssignmentWeight::new(4, 0)),
+                (2, AssignmentWeight::new(3, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (0, AssignmentWeight::new(4, 0)),
+            ],
+            vec![
                 (2, AssignmentWeight::new(2, 0)),
                 (4, AssignmentWeight::new(1, 40)),
-            ]),
+                (1, AssignmentWeight::new(4, 0)),
+                (0, AssignmentWeight::new(2, 0)),
+            ],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
+    }
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_deterministic_chunk_validators_sampling() {
+        let epoch_info = get_epoch_info_for_chunk_validators_sampling();
+        let height = 42;
+        let assignment1 = epoch_info.sample_chunk_validators(height);
+        let assignment2 = epoch_info.sample_chunk_validators(height);
+        assert_eq!(assignment1, assignment2);
     }
 
     #[test]

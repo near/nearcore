@@ -158,4 +158,4 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
-pub type ChunkValidators = HashMap<AccountId, AssignmentWeight>;
+pub type ChunkValidators = Vec<(AccountId, AssignmentWeight)>;

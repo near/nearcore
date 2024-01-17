@@ -665,7 +665,9 @@ impl EpochManagerAdapter for EpochManagerHandle {
         height: BlockHeight,
     ) -> Result<Arc<ChunkValidators>, EpochError> {
         let epoch_manager = self.read();
-        epoch_manager.get_chunk_validators(epoch_id, shard_id, height)
+        let (chunk_validators, _) =
+            epoch_manager.get_chunk_validators(epoch_id, shard_id, height)?;
+        Ok(chunk_validators)
     }
 
     fn get_validator_by_account_id(
@@ -971,22 +973,21 @@ impl EpochManagerAdapter for EpochManagerHandle {
         if &chunk_header.chunk_hash() != endorsement.chunk_hash() {
             return Err(Error::InvalidChunkEndorsement);
         }
-        let epoch_id = self.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let epoch_manager = self.read();
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         // Note that we are using the chunk_header.height_created param here to determine the chunk validators
         // This only works when height created for a chunk is the same as the height_included during block production
-        let chunk_validators = self.get_chunk_validators(
+        let (_, account_ids) = epoch_manager.get_chunk_validators(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validators.contains_key(&endorsement.account_id) {
+        if !account_ids.contains(&endorsement.account_id) {
             return Err(Error::NotAValidator);
         }
-        let (validator, _) = self.get_validator_by_account_id(
-            &epoch_id,
-            chunk_header.prev_block_hash(),
-            &endorsement.account_id,
-        )?;
+        let validator =
+            epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id)?;
         Ok(endorsement.verify(validator.public_key()))
     }
 

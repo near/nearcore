@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::types::{validator_stake::ValidatorStake, ValidatorId};
 use borsh::{BorshDeserialize, BorshSerialize};
+use itertools::Itertools;
 use near_primitives_core::types::Balance;
 use rand::{seq::SliceRandom, Rng};
 
@@ -138,8 +139,7 @@ impl ValidatorMandates {
         //
         // Assume, for example, there are 10 mandates and 4 shards. Then for `shard_id = 1` we
         // collect the mandates with indices 1, 5, and 9.
-        let mut mandates_per_shard: ValidatorMandatesAssignment =
-            vec![HashMap::new(); self.config.num_shards];
+        let mut mandates_per_shard = vec![HashMap::new(); self.config.num_shards];
         for shard_id in 0..self.config.num_shards {
             // Achieve shard id shuffling by writing to the position of the alias of `shard_id`.
             let mandates_assignment =
@@ -151,7 +151,7 @@ impl ValidatorMandates {
                 let validator_id = shuffled_mandates[idx];
                 mandates_assignment
                     .entry(validator_id)
-                    .and_modify(|assignment_weight| {
+                    .and_modify(|assignment_weight: &mut AssignmentWeight| {
                         assignment_weight.num_mandates += 1;
                     })
                     .or_insert(AssignmentWeight::new(1, 0));
@@ -174,7 +174,20 @@ impl ValidatorMandates {
             }
         }
 
-        mandates_per_shard
+        // Deterministically shuffle the validator order for each shard
+        let mut ordered_mandates_per_shard = Vec::with_capacity(self.config.num_shards);
+        for shard_id in 0..self.config.num_shards {
+            let mandate_assignment = &mandates_per_shard[shard_id];
+            let mut ordered_validator_ids = mandate_assignment.keys().sorted().collect_vec();
+            ordered_validator_ids.shuffle(rng);
+            let ordered_mandate_assignment = ordered_validator_ids
+                .into_iter()
+                .map(|validator_id| (*validator_id, mandate_assignment[validator_id].clone()))
+                .collect_vec();
+            ordered_mandates_per_shard.push(ordered_mandate_assignment);
+        }
+
+        ordered_mandates_per_shard
     }
 
     /// Clones the contained mandates and shuffles them. Cloning is required as a shuffle happens at
@@ -202,13 +215,13 @@ impl ValidatorMandates {
 
 /// Represents an assignment of [`ValidatorMandates`] for a specific height.
 ///
-/// Contains one map per shard, with the position in the vector corresponding to `shard_id` in
-/// `0..num_shards`. Each `HashMap` maps `ValidatorId`s to the number of mandates they have in the
-/// corresponding shards. A validator whose id is not in a map has not been assigned to the shard.
+/// Contains one vec per shard, with the position in the vector corresponding to `shard_id` in
+/// `0..num_shards`. Each element is a tuple of `ValidatorId`, number of mandates they have in the
+/// corresponding shards. A validator whose id is not in any vec has not been assigned to the shard.
 ///
-/// For example, `mandates_per_shard[0][1]` maps to the [`AssignmentWeights`] validator with
-/// `ValidatorId` 1 holds in shard with id 0.
-pub type ValidatorMandatesAssignment = Vec<HashMap<ValidatorId, AssignmentWeight>>;
+/// For example, `mandates_per_shard[0]` gives us the entries of shard with id 0.
+/// Elements of `mandates_per_shard[0]` can be [(validator3, assignment_weight), (validator7, assignment_weight)]
+pub type ValidatorMandatesAssignment = Vec<Vec<(ValidatorId, AssignmentWeight)>>;
 
 #[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct AssignmentWeight {
@@ -266,8 +279,6 @@ impl ShuffledShardIds {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use near_crypto::PublicKey;
     use near_primitives_core::types::Balance;
     use rand::SeedableRng;
@@ -418,26 +429,26 @@ mod tests {
         // `expected_assignment` below.
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(10, 1, 3);
-        let expected_assignment: ValidatorMandatesAssignment = vec![
-            HashMap::from([
-                (4, AssignmentWeight::new(1, 0)),
+        let expected_assignment = vec![
+            vec![
                 (1, AssignmentWeight::new(1, 7)),
-                (0, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 0)),
                 (6, AssignmentWeight::new(0, 6)),
-            ]),
-            HashMap::from([
-                (1, AssignmentWeight::new(1, 0)),
-                (3, AssignmentWeight::new(1, 0)),
                 (0, AssignmentWeight::new(1, 0)),
+            ],
+            vec![
                 (4, AssignmentWeight::new(0, 5)),
                 (5, AssignmentWeight::new(0, 4)),
-            ]),
-            HashMap::from([
                 (0, AssignmentWeight::new(1, 0)),
+                (1, AssignmentWeight::new(1, 0)),
+                (3, AssignmentWeight::new(1, 0)),
+            ],
+            vec![
+                (0, AssignmentWeight::new(1, 0)),
+                (2, AssignmentWeight::new(0, 9)),
                 (4, AssignmentWeight::new(2, 0)),
                 (3, AssignmentWeight::new(0, 2)),
-                (2, AssignmentWeight::new(0, 9)),
-            ]),
+            ],
         ];
         assert_validator_mandates_sample(config, expected_assignment);
     }
@@ -451,28 +462,28 @@ mod tests {
         // `expected_assignment` below.
         // Note that shard ids are shuffled too, see `test_shuffled_shard_ids_new`.
         let config = ValidatorMandatesConfig::new(10, 1, 4);
-        let expected_mandates_per_shards: ValidatorMandatesAssignment = vec![
-            HashMap::from([
-                (0, AssignmentWeight::new(2, 0)),
-                (4, AssignmentWeight::new(1, 0)),
+        let expected_mandates_per_shards = vec![
+            vec![
                 (1, AssignmentWeight::new(0, 7)),
-            ]),
-            HashMap::from([
-                (1, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 0)),
+                (0, AssignmentWeight::new(2, 0)),
+            ],
+            vec![
                 (4, AssignmentWeight::new(1, 0)),
                 (3, AssignmentWeight::new(0, 2)),
-            ]),
-            HashMap::from([
-                (4, AssignmentWeight::new(1, 5)),
-                (0, AssignmentWeight::new(1, 0)),
-                (6, AssignmentWeight::new(0, 6)),
-            ]),
-            HashMap::from([
                 (1, AssignmentWeight::new(1, 0)),
+            ],
+            vec![
+                (0, AssignmentWeight::new(1, 0)),
+                (4, AssignmentWeight::new(1, 5)),
+                (6, AssignmentWeight::new(0, 6)),
+            ],
+            vec![
                 (3, AssignmentWeight::new(1, 0)),
                 (5, AssignmentWeight::new(0, 4)),
                 (2, AssignmentWeight::new(0, 9)),
-            ]),
+                (1, AssignmentWeight::new(1, 0)),
+            ],
         ];
         assert_validator_mandates_sample(config, expected_mandates_per_shards);
     }
@@ -524,5 +535,21 @@ mod tests {
         let shuffled_ids = ShuffledShardIds::new(&mut rng, 4);
         // See [`test_shuffled_shard_ids_new`] for the result of this shuffling.
         assert_eq!(shuffled_ids.get_alias(1), 2);
+    }
+
+    #[test]
+    fn test_deterministic_shuffle() {
+        let config = ValidatorMandatesConfig::new(10, 1, 4);
+        let validators = new_validator_stakes();
+        let mandates = ValidatorMandates::new(config, &validators);
+
+        let mut rng1 = new_fixed_rng();
+        let assignment1 = mandates.sample(&mut rng1);
+
+        let mut rng2 = new_fixed_rng();
+        let assignment2 = mandates.sample(&mut rng2);
+
+        // Two assignments with the same RNG should be equal.
+        assert_eq!(assignment1, assignment2);
     }
 }
