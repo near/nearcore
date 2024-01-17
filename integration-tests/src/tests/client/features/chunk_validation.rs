@@ -154,7 +154,7 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), env.get_client_id(i)
             );
-            let blocks_processed = if rng.gen_bool(1.0) {
+            let blocks_processed = if rng.gen_bool(0.5) {
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             } else {
                 env.clients[i]

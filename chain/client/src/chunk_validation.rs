@@ -141,6 +141,7 @@ fn pre_validate_chunk_state_witness(
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
+    println!("preval implicit len = {}", state_witness.implicit_transitions.len());
     let shard_id = state_witness.chunk_header.shard_id();
 
     // First, go back through the blockchain history to locate the last new chunk
