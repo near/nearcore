@@ -1,9 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
+use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -38,7 +39,7 @@ pub struct ChunkStateWitness {
     ///
     /// The set of blocks B is defined as the contiguous subsequence of blocks
     /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
-    /// chain that this chunk's parent block is on), where B1 is the block that
+    /// chain that this chunk's parent block is on), where B2 is the block that
     /// contains the last new chunk of shard S before this chunk, and B1 is the
     /// block that contains the last new chunk of shard S before B2.
     ///
@@ -155,4 +156,17 @@ pub struct StoredChunkStateTransitionData {
     /// but is used to validate against `StateChunkWitness::exact_receipts_hash`
     /// to ease debugging of why a state witness may be incorrect.
     pub receipts_hash: CryptoHash,
+}
+
+#[derive(Debug, Default)]
+pub struct ChunkValidatorAssignments {
+    pub assignments: Vec<(AccountId, AssignmentWeight)>,
+    pub chunk_validators: HashSet<AccountId>,
+}
+
+impl ChunkValidatorAssignments {
+    pub fn new(assignments: Vec<(AccountId, AssignmentWeight)>) -> Self {
+        let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
+        Self { assignments, chunk_validators }
+    }
 }

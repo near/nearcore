@@ -1139,6 +1139,8 @@ pub mod epoch_info {
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
         fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+            // A deterministic seed is produces using the block height and the provided seed.
+            // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());

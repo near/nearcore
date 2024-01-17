@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::adapter::ProcessTxResponse;
 use crate::Client;
@@ -37,6 +37,8 @@ use once_cell::sync::OnceCell;
 use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
+
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -286,24 +288,36 @@ impl TestEnv {
         }
     }
 
-    pub fn get_all_chunk_endorsements(&mut self) -> Vec<ChunkEndorsement> {
+    /// Collects all chunk endorsements from network adapters until
+    /// at least `count` endorsements are collected, or, if it doesn't happen,
+    /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
+    pub fn take_chunk_endorsements(&mut self, count: usize) -> Vec<ChunkEndorsement> {
+        let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
+        let timer = Instant::now();
         let mut approvals = Vec::new();
-        for idx in 0..self.clients.len() {
-            let _span =
-                tracing::debug_span!(target: "test", "get_all_chunk_endorsements", client=idx)
-                    .entered();
+        loop {
+            tracing::debug!(target: "test", "collected endorsements: {}", approvals.len());
+            for idx in 0..self.clients.len() {
+                self.network_adapters[idx].handle_filtered(|msg| {
+                    if let PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ChunkEndorsement(_, endorsement),
+                    ) = msg
+                    {
+                        approvals.push(endorsement);
+                        None
+                    } else {
+                        Some(msg)
+                    }
+                });
+            }
 
-            self.network_adapters[idx].handle_filtered(|msg| {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::ChunkEndorsement(_, endorsement),
-                ) = msg
-                {
-                    approvals.push(endorsement);
-                    None
-                } else {
-                    Some(msg)
-                }
-            });
+            if approvals.len() >= count {
+                break;
+            }
+            if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
+                break;
+            }
+            std::thread::sleep(Duration::from_micros(100));
         }
         approvals
     }
