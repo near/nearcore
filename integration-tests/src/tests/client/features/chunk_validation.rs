@@ -225,10 +225,10 @@ fn test_chunk_validation_basic() {
             break;
         }
         let prev_block = env.clients[0].chain.get_block(&prev_hash).unwrap();
-
+        let prev_chunks = prev_block.chunks();
         for chunk in block.chunks().iter() {
             if chunk.is_new_chunk(block.header().height()) {
-                let last_chunk = prev_block.chunks().get(chunk.shard_id() as usize).unwrap();
+                let last_chunk = prev_chunks.get(chunk.shard_id() as usize).unwrap();
                 if last_chunk.prev_block_hash() != &CryptoHash::default() {
                     expected_chunks
                         .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
