@@ -194,6 +194,7 @@ pub fn create_chunk(
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
+        vec![],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,
