@@ -18,7 +18,7 @@ use near_primitives_core::types::{AccountId, NumSeats};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
