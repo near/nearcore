@@ -167,8 +167,8 @@ fn test_chunk_validation_basic() {
             );
             let blocks_processed = if rng.gen_bool(0.1) {
                 if round < blocks_to_produce - 1 {
-                    for shard_id in chunk_producers.get(validator_id).unwrap_or_default() {
-                        if block.chunks().get(shard_id as usize).unwrap().prev_block_hash()
+                    for shard_id in (*chunk_producers.get(validator_id)).unwrap_or_default() {
+                        if block.chunks().get(*shard_id as usize).unwrap().prev_block_hash()
                             != &CryptoHash::default()
                         {
                             chunks_count += 1;
