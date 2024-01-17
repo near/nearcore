@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
@@ -17,7 +18,7 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -149,11 +150,12 @@ fn test_chunk_validation_basic() {
         let epoch_id = block.header().epoch_id();
         let chunk_height = block.header().height() + 1;
         let epoch_manager = &env.clients[0].epoch_manager;
-        let mut chunk_producers = HashSet::new();
+        let mut chunk_producers: HashMap<_, Vec<_>> = HashMap::new();
         for shard_id in epoch_manager.shard_ids(epoch_id).unwrap() {
-            chunk_producers.insert(
-                epoch_manager.get_chunk_producer(epoch_id, chunk_height, shard_id).unwrap(),
-            );
+            chunk_producers
+                .entry(epoch_manager.get_chunk_producer(epoch_id, chunk_height, shard_id).unwrap())
+                .or_default()
+                .push(shard_id);
         }
 
         // Apply the block.
@@ -164,8 +166,14 @@ fn test_chunk_validation_basic() {
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(0.1) {
-                if round < blocks_to_produce - 1 && chunk_producers.contains(validator_id) {
-                    chunks_count += 1;
+                if round < blocks_to_produce - 1 {
+                    for shard_id in chunk_producers.get(validator_id).unwrap_or_default() {
+                        if block.chunks().get(shard_id as usize).unwrap().prev_block_hash()
+                            != &CryptoHash::default()
+                        {
+                            chunks_count += 1;
+                        }
+                    }
                 }
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             } else {
