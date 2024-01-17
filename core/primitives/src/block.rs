@@ -585,9 +585,7 @@ impl Block {
     #[inline]
     pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
         match self {
-            Block::BlockV1(_) => &[],
-            Block::BlockV2(_) => &[],
-            Block::BlockV3(_) => &[],
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
             Block::BlockV4(block) => block.body.chunk_endorsements(),
         }
     }
