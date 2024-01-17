@@ -144,7 +144,15 @@ fn pre_validate_chunk_state_witness(
     println!(
         "preval implicit len = {}, psr = {:?}",
         state_witness.implicit_transitions.len(),
-        state_witness.implicit_transitions.iter().map(|t| t.post_state_root).collect::<Vec<_>>()
+        state_witness
+            .implicit_transitions
+            .iter()
+            .map(|t| (
+                store.get_block_height(&t.block_hash),
+                store.get_block_header(&t.block_hash).unwrap().epoch_id(),
+                t.post_state_root
+            ))
+            .collect::<Vec<_>>()
     );
     let shard_id = state_witness.chunk_header.shard_id();
 
