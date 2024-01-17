@@ -39,7 +39,11 @@ fn test_chunk_validation_basic() {
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
     // We'll use four shards for this test.
-    let shard_layout = ShardLayout::get_simple_nightshade_layout();
+    let shard_layout = ShardLayout::v1(
+        vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
+        None,
+        1,
+    );
     let num_shards = shard_layout.shard_ids().count();
     let num_validators = 8;
     let mut genesis_config = GenesisConfig {
