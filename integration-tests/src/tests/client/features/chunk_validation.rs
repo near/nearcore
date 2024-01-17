@@ -215,23 +215,27 @@ fn test_chunk_validation_basic() {
         // assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
     }
 
-    let mut block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
+    let mut block = env.clients[0]
+        .chain
+        .get_block(&env.clients[0].chain.head().unwrap().last_block_hash)
+        .unwrap();
     loop {
-        let block = env.clients[0].chain.get_block(&block_hash).unwrap();
         let prev_hash = *block.header().prev_hash();
         if prev_hash == CryptoHash::default() {
             break;
         }
+        let prev_block = env.clients[0].chain.get_block(&prev_hash).unwrap();
 
         for chunk in block.chunks().iter() {
-            if chunk.is_new_chunk(block.header().height())
-                && chunk.prev_block_hash() != &CryptoHash::default()
-            {
-                expected_chunks
-                    .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
+            if chunk.is_new_chunk(block.header().height()) {
+                let last_chunk = prev_block.chunks().get(chunk.shard_id() as usize).unwrap();
+                if last_chunk.prev_block_hash() != &CryptoHash::default() {
+                    expected_chunks
+                        .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
+                }
             }
         }
-        block_hash = prev_hash;
+        block = prev_block;
     }
     // Check that number of chunk endorsements is correct.
     // There should be `(blocks_to_produce - 1) * num_shards` chunks, because
