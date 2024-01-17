@@ -61,6 +61,7 @@ jobs:
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
 
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
@@ -264,6 +265,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
@@ -297,6 +300,8 @@ jobs:
         with:
           crate: just
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
       - run: just check-cargo-clippy
 
   check_cargo_deny:
@@ -344,6 +349,8 @@ jobs:
         with:
           crate: cargo-udeps
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
       - run: just check-cargo-udeps
 
   cargo_audit:
