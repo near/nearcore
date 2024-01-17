@@ -25,7 +25,6 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 #[cfg(feature = "new_epoch_sync")]
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager.
@@ -196,13 +195,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         shard_id: ShardId,
         height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError>;
-
-    fn get_chunk_validators(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<Arc<HashSet<AccountId>>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -673,21 +665,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
         height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
         let epoch_manager = self.read();
-        let (chunk_validator_assignments, _) =
-            epoch_manager.get_chunk_validators_and_assignments(epoch_id, shard_id, height)?;
-        Ok(chunk_validator_assignments)
-    }
-
-    fn get_chunk_validators(
-        &self,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        height: BlockHeight,
-    ) -> Result<Arc<HashSet<AccountId>>, EpochError> {
-        let epoch_manager = self.read();
-        let (_, chunk_validators) =
-            epoch_manager.get_chunk_validators_and_assignments(epoch_id, shard_id, height)?;
-        Ok(chunk_validators)
+        epoch_manager.get_chunk_validator_assignments(epoch_id, shard_id, height)
     }
 
     fn get_validator_by_account_id(
@@ -998,12 +976,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         // Note that we are using the chunk_header.height_created param here to determine the chunk validators
         // This only works when height created for a chunk is the same as the height_included during block production
-        let (_, chunk_validators) = epoch_manager.get_chunk_validators_and_assignments(
+        let chunk_validator_assignments = epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validators.contains(&endorsement.account_id) {
+        if !chunk_validator_assignments.chunk_validators.contains(&endorsement.account_id) {
             return Err(Error::NotAValidator);
         }
         let validator =

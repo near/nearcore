@@ -712,16 +712,7 @@ impl EpochManagerAdapter for MockEpochManager {
         _shard_id: ShardId,
         _height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
-        Ok(Arc::new(vec![]))
-    }
-
-    fn get_chunk_validators(
-        &self,
-        _epoch_id: &EpochId,
-        _shard_id: ShardId,
-        _height: BlockHeight,
-    ) -> Result<Arc<HashSet<AccountId>>, EpochError> {
-        Ok(Arc::new(HashSet::new()))
+        Ok(Arc::new(Default::default()))
     }
 
     fn get_validator_by_account_id(
