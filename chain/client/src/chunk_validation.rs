@@ -93,7 +93,7 @@ impl ChunkValidator {
             return Err(Error::NotAChunkValidator);
         }
 
-        if my_signer.validator_id() == AccountId::from_str("account0") {
+        if my_signer.validator_id() == AccountId::from_str("account0").unwrap() {
             println!(
                 "preval implicit len = {}, psr = {:?}",
                 state_witness.implicit_transitions.len(),
