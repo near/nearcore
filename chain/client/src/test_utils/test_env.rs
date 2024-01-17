@@ -292,14 +292,12 @@ impl TestEnv {
     /// at least `count` endorsements are collected, or, if it doesn't happen,
     /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
     pub fn take_chunk_endorsements(&mut self, count: usize) -> Vec<ChunkEndorsement> {
+        let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
         let timer = Instant::now();
         let mut approvals = Vec::new();
         loop {
+            tracing::debug!("collected endorsements: {}", approvals.len());
             for idx in 0..self.clients.len() {
-                let _span =
-                    tracing::debug_span!(target: "test", "get_all_chunk_endorsements", client=idx)
-                        .entered();
-
                 self.network_adapters[idx].handle_filtered(|msg| {
                     if let PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_, endorsement),
@@ -311,11 +309,11 @@ impl TestEnv {
                         Some(msg)
                     }
                 });
-                if approvals.len() >= count {
-                    break;
-                }
             }
 
+            if approvals.len() >= count {
+                break;
+            }
             if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
                 break;
             }
