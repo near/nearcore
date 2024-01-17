@@ -103,7 +103,7 @@ fn test_chunk_validation_basic() {
         .build();
     let mut tx_hashes = vec![];
 
-    let mut rng = SeedableRng::seed_from_u64(44);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(44);
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
