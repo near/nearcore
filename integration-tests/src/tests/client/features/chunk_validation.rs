@@ -33,7 +33,7 @@ fn test_chunk_validation_basic() {
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 30;
+    let blocks_to_produce = 50;
     let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -171,7 +171,7 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
-            let blocks_processed = if rng.gen_bool(0.5) {
+            let blocks_processed = if rng.gen_bool(0.2) {
                 if round < blocks_to_produce - 1 {
                     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
                         if block.chunks().get(*shard_id as usize).unwrap().prev_block_hash()
