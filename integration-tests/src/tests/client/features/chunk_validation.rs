@@ -185,7 +185,7 @@ fn test_chunk_validation_basic() {
             let blocks_processed = if rng.gen_bool(0.2) {
                 if round < blocks_to_produce - 1 {
                     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
-                        let last_chunk = block.chunks().get(*shard_id as usize).unwrap();
+                        let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
                         if last_chunk.prev_block_hash() != &CryptoHash::default() {
                             expected_chunks.insert(last_chunk.chunk_hash());
                         }
