@@ -317,7 +317,7 @@ impl TestEnv {
             if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_micros(100));
         }
         approvals
     }

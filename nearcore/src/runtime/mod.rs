@@ -6,7 +6,8 @@ use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
+    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource, Tip,
 };
 use near_chain::Error;
 use near_chain_configs::{
@@ -717,12 +718,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let time_limit_reached = || match time_limit {
-            Some(limit_duration) => start_time.elapsed() >= limit_duration,
-            None => false,
-        };
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
         let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
@@ -731,7 +728,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_size = 0u64;
         // TODO: Update gas limit for transactions
         let transactions_gas_limit = gas_limit / 2;
-        let mut transactions = vec![];
+        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
         let mut num_checked_transactions = 0;
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
@@ -771,11 +768,27 @@ impl RuntimeAdapter for NightshadeRuntime {
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
-        while total_gas_burnt < transactions_gas_limit
-            && total_size < size_limit
-            && transactions.len() < new_receipt_count_limit
-            && !time_limit_reached()
-        {
+        // Add new transactions to the result until some limit is hit or the transactions run out.
+        loop {
+            if total_gas_burnt >= transactions_gas_limit {
+                result.limited_by = Some(PrepareTransactionsLimit::Gas);
+                break;
+            }
+            if total_size >= size_limit {
+                result.limited_by = Some(PrepareTransactionsLimit::Size);
+                break;
+            }
+            if result.transactions.len() >= new_receipt_count_limit {
+                result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
+                break;
+            }
+            if let Some(time_limit) = &time_limit {
+                if start_time.elapsed() >= *time_limit {
+                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    break;
+                }
+            }
+
             if let Some(iter) = pool_iterator.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
@@ -800,7 +813,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                             state_update.commit(StateChangeCause::NotWritableToDisk);
                             total_gas_burnt += verification_result.gas_burnt;
                             total_size += tx.get_size();
-                            transactions.push(tx);
+                            result.transactions.push(tx);
                             break;
                         }
                         Err(RuntimeError::InvalidTxError(err)) => {
@@ -818,11 +831,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                 break;
             }
         }
-        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", transactions.len(), num_checked_transactions);
+        debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
-        Ok(transactions)
+        Ok(result)
     }
 
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight {
