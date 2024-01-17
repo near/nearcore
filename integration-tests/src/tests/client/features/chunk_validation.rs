@@ -159,13 +159,14 @@ fn test_chunk_validation_basic() {
         env.propagate_chunk_state_witnesses();
     }
 
-    let approvals = env.get_all_chunk_endorsements();
     // Check that number of chunk endorsements is correct.
     // There should be `(blocks_to_produce - 1) * num_shards` chunks, because
     // for first block after genesis chunk production was not triggered.
     // Then, each chunk is validated by each validator.
     // TODO(#10265): divide validators separately between shards.
-    assert_eq!(approvals.len(), (blocks_to_produce - 1) * num_shards * num_validators);
+    let expected_endorsements = (blocks_to_produce - 1) * num_shards * num_validators;
+    let approvals = env.take_chunk_endorsements(expected_endorsements);
+    assert_eq!(approvals.len(), expected_endorsements);
 }
 
 // Returns the block producer for the height of head + height_offset.

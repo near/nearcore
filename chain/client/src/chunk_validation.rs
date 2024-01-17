@@ -11,7 +11,6 @@ use near_chain::{Chain, ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
-use near_o11y::log_assert;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
@@ -20,14 +19,13 @@ use near_primitives::chunk_validation::{
 };
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::EpochId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::Client;
 
@@ -42,9 +40,6 @@ pub struct ChunkValidator {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    /// Maps hash of chunk currently being validated into marker of validation
-    /// completeness.
-    chunks_in_validation: Arc<RwLock<HashMap<ChunkHash, Arc<OnceCell<()>>>>>,
 }
 
 impl ChunkValidator {
@@ -54,13 +49,7 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Self {
-        Self {
-            my_signer,
-            epoch_manager,
-            network_sender,
-            runtime_adapter,
-            chunks_in_validation: Default::default(),
-        }
+        Self { my_signer, epoch_manager, network_sender, runtime_adapter }
     }
 
     /// Performs the chunk validation logic. When done, it will send the chunk
@@ -102,13 +91,6 @@ impl ChunkValidator {
         let signer = self.my_signer.clone().unwrap();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
-        let completion_marker = Arc::new(OnceCell::new());
-        let validated_chunks_tracker = self.chunks_in_validation.clone();
-
-        {
-            let mut guard = validated_chunks_tracker.write().unwrap();
-            guard.insert(chunk_header.chunk_hash(), completion_marker.clone());
-        }
 
         rayon::spawn(move || {
             match validate_chunk_state_witness(
@@ -138,39 +120,8 @@ impl ChunkValidator {
                     tracing::error!("Failed to validate chunk: {:?}", err);
                 }
             }
-
-            if let Err(_) = completion_marker.set(()) {
-                // Ideally this should never happen.
-                log_assert!(
-                    false,
-                    "start_validating_chunk is called twice for chunk {:?}, shard {} and height {}",
-                    chunk_header.chunk_hash(),
-                    chunk_header.shard_id(),
-                    chunk_header.height_created()
-                );
-            }
-
-            let mut guard = validated_chunks_tracker.write().unwrap();
-            guard.remove(&chunk_header.chunk_hash());
         });
         Ok(())
-    }
-
-    /// Waits until all requested validations for chunks are finished.
-    /// Should be used only in tests.
-    pub fn wait_for_chunks_in_validation(&mut self) {
-        loop {
-            let completion_marker = {
-                let guard = self.chunks_in_validation.read().unwrap();
-                match guard.values().next() {
-                    Some(marker) => marker.clone(),
-                    None => {
-                        break;
-                    }
-                }
-            };
-            completion_marker.wait();
-        }
     }
 }
 
