@@ -309,7 +309,6 @@ struct PreValidationOutput {
     implicit_transition_params: Vec<ApplyChunkBlockContext>,
 }
 
-#[allow(unused)]
 fn validate_chunk_state_witness(
     state_witness: ChunkStateWitness,
     pre_validation_output: PreValidationOutput,
@@ -429,7 +428,7 @@ fn validate_chunk_state_witness(
         transactions_validation_storage_config,
         block_height + 1,
         &mut new_transactions.iter(),
-        &mut |tx: &SignedTransaction| -> bool {
+        &mut |_tx: &SignedTransaction| -> bool {
             // TODO(staffik)
             true
             // chain
