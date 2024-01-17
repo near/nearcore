@@ -224,7 +224,9 @@ fn test_chunk_validation_basic() {
         }
 
         for chunk in block.chunks().iter() {
-            if chunk.is_new_chunk(block.header().height()) {
+            if chunk.is_new_chunk(block.header().height())
+                && chunk.prev_block_hash() != &CryptoHash::default()
+            {
                 expected_chunks
                     .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
             }
