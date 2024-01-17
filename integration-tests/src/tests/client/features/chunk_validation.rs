@@ -140,13 +140,13 @@ fn test_chunk_validation_basic() {
             "Producing block at height {} by {}", tip.height + 1, block_producer
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
-        if round > 1 {
-            for i in 0..num_shards {
-                let chunks = block.chunks();
-                let chunk = chunks.get(i).unwrap();
-                // assert!(chunk.is_new_chunk(block.header().height()));
-            }
-        }
+        // if round > 1 {
+        //     for i in 0..num_shards {
+        //         let chunks = block.chunks();
+        //         let chunk = chunks.get(i).unwrap();
+        //         assert!(chunk.is_new_chunk(block.header().height()));
+        //     }
+        // }
 
         // Apply the block.
         for i in 0..env.clients.len() {
