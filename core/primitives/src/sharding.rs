@@ -279,8 +279,8 @@ impl ShardChunkHeader {
         }
     }
 
-    pub fn is_new_chunk(&self) -> bool {
-        self.height_created() == self.height_included()
+    pub fn is_new_chunk(&self, block_height: BlockHeight) -> bool {
+        self.height_included() == block_height
     }
 
     #[inline]
