@@ -2653,3 +2653,83 @@ fn test_max_kickout_stake_ratio() {
         ])
     );
 }
+
+#[test]
+#[cfg(feature = "nightly")]
+fn test_verify_chunk_endorsements() {
+    use near_chain_primitives::Error;
+    use near_crypto::Signature;
+    use near_primitives::chunk_validation::ChunkEndorsement;
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+    use near_primitives::test_utils::create_test_signer;
+    use std::str::FromStr;
+
+    let amount_staked = 1_000_000;
+    let account_id = AccountId::from_str("test1").unwrap();
+    let validators = vec![(account_id.clone(), amount_staked)];
+    let h = hash_range(6);
+
+    let mut epoch_manager = setup_default_epoch_manager(validators, 5, 1, 2, 2, 90, 60);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+
+    // build a chunk endorsement and chunk header
+    let epoch_manager = epoch_manager.into_handle();
+    let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
+
+    // verify if we have one chunk validator
+    let chunk_validators = epoch_manager.get_chunk_validators(&epoch_id, 0, 1).unwrap();
+    assert_eq!(chunk_validators.len(), 1);
+    assert!(chunk_validators.contains_key(&account_id));
+
+    // verify if the test signer has same public key as the chunk validator
+    let (validator, _) =
+        epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    assert_eq!(signer.public_key(), validator.public_key().clone());
+
+    // make chunk header
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        h[0],
+        h[2],
+        h[2],
+        h[2],
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        h[2],
+        h[2],
+        vec![],
+        signer.as_ref(),
+    ));
+
+    // check chunk endorsement validity
+    let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.clone());
+    assert!(epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
+
+    // check invalid chunk endorsement signature
+    chunk_endorsement.signature = Signature::default();
+    assert!(!epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
+
+    // check chunk endorsement invalidity when chunk header and chunk endorsement don't match
+    let chunk_endorsement = ChunkEndorsement::new(h[3].into(), signer);
+    let err =
+        epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
+    match err {
+        Error::InvalidChunkEndorsement => (),
+        _ => assert!(false, "Expected InvalidChunkEndorsement error but got {:?}", err),
+    }
+
+    // check chunk endorsement invalidity when signer is not chunk validator
+    let bad_signer = Arc::new(create_test_signer("test2"));
+    let chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), bad_signer);
+    let err =
+        epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
+    match err {
+        Error::NotAValidator => (),
+        _ => assert!(false, "Expected NotAValidator error but got {:?}", err),
+    }
+}

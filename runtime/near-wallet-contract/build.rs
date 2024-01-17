@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() -> Result<()> {
-    if cfg!(not(feature = "nightly")) {
+    // TODO(eth-implicit) Remove the `build_wallet_contract` flag once we have a proper way
+    // to generate the Wallet Contract WASM file.
+    if cfg!(not(feature = "nightly")) || cfg!(not(feature = "build_wallet_contract")) {
         return Ok(());
     }
     build_contract("./wallet-contract", &[], "wallet_contract")
