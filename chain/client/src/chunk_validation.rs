@@ -302,7 +302,6 @@ struct PreValidationOutput {
     implicit_transition_params: Vec<ApplyChunkBlockContext>,
 }
 
-#[allow(unused)]
 fn validate_chunk_state_witness(
     state_witness: ChunkStateWitness,
     pre_validation_output: PreValidationOutput,
@@ -402,7 +401,6 @@ fn validate_chunk_state_witness(
     // Before we're done we have one last thing to do: verify that the proposed transactions
     // are valid.
     // TODO(#9292): Not sure how to do this.
-
     Ok(())
 }
 
