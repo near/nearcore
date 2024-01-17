@@ -102,13 +102,17 @@ impl NightshadeRuntime {
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
             compaction_enabled,
         };
+
+        let rutime_config_store =
+            if config.config.wasmcov_limits { Some(RuntimeConfigStore::wasmcov()) } else { None };
+
         Self::new(
             store,
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
             config.client_config.max_gas_burnt_view,
-            None,
+            rutime_config_store,
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,

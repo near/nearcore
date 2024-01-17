@@ -316,6 +316,8 @@ pub struct Config {
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    // Used for removing limits to allow coverage of wasm modules.
+    pub wasmcov_limits: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -360,6 +362,7 @@ impl Default for Config {
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
+            wasmcov_limits: false,
         }
     }
 }
