@@ -428,7 +428,7 @@ fn validate_chunk_state_witness(
         shard_id,
         transactions_validation_storage_config,
         block_height + 1,
-        &mut new_transactions.clone().into_iter(),
+        &mut new_transactions.iter(),
         &mut |tx: &SignedTransaction| -> bool {
             // TODO(staffik)
             true
@@ -444,11 +444,11 @@ fn validate_chunk_state_witness(
         epoch_manager.get_epoch_protocol_version(&epoch_id)?,
         config.produce_chunk_add_transactions_time_limit.get(),
     ) {
-        Ok((valid_transactions, _)) => {
-            if valid_transactions.len() != new_transactions.len() {
+        Ok(result) => {
+            if result.transactions.len() != new_transactions.len() {
                 return Err(Error::InvalidChunkStateWitness(format!(
-                    "Transactions validation failed. Expected {} valid transactions, received {} transactions.",
-                    valid_transactions.len(),
+                    "Transactions validation failed. {} transactions out of {} proposed transactions were valid.",
+                    result.transactions.len(),
                     new_transactions.len(),
                 )));
             }

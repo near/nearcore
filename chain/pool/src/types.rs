@@ -10,6 +10,13 @@ pub trait PoolIterator {
     fn current(&mut self) -> Option<&mut TransactionGroup>;
 }
 
+/// Trait acts like an iterator over transactions directly.
+/// If the implementer of this trait groups transactions, `next_group` call should skip the current group.
+pub trait TransactionIterator {
+    fn next_transaction(&mut self) -> Option<SignedTransaction>;
+    fn next_group(&mut self);
+}
+
 /// A hash of (an AccountId, a PublicKey and a seed).
 /// Used to randomize the order of the keys.
 pub(crate) type PoolKey = CryptoHash;

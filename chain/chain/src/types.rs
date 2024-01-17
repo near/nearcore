@@ -6,6 +6,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
+use near_pool::types::TransactionIterator;
 use near_primitives::challenge::PartialState;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
@@ -402,7 +403,7 @@ pub trait RuntimeAdapter: Send + Sync {
         shard_id: ShardId,
         storage: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn Iterator<Item = SignedTransaction>,
+        transaction_iterator: &mut dyn TransactionIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,

@@ -16,9 +16,8 @@ use near_chain_configs::{
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
+use near_pool::types::TransactionIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::challenge::PartialState;
-use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -715,7 +714,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        transaction_iterator: &mut dyn Iterator<Item = SignedTransaction>,
+        transaction_iterator: &mut dyn TransactionIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
@@ -723,9 +722,6 @@ impl RuntimeAdapter for NightshadeRuntime {
         let start_time = std::time::Instant::now();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
 
-        if checked_feature!("stable", ChunkValidation, current_protocol_version) {
-            debug_assert!(storage_config.record_storage)
-        }
         let mut state_update = if storage_config.record_storage {
             self.tries.new_trie_update_with_recording_reads(shard_uid, storage_config.state_root)
         } else {
@@ -737,7 +733,11 @@ impl RuntimeAdapter for NightshadeRuntime {
         let mut total_size = 0u64;
         // TODO: Update gas limit for transactions
         let transactions_gas_limit = gas_limit / 2;
-        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None };
+        let mut result = PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: None,
+            storage_proof: None,
+        };
         let mut num_checked_transactions = 0;
 
         let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
@@ -797,8 +797,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break;
                 }
             }
-
-            while let Some(tx) = transaction_iterator.next() {
+            while let Some(tx) = transaction_iterator.next_transaction() {
                 num_checked_transactions += 1;
                 // Verifying the transaction is on the same chain and hasn't expired yet.
                 if !chain_validate(&tx) {
@@ -822,6 +821,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                         total_gas_burnt += verification_result.gas_burnt;
                         total_size += tx.get_size();
                         result.transactions.push(tx);
+                        transaction_iterator.next_group();
                         break;
                     }
                     Err(RuntimeError::InvalidTxError(err)) => {

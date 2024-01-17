@@ -29,7 +29,10 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource};
+use near_chain::types::{
+    ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
+};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
@@ -52,7 +55,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::{log_assert, WithSpanContextExt};
-use near_pool::{InsertTransactionResult, TransactionIterator};
+use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
 use near_primitives::challenge::PartialState;
@@ -995,49 +998,50 @@ impl Client {
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let prepared_transactions =
-            if let Some(iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
-                let transaction_validity_period = chain.transaction_validity_period;
-                let me = self
-                    .validator_signer
-                    .as_ref()
-                    .map(|validator_signer| validator_signer.validator_id().clone());
-                let record_storage = chain
-                    .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
-                let storage_config = RuntimeStorageConfig {
-                    state_root,
-                    use_flat_storage: true,
-                    source: StorageDataSource::Db,
-                    state_patch: Default::default(),
-                    record_storage,
-                };
-                runtime.prepare_transactions(
-                    prev_block_header.next_gas_price(),
-                    gas_limit,
-                    &next_epoch_id,
-                    shard_id,
-                    storage_config,
-                    // while the height of the next block that includes the chunk might not be prev_height + 1,
-                    // passing it will result in a more conservative check and will not accidentally allow
-                    // invalid transactions to be included.
-                    prev_block_header.height() + 1,
-                    &mut TransactionIterator::new(iter),
-                    &mut |tx: &SignedTransaction| -> bool {
-                        chain
-                            .chain_store()
-                            .check_transaction_validity_period(
-                                prev_block_header,
-                                &tx.transaction.block_hash,
-                                transaction_validity_period,
-                            )
-                            .is_ok()
-                    },
-                    protocol_version,
-                    self.config.produce_chunk_add_transactions_time_limit.get(),
-                )?
-            } else {
-                PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+        let prepared_transactions = if let Some(mut iter) =
+            sharded_tx_pool.get_pool_iterator(shard_uid)
+        {
+            let transaction_validity_period = chain.transaction_validity_period;
+            let me = self
+                .validator_signer
+                .as_ref()
+                .map(|validator_signer| validator_signer.validator_id().clone());
+            let record_storage = chain
+                .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
+            let storage_config = RuntimeStorageConfig {
+                state_root,
+                use_flat_storage: true,
+                source: StorageDataSource::Db,
+                state_patch: Default::default(),
+                record_storage,
             };
+            runtime.prepare_transactions(
+                prev_block_header.next_gas_price(),
+                gas_limit,
+                &next_epoch_id,
+                shard_id,
+                storage_config,
+                // while the height of the next block that includes the chunk might not be prev_height + 1,
+                // passing it will result in a more conservative check and will not accidentally allow
+                // invalid transactions to be included.
+                prev_block_header.height() + 1,
+                &mut iter,
+                &mut |tx: &SignedTransaction| -> bool {
+                    chain
+                        .chain_store()
+                        .check_transaction_validity_period(
+                            prev_block_header,
+                            &tx.transaction.block_hash,
+                            transaction_validity_period,
+                        )
+                        .is_ok()
+                },
+                protocol_version,
+                self.config.produce_chunk_add_transactions_time_limit.get(),
+            )?
+        } else {
+            PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+        };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
         let reintroduced_count = sharded_tx_pool

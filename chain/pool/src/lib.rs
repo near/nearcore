@@ -1,7 +1,7 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use crate::types::{PoolIterator, PoolKey, TransactionGroup};
+use crate::types::{PoolIterator, PoolKey, TransactionGroup, TransactionIterator};
 
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
@@ -305,37 +305,35 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
     }
 }
 
-/// A wrapper around PoolIterator that returns signed transactions directly.
-pub struct TransactionIterator<P>
+impl<T> TransactionIterator for T
 where
-    P: PoolIterator,
+    T: PoolIterator,
 {
-    pool_iterator: P,
-}
-
-impl<'a, P> TransactionIterator<P>
-where
-    P: PoolIterator,
-{
-    pub fn new(pool_iterator: P) -> Self {
-        Self { pool_iterator }
-    }
-}
-
-impl<'a> Iterator for TransactionIterator<PoolIteratorWrapper<'a>> {
-    type Item = SignedTransaction;
-
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next_transaction(&mut self) -> Option<SignedTransaction> {
         loop {
-            if let Some(group) = self.pool_iterator.current() {
+            if let Some(group) = self.current() {
                 if let Some(transaction) = group.next() {
                     return Some(transaction);
                 }
             }
-            if self.pool_iterator.next().is_none() {
+            if self.next().is_none() {
                 return None;
             }
         }
+    }
+
+    fn next_group(&mut self) {
+        self.next();
+    }
+}
+
+impl<'a> TransactionIterator for std::slice::Iter<'a, SignedTransaction> {
+    fn next_transaction(&mut self) -> Option<SignedTransaction> {
+        Iterator::next(self).cloned()
+    }
+
+    fn next_group(&mut self) {
+        // Slice of transactions is flat (transactions are not grouped) so do nothing.
     }
 }
 
