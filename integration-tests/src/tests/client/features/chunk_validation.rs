@@ -119,7 +119,7 @@ fn test_chunk_validation_basic() {
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(44);
     // let mut chunks_count = 0;
-    let mut expected_chunks = HashSet::new();
+    let mut expected_chunks = HashMap::new();
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
@@ -187,7 +187,10 @@ fn test_chunk_validation_basic() {
                     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
                         let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
                         if last_chunk.prev_block_hash() != &CryptoHash::default() {
-                            expected_chunks.insert(last_chunk.chunk_hash());
+                            expected_chunks.insert(
+                                *last_chunk.chunk_hash(),
+                                (block.header().height(), *shard_id),
+                            );
                         }
                     }
                 }

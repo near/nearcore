@@ -25,7 +25,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -290,12 +290,15 @@ impl TestEnv {
     /// Collects all chunk endorsements from network adapters until
     /// at least `count` endorsements are collected, or, if it doesn't happen,
     /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
-    pub fn take_chunk_endorsements(&mut self, mut hashes: HashSet<ChunkHash>) {
+    pub fn take_chunk_endorsements(
+        &mut self,
+        mut hashes: HashMap<ChunkHash, (BlockHeight, ShardId)>,
+    ) {
         let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
         let timer = Instant::now();
         // let mut approvals = Vec::new();
         loop {
-            tracing::debug!(target: "test", "remaining endorsements: {}", hashes.len());
+            tracing::debug!(target: "test", "remaining endorsements: {:?}", hashes);
             for idx in 0..self.clients.len() {
                 self.network_adapters[idx].handle_filtered(|msg| {
                     if let PeerManagerMessageRequest::NetworkRequests(
