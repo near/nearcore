@@ -296,7 +296,7 @@ impl TestEnv {
         let timer = Instant::now();
         let mut approvals = Vec::new();
         loop {
-            tracing::debug!("collected endorsements: {}", approvals.len());
+            tracing::debug!(target: "test", "collected endorsements: {}", approvals.len());
             for idx in 0..self.clients.len() {
                 self.network_adapters[idx].handle_filtered(|msg| {
                     if let PeerManagerMessageRequest::NetworkRequests(

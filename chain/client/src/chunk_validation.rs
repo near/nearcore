@@ -386,7 +386,6 @@ fn validate_chunk_state_witness(
     // Before we're done we have one last thing to do: verify that the proposed transactions
     // are valid.
     // TODO(#9292): Not sure how to do this.
-
     Ok(())
 }
 

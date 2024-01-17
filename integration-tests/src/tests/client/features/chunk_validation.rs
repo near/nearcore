@@ -1,3 +1,4 @@
+use assert_matches::assert_matches;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
@@ -9,6 +10,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountInfo;
+use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
@@ -30,7 +32,7 @@ fn test_chunk_validation_basic() {
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 10;
+    let blocks_to_produce = 20;
     let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -97,6 +99,7 @@ fn test_chunk_validation_basic() {
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
+    let mut tx_hashes = vec![];
 
     for round in 0..blocks_to_produce {
         let heads = env
@@ -114,18 +117,19 @@ fn test_chunk_validation_basic() {
             KeyType::ED25519,
             sender_account.as_ref(),
         );
-        let _ = env.clients[0].process_tx(
-            SignedTransaction::send_money(
+        // Give each transaction 10 blocks to be fully executed.
+        if round > 1 && blocks_to_produce - round >= 10 {
+            let tx = SignedTransaction::send_money(
                 round as u64,
                 sender_account,
                 receiver_account,
                 &signer,
                 ONE_NEAR,
                 tip.last_block_hash,
-            ),
-            false,
-            false,
-        );
+            );
+            tx_hashes.push(tx.get_hash());
+            let _ = env.clients[0].process_tx(tx, false, false);
+        }
 
         let block_producer = get_block_producer(&env, &tip, 1);
         tracing::debug!(
@@ -137,7 +141,7 @@ fn test_chunk_validation_basic() {
             for i in 0..num_shards {
                 let chunks = block.chunks();
                 let chunk = chunks.get(i).unwrap();
-                assert_eq!(chunk.height_created(), block.header().height());
+                assert!(chunk.is_new_chunk(block.header().height()));
             }
         }
 
@@ -159,6 +163,10 @@ fn test_chunk_validation_basic() {
         env.propagate_chunk_state_witnesses();
     }
 
+    for tx_hash in tx_hashes {
+        let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
+        assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+    }
     // Check that number of chunk endorsements is correct.
     // There should be `(blocks_to_produce - 1) * num_shards` chunks, because
     // for first block after genesis chunk production was not triggered.
