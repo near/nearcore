@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,7 @@ use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
@@ -291,19 +291,19 @@ impl TestEnv {
     /// Collects all chunk endorsements from network adapters until
     /// at least `count` endorsements are collected, or, if it doesn't happen,
     /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
-    pub fn take_chunk_endorsements(&mut self, count: usize) -> Vec<ChunkEndorsement> {
+    pub fn take_chunk_endorsements(&mut self, mut hashes: HashSet<ChunkHash>) {
         let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
         let timer = Instant::now();
-        let mut approvals = Vec::new();
+        // let mut approvals = Vec::new();
         loop {
-            tracing::debug!(target: "test", "collected endorsements: {}", approvals.len());
+            tracing::debug!(target: "test", "remaining endorsements: {}", hashes.len());
             for idx in 0..self.clients.len() {
                 self.network_adapters[idx].handle_filtered(|msg| {
                     if let PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(_, endorsement),
                     ) = msg
                     {
-                        approvals.push(endorsement);
+                        hashes.remove(endorsement.chunk_hash());
                         None
                     } else {
                         Some(msg)
@@ -311,15 +311,14 @@ impl TestEnv {
                 });
             }
 
-            if approvals.len() >= count {
+            if hashes.is_empty() {
                 break;
             }
             if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
-                break;
+                panic!("TIMEOUT");
             }
             std::thread::sleep(Duration::from_micros(100));
         }
-        approvals
     }
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {

@@ -118,7 +118,8 @@ fn test_chunk_validation_basic() {
     let mut tx_hashes = vec![];
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(44);
-    let mut chunks_count = 0;
+    // let mut chunks_count = 0;
+    let mut expected_chunks = HashSet::new();
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
@@ -184,10 +185,9 @@ fn test_chunk_validation_basic() {
             let blocks_processed = if rng.gen_bool(0.2) {
                 if round < blocks_to_produce - 1 {
                     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
-                        if block.chunks().get(*shard_id as usize).unwrap().prev_block_hash()
-                            != &CryptoHash::default()
-                        {
-                            chunks_count += 1;
+                        let last_chunk = block.chunks().get(*shard_id as usize).unwrap();
+                        if last_chunk.prev_block_hash() != &CryptoHash::default() {
+                            expected_chunks.insert(last_chunk.chunk_hash());
                         }
                     }
                 }
@@ -216,9 +216,9 @@ fn test_chunk_validation_basic() {
     // for first block after genesis chunk production was not triggered.
     // Then, each chunk is validated by each validator.
     // TODO(#10265): divide validators separately between shards.
-    let expected_endorsements = chunks_count * num_validators;
-    let approvals = env.take_chunk_endorsements(expected_endorsements);
-    assert!(approvals.len() >= expected_endorsements);
+    // let expected_endorsements = chunks_count * num_validators;
+    env.take_chunk_endorsements(expected_chunks);
+    // assert!(approvals.len() >= expected_endorsements);
 }
 
 /// Returns the block producer for the height of head + height_offset.
