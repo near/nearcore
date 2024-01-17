@@ -1,7 +1,7 @@
 use super::ValidatorSchedule;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    RuntimeAdapter, RuntimeStorageConfig,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -1040,12 +1040,12 @@ impl RuntimeAdapter for KeyValueRuntime {
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error> {
+    ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
         while let Some(iter) = transactions.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(res)
+        Ok(PreparedTransactions { transactions: res, limited_by: None })
     }
 
     fn apply_chunk(
