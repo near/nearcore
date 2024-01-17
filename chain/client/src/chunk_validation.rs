@@ -56,7 +56,7 @@ impl ChunkValidator {
     /// endorsement message to the block producer. The actual validation logic
     /// happens in a separate thread.
     pub fn start_validating_chunk(
-        &mut self,
+        &self,
         state_witness: ChunkStateWitness,
         chain_store: &ChainStore,
     ) -> Result<(), Error> {
@@ -91,7 +91,6 @@ impl ChunkValidator {
         let signer = self.my_signer.clone().unwrap();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
-
         rayon::spawn(move || {
             match validate_chunk_state_witness(
                 state_witness,

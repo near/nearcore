@@ -10,7 +10,6 @@ use near_chain::{ChainGenesis, Provenance};
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_crypto::{InMemorySigner, KeyType, Signer};
-use near_network::concurrency::ctx::time::sleep;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
