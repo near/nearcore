@@ -4,6 +4,7 @@ use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Tip;
+use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
@@ -32,7 +33,7 @@ fn test_chunk_validation_basic() {
 
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 20;
+    let blocks_to_produce = 30;
     let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
@@ -58,7 +59,7 @@ fn test_chunk_validation_basic() {
             })
             .collect(),
         // We don't care about epoch transitions in this test.
-        epoch_length: 10000,
+        epoch_length: 10,
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
@@ -71,6 +72,8 @@ fn test_chunk_validation_basic() {
         num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: 10u64.pow(15),
         transaction_validity_period: 120,
+        block_producer_kickout_threshold: 0,
+        chunk_producer_kickout_threshold: 0,
         ..Default::default()
     };
 
@@ -94,9 +97,13 @@ fn test_chunk_validation_basic() {
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let chain_genesis = ChainGenesis::new(&genesis);
 
+    let epoch_config_test_overrides = Some(AllEpochConfigTestOverrides {
+        block_producer_kickout_threshold: Some(0),
+        chunk_producer_kickout_threshold: Some(0),
+    });
     let mut env = TestEnv::builder(chain_genesis)
         .clients(accounts.iter().take(8).cloned().collect())
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)
         .build();
     let mut tx_hashes = vec![];
