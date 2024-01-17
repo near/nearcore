@@ -13,7 +13,7 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidators};
+use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidatorAssignments};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -706,13 +706,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(chunk_producers[index].account_id().clone())
     }
 
-    fn get_chunk_validators(
+    fn get_chunk_validator_assignments(
         &self,
         _epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
-    ) -> Result<Arc<ChunkValidators>, EpochError> {
-        Ok(Arc::new(HashMap::new()))
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
+        Ok(Arc::new(Default::default()))
     }
 
     fn get_validator_by_account_id(

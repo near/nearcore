@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::challenge::PartialState;
@@ -158,4 +158,15 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
-pub type ChunkValidators = HashMap<AccountId, AssignmentWeight>;
+#[derive(Debug, Default)]
+pub struct ChunkValidatorAssignments {
+    pub assignments: Vec<(AccountId, AssignmentWeight)>,
+    pub chunk_validators: HashSet<AccountId>,
+}
+
+impl ChunkValidatorAssignments {
+    pub fn new(assignments: Vec<(AccountId, AssignmentWeight)>) -> Self {
+        let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
+        Self { assignments, chunk_validators }
+    }
+}

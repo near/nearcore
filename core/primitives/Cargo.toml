@@ -22,6 +22,7 @@ derive_more.workspace = true
 easy-ext.workspace = true
 enum-map.workspace = true
 hex.workspace = true
+itertools.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
