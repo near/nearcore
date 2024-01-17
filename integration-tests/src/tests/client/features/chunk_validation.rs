@@ -81,6 +81,7 @@ fn test_chunk_validation_basic() {
         chunk_producer_kickout_threshold: 0,
         online_min_threshold: Rational32::new(1, 1000),
         online_max_threshold: Rational32::new(2, 1000),
+        protocol_reward_rate: Rational32::new(1, 10),
         ..Default::default()
     };
 
