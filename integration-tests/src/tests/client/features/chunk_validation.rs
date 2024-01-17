@@ -81,8 +81,11 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         // Needed to avoid kickouts
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
-        // Needed to distribute full reward if at least some block/chunk was
-        // produced.
+        // Needed to distribute full non-trivial reward to each validator if at
+        // least some block/chunk was produced.
+        // This itself is needed to make state transition on epoch boundary
+        // non-trivial even if chunk is missing, so that functionality of
+        // storing and validating implicit state transitions can be checked.
         online_min_threshold: Rational32::new(0, 1),
         online_max_threshold: Rational32::new(2, 1000),
         protocol_reward_rate: Rational32::new(1, 10),
@@ -197,6 +200,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         found_different_post_state_roots |= result.found_different_post_state_roots;
     }
 
+    // Check that at least one tx was fully executed, ensuring that executing
+    // state witness against non-trivial recorded storage is checked.
     let mut has_executed_txs = false;
     for tx_hash in tx_hashes {
         let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash);
@@ -208,8 +213,15 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     }
     assert!(has_executed_txs);
 
-    assert!(found_different_post_state_roots);
+    // If probability of missing chunk is high, claim that it is enough for
+    // some chunk at epoch boundary to miss, likely causing two different post
+    // state roots in some state witness.
+    if prob_missing_chunk > 0.7 {
+        assert!(found_different_post_state_roots);
+    }
 
+    // Collect chunk hashes which have to be endorsed and check that it indeed
+    // happens.
     let mut block = env.clients[0]
         .chain
         .get_block(&env.clients[0].chain.head().unwrap().last_block_hash)
@@ -222,6 +234,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         let prev_block = env.clients[0].chain.get_block(&prev_hash).unwrap();
         for (chunk, prev_chunk) in block.chunks().iter().zip(prev_block.chunks().iter()) {
             if chunk.is_new_chunk(block.header().height()) {
+                // First chunk after genesis doesn't have to be endorsed.
                 if prev_chunk.prev_block_hash() != &CryptoHash::default() {
                     expected_chunks
                         .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
