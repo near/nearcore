@@ -34,10 +34,10 @@ pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Bloc
         // TODO: this should be clock.now(), but Block::genesis has to be migrated
         // from chrono to time first.
         chrono::Utc::now(),
-        0,                     // height
-        1000,                  // initial_gas_price
-        1000,                  // initial_total_supply
-        CryptoHash::default(), // next_bp_hash (next block producers' hash)
+        0,
+        1000,
+        1000,
+        CryptoHash::default(),
     )
 }
 
@@ -48,27 +48,28 @@ pub fn make_block(
     chunks: Vec<ShardChunk>,
 ) -> Block {
     Block::produce(
-        version::PROTOCOL_VERSION,         // this_epoch_protocol_version
-        version::PROTOCOL_VERSION,         // next_epoch_protocol_version
-        prev.header(),                     // prev
-        prev.header().height() + 5,        // height
-        prev.header().block_ordinal() + 1, // block_ordinal
-        chunks.into_iter().map(|c| c.take_header()).collect(), // chunks
-        EpochId::default(),                // epoch_id
-        EpochId::default(),                // next_epoch_id
-        None,                              // epoch_sync_data_hash
-        vec![],                            // approvals
-        Ratio::from_integer(0),            // gas_price_adjustment_rate
-        0,                                 // min_gas_price
-        0,                                 // max_gas_price
-        Some(0),                           // minted_amount
-        vec![],                            // challenges_result
-        vec![],                            // challenges
+        version::PROTOCOL_VERSION,
+        version::PROTOCOL_VERSION,
+        prev.header(),
+        prev.header().height() + 5,
+        prev.header().block_ordinal() + 1,
+        chunks.into_iter().map(|c| c.take_header()).collect(),
+        vec![],
+        EpochId::default(),
+        EpochId::default(),
+        None,
+        vec![],
+        Ratio::from_integer(0),
+        0,
+        0,
+        Some(0),
+        vec![],
+        vec![],
         signer,
-        CryptoHash::default(), // next_bp_hash
-        CryptoHash::default(), // block_merkle_root
+        CryptoHash::default(),
+        CryptoHash::default(),
         // TODO: migrate to clock.now()
-        Some(chrono::Utc::now()), // timestamp_override
+        Some(chrono::Utc::now()),
     )
 }
 

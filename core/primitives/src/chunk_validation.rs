@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
+use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -156,3 +157,5 @@ pub struct StoredChunkStateTransitionData {
     /// to ease debugging of why a state witness may be incorrect.
     pub receipts_hash: CryptoHash,
 }
+
+pub type ChunkValidators = HashMap<AccountId, AssignmentWeight>;

@@ -342,24 +342,28 @@ impl BlockBody {
     fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
         match self {
             BlockBody::V1(body) => &mut body.chunks,
+            BlockBody::V2(body) => &mut body.chunks,
         }
     }
 
     fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
         match self {
             BlockBody::V1(body) => body.chunks = chunks,
+            BlockBody::V2(body) => body.chunks = chunks,
         }
     }
 
     fn set_challenges(&mut self, challenges: Challenges) {
         match self {
             BlockBody::V1(body) => body.challenges = challenges,
+            BlockBody::V2(body) => body.challenges = challenges,
         }
     }
 
     fn set_vrf_value(&mut self, vrf_value: Value) {
         match self {
             BlockBody::V1(body) => body.vrf_value = vrf_value,
+            BlockBody::V2(body) => body.vrf_value = vrf_value,
         }
     }
 }
@@ -438,6 +442,7 @@ impl TestBlockBuilder {
             self.height,
             self.prev.header().block_ordinal() + 1,
             self.prev.chunks().iter().cloned().collect(),
+            vec![],
             self.epoch_id,
             self.next_epoch_id,
             None,

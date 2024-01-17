@@ -54,13 +54,7 @@ jobs:
           crate: cargo-nextest
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
-          crate: cargo-deny
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
           crate: cargo-llvm-cov
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-udeps
 
       # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
@@ -86,7 +80,7 @@ jobs:
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -96,7 +90,7 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -125,7 +119,7 @@ jobs:
 
   py_db_migration:
     name: "Database Migration"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -222,7 +216,7 @@ jobs:
 
   py_style_check:
     name: "Style"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
@@ -266,14 +260,10 @@ jobs:
 
   rpc_error_schema:
     name: "RPC Schema"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
@@ -288,8 +278,52 @@ jobs:
         with:
           fail: true
 
+  check_fmt:
+    name: "Cargo Fmt"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-cargo-fmt
+
+  check_clippy:
+    name: "Cargo Clippy"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+      - run: just check-cargo-clippy
+
+  check_cargo_deny:
+    name: "Cargo Deny"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: cargo-deny
+      - run: just check-cargo-deny
+
+  check_themis:
+    name: "Themis"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+        with:
+          crate: just
+      - run: just check-themis
+
   check_non_default:
-    name: "Non-default configuration builds"
+    name: "Non-default Configuration Builds"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -299,8 +333,8 @@ jobs:
       - run: just check-non-default
 
   check_udeps:
-    name: "Unused dependencies"
-    runs-on: ubuntu-latest
+    name: "Unused Dependencies"
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
@@ -309,7 +343,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-udeps
-      - run: just check-udeps
+      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+      - run: just check-cargo-udeps
 
   cargo_audit:
     name: "Cargo Audit"
