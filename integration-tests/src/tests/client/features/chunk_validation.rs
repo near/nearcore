@@ -24,8 +24,7 @@ use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
-#[test]
-fn test_chunk_validation_basic() {
+fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     init_integration_logger();
 
     if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
@@ -41,7 +40,8 @@ fn test_chunk_validation_basic() {
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
     let num_validators = 8;
-    // We'll use four shards for this test.
+    // Split accounts into 4 shards, so that each shard will store two
+    // validator accounts.
     let shard_layout = ShardLayout::v1(
         vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
         None,
@@ -78,9 +78,12 @@ fn test_chunk_validation_basic() {
         num_block_producer_seats_per_shard: vec![8; num_shards],
         gas_limit: 10u64.pow(15),
         transaction_validity_period: 120,
+        // Needed to avoid kickouts
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
-        online_min_threshold: Rational32::new(1, 1000),
+        // Needed to distribute full reward if at least some block/chunk was
+        // produced.
+        online_min_threshold: Rational32::new(0, 1),
         online_max_threshold: Rational32::new(2, 1000),
         protocol_reward_rate: Rational32::new(1, 10),
         max_inflation_rate: Rational32::new(1, 1),
@@ -118,7 +121,7 @@ fn test_chunk_validation_basic() {
         .build();
     let mut tx_hashes = vec![];
 
-    let mut rng: StdRng = SeedableRng::seed_from_u64(44);
+    let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
     let mut expected_chunks = HashMap::new();
     let mut found_different_post_state_roots = false;
     for round in 0..blocks_to_produce {
@@ -176,12 +179,12 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
-            let blocks_processed = if rng.gen_bool(1.0) {
-                env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
-            } else {
+            let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
                 env.clients[i]
                     .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE)
                     .unwrap()
+            } else {
+                env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             };
             assert_eq!(blocks_processed, vec![*block.hash()]);
         }
@@ -229,6 +232,21 @@ fn test_chunk_validation_basic() {
     }
 
     env.wait_for_chunk_endorsements(expected_chunks);
+}
+
+#[test]
+fn test_chunk_validation_no_missing_chunks() {
+    run_chunk_validation_test(42, 0.0);
+}
+
+#[test]
+fn test_chunk_validation_low_missing_chunks() {
+    run_chunk_validation_test(43, 0.3);
+}
+
+#[test]
+fn test_chunk_validation_high_missing_chunks() {
+    run_chunk_validation_test(44, 0.8);
 }
 
 /// Returns the block producer for the height of head + height_offset.
