@@ -577,6 +577,10 @@ impl Client {
 
         // If we are the current block producer, we store the chunk endorsement for each chunk which
         // would later be used during block production to check whether to include the chunk or not.
+        // TODO(stateless_validation): It's possible for a malicious validator to send endorsements
+        // for 100 unique chunks thus pushing out current valid endorsements from our cache.
+        // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
+        // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
         tracing::debug!(target: "chunk_validation", ?endorsement, "Received and saved chunk endorsement.");
         self.chunk_validator
             .chunk_endorsements
