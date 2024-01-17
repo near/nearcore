@@ -2,8 +2,9 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::BorshDeserialize;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    create_bucket_readonly, create_bucket_readwrite, external_storage_location,
+    create_bucket_readonly, create_bucket_readwrite, external_part_storage_location,
     external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
+    ObjectType,
 };
 use near_client::sync::state::StateSync;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -338,9 +339,14 @@ async fn load_state_parts(
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
 
-    let directory_path =
-        external_storage_location_directory(chain_id, &epoch_id, epoch_height, shard_id);
-    let part_file_names = external.list_state_parts(shard_id, &directory_path).await.unwrap();
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        ObjectType::StatePart,
+    );
+    let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
     assert!(!part_file_names.is_empty());
     let num_parts = part_file_names.len() as u64;
     assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
@@ -359,7 +365,7 @@ async fn load_state_parts(
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let location = external_storage_location(
+        let location = external_part_storage_location(
             chain_id,
             &epoch_id,
             epoch_height,
@@ -466,7 +472,7 @@ async fn dump_state_parts(
             )
             .unwrap();
 
-        let location = external_storage_location(
+        let location = external_part_storage_location(
             &chain_id,
             &epoch_id,
             epoch.epoch_height(),
@@ -474,7 +480,7 @@ async fn dump_state_parts(
             part_id,
             num_parts,
         );
-        external.put_state_part(&state_part, shard_id, &location).await.unwrap();
+        external.put_obj(&state_part, shard_id, &location, ObjectType::StatePart).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
         let first_state_record = get_first_state_record(&state_root, &state_part);

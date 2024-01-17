@@ -3,7 +3,7 @@ use crate::metrics;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::external::{create_bucket_readwrite, external_storage_location};
+use near_client::sync::external::{create_bucket_readwrite, external_part_storage_location, ObjectType};
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
@@ -153,8 +153,8 @@ async fn get_missing_part_ids_for_epoch(
     external: &ExternalConnection,
 ) -> Result<Vec<u64>, anyhow::Error> {
     let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id);
-    let file_names = external.list_state_parts(shard_id, &directory_path).await?;
+        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, ObjectType::StatePart);
+    let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
             .iter()
@@ -327,7 +327,7 @@ async fn state_sync_dump(
                                         }
                                     };
 
-                                    let location = external_storage_location(
+                                    let location = external_part_storage_location(
                                         &chain_id,
                                         &epoch_id,
                                         epoch_height,
@@ -336,7 +336,12 @@ async fn state_sync_dump(
                                         num_parts,
                                     );
                                     if let Err(err) = external
-                                        .put_state_part(&state_part, shard_id, &location)
+                                        .put_obj(
+                                            &state_part,
+                                            shard_id,
+                                            &location,
+                                            ObjectType::StatePart,
+                                        )
                                         .await
                                     {
                                         // no need to break if there's an error, we should keep dumping other parts.

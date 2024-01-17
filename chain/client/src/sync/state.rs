@@ -22,7 +22,7 @@
 
 use crate::metrics;
 use crate::sync::external::{
-    create_bucket_readonly, external_storage_location, ExternalConnection,
+    create_bucket_readonly, external_part_storage_location, ExternalConnection,
 };
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Duration, Utc};
@@ -1055,8 +1055,14 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location =
-        external_storage_location(chain_id, epoch_id, epoch_height, shard_id, part_id, num_parts);
+    let location = external_part_storage_location(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        part_id,
+        num_parts,
+    );
 
     match semaphore.try_acquire_owned() {
         Ok(permit) => {
