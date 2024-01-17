@@ -234,6 +234,20 @@ imports! {
         beneficiary_id_ptr: u64
     ] -> []>,
     // #######################
+    // # Promise API await/submit #
+    // #######################
+    promise_await_data<[
+        account_id_len: u64,
+        account_id_ptr: u64,
+        yield_num_blocks: u64,
+        register_id: u64
+    ] -> [u64]>,
+    promise_submit_data<[
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> []>,
+    // #######################
     // # Promise API results #
     // #######################
     promise_results_count<[] -> [u64]>,
