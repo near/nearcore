@@ -1,9 +1,13 @@
 use crate::metrics;
 
+use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::external::{create_bucket_readwrite, external_part_storage_location, ObjectType};
+use near_client::sync::external::{
+    create_bucket_readwrite, external_header_storage_location, external_part_storage_location,
+    header_filename, ObjectType,
+};
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
@@ -139,6 +143,47 @@ impl StateSyncDumpHandle {
     }
 }
 
+/// Fetches the state sync header from DB and serializes it.
+fn get_serialized_header(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    chain: &Chain,
+) -> anyhow::Result<Vec<u8>> {
+    let header = chain.get_state_response_header(shard_id, sync_hash)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    header.serialize(&mut buffer)?;
+    Ok(buffer)
+}
+
+/// Check if the state sync header exists in the external storage.
+async fn is_state_sync_header_missing_for_epoch(
+    shard_id: ShardId,
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    external: &ExternalConnection,
+) -> Result<bool, anyhow::Error> {
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        ObjectType::StateHeader,
+    );
+    let file_names = external.list_objects(shard_id, &directory_path).await?;
+    let header_missing = file_names.is_empty() || !file_names.contains(&header_filename());
+    tracing::debug!(
+        target: "state_sync_dump",
+        ?directory_path,
+        "{}",
+        match header_missing {
+            false => "Header has already been dumped.",
+            true => "Header has not been dumped.",
+        }
+    );
+    Ok(header_missing)
+}
+
 pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
@@ -152,8 +197,13 @@ async fn get_missing_part_ids_for_epoch(
     total_parts: u64,
     external: &ExternalConnection,
 ) -> Result<Vec<u64>, anyhow::Error> {
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, ObjectType::StatePart);
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        ObjectType::StatePart,
+    );
     let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
@@ -264,7 +314,74 @@ async fn state_sync_dump(
                         None
                     }
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
-                        match get_missing_part_ids_for_epoch(
+                        // Upload header
+                        let header_in_external_storage =
+                            match is_state_sync_header_missing_for_epoch(
+                                shard_id,
+                                &chain_id,
+                                &epoch_id,
+                                epoch_height,
+                                &external,
+                            )
+                            .await
+                            {
+                                Err(err) => {
+                                    tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                                    false
+                                }
+                                // Header is already stored
+                                Ok(false) => true,
+                                // Header is missing
+                                Ok(true) => {
+                                    let state_sync_header =
+                                        get_serialized_header(shard_id, sync_hash, &chain);
+                                    match state_sync_header {
+                                        Err(err) => {
+                                            tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to serialize header.");
+                                            false
+                                        }
+                                        Ok(header) => {
+                                            let location = external_header_storage_location(
+                                                &chain_id,
+                                                &epoch_id,
+                                                epoch_height,
+                                                shard_id,
+                                            );
+                                            match external
+                                                .put_obj(
+                                                    &header,
+                                                    shard_id,
+                                                    &location,
+                                                    ObjectType::StateHeader,
+                                                )
+                                                .await
+                                            {
+                                                Err(err) => {
+                                                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
+                                                    false
+                                                }
+                                                Ok(_) => {
+                                                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
+                                                    true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            };
+
+                        let header_upload_status = if header_in_external_storage {
+                            None
+                        } else {
+                            Some(StateSyncDumpProgress::InProgress {
+                                epoch_id: epoch_id.clone(),
+                                epoch_height,
+                                sync_hash,
+                            })
+                        };
+
+                        // Upload parts
+                        let parts_upload_status = match get_missing_part_ids_for_epoch(
                             shard_id,
                             &chain_id,
                             &epoch_id,
@@ -378,6 +495,13 @@ async fn state_sync_dump(
                                     None
                                 }
                             }
+                        };
+                        match (&parts_upload_status, &header_upload_status) {
+                            (
+                                Some(StateSyncDumpProgress::AllDumped { .. }),
+                                Some(StateSyncDumpProgress::InProgress { .. }),
+                            ) => header_upload_status,
+                            _ => parts_upload_status,
                         }
                     }
                 }

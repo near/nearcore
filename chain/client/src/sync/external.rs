@@ -216,6 +216,20 @@ impl ExternalConnection {
     }
 }
 
+/// Construct the header location on the external storage.
+pub fn external_header_storage_location(
+    chain_id: &str,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: u64,
+) -> String {
+    format!(
+        "{}/{}",
+        location_prefix(chain_id, epoch_height, epoch_id, shard_id, ObjectType::StateHeader),
+        header_filename()
+    )
+}
+
 /// Construct the state part location on the external storage.
 pub fn external_part_storage_location(
     chain_id: &str,
