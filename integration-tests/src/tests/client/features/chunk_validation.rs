@@ -5,6 +5,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::block::Tip;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
+use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
@@ -78,6 +79,8 @@ fn test_chunk_validation_basic() {
         transaction_validity_period: 120,
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
+        online_min_threshold: Rational32::new(0, 1),
+        online_max_threshold: Rational32::new(0, 1),
         ..Default::default()
     };
 
