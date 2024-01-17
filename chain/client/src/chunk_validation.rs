@@ -24,6 +24,7 @@ use near_primitives::types::{AccountId, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::Client;
@@ -92,6 +93,26 @@ impl ChunkValidator {
             return Err(Error::NotAChunkValidator);
         }
 
+        if my_signer.validator_id() == AccountId::from_str("account0") {
+            println!(
+                "preval implicit len = {}, psr = {:?}",
+                state_witness.implicit_transitions.len(),
+                state_witness
+                    .implicit_transitions
+                    .iter()
+                    .map(|t| (
+                        chain_store.get_block_height(&t.block_hash).unwrap(),
+                        chain_store
+                            .get_block_header(&t.block_hash)
+                            .unwrap()
+                            .clone()
+                            .epoch_id()
+                            .clone(),
+                        t.post_state_root
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
         let pre_validation_result = pre_validate_chunk_state_witness(
             &state_witness,
             chain_store,
@@ -141,19 +162,6 @@ fn pre_validate_chunk_state_witness(
     store: &ChainStore,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<PreValidationOutput, Error> {
-    println!(
-        "preval implicit len = {}, psr = {:?}",
-        state_witness.implicit_transitions.len(),
-        state_witness
-            .implicit_transitions
-            .iter()
-            .map(|t| (
-                store.get_block_height(&t.block_hash).unwrap(),
-                store.get_block_header(&t.block_hash).unwrap().clone().epoch_id().clone(),
-                t.post_state_root
-            ))
-            .collect::<Vec<_>>()
-    );
     let shard_id = state_witness.chunk_header.shard_id();
 
     // First, go back through the blockchain history to locate the last new chunk
