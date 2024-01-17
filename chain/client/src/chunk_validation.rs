@@ -148,7 +148,7 @@ fn pre_validate_chunk_state_witness(
             .implicit_transitions
             .iter()
             .map(|t| (
-                store.get_block_height(&t.block_hash),
+                store.get_block_height(&t.block_hash).unwrap(),
                 store.get_block_header(&t.block_hash).unwrap().clone().epoch_id().clone(),
                 t.post_state_root
             ))
