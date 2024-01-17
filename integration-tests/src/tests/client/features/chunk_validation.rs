@@ -164,7 +164,7 @@ fn test_chunk_validation_basic() {
                 target: "chunk_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
-            let blocks_processed = if rng.gen_bool(0.1) {
+            let blocks_processed = if rng.gen_bool(0.5) {
                 if round < blocks_to_produce - 1 {
                     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
                         if block.chunks().get(*shard_id as usize).unwrap().prev_block_hash()
