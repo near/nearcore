@@ -128,7 +128,7 @@ impl<'a> GenesisValidator<'a> {
             }
         }
 
-        if self.genesis_config.online_max_threshold <= self.genesis_config.online_min_threshold {
+        if self.genesis_config.online_max_threshold < self.genesis_config.online_min_threshold {
             let error_message = format!(
                 "Online max threshold {} smaller than min threshold {}",
                 self.genesis_config.online_max_threshold, self.genesis_config.online_min_threshold
