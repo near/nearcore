@@ -4,7 +4,7 @@ use itertools::Itertools;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
-use near_primitives::chunk_validation::ChunkValidators;
+use near_primitives::chunk_validation::ChunkValidatorAssignments;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
@@ -148,7 +148,7 @@ pub struct EpochManager {
     ///     -> value (vector of chunk_validator with assignment_weight, chunk_validators account_id set)
     chunk_validators_cache: SyncLruCache<
         (EpochId, ShardId, BlockHeight),
-        (Arc<ChunkValidators>, Arc<HashSet<AccountId>>),
+        (Arc<ChunkValidatorAssignments>, Arc<HashSet<AccountId>>),
     >,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
@@ -929,12 +929,12 @@ impl EpochManager {
     /// Returns the list of chunk validators for the given shard_id and height and set of account ids.
     /// Generation of chunk validators is deterministic and depends on the shard_id and height.
     /// We cache the generated chunk validators and the corresponding set of account_ids.
-    pub fn get_chunk_validators(
+    pub fn get_chunk_validators_and_assignments(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<(Arc<ChunkValidators>, Arc<HashSet<AccountId>>), EpochError> {
+    ) -> Result<(Arc<ChunkValidatorAssignments>, Arc<HashSet<AccountId>>), EpochError> {
         let cache_key = (epoch_id.clone(), shard_id, height);
         if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
             return Ok(chunk_validators);

@@ -5,7 +5,7 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidators};
+use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidatorAssignments};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -25,6 +25,7 @@ use near_store::{ShardUId, StoreUpdate};
 use std::cmp::Ordering;
 #[cfg(feature = "new_epoch_sync")]
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A trait that abstracts the interface of the EpochManager.
@@ -189,12 +190,19 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<AccountId, EpochError>;
 
     /// Gets the chunk validators for a given height and shard.
+    fn get_chunk_validator_assignments(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError>;
+
     fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<Arc<ChunkValidators>, EpochError>;
+    ) -> Result<Arc<HashSet<AccountId>>, EpochError>;
 
     fn get_validator_by_account_id(
         &self,
@@ -658,15 +666,27 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
     }
 
+    fn get_chunk_validator_assignments(
+        &self,
+        epoch_id: &EpochId,
+        shard_id: ShardId,
+        height: BlockHeight,
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
+        let epoch_manager = self.read();
+        let (chunk_validator_assignments, _) =
+            epoch_manager.get_chunk_validators_and_assignments(epoch_id, shard_id, height)?;
+        Ok(chunk_validator_assignments)
+    }
+
     fn get_chunk_validators(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<Arc<ChunkValidators>, EpochError> {
+    ) -> Result<Arc<HashSet<AccountId>>, EpochError> {
         let epoch_manager = self.read();
-        let (chunk_validators, _) =
-            epoch_manager.get_chunk_validators(epoch_id, shard_id, height)?;
+        let (_, chunk_validators) =
+            epoch_manager.get_chunk_validators_and_assignments(epoch_id, shard_id, height)?;
         Ok(chunk_validators)
     }
 
@@ -978,12 +998,12 @@ impl EpochManagerAdapter for EpochManagerHandle {
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         // Note that we are using the chunk_header.height_created param here to determine the chunk validators
         // This only works when height created for a chunk is the same as the height_included during block production
-        let (_, account_ids) = epoch_manager.get_chunk_validators(
+        let (_, chunk_validators) = epoch_manager.get_chunk_validators_and_assignments(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !account_ids.contains(&endorsement.account_id) {
+        if !chunk_validators.contains(&endorsement.account_id) {
             return Err(Error::NotAValidator);
         }
         let validator =
