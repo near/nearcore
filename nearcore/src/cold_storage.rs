@@ -198,7 +198,15 @@ fn cold_store_copy_result_to_string(
 ) -> &str {
     match result {
         Err(ColdStoreError::ColdHeadBehindHotTailError { .. }) => "cold_head_behind_hot_tail_error",
-        Err(_) => "error",
+        Err(ColdStoreError::ColdHeadAheadOfFinalHeadError { .. }) => {
+            "cold_head_ahead_of_final_head_error"
+        }
+        Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError { .. }) => {
+            "skipped_blocks_between_cold_head_and_next_height_error"
+        }
+        Err(ColdStoreError::ColdHeadHashReadError { .. }) => "cold_head_hash_read_error",
+        Err(ColdStoreError::EpochError { .. }) => "epoch_error",
+        Err(ColdStoreError::Error { .. }) => "error",
         Ok(ColdStoreCopyResult::NoBlockCopied) => "no_block_copied",
         Ok(ColdStoreCopyResult::LatestBlockCopied) => "latest_block_copied",
         Ok(ColdStoreCopyResult::OtherBlockCopied) => "other_block_copied",
