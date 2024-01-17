@@ -287,16 +287,17 @@ impl TestEnv {
         }
     }
 
-    /// Collects all chunk endorsements from network adapters until
-    /// at least `count` endorsements are collected, or, if it doesn't happen,
-    /// when `CHUNK_ENDORSEMENTS_TIMEOUT` is reached.
+    /// Waits for `CHUNK_ENDORSEMENTS_TIMEOUT` to receive at least one chunk
+    /// endorsement for the given chunk hashes.
+    /// Panics if it doesn't happen.
+    /// `chunk_hashes` maps hashes to pair of height at which chunk is included
+    /// and shard id for better debugging.
     pub fn wait_for_chunk_endorsements(
         &mut self,
         mut chunk_hashes: HashMap<ChunkHash, (BlockHeight, ShardId)>,
     ) {
         let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
         let timer = Instant::now();
-        // let mut approvals = Vec::new();
         loop {
             tracing::debug!(target: "test", "remaining endorsements: {:?}", chunk_hashes);
             for idx in 0..self.clients.len() {

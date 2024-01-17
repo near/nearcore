@@ -101,16 +101,6 @@ impl CryptoHash {
             Err(err) => Decode58Result::Err(err),
         }
     }
-
-    fn to_base58_display_impl<Out>(self, visitor: impl FnOnce(&str) -> Out) -> Out {
-        // base58-encoded string is at most 1.4 times longer than the binary
-        // sequence.  We’re serialising 32 bytes so ⌈32 * 1.4⌉ = 45 should be
-        // enough.
-        let mut buffer = [0u8; 45];
-        let _len = bs58::encode(self).into(&mut buffer[..]).unwrap();
-        let value = String::from_utf8_lossy(&buffer[..6]);
-        visitor((value + "...").as_ref())
-    }
 }
 
 /// Result of decoding base58-encoded crypto hash.
@@ -217,7 +207,7 @@ impl fmt::Debug for CryptoHash {
 
 impl fmt::Display for CryptoHash {
     fn fmt(&self, fmtr: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.to_base58_display_impl(|encoded| fmtr.write_str(encoded))
+        self.to_base58_impl(|encoded| fmtr.write_str(encoded))
     }
 }
 

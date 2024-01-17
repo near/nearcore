@@ -195,7 +195,7 @@ fn test_chunk_validation_basic() {
     let mut has_executed_txs = false;
     for tx_hash in tx_hashes {
         let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
-        if FinalExecutionStatus::SuccessValue(_) = outcome.status {
+        if let FinalExecutionStatus::SuccessValue(_) = outcome.status {
             has_executed_txs = true;
         }
     }
