@@ -69,7 +69,6 @@ no_cache = [
   "near-store/no_cache",
 ]
 nightly = [
-  "nightly_protocol",
   "genesis-populate/nightly",
   "near-chain-configs/nightly",
   "near-fmt/nightly",
@@ -79,6 +78,7 @@ nightly = [
   "near-store/nightly",
   "near-vm-runner/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
 ]
 nightly_protocol = [

@@ -75,6 +75,7 @@ test_features = [
   "near-chunks/test_features",
 ]
 nightly_protocol = [
+  "near-actix-test-utils/nightly_protocol",
   "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
@@ -91,7 +92,7 @@ nightly_protocol = [
   "near-telemetry/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-actix-test-utils/nightly",
   "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
@@ -106,6 +107,7 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "near-telemetry/nightly",
+  "nightly_protocol",
 ]
 sandbox = [
   "near-client-primitives/sandbox",
