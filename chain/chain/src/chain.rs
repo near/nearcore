@@ -1031,10 +1031,11 @@ impl Chain {
 
         // Check that block has chunk endorsements.
         if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
-            if block.chunk_endorsements().is_empty() {
-                tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
+            // TODO(shreyan): Enable this in next PR once we start adding chunk endorsements.
+            // if block.chunk_endorsements().is_empty() {
+            //     tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
+            //     return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
+            // }
         }
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
