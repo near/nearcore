@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
