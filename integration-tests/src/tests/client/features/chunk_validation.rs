@@ -183,17 +183,17 @@ fn test_chunk_validation_basic() {
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(0.2) {
-                if round < blocks_to_produce - 1 {
-                    for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
-                        let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
-                        if last_chunk.prev_block_hash() != &CryptoHash::default() {
-                            expected_chunks.insert(
-                                last_chunk.chunk_hash(),
-                                (block.header().height(), *shard_id),
-                            );
-                        }
-                    }
-                }
+                // if round < blocks_to_produce - 1 {
+                //     for shard_id in chunk_producers.get(validator_id).unwrap_or(&vec![]) {
+                //         let last_chunk = block.chunks().get(*shard_id as usize).unwrap().clone();
+                //         if last_chunk.prev_block_hash() != &CryptoHash::default() {
+                //             expected_chunks.insert(
+                //                 last_chunk.chunk_hash(),
+                //                 (block.header().height(), *shard_id),
+                //             );
+                //         }
+                //     }
+                // }
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap()
             } else {
                 env.clients[i]
@@ -213,6 +213,23 @@ fn test_chunk_validation_basic() {
     for _tx_hash in tx_hashes {
         // let outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
         // assert_matches!(outcome.status, FinalExecutionStatus::SuccessValue(_));
+    }
+
+    let mut block_hash = env.clients[0].chain.head().unwrap().last_block_hash;
+    loop {
+        let block = env.clients[0].chain.get_block(&block_hash).unwrap();
+        let prev_hash = *block.header().prev_hash();
+        if prev_hash == CryptoHash::default() {
+            break;
+        }
+
+        for chunk in block.chunks().iter() {
+            if chunk.is_new_chunk(block.header().height()) {
+                expected_chunks
+                    .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
+            }
+        }
+        block_hash = prev_hash;
     }
     // Check that number of chunk endorsements is correct.
     // There should be `(blocks_to_produce - 1) * num_shards` chunks, because
