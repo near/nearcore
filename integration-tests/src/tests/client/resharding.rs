@@ -677,15 +677,28 @@ impl TestReshardingEnv {
             // At the epoch boundary, right before resharding, snapshot should exist
             assert!(snapshot.is_ok());
         } else if head.height <= 2 * self.epoch_length {
-            // All blocks in the epoch while resharding is going on, snapshot should exist but we should get
-            // IncorrectSnapshotRequested as snapshot exists at hash as of the last block of the previous epoch
+            // In the resharding epoch there are two cases to consider
+            // * While the resharding is in progress, snapshot should exist but
+            //   not at the current block hash and we should get
+            //   IncorrectSnapshotRequested
+            // * Once resharding is finished the snapshot should not exist at
+            //   all and we should get SnapshotNotFound.
             let snapshot_block_header =
                 env.clients[0].chain.get_block_header_by_height(self.epoch_length).unwrap();
-            assert!(snapshot.is_err_and(|e| e
-                == SnapshotError::IncorrectSnapshotRequested(
-                    *block_header.prev_hash(),
-                    *snapshot_block_header.prev_hash(),
-                )));
+            let Err(err) = snapshot else { panic!("snapshot should not exist at given hash") };
+
+            match err {
+                SnapshotError::IncorrectSnapshotRequested(requested, current) => {
+                    assert_eq!(requested, *block_header.prev_hash());
+                    assert_eq!(current, *snapshot_block_header.prev_hash());
+                }
+                SnapshotError::SnapshotNotFound(requested) => {
+                    assert_eq!(requested, *block_header.prev_hash());
+                }
+                err => {
+                    panic!("unexpected snapshot error: {:?}", err);
+                }
+            }
         } else if (head.height - 1) % self.epoch_length == 0 {
             // At other epoch boundries, snapshot should exist only if state_snapshot_enabled is true
             assert_eq!(state_snapshot_enabled, snapshot.is_ok());
