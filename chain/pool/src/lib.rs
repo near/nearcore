@@ -1,7 +1,7 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use crate::types::{PoolIterator, PoolKey, TransactionGroup, TransactionIterator};
+use crate::types::{PoolKey, TransactionGroup, TransactionGroupIterator};
 
 use near_crypto::PublicKey;
 use near_o11y::metrics::prometheus::core::{AtomicI64, GenericGauge};
@@ -178,7 +178,7 @@ impl TransactionPool {
 }
 
 /// PoolIterator is a structure to pull transactions from the pool.
-/// It implements `PoolIterator` trait that iterates over transaction groups one by one.
+/// It implements `TransactionGroupIterator` trait that iterates over transaction groups one by one.
 /// When the wrapper is dropped the remaining transactions are returned back to the pool.
 pub struct PoolIteratorWrapper<'a> {
     /// Mutable reference to the pool, to avoid exposing it while the iterator exists.
@@ -211,7 +211,7 @@ impl<'a> PoolIteratorWrapper<'a> {
 ///
 /// When the iterator is dropped, `unique_transactions` in the pool is updated for every group.
 /// And all non-empty group from the sorted groups queue are inserted back into the pool.
-impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
+impl<'a> TransactionGroupIterator for PoolIteratorWrapper<'a> {
     fn next(&mut self) -> Option<&mut TransactionGroup> {
         if !self.pool.transactions.is_empty() {
             let key = *self
@@ -264,18 +264,6 @@ impl<'a> PoolIterator for PoolIteratorWrapper<'a> {
             None
         }
     }
-
-    fn current(&mut self) -> Option<&mut TransactionGroup> {
-        if self.sorted_groups.is_empty() {
-            None
-        } else {
-            Some(
-                self.sorted_groups
-                    .back_mut()
-                    .expect("we've just checked that the container is not empty"),
-            )
-        }
-    }
 }
 
 /// When a pool iterator is dropped, all remaining non empty transaction groups from the sorted
@@ -305,35 +293,39 @@ impl<'a> Drop for PoolIteratorWrapper<'a> {
     }
 }
 
-impl<T> TransactionIterator for T
-where
-    T: PoolIterator,
-{
-    fn next_transaction(&mut self) -> Option<SignedTransaction> {
-        loop {
-            if let Some(group) = self.current() {
-                if let Some(transaction) = group.next() {
-                    return Some(transaction);
-                }
-            }
-            if self.next().is_none() {
-                return None;
-            }
-        }
-    }
+/// On creation we transform a list of transactions into a list of singleton transaction groups
+/// that we later can iterate through. This weird structure is motivated by `prepare_transactions`,
+/// where we take first valid transaction from each transaction group.
+pub struct TransactionGroupIteratorWrapper {
+    groups: Vec<TransactionGroup>,
+    current_index: usize,
+}
 
-    fn next_group(&mut self) {
-        self.next();
+impl TransactionGroupIteratorWrapper {
+    pub fn new(transactions: &[SignedTransaction]) -> Self {
+        let groups = transactions
+            .iter()
+            .map(|transaction| TransactionGroup {
+                key: PoolKey::default(),
+                transactions: vec![transaction.clone()], // Modify this as needed
+                removed_transaction_hashes: vec![],
+                removed_transaction_size: 0,
+            })
+            .collect();
+
+        TransactionGroupIteratorWrapper { groups, current_index: 0 }
     }
 }
 
-impl<'a> TransactionIterator for std::slice::Iter<'a, SignedTransaction> {
-    fn next_transaction(&mut self) -> Option<SignedTransaction> {
-        Iterator::next(self).cloned()
-    }
-
-    fn next_group(&mut self) {
-        // Slice of transactions is flat (transactions are not grouped) so do nothing.
+impl TransactionGroupIterator for TransactionGroupIteratorWrapper {
+    fn next(&mut self) -> Option<&mut TransactionGroup> {
+        if self.current_index < self.groups.len() {
+            let group_ref = &mut self.groups[self.current_index];
+            self.current_index += 1;
+            Some(group_ref)
+        } else {
+            None
+        }
     }
 }
 

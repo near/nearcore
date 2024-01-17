@@ -16,7 +16,7 @@ use near_chain_configs::{
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
-use near_pool::types::TransactionIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -714,7 +714,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        transaction_iterator: &mut dyn TransactionIterator,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
@@ -797,43 +797,47 @@ impl RuntimeAdapter for NightshadeRuntime {
                     break;
                 }
             }
-            while let Some(tx) = transaction_iterator.next_transaction() {
-                num_checked_transactions += 1;
-                // Verifying the transaction is on the same chain and hasn't expired yet.
-                if !chain_validate(&tx) {
-                    tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
-                    continue;
-                }
 
-                // Verifying the validity of the transaction based on the current state.
-                match verify_and_charge_transaction(
-                    runtime_config,
-                    &mut state_update,
-                    gas_price,
-                    &tx,
-                    false,
-                    Some(next_block_height),
-                    current_protocol_version,
-                ) {
-                    Ok(verification_result) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
-                        state_update.commit(StateChangeCause::NotWritableToDisk);
-                        total_gas_burnt += verification_result.gas_burnt;
-                        total_size += tx.get_size();
-                        result.transactions.push(tx);
-                        transaction_iterator.next_group();
-                        break;
+            if let Some(iter) = transaction_groups.next() {
+                while let Some(tx) = iter.next() {
+                    num_checked_transactions += 1;
+                    // Verifying the transaction is on the same chain and hasn't expired yet.
+                    if !chain_validate(&tx) {
+                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), "discarding transaction that failed chain validation");
+                        continue;
                     }
-                    Err(RuntimeError::InvalidTxError(err)) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
-                        state_update.rollback();
+
+                    // Verifying the validity of the transaction based on the current state.
+                    match verify_and_charge_transaction(
+                        runtime_config,
+                        &mut state_update,
+                        gas_price,
+                        &tx,
+                        false,
+                        Some(next_block_height),
+                        current_protocol_version,
+                    ) {
+                        Ok(verification_result) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
+                            state_update.commit(StateChangeCause::NotWritableToDisk);
+                            total_gas_burnt += verification_result.gas_burnt;
+                            total_size += tx.get_size();
+                            result.transactions.push(tx);
+                            break;
+                        }
+                        Err(RuntimeError::InvalidTxError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction that is invalid");
+                            state_update.rollback();
+                        }
+                        Err(RuntimeError::StorageError(err)) => {
+                            tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
+                            return Err(Error::StorageError(err));
+                        }
+                        Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                     }
-                    Err(RuntimeError::StorageError(err)) => {
-                        tracing::trace!(target: "runtime", tx=?tx.get_hash(), ?err, "discarding transaction due to storage error");
-                        return Err(Error::StorageError(err));
-                    }
-                    Err(err) => unreachable!("Unexpected RuntimeError error {:?}", err),
                 }
+            } else {
+                break;
             }
         }
         debug!(target: "runtime", "Transaction filtering results {} valid out of {} pulled from the pool", result.transactions.len(), num_checked_transactions);

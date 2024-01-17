@@ -10,7 +10,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_pool::types::TransactionIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidators};
@@ -22,7 +22,8 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::shard_layout::{self, ShardLayout, ShardUId};
+use near_primitives::shard_layout;
+use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{
@@ -1035,15 +1036,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         _shard_id: ShardId,
         _storage_config: RuntimeStorageConfig,
         _next_block_height: BlockHeight,
-        transactions: &mut dyn TransactionIterator,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
-        while let Some(transaction) = transactions.next_transaction() {
-            res.push(transaction);
-            transactions.next_group();
+        while let Some(iter) = transaction_groups.next() {
+            res.push(iter.next().unwrap());
         }
         Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
     }

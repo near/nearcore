@@ -1280,12 +1280,12 @@ fn test_bad_chunk_mask() {
         let block_producer = (height % 2) as usize;
         let chunk_producer = ((height + 1) % 2) as usize;
 
-        let ProduceChunkResult { chunk, merkle_paths, receipts, .. } =
+        let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
             create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
             client
                 .persist_and_distribute_encoded_chunk(
-                    chunk.clone(),
+                    encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
                     client.validator_signer.as_ref().unwrap().validator_id().clone(),
@@ -1295,7 +1295,7 @@ fn test_bad_chunk_mask() {
 
         let mut block = clients[block_producer].produce_block(height).unwrap().unwrap();
         {
-            let mut chunk_header = chunk.cloned_header();
+            let mut chunk_header = encoded_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
             let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
             chunk_headers[0] = chunk_header;
@@ -2329,14 +2329,14 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let ProduceChunkResult { chunk, merkle_paths, receipts, .. } =
+    let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
         create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
     for (i, block) in vec![&mut block1, &mut block2].into_iter().enumerate() {
-        let mut chunk_header = chunk.cloned_header();
+        let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = i as BlockHeight + next_height;
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
@@ -2368,10 +2368,10 @@ fn test_validate_chunk_extra() {
 
     let mut chain_store =
         ChainStore::new(env.clients[0].chain.chain_store().store().clone(), genesis_height, true);
-    let chunk_header = chunk.cloned_header();
+    let chunk_header = encoded_chunk.cloned_header();
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
+        .persist_and_distribute_encoded_chunk(encoded_chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     env.clients[0].chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
     env.clients[0].process_blocks_with_missing_chunks(Arc::new(|_| {}));
@@ -2845,7 +2845,7 @@ fn test_epoch_protocol_version_change() {
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer == "test0" { 0 } else { 1 };
-        let ProduceChunkResult { chunk, merkle_paths, receipts, .. } =
+        let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
             create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
@@ -2853,7 +2853,7 @@ fn test_epoch_protocol_version_change() {
                 env.clients[j].validator_signer.as_ref().unwrap().validator_id().clone();
             env.clients[j]
                 .persist_and_distribute_encoded_chunk(
-                    chunk.clone(),
+                    encoded_chunk.clone(),
                     merkle_paths.clone(),
                     receipts.clone(),
                     validator_id,
@@ -3039,14 +3039,14 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let ProduceChunkResult { chunk, .. } =
+    let ProduceChunkResult { chunk: encoded_chunk, .. } =
         create_chunk_on_height(&mut env.clients[0], last_height + 1);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
     for block in vec![&mut block2, &mut block1].into_iter() {
-        let mut chunk_header = chunk.cloned_header();
+        let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());
@@ -3096,13 +3096,14 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk: encoded_chunk, .. } =
+        create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
     // Process two blocks on two different forks that contain the same chunk.
     for block in vec![&mut block2, &mut block1].into_iter() {
-        let mut chunk_header = chunk.cloned_header();
+        let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = block.header().height();
         let chunk_headers = vec![chunk_header];
         block.set_chunks(chunk_headers.clone());

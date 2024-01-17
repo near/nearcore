@@ -14,6 +14,7 @@ use near_chain_configs::ClientConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
@@ -122,7 +123,6 @@ impl ChunkValidator {
         let signer = self.my_signer.clone().unwrap();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
-
         rayon::spawn(move || {
             match validate_chunk_state_witness(
                 state_witness,
@@ -256,8 +256,7 @@ fn pre_validate_chunk_state_witness(
             applied_receipts_hash, state_witness.applied_receipts_hash
         )));
     }
-    let transactions = state_witness.transactions.clone();
-    let (tx_root_from_state_witness, _) = merklize(&transactions);
+    let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions);
     let last_new_chunk_tx_root =
         last_chunk_block.chunks().get(shard_id as usize).unwrap().tx_root();
     if last_new_chunk_tx_root != tx_root_from_state_witness {
@@ -270,7 +269,7 @@ fn pre_validate_chunk_state_witness(
     Ok(PreValidationOutput {
         main_transition_params: NewChunkData {
             chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
-            transactions,
+            transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
             resharding_state_roots: None,
             block: Chain::get_apply_chunk_block_context(
@@ -427,7 +426,7 @@ fn validate_chunk_state_witness(
         shard_id,
         transactions_validation_storage_config,
         block_height + 1,
-        &mut new_transactions.iter(),
+        &mut TransactionGroupIteratorWrapper::new(&new_transactions),
         &mut |_tx: &SignedTransaction| -> bool {
             // TODO(staffik)
             true
@@ -563,7 +562,7 @@ impl Client {
         epoch_id: &EpochId,
         prev_chunk_header: ShardChunkHeader,
         chunk: &ShardChunk,
-        transactions_validation_state: Option<PartialState>,
+        transactions_storage_proof: Option<PartialState>,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
@@ -584,12 +583,11 @@ impl Client {
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
 
         let new_transactions = chunk.transactions().to_vec();
-        // With stateless validation chunk producer uses recording reads when validating transactions. The storage proof must be available here.
         let new_transactions_validation_state = if new_transactions.is_empty() {
             PartialState::default()
         } else {
-            transactions_validation_state
-                .expect("Missing storage proof for transactions validation")
+            // With stateless validation chunk producer uses recording reads when validating transactions. The storage proof must be available here.
+            transactions_storage_proof.expect("Missing storage proof for transactions validation")
         };
 
         let witness = ChunkStateWitness {

@@ -54,21 +54,22 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::{log_assert, WithSpanContextExt};
+use near_o11y::log_assert;
+use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::PartialState;
-use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
+use near_primitives::sharding::StateSyncInfo;
 use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
-    ShardChunkHeader, ShardInfo, StateSyncInfo,
+    ShardChunkHeader, ShardInfo,
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
@@ -229,7 +230,7 @@ pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
     pub merkle_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
-    pub transactions_validation_state: Option<PartialState>,
+    pub transactions_storage_proof: Option<PartialState>,
 }
 
 impl Client {
@@ -937,7 +938,7 @@ impl Client {
             chunk: encoded_chunk,
             merkle_paths,
             receipts: outgoing_receipts,
-            transactions_validation_state: prepared_transactions.storage_proof,
+            transactions_storage_proof: prepared_transactions.storage_proof,
         }))
     }
 
@@ -1804,7 +1805,7 @@ impl Client {
                         &epoch_id,
                         last_header,
                         &shard_chunk,
-                        result.transactions_validation_state,
+                        result.transactions_storage_proof,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }

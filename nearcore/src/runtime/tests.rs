@@ -1444,3 +1444,9 @@ fn test_genesis_hash() {
         epoch_info.block_producers_settlement()
     );
 }
+
+/// Check that transactions validation works the same when using recorded storage proof instead of db.
+#[test]
+fn test_prepare_transactions_storage_proof() {
+    // TODO(staffik)
+}
