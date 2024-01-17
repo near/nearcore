@@ -91,12 +91,12 @@ impl ChunkValidator {
         // We will only validate something if we are a chunk validator for this chunk.
         // Note this also covers the case before the protocol upgrade for chunk validators,
         // because the chunk validators will be empty.
-        let chunk_validators = self.epoch_manager.get_chunk_validators(
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validators.contains_key(my_signer.validator_id()) {
+        if !chunk_validator_assignments.chunk_validators.contains(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
 
@@ -510,11 +510,15 @@ impl Client {
             return Ok(());
         }
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self.epoch_manager.get_chunk_validators(
-            epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
+        let chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                epoch_id,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+            )?
+            .chunk_validators
+            .clone();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
@@ -538,10 +542,10 @@ impl Client {
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
             chunk_header.chunk_hash(),
-            chunk_validators.keys(),
+            chunk_validators,
         );
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators.keys().cloned().collect(), witness),
+            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
         ));
         Ok(())
     }
