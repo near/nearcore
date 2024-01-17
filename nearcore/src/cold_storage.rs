@@ -2,6 +2,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 use near_chain::types::Tip;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::errors::EpochError;
 use near_primitives::{hash::CryptoHash, types::BlockHeight};
 use near_store::cold_storage::{copy_all_data_to_cold, CopyAllDataToColdStatus};
 use near_store::{
@@ -46,6 +47,38 @@ enum ColdStoreCopyResult {
     OtherBlockCopied,
 }
 
+/// The ColdStoreError indicates what errors were encoutered while copying a blocks and running sanity checks.
+#[derive(thiserror::Error, Debug)]
+pub enum ColdStoreError {
+    #[error("Cold head is ahead of final head. cold head height: {cold_head_height} final head height {hot_final_head_height}")]
+    ColdHeadAheadOfFinalHeadError { cold_head_height: u64, hot_final_head_height: u64 },
+    #[error("Cold head is behind hot tail. cold head height: {cold_head_height} hot tail height {hot_tail_height}")]
+    ColdHeadBehindHotTailError { cold_head_height: u64, hot_tail_height: u64 },
+    #[error("All blocks between cold head and next height were skipped, but next height > hot final head. cold head {cold_head_height} next height to copy: {next_height} final head height {hot_final_head_height}")]
+    SkippedBlocksBetweenColdHeadAndNextHeightError {
+        cold_head_height: u64,
+        next_height: u64,
+        hot_final_head_height: u64,
+    },
+    #[error("Failed to read the cold head hash at height {cold_head_height}")]
+    ColdHeadHashReadError { cold_head_height: u64 },
+    #[error("Cold store copy error: {e}")]
+    EpochError { e: EpochError },
+    #[error("Cold store copy error: {message}")]
+    Error { message: String },
+}
+
+impl From<std::io::Error> for ColdStoreError {
+    fn from(error: std::io::Error) -> Self {
+        ColdStoreError::Error { message: error.to_string() }
+    }
+}
+impl From<EpochError> for ColdStoreError {
+    fn from(error: EpochError) -> Self {
+        ColdStoreError::EpochError { e: error }
+    }
+}
+
 /// Checks if cold store head is behind the final head and if so copies data
 /// for the next available produced block after current cold store head.
 /// Updates cold store head after.
@@ -55,7 +88,7 @@ fn cold_store_copy(
     cold_db: &Arc<ColdDB>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
-) -> anyhow::Result<ColdStoreCopyResult> {
+) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
     // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
     let cold_head_height = cold_head.map_or(genesis_height, |tip| tip.height);
@@ -82,8 +115,8 @@ fn cold_store_copy(
     // Because BlockHeight is never garbage collectable and is not even copied to cold.
     let cold_head_hash =
         hot_store.get_ser::<CryptoHash>(DBCol::BlockHeight, &cold_head_height.to_le_bytes())?;
-    let cold_head_hash = cold_head_hash
-        .ok_or(anyhow::anyhow!("Failed to read the cold head hash at height {cold_head_height}"))?;
+    let cold_head_hash =
+        cold_head_hash.ok_or(ColdStoreError::ColdHeadHashReadError { cold_head_height })?;
 
     // The previous block is the cold head so we can use it to get epoch id.
     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash)?;
@@ -93,12 +126,11 @@ fn cold_store_copy(
     while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height)? {
         next_height += 1;
         if next_height > hot_final_head_height {
-            return Err(anyhow::anyhow!(
-                "All blocks between cold head and next height were skipped, but next height > hot final head. cold head {} next height to copy: {} final head height {}",
+            return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
                 cold_head_height,
                 next_height,
-                hot_final_head_height
-            ));
+                hot_final_head_height,
+            });
         }
     }
 
@@ -140,31 +172,41 @@ fn sanity_check_impl(
     cold_head_height: u64,
     hot_final_head_height: u64,
     hot_tail_height: u64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(), ColdStoreError> {
     // We should only copy final blocks to cold storage.
     if cold_head_height > hot_final_head_height {
-        return Err(anyhow::anyhow!(
-            "Cold head is ahead of final head. cold head height: {} final head height {}",
+        return Err(ColdStoreError::ColdHeadAheadOfFinalHeadError {
             cold_head_height,
-            hot_final_head_height
-        ));
+            hot_final_head_height,
+        });
     }
+
     // Cold and Hot storages need to overlap. Without this check we would skip
     // blocks from cold_head_height to hot_tail_height. This will result in
     // corrupted cold storage.
     if cold_head_height < hot_tail_height {
-        return Err(anyhow::anyhow!(
-            "Cold head is behind hot tail. cold head height: {} hot tail height {}",
+        return Err(ColdStoreError::ColdHeadBehindHotTailError {
             cold_head_height,
-            hot_tail_height
-        ));
+            hot_tail_height,
+        });
     }
     Ok(())
 }
 
-fn cold_store_copy_result_to_string(result: &anyhow::Result<ColdStoreCopyResult>) -> &str {
+fn cold_store_copy_result_to_string(
+    result: &anyhow::Result<ColdStoreCopyResult, ColdStoreError>,
+) -> &str {
     match result {
-        Err(_) => "error",
+        Err(ColdStoreError::ColdHeadBehindHotTailError { .. }) => "cold_head_behind_hot_tail_error",
+        Err(ColdStoreError::ColdHeadAheadOfFinalHeadError { .. }) => {
+            "cold_head_ahead_of_final_head_error"
+        }
+        Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError { .. }) => {
+            "skipped_blocks_between_cold_head_and_next_height_error"
+        }
+        Err(ColdStoreError::ColdHeadHashReadError { .. }) => "cold_head_hash_read_error",
+        Err(ColdStoreError::EpochError { .. }) => "epoch_error",
+        Err(ColdStoreError::Error { .. }) => "error",
         Ok(ColdStoreCopyResult::NoBlockCopied) => "no_block_copied",
         Ok(ColdStoreCopyResult::LatestBlockCopied) => "latest_block_copied",
         Ok(ColdStoreCopyResult::OtherBlockCopied) => "other_block_copied",
