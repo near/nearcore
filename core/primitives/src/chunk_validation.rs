@@ -39,7 +39,7 @@ pub struct ChunkStateWitness {
     ///
     /// The set of blocks B is defined as the contiguous subsequence of blocks
     /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
-    /// chain that this chunk's parent block is on), where B1 is the block that
+    /// chain that this chunk's parent block is on), where B2 is the block that
     /// contains the last new chunk of shard S before this chunk, and B1 is the
     /// block that contains the last new chunk of shard S before B2.
     ///
