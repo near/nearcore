@@ -79,8 +79,8 @@ fn test_chunk_validation_basic() {
         transaction_validity_period: 120,
         block_producer_kickout_threshold: 0,
         chunk_producer_kickout_threshold: 0,
-        online_min_threshold: Rational32::new(0, 1),
-        online_max_threshold: Rational32::new(0, 1),
+        online_min_threshold: Rational32::new(1, 1000),
+        online_max_threshold: Rational32::new(2, 1000),
         ..Default::default()
     };
 
