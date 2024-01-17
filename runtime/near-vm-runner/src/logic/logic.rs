@@ -2019,9 +2019,9 @@ impl<'a> VMLogic<'a> {
 
     /// Creates a promise on the specified account that will act as a placeholder awaiting data.
     ///
-    /// Returns both the promise id and a `data_id`. Subsequently, a call to `promise_submit_data`
-    /// can be made within `yield_num_blocks` passing the `data_id` and the value to which the
-    /// promise should resolve.
+    /// Generates a hash stored in `register_id`. Subsequently, a call to `promise_submit_data`
+    /// can be made within `yield_num_blocks` passing the hash and the value to which the
+    /// created promise should resolve.
     ///
     /// If data is not submitted within `yield_num_blocks`, the created promise will instead
     /// resolve to a Result<DataTimeoutError>.
@@ -2037,12 +2037,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Returns
     ///
-    /// (promise_index, data_id)
-    ///
     /// promise_index: Index of the new promise that uniquely identifies it within
     /// the current execution of the method.
-    ///
-    /// data_id: Unique identifier used to later submit the value for the promise.
     ///
     /// # Cost
     /// TODO
@@ -2052,7 +2048,8 @@ impl<'a> VMLogic<'a> {
         account_id_len: u64,
         account_id_ptr: u64,
         _yield_num_blocks: u64,
-    ) -> Result<(u64, CryptoHash)> {
+        register_id: u64,
+    ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
@@ -2066,12 +2063,19 @@ impl<'a> VMLogic<'a> {
 
         let (new_receipt_idx, data_id) = self.ext.create_receipt_awaiting_data(account_id)?;
 
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            *data_id.as_bytes(),
+        )?;
+
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
 
         // TODO pay gas for this?
         self.ext.append_action_read_external_data(new_receipt_idx)?;
 
-        Ok((new_promise_idx, data_id))
+        Ok(new_promise_idx)
     }
 
     /// Submits the data for a promise which is awaiting its value.
