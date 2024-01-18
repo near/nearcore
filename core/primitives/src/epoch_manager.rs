@@ -1095,7 +1095,7 @@ pub mod epoch_info {
         pub fn get_validator_mandates_config(&self) -> ValidatorMandatesConfig {
             match &self {
                 Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
-                Self::V4(v4) => v4.validator_mandates.config.clone(),
+                Self::V4(v4) => v4.validator_mandates.config,
             }
         }
 
