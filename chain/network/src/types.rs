@@ -258,7 +258,7 @@ pub enum NetworkRequests {
     /// A challenge to invalidate a block.
     Challenge(Challenge),
     /// A chunk's state witness.
-    ChunkStateWitness(HashSet<AccountId>, ChunkStateWitness),
+    ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
     ChunkEndorsement(AccountId, ChunkEndorsement),
 }

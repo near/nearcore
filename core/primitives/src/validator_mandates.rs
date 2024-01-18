@@ -13,7 +13,7 @@ use rand::{seq::SliceRandom, Rng};
 )]
 pub struct ValidatorMandatesConfig {
     /// The amount of stake that corresponds to one mandate.
-    stake_per_mandate: Balance,
+    pub stake_per_mandate: Balance,
     /// The minimum number of mandates required per shard.
     min_mandates_per_shard: usize,
     /// The number of shards for the referenced epoch.
@@ -53,7 +53,7 @@ impl ValidatorMandatesConfig {
 )]
 pub struct ValidatorMandates {
     /// The configuration applied to the mandates.
-    config: ValidatorMandatesConfig,
+    pub config: ValidatorMandatesConfig,
     /// Each element represents a validator mandate held by the validator with the given id.
     ///
     /// The id of a validator who holds `n >= 0` mandates occurs `n` times in the vector.

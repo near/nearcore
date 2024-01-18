@@ -96,7 +96,7 @@ impl ChunkValidator {
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validator_assignments.chunk_validators.contains(my_signer.validator_id()) {
+        if !chunk_validator_assignments.contains(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
 
@@ -517,8 +517,7 @@ impl Client {
                 chunk_header.shard_id(),
                 chunk_header.height_created(),
             )?
-            .chunk_validators
-            .clone();
+            .ordered_chunk_validators();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
