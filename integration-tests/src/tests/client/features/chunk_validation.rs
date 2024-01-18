@@ -64,7 +64,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
                 amount: validator_stake,
             })
             .collect(),
-        // We don't care about epoch transitions in this test.
+        // Ensures 4 epoch transitions.
         epoch_length: 10,
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
@@ -127,7 +127,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
     let mut expected_chunks = HashMap::new();
-    let mut found_different_post_state_roots = false;
+    let mut found_differing_post_state_root_due_to_state_transitions = false;
     for round in 0..blocks_to_produce {
         let heads = env
             .clients
@@ -144,7 +144,6 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             KeyType::ED25519,
             sender_account.as_ref(),
         );
-        // Give each transaction 10 blocks to be fully executed.
         if round > 1 {
             let tx = SignedTransaction::send_money(
                 round as u64,
@@ -187,7 +186,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
         let result = env.propagate_chunk_state_witnesses();
-        found_different_post_state_roots |= result.found_different_post_state_roots;
+        found_differing_post_state_root_due_to_state_transitions |=
+            result.found_differing_post_state_root_due_to_state_transitions;
     }
 
     // Check that at least one tx was fully executed, ensuring that executing
@@ -203,11 +203,13 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     }
     assert!(has_executed_txs);
 
-    // If probability of missing chunk is high, claim that it is enough for
-    // some chunk at epoch boundary to miss, likely causing two different post
+    // We have 4 epoch boundaries on each of 4 shards. If probability of
+    // missing chunk is at least 0.8, then some chunk on epoch boundary will
+    // miss with probability 1 - pow(0.2, 16), so probability of flake will be
+    // around 10**-12. And this event will cause two different post
     // state roots in some state witness.
-    if prob_missing_chunk > 0.7 {
-        assert!(found_different_post_state_roots);
+    if prob_missing_chunk >= 0.8 {
+        assert!(found_differing_post_state_root_due_to_state_transitions);
     }
 
     // Collect chunk hashes which have to be endorsed and check that it indeed
@@ -249,7 +251,7 @@ fn test_chunk_validation_low_missing_chunks() {
 
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
-    run_chunk_validation_test(44, 0.8);
+    run_chunk_validation_test(44, 0.81);
 }
 
 /// Returns the block producer for the height of head + height_offset.

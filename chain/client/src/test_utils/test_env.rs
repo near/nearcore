@@ -57,10 +57,10 @@ pub struct TestEnv {
     pub(crate) save_trie_changes: bool,
 }
 
-pub struct StateWitnessPropagationResult {
+pub struct StateWitnessPropagationOutput {
     /// Whether some propagated state witness includes two different post state
     /// roots.
-    pub found_different_post_state_roots: bool,
+    pub found_differing_post_state_root_due_to_state_transitions: bool,
 }
 
 impl TestEnv {
@@ -269,8 +269,8 @@ impl TestEnv {
     }
 
     /// Triggers processing of all chunk state witnesses received by network.
-    pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationResult {
-        let mut found_different_post_state_roots = false;
+    pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationOutput {
+        let mut found_differing_post_state_root_due_to_state_transitions = false;
         for idx in 0..self.clients.len() {
             let _span =
                 tracing::debug_span!(target: "test", "propagate_chunk_state_witnesses", client=idx)
@@ -286,7 +286,8 @@ impl TestEnv {
                     post_state_roots.extend(
                         chunk_state_witness.implicit_transitions.iter().map(|t| t.post_state_root),
                     );
-                    found_different_post_state_roots |= post_state_roots.len() >= 2;
+                    found_differing_post_state_root_due_to_state_transitions |=
+                        post_state_roots.len() >= 2;
                     for account in accounts {
                         self.account_indices
                             .lookup_mut(&mut self.clients, &account)
@@ -299,7 +300,7 @@ impl TestEnv {
                 }
             });
         }
-        StateWitnessPropagationResult { found_different_post_state_roots }
+        StateWitnessPropagationOutput { found_differing_post_state_root_due_to_state_transitions }
     }
 
     /// Waits for `CHUNK_ENDORSEMENTS_TIMEOUT` to receive at least one chunk
