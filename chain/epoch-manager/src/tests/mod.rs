@@ -2678,10 +2678,10 @@ fn test_verify_chunk_endorsements() {
     let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
 
     // verify if we have one chunk validator
-    let chunk_validators =
-        &epoch_manager.get_chunk_validator_assignments(&epoch_id, 0, 1).unwrap().chunk_validators;
-    assert_eq!(chunk_validators.len(), 1);
-    assert!(chunk_validators.contains(&account_id));
+    let chunk_validator_assignments =
+        &epoch_manager.get_chunk_validator_assignments(&epoch_id, 0, 1).unwrap();
+    assert_eq!(chunk_validator_assignments.ordered_chunk_validators().len(), 1);
+    assert!(chunk_validator_assignments.contains(&account_id));
 
     // verify if the test signer has same public key as the chunk validator
     let (validator, _) =

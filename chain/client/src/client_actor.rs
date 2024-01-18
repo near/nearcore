@@ -1065,6 +1065,7 @@ impl ClientActor {
             if me == next_block_producer_account {
                 let num_chunks = self
                     .client
+                    .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
@@ -1958,7 +1959,9 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client
+                    .chunk_inclusion_tracker
+                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }

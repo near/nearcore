@@ -42,8 +42,10 @@ pub struct BlockBodyV2 {
     // If the chunk_validator did not endorse the chunk, the signature is None.
     // For cases of missing chunk, we include the chunk endorsements from the previous
     // block just like we do for chunks.
-    pub chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
+    pub chunk_endorsements: Vec<ChunkEndorsementSignatures>,
 }
+
+pub type ChunkEndorsementSignatures = Vec<Option<Box<Signature>>>;
 
 // For now, we only have one version of block body.
 // Eventually with ChunkValidation, we would include ChunkEndorsement in BlockBodyV2

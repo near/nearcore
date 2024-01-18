@@ -35,6 +35,7 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
+use near_primitives::validator_mandates::ValidatorMandatesConfig;
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
@@ -704,6 +705,13 @@ impl EpochManagerAdapter for MockEpochManager {
         let chunk_producers = self.get_chunk_producers(valset, shard_id);
         let index = (shard_id + height + 1) as usize % chunk_producers.len();
         Ok(chunk_producers[index].account_id().clone())
+    }
+
+    fn get_validator_mandates_config(
+        &self,
+        _epoch_id: &EpochId,
+    ) -> Result<ValidatorMandatesConfig, EpochError> {
+        Ok(Default::default())
     }
 
     fn get_chunk_validator_assignments(
