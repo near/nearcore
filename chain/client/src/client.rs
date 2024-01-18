@@ -2,6 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use crate::adapter::ProcessTxResponse;
+use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::chunk_validation::ChunkValidator;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
@@ -17,7 +18,6 @@ use actix_rt::ArbiterHandle;
 use chrono::DateTime;
 use chrono::Utc;
 use itertools::Itertools;
-use lru::LruCache;
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
@@ -89,8 +89,6 @@ use std::time::{Duration, Instant};
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
-const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
-const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
@@ -137,11 +135,6 @@ pub struct Client {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
     pub sharded_tx_pool: ShardedTransactionPool,
-    prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
-        CryptoHash,
-        HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
-    >,
-    pub do_not_include_chunks_from: LruCache<(EpochId, AccountId), ()>,
     /// Network adapter.
     pub network_adapter: PeerManagerAdapter,
     /// Signer for block producer (if present).
@@ -186,8 +179,12 @@ pub struct Client {
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
     pub last_time_sync_block_requested: Option<DateTime<Utc>>,
-
+    /// Helper module for stateless validation functionality like chunk witness production, validation
+    /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
+    /// Tracks current chunks that are ready to be included in block
+    /// Also tracks banned chunk producers and filters out chunks produced by them
+    pub chunk_inclusion_tracker: ChunkInclusionTracker,
 }
 
 impl Client {
@@ -357,12 +354,6 @@ impl Client {
             runtime_adapter,
             shards_manager_adapter,
             sharded_tx_pool,
-            prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
-                CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
-            ),
-            do_not_include_chunks_from: LruCache::new(
-                NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST,
-            ),
             network_adapter,
             validator_signer,
             pending_approvals: lru::LruCache::new(num_block_producer_seats),
@@ -381,6 +372,7 @@ impl Client {
             flat_storage_creator,
             last_time_sync_block_requested: None,
             chunk_validator,
+            chunk_inclusion_tracker: ChunkInclusionTracker::new(),
         })
     }
 
@@ -520,53 +512,6 @@ impl Client {
         Ok(true)
     }
 
-    pub fn get_chunk_headers_ready_for_inclusion(
-        &self,
-        epoch_id: &EpochId,
-        prev_block_hash: &CryptoHash,
-    ) -> HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)> {
-        self.prev_block_to_chunk_headers_ready_for_inclusion
-            .peek(prev_block_hash)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(_, (chunk_header, _, chunk_producer))| {
-                let banned = self
-                    .do_not_include_chunks_from
-                    .contains(&(epoch_id.clone(), chunk_producer.clone()));
-                if banned {
-                    warn!(
-                        target: "client",
-                        chunk_hash = ?chunk_header.chunk_hash(),
-                        ?chunk_producer,
-                        "Not including chunk from a banned validator");
-                    metrics::CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER.inc();
-                }
-                !banned
-            })
-            .collect()
-    }
-
-    pub fn num_chunk_headers_ready_for_inclusion(
-        &self,
-        epoch_id: &EpochId,
-        prev_block_hash: &CryptoHash,
-    ) -> usize {
-        let entries =
-            match self.prev_block_to_chunk_headers_ready_for_inclusion.peek(prev_block_hash) {
-                Some(entries) => entries,
-                None => return 0,
-            };
-        entries
-            .values()
-            .filter(|(_, _, chunk_producer)| {
-                !self
-                    .do_not_include_chunks_from
-                    .contains(&(epoch_id.clone(), chunk_producer.clone()))
-            })
-            .count()
-    }
-
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
@@ -637,7 +582,9 @@ impl Client {
             }
         }
 
-        let new_chunks = self.get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
+        let new_chunks = self
+            .chunk_inclusion_tracker
+            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
@@ -1380,7 +1327,7 @@ impl Client {
             chunk_hash = ?chunk_header.chunk_hash(),
             "Banning chunk producer for producing invalid chunk");
         metrics::CHUNK_PRODUCER_BANNED_FOR_EPOCH.inc();
-        self.do_not_include_chunks_from.put((epoch_id, chunk_producer), ());
+        self.chunk_inclusion_tracker.ban_chunk_producer(epoch_id, chunk_producer);
         Ok(())
     }
 
@@ -1420,20 +1367,6 @@ impl Client {
         if let Err(err) = update.commit() {
             error!(target: "client", ?err, "Error saving invalid chunk");
         }
-    }
-
-    pub fn on_chunk_header_ready_for_inclusion(
-        &mut self,
-        chunk_header: ShardChunkHeader,
-        chunk_producer: AccountId,
-    ) {
-        let prev_block_hash = chunk_header.prev_block_hash();
-        self.prev_block_to_chunk_headers_ready_for_inclusion
-            .get_or_insert(*prev_block_hash, || HashMap::new());
-        self.prev_block_to_chunk_headers_ready_for_inclusion
-            .get_mut(prev_block_hash)
-            .unwrap()
-            .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
     }
 
     pub fn sync_block_headers(
@@ -1807,7 +1740,8 @@ impl Client {
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
-        self.on_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
+        self.chunk_inclusion_tracker
+            .mark_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
