@@ -582,14 +582,6 @@ impl Client {
             }
         }
 
-        // Gets chunk headers here
-        // Filter out the chunks that have 2/3 (stake) of chunk endorsements from the chunk validators (some criterial)
-        // Additional field in the block to include the chunk endorsements
-        // Validation logic would change appropriately to check chunk endorsements
-        // Need a timer mechanism to wait for endorsements till timeout and produce whatever we have after timeout
-        // see ready_to_produce_block() in doomslug.rs and handle_block_production() fn in client.rs
-        // have_all_chunks function in handle_block_production
-        // have_all_chunks bool change to also have_all_chunk_endorsements
         let new_chunks = self
             .chunk_inclusion_tracker
             .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
