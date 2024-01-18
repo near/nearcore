@@ -29,6 +29,7 @@ mod config_updater;
 pub mod debug;
 mod info;
 mod metrics;
+mod chunk_inclusion_tracker;
 pub mod sync;
 mod sync_jobs_actor;
 pub mod test_utils;
