@@ -183,7 +183,7 @@ pub struct Client {
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
     /// Tracks current chunks that are ready to be included in block
-    /// Manages filtering out chunks that maybe from banned chunk_producers or similar reasons
+    /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
 }
 

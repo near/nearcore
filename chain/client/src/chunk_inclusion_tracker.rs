@@ -12,11 +12,16 @@ const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
 pub struct ChunkInclusionTracker {
+    // Track chunks that are ready to be included in a block.
+    // Key is the previous_block_hash as the chunk is created based on this block. It's possible that
+    // the block included isn't of height previous_block_height + 1 in cases of skipped blocks etc.
+    // We store the map of chunks from [shard_id] to (chunk_header, chunk received_time, chunk_producer account_id)
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
         HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
     >,
 
+    // Track banned chunk producers for a given epoch. We filter out chunks produced by them.
     banned_chunk_producers: LruCache<(EpochId, AccountId), ()>,
 }
 
@@ -26,11 +31,11 @@ impl ChunkInclusionTracker {
             prev_block_to_chunk_headers_ready_for_inclusion: LruCache::new(
                 CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE,
             ),
-            // chunk_header_info: LruCache::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE * 10),
             banned_chunk_producers: LruCache::new(NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST),
         }
     }
 
+    /// Call this function once we've collected all encoded chunk body and we are ready to include the chunk in block.
     pub fn mark_chunk_header_ready_for_inclusion(
         &mut self,
         chunk_header: ShardChunkHeader,
@@ -45,10 +50,16 @@ impl ChunkInclusionTracker {
             .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
     }
 
+    /// Add account_id to the list of banned chunk producers for the given epoch.
+    /// This would typically happen for cases when a validator has produced an invalid chunk.
     pub fn ban_chunk_producer(&mut self, epoch_id: EpochId, account_id: AccountId) {
         self.banned_chunk_producers.put((epoch_id, account_id), ());
     }
 
+    /// Function to return the chunks that are ready to be included in a block.
+    /// We filter out the chunks that are produced by banned chunk producers.
+    /// Return type contains some extra information needed for debug logs and metrics.
+    ///     HashMap from [shard_id] to (chunk_header, chunk received_time, chunk_producer account_id)
     pub fn get_chunk_headers_ready_for_inclusion(
         &self,
         epoch_id: &EpochId,
