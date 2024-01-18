@@ -60,9 +60,6 @@ pub enum MockAction {
         public_key: near_crypto::PublicKey,
         nonce: u64,
     },
-    ReadExternalData {
-        receipt_index: ReceiptIndex,
-    },
 }
 
 #[derive(Default, Clone)]

@@ -426,7 +426,6 @@ impl<'a> VMLogic<'a> {
     /// Throws `NumberPromisesExceeded` if the total number of promises exceeded the limit.
     fn checked_push_promise(&mut self, promise: Promise) -> Result<PromiseIndex> {
         let new_promise_idx = self.promises.len() as PromiseIndex;
-        println!("Creating promise with PromiseIndex={}", new_promise_idx);
         self.promises.push(promise);
         if self.promises.len() as u64
             > self.config.limit_config.max_promises_per_function_call_action

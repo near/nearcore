@@ -234,7 +234,7 @@ imports! {
         beneficiary_id_ptr: u64
     ] -> []>,
     // #######################
-    // # Promise API await/submit #
+    // # Promise API yield/resume #
     // #######################
     promise_yield_create<[
         method_name_len: u64,
