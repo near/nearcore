@@ -442,13 +442,6 @@ impl Client {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let prev_chunk_height_included = prev_chunk_header.height_included();
 
-        // TODO(#9292): previous chunk is genesis chunk - consider proper
-        // result for this corner case.
-        // let prev_chunk_prev_hash = *prev_chunk_header.prev_block_hash();
-        // if prev_chunk_prev_hash == CryptoHash::default() {
-        //     return Ok(vec![]);
-        // }
-
         let mut prev_blocks = self.chain.get_blocks_until_height(
             *chunk_header.prev_block_hash(),
             prev_chunk_height_included,
@@ -505,10 +498,11 @@ impl Client {
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
             return Ok(());
         }
-        // Previous chunk is genesis chunk.
+        // First chunk after genesis doesn't have to be endorsed.
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(());
         }
+
         let chunk_header = chunk.cloned_header();
         let chunk_validators = self
             .epoch_manager
