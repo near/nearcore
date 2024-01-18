@@ -392,25 +392,6 @@ impl ReceiptManager {
         Ok(())
     }
 
-    /// Attach the [`ReadExternalDataAction`] action to an existing receipt
-    ///
-    /// # Arguments
-    ///
-    /// * `receipt_index` - an index of Receipt to append an action
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `receipt_index` does not refer to a known receipt.
-    ///
-    /// TODO: maybe panic here if we don't see an input data dependency?
-    pub(super) fn append_action_read_external_data(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError> {
-        self.append_action(receipt_index, Action::ReadExternalData());
-        Ok(())
-    }
-
     /// Distribute the provided `gas` between receipts managed by this `ReceiptManager` according
     /// to their assigned weights.
     ///

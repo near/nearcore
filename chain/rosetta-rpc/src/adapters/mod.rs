@@ -427,10 +427,6 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     operations.push(deploy_contract_operation);
                 }
 
-                near_primitives::transaction::Action::ReadExternalData() => {
-                    // TODO
-                }
-
                 near_primitives::transaction::Action::Delegate(action) => {
                     let initiate_signed_delegate_action_operation_id =
                         crate::models::OperationIdentifier::new(&operations);

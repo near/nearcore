@@ -282,14 +282,6 @@ impl External for MockedExternal {
         Ok(())
     }
 
-    fn append_action_read_external_data(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), crate::logic::VMLogicError> {
-        self.action_log.push(MockAction::ReadExternalData { receipt_index });
-        Ok(())
-    }
-
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         match &self.action_log[receipt_index as usize] {
             MockAction::CreateReceipt { receiver_id, .. } => receiver_id,

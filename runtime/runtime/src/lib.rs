@@ -482,9 +482,6 @@ impl Runtime {
                     &mut result,
                 )?;
             }
-            Action::ReadExternalData() => {
-                action_read_external_data(promise_results, action_index, &mut result);
-            }
         };
         Ok(result)
     }

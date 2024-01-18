@@ -478,18 +478,6 @@ pub trait External {
         beneficiary_id: AccountId,
     ) -> Result<(), VMLogicError>;
 
-    /// Attach the [`ReadExternalDataAction`] action to an existing receipt.
-    ///
-    /// For more information, see [super::VMLogic::promise_await_data].
-    ///
-    /// # Panics
-    ///
-    /// TODO: maybe panic here if the receipt is not as we expect?
-    fn append_action_read_external_data(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError>;
-
     /// # Panic
     ///
     /// Panics if `ReceiptIndex` is invalid.

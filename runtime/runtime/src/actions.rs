@@ -34,7 +34,7 @@ use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::{ReturnData, VMContext, VMOutcome};
+use near_vm_runner::logic::{VMContext, VMOutcome};
 use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
@@ -766,29 +766,6 @@ pub(crate) fn apply_delegate_action(
     Ok(())
 }
 
-pub(crate) fn action_read_external_data(
-    promise_results: &[PromiseResult],
-    action_index: usize,
-    result: &mut ActionResult,
-) {
-    if promise_results.len() != 1 {
-        // TODO: distinguish this type of error from the case below
-        result.result = Err(ActionError {
-            index: Some(action_index as u64),
-            kind: ActionErrorKind::ReadExternalDataError,
-        });
-        return;
-    }
-
-    result.result = match &promise_results[0] {
-        PromiseResult::Successful(data) => Ok(ReturnData::Value(data.to_vec())),
-        _ => Err(ActionError {
-            index: Some(action_index as u64),
-            kind: ActionErrorKind::ReadExternalDataError,
-        }),
-    };
-}
-
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
@@ -960,7 +937,7 @@ pub(crate) fn check_actor_permissions(
             }
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
-        Action::Delegate(_) | Action::ReadExternalData() => (),
+        Action::Delegate(_) => (),
     };
     Ok(())
 }
@@ -1029,8 +1006,7 @@ pub(crate) fn check_account_existence(
         | Action::AddKey(_)
         | Action::DeleteKey(_)
         | Action::DeleteAccount(_)
-        | Action::Delegate(_)
-        | Action::ReadExternalData() => {
+        | Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

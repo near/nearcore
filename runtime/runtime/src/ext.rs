@@ -328,13 +328,6 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.append_action_delete_account(receipt_index, beneficiary_id)
     }
 
-    fn append_action_read_external_data(
-        &mut self,
-        receipt_index: ReceiptIndex,
-    ) -> Result<(), VMLogicError> {
-        self.receipt_manager.append_action_read_external_data(receipt_index)
-    }
-
     fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
         self.receipt_manager.get_receipt_receiver(receipt_index)
     }
