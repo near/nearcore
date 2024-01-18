@@ -2020,6 +2020,11 @@ impl ShardsManager {
             ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
                 self.check_incomplete_chunks(&prev_block_hash)
             }
+            ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(partial_encoded_chunk) => {
+                if let Err(e) = self.process_partial_encoded_chunk(partial_encoded_chunk.into()) {
+                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                }
+            }
         }
     }
 

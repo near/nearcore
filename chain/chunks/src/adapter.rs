@@ -50,4 +50,6 @@ pub enum ShardsManagerRequestFromClient {
     /// proofs, but cannot be marked as complete because the previous block isn't available),
     /// and completes them if so.
     CheckIncompleteChunks(CryptoHash),
+    /// Process a `PartialEncodedChunk` obtained via the Chunk Distribution Network feature.
+    ProcessPartialEncodedChunk(PartialEncodedChunk),
 }
