@@ -9,7 +9,7 @@ use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
+use near_primitives_core::types::{AccountId, Balance};
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
@@ -122,6 +122,16 @@ impl ChunkEndorsement {
     pub fn chunk_hash(&self) -> &ChunkHash {
         &self.inner.chunk_hash
     }
+
+    pub fn validate_signature(
+        chunk_hash: ChunkHash,
+        signature: &Signature,
+        public_key: &PublicKey,
+    ) -> bool {
+        let inner = ChunkEndorsementInner::new(chunk_hash);
+        let data = borsh::to_vec(&inner).unwrap();
+        signature.verify(&data, public_key)
+    }
 }
 
 /// This is the part of the chunk endorsement that is actually being signed.
@@ -160,13 +170,40 @@ pub struct StoredChunkStateTransitionData {
 
 #[derive(Debug, Default)]
 pub struct ChunkValidatorAssignments {
-    pub assignments: Vec<(AccountId, AssignmentWeight)>,
-    pub chunk_validators: HashSet<AccountId>,
+    assignments: Vec<(AccountId, AssignmentWeight)>,
+    chunk_validators: HashSet<AccountId>,
 }
 
 impl ChunkValidatorAssignments {
     pub fn new(assignments: Vec<(AccountId, AssignmentWeight)>) -> Self {
         let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
         Self { assignments, chunk_validators }
+    }
+
+    pub fn contains(&self, account_id: &AccountId) -> bool {
+        self.chunk_validators.contains(account_id)
+    }
+
+    pub fn ordered_chunk_validators(&self) -> Vec<AccountId> {
+        self.assignments.iter().map(|(id, _)| id.clone()).collect()
+    }
+
+    /// Returns true if the chunk has enough stake to be considered valid.
+    /// We require that at least 2/3 of the total stake of the chunk is endorsed by chunk_validators.
+    pub fn does_chunk_have_enough_stake(
+        &self,
+        endorsed_chunk_validators: &HashSet<AccountId>,
+        stake_per_mandate: Balance,
+    ) -> bool {
+        let mut total_stake: Balance = 0;
+        let mut endorsed_stake: Balance = 0;
+        for (account_id, weight) in &self.assignments {
+            let stake = weight.num_mandates as Balance * stake_per_mandate + weight.partial_weight;
+            total_stake += stake;
+            if endorsed_chunk_validators.contains(account_id) {
+                endorsed_stake += stake;
+            }
+        }
+        endorsed_stake > total_stake * 2 / 3
     }
 }
