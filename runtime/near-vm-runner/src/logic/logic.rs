@@ -2017,38 +2017,60 @@ impl<'a> VMLogic<'a> {
         Ok(())
     }
 
-    /// Creates a promise on the current account which will act as a placeholder awaiting data.
+    /// Creates a promise that will execute a method on the current account with given arguments
+    /// and gas. The created promise will have a special data dependency which can be submitted
+    /// using `promise_yield_resume` within `yield_num_blocks`.
     ///
-    /// Generates a token which is stored in register `register_id`.
-    ///
-    /// Subsequently, a call to `promise_submit_data` can be made passing the token and the data to
-    /// which the created promise should resolve.
-    ///
-    /// TODO: If data is not submitted within `yield_num_blocks`, the created promise will instead
-    /// resolve to a DataTimeoutError.
-    ///
-    /// TODO: Only the current account will be allowed to make the corresponding `promise_submit_data`.
+    /// Writes the unique token used to call `promise_yield_resume` to register `register_id`.
+    /// Only the current account is permitted to make the matching call to `promise_yield_resume`.
     ///
     /// # Errors
     ///
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` point outside
+    /// the memory of the guest or host returns `MemoryAccessViolation`.
     /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Returns
     ///
-    /// promise_index: Index of the new promise that uniquely identifies it within
-    /// the current execution of the method.
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
     ///
     /// # Cost
-    /// TODO
     ///
-    pub fn promise_await_data(&mut self, _yield_num_blocks: u64, register_id: u64) -> Result<u64> {
+    /// TODO
+    pub fn promise_yield_create(
+        &mut self,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: Gas,
+        _yield_num_blocks: u64,
+        register_id: u64,
+    ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
-                method_name: "promise_await_data".to_string(),
+                method_name: "promise_yield_create".to_string(),
             }
             .into());
         }
+
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
+
+        // Input can't be large enough to overflow
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        // Prepaid gas
+        self.gas_counter.prepay_gas(gas)?;
+
         self.pay_gas_for_new_receipt(true, &[])?;
 
         let (new_receipt_idx, data_id) =
@@ -2063,20 +2085,19 @@ impl<'a> VMLogic<'a> {
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
 
-        // TODO pay gas for this?
-        self.ext.append_action_read_external_data(new_receipt_idx)?;
+        self.ext.append_action_function_call_weight(
+            new_receipt_idx,
+            method_name,
+            arguments,
+            0,
+            gas,
+            GasWeight(0),
+        )?;
 
         Ok(new_promise_idx)
     }
 
-    /// Submits the data for a promise which is awaiting its value.
-    /// See `promise_await_data`.
-    ///
-    /// TODO: We need to make sure that ONLY those `data_ids` which were created by
-    /// promise_await_data above can be passed here. It should not be possible to
-    /// interfere with other kinds of promises by creating the DataReceipts they expect.
-    /// Also, only the account which called promise_await_data should be allowed to
-    /// respond with promise_submit_data.
+    /// Submits the data for a promise which is awaiting its value. See `promise_yield_create`.
     ///
     /// # Errors
     ///
@@ -2085,12 +2106,13 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// TODO
     ///
-    pub fn promise_submit_data(
+    pub fn promise_yield_resume(
         &mut self,
         data_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
     ) -> Result<(), VMLogicError> {
+        self.gas_counter.pay_base(base)?;
         if self.context.is_view() {
             return Err(HostError::ProhibitedInView {
                 method_name: "promise_submit_data".to_string(),
@@ -2105,7 +2127,7 @@ impl<'a> VMLogic<'a> {
             CryptoHash(data_id.into_owned().try_into().expect("exactly CryptoHash::LENGTH bytes"));
         let payload = payload.into_owned();
 
-        // TODO gas costs
+        // TODO gas costs for receipt creation
         self.ext.create_external_data_receipt(data_id, payload)
     }
 
