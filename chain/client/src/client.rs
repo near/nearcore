@@ -39,6 +39,7 @@ use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
 };
+use near_chain_configs::ChunkDistributionNetworkConfig;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
@@ -190,6 +191,9 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+
+    // Optional value used for the Chunk Distribution Network Feature.
+    chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
 
 impl Client {
@@ -231,6 +235,21 @@ pub struct ProduceChunkResult {
     pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
+}
+
+/// Helper struct for the Chunk Distribution Network Feature.
+struct ChunkDistributionNetwork {
+    client: reqwest::Client,
+    config: ChunkDistributionNetworkConfig,
+}
+
+impl ChunkDistributionNetwork {
+    fn new(config: &ClientConfig) -> Option<Self> {
+        config
+            .chunk_distribution_network
+            .as_ref()
+            .map(|c| Self { client: reqwest::Client::new(), config: c.clone() })
+    }
 }
 
 impl Client {
@@ -350,6 +369,7 @@ impl Client {
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
         );
+        let chunk_distribution_network = ChunkDistributionNetwork::new(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -389,6 +409,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
+            chunk_distribution_network,
         })
     }
 
@@ -1772,8 +1793,35 @@ impl Client {
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
+
+        let chunk_header = encoded_chunk.cloned_header();
+        if let Some(chunk_distribution) = &self.chunk_distribution_network {
+            if chunk_distribution.config.enabled {
+                let prev_hash = *chunk_header.prev_block_hash();
+                let partial_chunk = partial_chunk.clone();
+                let url = chunk_distribution.config.uris.set.clone();
+                let thread_local_client = chunk_distribution.client.clone();
+                near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+                    use borsh::BorshSerialize;
+                    let client = thread_local_client;
+                    let mut buffer: Vec<u8> = Vec::new();
+                    let _ = partial_chunk.serialize(&mut buffer);
+                    let request = client
+                        .post(url)
+                        .query(&[
+                            ("prev_hash", prev_hash.to_string()),
+                            ("shard_id", partial_chunk.shard_id().to_string()),
+                        ])
+                        .body(buffer);
+                    if let Err(err) = request.send().await {
+                        error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
+                    }
+                });
+            }
+        }
+
         self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
