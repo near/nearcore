@@ -3,7 +3,6 @@
 use crate::ClientActor;
 use actix::{Context, Handler};
 
-use itertools::Itertools;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
@@ -624,14 +623,8 @@ impl ClientActor {
             production: productions,
             banned_chunk_producers: self
                 .client
-                .do_not_include_chunks_from
-                .iter()
-                .map(|(k, _)| k.clone())
-                .sorted()
-                .group_by(|(k, _)| k.clone())
-                .into_iter()
-                .map(|(k, vs)| (k, vs.map(|(_, v)| v).collect()))
-                .collect(),
+                .chunk_inclusion_tracker
+                .get_banned_chunk_producers(),
         })
     }
 }
