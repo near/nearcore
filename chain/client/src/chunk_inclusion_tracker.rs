@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use lru::LruCache;
 use std::collections::HashMap;
@@ -12,11 +11,6 @@ use crate::metrics;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
-struct ChunkInfo {
-    pub chunk_header: ShardChunkHeader,
-    pub received_time: DateTime<Utc>,
-    pub chunk_producer: AccountId,
-}
 pub struct ChunkInclusionTracker {
     prev_block_to_chunk_headers_ready_for_inclusion: LruCache<
         CryptoHash,
@@ -48,7 +42,7 @@ impl ChunkInclusionTracker {
         self.prev_block_to_chunk_headers_ready_for_inclusion
             .get_mut(prev_block_hash)
             .unwrap()
-            .insert(chunk_header.shard_id(), (chunk_header, Utc::now(), chunk_producer));
+            .insert(chunk_header.shard_id(), (chunk_header, chrono::Utc::now(), chunk_producer));
     }
 
     pub fn ban_chunk_producer(&mut self, epoch_id: EpochId, account_id: AccountId) {

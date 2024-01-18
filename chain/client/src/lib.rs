@@ -22,6 +22,7 @@ pub use near_client_primitives::debug::DebugStatus;
 
 pub mod adapter;
 pub mod adversarial;
+mod chunk_inclusion_tracker;
 mod chunk_validation;
 mod client;
 mod client_actor;
@@ -29,7 +30,6 @@ mod config_updater;
 pub mod debug;
 mod info;
 mod metrics;
-mod chunk_inclusion_tracker;
 pub mod sync;
 mod sync_jobs_actor;
 pub mod test_utils;
