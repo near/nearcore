@@ -10,9 +10,9 @@ use near_chain_configs::{
     default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
     default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
     default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply, ClientConfig, GCConfig, Genesis,
-    GenesisConfig, GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig,
-    StateSyncConfig,
+    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
+    ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
+    MutableConfigValue, ReshardingConfig, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -316,6 +316,12 @@ pub struct Config {
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+    /// Optional config for the Chunk Distribution Network feature.
+    /// If set to `None` then this node does not participate in the Chunk Distribution Network.
+    /// Nodes not participating will still function fine, but possibly with higher
+    /// latency due to the need of requesting chunks over the peer-to-peer network.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -360,6 +366,7 @@ impl Default for Config {
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
+            chunk_distribution_network: None,
         }
     }
 }
@@ -673,6 +680,7 @@ impl NearConfig {
                     config.produce_chunk_add_transactions_time_limit,
                     "produce_chunk_add_transactions_time_limit",
                 ),
+                chunk_distribution_network: config.chunk_distribution_network,
             },
             network_config: NetworkConfig::new(
                 config.network,
