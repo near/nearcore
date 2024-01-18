@@ -49,12 +49,18 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-nextest
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
 
       # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
@@ -101,6 +107,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -130,6 +138,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -163,6 +173,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -198,6 +210,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -223,6 +237,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
@@ -242,6 +258,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-llvm-cov
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -270,6 +288,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: just check-rpc-errors-schema
 
   lychee_checks:
@@ -289,6 +309,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: just check-cargo-fmt
 
   check_clippy:
@@ -299,6 +321,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
@@ -312,9 +336,13 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-deny
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: just check-cargo-deny
 
   check_themis:
@@ -325,6 +353,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: just check-themis
 
   check_non_default:
@@ -335,6 +365,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: just check-non-default
 
   check_udeps:
@@ -345,9 +377,13 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: just
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-udeps
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
@@ -361,6 +397,8 @@ jobs:
       - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
           crate: cargo-audit
+        env:
+          GITHUB_JOB: CI # share cargo-install cache across jobs here
       - run: cargo audit -D warnings
 
   upload_coverage:
