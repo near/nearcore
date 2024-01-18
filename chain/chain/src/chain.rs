@@ -53,6 +53,7 @@ use near_primitives::challenge::{
     MaybeEncodedShardChunk, PartialState, SlashedValidator,
 };
 use near_primitives::checked_feature;
+use near_primitives::chunk_validation::ChunkEndorsement;
 #[cfg(feature = "new_epoch_sync")]
 use near_primitives::epoch_manager::epoch_sync::EpochSyncInfo;
 #[cfg(feature = "new_epoch_sync")]
@@ -1144,6 +1145,88 @@ impl Chain {
         Ok(())
     }
 
+    /// This function validates the chunk_endorsements present in the block body. We verify the signature against
+    /// the ordered_chunk_validators for the shard.
+    /// Note that the chunk_validator_assignments as got as of the height_created for the chunk as it can potentially
+    /// be included in a later block.
+    fn validate_chunk_endorsements_in_block(&self, block: &Block) -> Result<(), Error> {
+        // Number of chunks and chunk endorsements must match and must be equal to number of shards
+        if block.chunks().len() != block.chunk_endorsements().len() {
+            tracing::error!(
+                target: "chain",
+                num_chunks = block.chunks().len(),
+                num_chunk_endorsement_shards = block.chunk_endorsements().len(),
+                "Number of chunks and chunk endorsements must match",
+            );
+            return Err(Error::InvalidChunkEndorsement);
+        }
+
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
+        for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
+            // Validation for chunks in each shard
+            // The signatures from chunk validators for each shard must match the ordered_chunk_validators
+            let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+                &epoch_id,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+            )?;
+            let ordered_chunk_validators = chunk_validator_assignments.ordered_chunk_validators();
+            if ordered_chunk_validators.len() != signatures.len() {
+                tracing::error!(
+                    target: "chain",
+                    num_ordered_chunk_validators = ordered_chunk_validators.len(),
+                    num_chunk_endorsement_signatures = signatures.len(),
+                    "Number of ordered chunk validators and chunk endorsement signatures must match",
+                );
+                return Err(Error::InvalidChunkEndorsement);
+            }
+
+            // Verify that the signature in block body are valid for given chunk_validator.
+            // Signature can be either None, or Some(signature).
+            // We calculate the stake of the chunk_validators for who we have the signature present.
+            let mut endorsed_chunk_validators = HashSet::new();
+            for (account_id, signature) in ordered_chunk_validators.into_iter().zip(signatures) {
+                if let Some(signature) = signature {
+                    let (validator, _) = self.epoch_manager.get_validator_by_account_id(
+                        &epoch_id,
+                        block.header().prev_hash(),
+                        &account_id,
+                    )?;
+
+                    // Block should not be produced with an invalid signature.
+                    if !ChunkEndorsement::validate_signature(
+                        chunk_header.chunk_hash(),
+                        signature,
+                        validator.public_key(),
+                    ) {
+                        tracing::error!(
+                            target: "chain",
+                            "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
+                            chunk_header.chunk_hash(),
+                            validator.account_id(),
+                        );
+                        return Err(Error::InvalidChunkEndorsement);
+                    }
+
+                    // Add validators with singature in endorsed_chunk_validators. We later use this to check stake.
+                    endorsed_chunk_validators.insert(account_id);
+                }
+            }
+
+            let validator_mandates_config =
+                self.epoch_manager.get_validator_mandates_config(&epoch_id)?;
+            if !chunk_validator_assignments.does_chunk_have_enough_stake(
+                &endorsed_chunk_validators,
+                validator_mandates_config.stake_per_mandate,
+            ) {
+                tracing::error!(target: "chain", "Chunk does not have enough stake to be endorsed");
+                return Err(Error::InvalidChunkEndorsement);
+            }
+        }
+        Ok(())
+    }
+
     /// Check if the chain leading to the given block has challenged blocks on it. Returns Ok if the chain
     /// does not have challenged blocks, otherwise error ChallengedBlockOnChain.
     fn check_if_challenged_block_on_chain(&self, block_header: &BlockHeader) -> Result<(), Error> {
@@ -2022,6 +2105,10 @@ impl Chain {
         let prev_block = self.get_block(&prev_hash)?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
+
+        if checked_feature!("stable", ChunkValidation, protocol_version) {
+            self.validate_chunk_endorsements_in_block(&block)?;
+        }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
