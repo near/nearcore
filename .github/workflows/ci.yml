@@ -368,67 +368,67 @@ jobs:
           name: coverage
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux.json
           fail_ci_if_error: true
           flags: integration-tests,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
-      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      # - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
       #   with:
       #     token: ${{ secrets.CODECOV_TOKEN }}
       #     files: integration-macos.json
       #     fail_ci_if_error: true
       #     flags: integration-tests,macos
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: py-db-migration.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: py-sanity-checks.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: py-genesis-check.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
-      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
+      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: py-upgradability.json
