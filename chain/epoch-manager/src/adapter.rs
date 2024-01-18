@@ -19,7 +19,6 @@ use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, ShardId,
     ValidatorInfoIdentifier,
 };
-use near_primitives::validator_mandates::ValidatorMandatesConfig;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::EpochValidatorInfo;
 use near_store::{ShardUId, StoreUpdate};
@@ -188,11 +187,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         height: BlockHeight,
         shard_id: ShardId,
     ) -> Result<AccountId, EpochError>;
-
-    fn get_validator_mandates_config(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<ValidatorMandatesConfig, EpochError>;
 
     /// Gets the chunk validators for a given height and shard.
     fn get_chunk_validator_assignments(
@@ -662,14 +656,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
     ) -> Result<AccountId, EpochError> {
         let epoch_manager = self.read();
         Ok(epoch_manager.get_chunk_producer_info(epoch_id, height, shard_id)?.take_account_id())
-    }
-
-    fn get_validator_mandates_config(
-        &self,
-        epoch_id: &EpochId,
-    ) -> Result<ValidatorMandatesConfig, EpochError> {
-        let epoch_manager = self.read();
-        Ok(epoch_manager.get_epoch_info(epoch_id)?.get_validator_mandates_config())
     }
 
     fn get_chunk_validator_assignments(
