@@ -197,6 +197,7 @@ pub struct Config {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
     pub inbound_disabled: bool,
