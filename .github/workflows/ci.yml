@@ -374,8 +374,7 @@ jobs:
           files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
-        env:
-          CODECOV_TOKEN: ee0ab430-8754-47a8-818c-bb6254fc3012
+          token: ${{ secrets.CODECOV_TOKEN }}
       - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
         with:
           files: unit-linux-nightly.json
