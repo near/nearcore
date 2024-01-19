@@ -8,7 +8,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use near_chain::{Chain, ChainStore, ChainStoreAccess};
+use near_chain::{Block, Chain, ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -491,19 +491,26 @@ impl Client {
     pub fn send_chunk_state_witness_to_chunk_validators(
         &mut self,
         epoch_id: &EpochId,
-        prev_chunk_header: ShardChunkHeader,
+        prev_block: &Block,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
             return Ok(());
         }
+
+        let chunk_header = chunk.cloned_header();
+        let prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            prev_block,
+            chunk.shard_id(),
+        )?;
+
         // First chunk after genesis doesn't have to be endorsed.
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(());
         }
 
-        let chunk_header = chunk.cloned_header();
         let chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(
