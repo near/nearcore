@@ -354,7 +354,6 @@ jobs:
   upload_coverage:
     name: "Upload Coverage"
     runs-on: ubuntu-latest
-    environment: codecov
     needs:
       - cargo_nextest
       - py_backward_compat
@@ -369,79 +368,58 @@ jobs:
           name: coverage
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: integration-linux.json
           fail_ci_if_error: true
           flags: integration-tests,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      # - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
       #   with:
       #     files: integration-macos.json
       #     fail_ci_if_error: true
       #     flags: integration-tests,macos
-      #   env:
-      #     CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-db-migration.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-sanity-checks.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-genesis-check.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      - uses: codecov/codecov-action@428cda1b1c731be3e8bfa389049c3f276d572ffb
+      - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
