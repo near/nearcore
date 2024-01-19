@@ -12,6 +12,7 @@ use near_chain::{Chain, ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
@@ -145,6 +146,62 @@ impl ChunkValidator {
             }
         });
         Ok(())
+    }
+
+    /// This function does two things
+    ///     1. Verifies if the chunk_endorsements have enough stake for chunk to be included in block.
+    ///     2. Collects the chunk_endorsement signatures from chunk_validators to include in block body.
+    /// We return an optional signature.
+    ///     None specifies we didn't have enough stake to include chunk in block.
+    ///     Some(signature) gives us the ordered chunk_endorsement signatures to include in block.
+    pub fn get_chunk_endorsement_signature(
+        &mut self,
+        chunk_header: &ShardChunkHeader,
+    ) -> Result<Option<ChunkEndorsementSignatures>, Error> {
+        // Get the chunk_endorsements for the chunk from our cache.
+        // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
+        // We can safely rely on the the following details
+        //    1. The chunk endorsements are from valid chunk_validator for this chunk.
+        //    2. The chunk endorsements signatures are valid.
+        let chunk_endorsements = self
+            .chunk_endorsements
+            .get_or_insert(chunk_header.chunk_hash(), || HashMap::new())
+            .unwrap();
+
+        // Early return for empty chunk_endorsements.
+        if chunk_endorsements.is_empty() {
+            return Ok(None);
+        }
+
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+
+        // Check whether the current set of chunk_validators have enough stake to include chunk in block.
+        // TODO: Second argument `0` in `does_chunk_have_enough_stake` will go away with PR #10467
+        if !chunk_validator_assignments
+            .does_chunk_have_enough_stake(&chunk_endorsements.keys().cloned().collect(), 0)
+        {
+            return Ok(None);
+        }
+
+        // We've already verified the chunk_endorsements are valid, collect signatures.
+        let signatures = chunk_validator_assignments
+            .ordered_chunk_validators()
+            .iter()
+            .map(|account_id| {
+                // map Option<ChunkEndorsement> to Option<Box<Signature>>
+                chunk_endorsements
+                    .get(account_id)
+                    .map(|endorsement| Box::new(endorsement.signature.clone()))
+            })
+            .collect();
+
+        Ok(Some(signatures))
     }
 }
 

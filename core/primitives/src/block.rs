@@ -2,7 +2,7 @@ use crate::block::BlockValidityError::{
     InvalidChallengeRoot, InvalidChunkHeaderRoot, InvalidChunkMask, InvalidReceiptRoot,
     InvalidStateRoot, InvalidTransactionRoot,
 };
-use crate::block_body::{BlockBody, BlockBodyV1};
+use crate::block_body::{BlockBody, BlockBodyV1, ChunkEndorsementSignatures};
 pub use crate::block_header::*;
 use crate::challenge::{Challenges, ChallengesResult};
 use crate::checked_feature;
@@ -583,7 +583,7 @@ impl Block {
     }
 
     #[inline]
-    pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
+    pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
         match self {
             Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => &[],
             Block::BlockV4(block) => block.body.chunk_endorsements(),

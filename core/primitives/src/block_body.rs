@@ -110,7 +110,7 @@ impl BlockBody {
     }
 
     #[inline]
-    pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
+    pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
         match self {
             BlockBody::V1(_) => &[],
             BlockBody::V2(body) => &body.chunk_endorsements,

@@ -335,6 +335,7 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
         );
+        let chunk_inclusion_tracker = ChunkInclusionTracker::new(epoch_manager.clone());
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -372,7 +373,7 @@ impl Client {
             flat_storage_creator,
             last_time_sync_block_requested: None,
             chunk_validator,
-            chunk_inclusion_tracker: ChunkInclusionTracker::new(),
+            chunk_inclusion_tracker,
         })
     }
 
@@ -582,9 +583,12 @@ impl Client {
             }
         }
 
-        let new_chunks = self
-            .chunk_inclusion_tracker
-            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
+        let new_chunks = self.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
+            &epoch_id,
+            &prev_hash,
+            &mut self.chunk_validator,
+        )?;
+
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
@@ -592,7 +596,7 @@ impl Client {
             prev_height=prev.height(),
             prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
-            new_chunks=?new_chunks.keys().sorted().collect_vec(),
+            new_chunks=?new_chunks.values().collect_vec(),
             "Producing block",
         );
 
@@ -669,7 +673,11 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let (mut chunk_headers, mut chunk_endorsements) =
+            Chain::get_prev_chunk_headers_and_chunk_endorsements(
+                self.epoch_manager.as_ref(),
+                &prev_block,
+            )?;
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(
@@ -677,16 +685,20 @@ impl Client {
             BlockProductionTracker::construct_chunk_collection_info(
                 height,
                 &epoch_id,
-                chunks.len() as ShardId,
+                chunk_headers.len() as ShardId,
                 &new_chunks,
                 self.epoch_manager.as_ref(),
+                &self.chunk_inclusion_tracker,
             )?,
         );
 
-        // Collect new chunks.
-        for (shard_id, (mut chunk_header, _, _)) in new_chunks {
+        // Collect new chunk headers and endorsements.
+        for (shard_id, chunk_hash) in new_chunks {
+            let mut chunk_header = self.chunk_inclusion_tracker.chunk_header(&chunk_hash)?.clone();
+            let chunk_endorsement = self.chunk_inclusion_tracker.chunk_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
-            chunks[shard_id as usize] = chunk_header;
+            chunk_headers[shard_id as usize] = chunk_header;
+            chunk_endorsements[shard_id as usize] = chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -723,8 +735,8 @@ impl Client {
             prev_header,
             height,
             block_ordinal,
-            chunks,
-            vec![],
+            chunk_headers,
+            chunk_endorsements,
             epoch_id,
             next_epoch_id,
             epoch_sync_data_hash,
