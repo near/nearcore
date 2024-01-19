@@ -161,9 +161,9 @@ fn pre_validate_chunk_state_witness(
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
 
-    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
+    // Blocks from the last new chunk (inclusive) to the parent block (inclusive).
     let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
+    // Blocks from the last last new chunk (inclusive) to the last new chunk (exclusive).
     let mut blocks_after_last_last_chunk = Vec::new();
 
     {
