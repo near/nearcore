@@ -73,7 +73,7 @@ impl ChunkInclusionTracker {
             // Call to prev_block_to_chunk_hash_ready.push might evict an entry from LRU cache.
             // In case of an eviction, cleanup entries in chunk_hash_to_chunk_info
             let maybe_evicted_entry =
-                self.prev_block_to_chunk_hash_ready.push(prev_block_hash.clone(), new_entry);
+                self.prev_block_to_chunk_hash_ready.push(*prev_block_hash, new_entry);
             if let Some((_, evicted_entry)) = maybe_evicted_entry {
                 self.process_evicted_entry(evicted_entry);
             }
