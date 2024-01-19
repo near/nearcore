@@ -354,6 +354,7 @@ jobs:
   upload_coverage:
     name: "Upload Coverage"
     runs-on: ubuntu-latest
+    environment: ci
     needs:
       - cargo_nextest
       - py_backward_compat
