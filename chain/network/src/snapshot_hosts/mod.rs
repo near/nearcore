@@ -15,7 +15,7 @@ use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -73,23 +73,24 @@ impl Ord for PartPriority {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.times_returned
             .cmp(&other.times_returned)
-            .then_with(|| self.score.cmp(&other.score))
+            .reverse()
+            .then_with(|| self.score.cmp(&other.score).reverse())
             .then_with(|| self.peer_id.cmp(&other.peer_id))
     }
 }
 
 #[derive(Default)]
 struct PartPeerSelector {
-    peers: BTreeSet<PartPriority>,
+    peers: BinaryHeap<PartPriority>,
 }
 
 impl PartPeerSelector {
     fn next(&mut self) -> Option<PeerId> {
-        match self.peers.pop_first() {
+        match self.peers.pop() {
             Some(mut priority) => {
                 priority.inc();
                 let peer_id = priority.peer_id.clone();
-                self.peers.insert(priority);
+                self.peers.push(priority);
                 Some(peer_id)
             }
             None => None,
@@ -210,8 +211,8 @@ impl Inner {
                 });
             } else {
                 let p = PartPriority { peer_id: peer_id.clone(), score, times_returned: 0 };
-                let worst = new_peers.last().unwrap().clone();
-                if p < worst {
+                let worst = new_peers.first().unwrap().clone();
+                if p > worst {
                     new_peers.insert(p);
                     assert!(new_peers.remove(&worst));
                 }
