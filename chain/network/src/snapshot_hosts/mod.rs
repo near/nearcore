@@ -15,7 +15,7 @@ use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -50,6 +50,7 @@ pub(crate) fn priority_score(peer_id: &PeerId, part_id: &PartId) -> [u8; 32] {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PartPriority {
+    peer_id: PeerId,
     score: [u8; 32],
     // TODO: consider storing this on disk, so we can remember who hasn't
     // been able to provide us with the parts across restarts
@@ -70,29 +71,33 @@ impl PartialOrd for PartPriority {
 
 impl Ord for PartPriority {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.times_returned.cmp(&other.times_returned).then_with(|| self.score.cmp(&other.score))
+        self.times_returned
+            .cmp(&other.times_returned)
+            .then_with(|| self.score.cmp(&other.score))
+            .then_with(|| self.peer_id.cmp(&other.peer_id))
     }
 }
 
 #[derive(Default)]
 struct PartPeerSelector {
-    peers: BTreeMap<PartPriority, PeerId>,
+    peers: BTreeSet<PartPriority>,
 }
 
 impl PartPeerSelector {
     fn next(&mut self) -> Option<PeerId> {
         match self.peers.pop_first() {
-            Some((mut priority, peer_id)) => {
+            Some(mut priority) => {
                 priority.inc();
-                self.peers.insert(priority, peer_id.clone());
+                let peer_id = priority.peer_id.clone();
+                self.peers.insert(priority);
                 Some(peer_id)
             }
             None => None,
         }
     }
 
-    fn insert_peer(&mut self, peer_id: PeerId, score: [u8; 32]) {
-        self.peers.insert(PartPriority { score, times_returned: 0 }, peer_id);
+    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, peers: T) {
+        self.peers.extend(peers)
     }
 
     fn len(&self) -> usize {
@@ -100,29 +105,13 @@ impl PartPeerSelector {
     }
 
     fn tried_everybody(&self) -> bool {
-        self.peers.iter().all(|(priority, _peer_id)| priority.times_returned > 0)
+        self.peers.iter().all(|priority| priority.times_returned > 0)
     }
 }
 
 #[derive(Default)]
 struct PeerSelector {
     selectors: HashMap<u64, PartPeerSelector>,
-}
-
-fn do_insert(
-    peers: &mut BTreeMap<[u8; 32], PeerId>,
-    peer_id: PeerId,
-    part_id: &PartId,
-    score: [u8; 32],
-) {
-    if let Some(other) = peers.insert(score, peer_id.clone()) {
-        // could handle it but it's so unlikely it's not really worth it. So this log statement serves
-        // as code documentation explaining what's happening more than anything else
-        tracing::warn!(
-            "Currently ignoring peer {} in place of {} for state part requests for part ID {:?} due to duplicate rendezvous hash score",
-            &other, peer_id, part_id,
-        )
-    }
 }
 
 impl PeerSelector {
@@ -137,17 +126,16 @@ impl PeerSelector {
         }
     }
 
-    fn insert_peer(&mut self, part_id: &PartId, peer_id: PeerId, score: [u8; 32]) {
-        let s = self.selectors.entry(part_id.idx).or_default();
-        s.insert_peer(peer_id, score);
+    fn insert_peers<T: IntoIterator<Item = PartPriority>>(&mut self, part_id: &PartId, peers: T) {
+        self.selectors.entry(part_id.idx).or_default().insert_peers(peers);
     }
 
     fn seen_peers(&self, part_id: &PartId) -> HashSet<PeerId> {
         match self.selectors.get(&part_id.idx) {
             Some(s) => {
                 let mut ret = HashSet::new();
-                for (_s, peer_id) in s.peers.iter() {
-                    ret.insert(peer_id.clone());
+                for p in s.peers.iter() {
+                    ret.insert(p.peer_id.clone());
                 }
                 ret
             }
@@ -205,7 +193,7 @@ impl Inner {
         let selector = self.state_part_selectors.get(&shard_id).unwrap();
         let seen_peers = selector.seen_peers(part_id);
 
-        let mut new_peers = BTreeMap::new();
+        let mut new_peers = BTreeSet::new();
         for (peer_id, info) in self.hosts.iter() {
             if seen_peers.contains(peer_id)
                 || info.sync_hash != *sync_hash
@@ -215,20 +203,22 @@ impl Inner {
             }
             let score = priority_score(peer_id, part_id);
             if new_peers.len() < max_entries_added {
-                do_insert(&mut new_peers, peer_id.clone(), part_id, score);
+                new_peers.insert(PartPriority {
+                    peer_id: peer_id.clone(),
+                    score,
+                    times_returned: 0,
+                });
             } else {
-                let worst_score = *new_peers.last_key_value().unwrap().0;
-                // we say <= instead of < to emphasize the warn! log in do_insert()
-                if score <= worst_score {
-                    do_insert(&mut new_peers, peer_id.clone(), part_id, score);
-                    assert!(new_peers.remove(&worst_score).is_some());
+                let p = PartPriority { peer_id: peer_id.clone(), score, times_returned: 0 };
+                let worst = new_peers.last().unwrap().clone();
+                if p < worst {
+                    new_peers.insert(p);
+                    assert!(new_peers.remove(&worst));
                 }
             }
         }
         let selector = self.state_part_selectors.get_mut(&shard_id).unwrap();
-        for (score, peer_id) in new_peers {
-            selector.insert_peer(part_id, peer_id, score);
-        }
+        selector.insert_peers(part_id, new_peers);
     }
 }
 
