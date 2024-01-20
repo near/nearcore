@@ -336,4 +336,14 @@ impl SnapshotHostsCache {
         let selector = inner.state_part_selectors.entry(shard_id).or_default();
         selector.clear(part_id);
     }
+
+    // used for testing purposes only to check that we clear state after part_received() is called
+    #[allow(dead_code)]
+    pub(crate) fn part_peer_state_len(&self, shard_id: ShardId, part_id: &PartId) -> usize {
+        let inner = self.0.lock();
+        match inner.state_part_selectors.get(&shard_id) {
+            Some(s) => s.len(part_id),
+            None => 0,
+        }
+    }
 }

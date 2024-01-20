@@ -310,6 +310,7 @@ async fn run_select_peer_test(
             }
             SelectPeerAction::PartReceived => {
                 cache.part_received(sync_hash, 0, &part_id);
+                assert_eq!(cache.part_peer_state_len(0, &part_id), 0);
             }
         }
     }
