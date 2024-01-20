@@ -271,7 +271,8 @@ pub(crate) fn action_function_call(
         }
         // Update action result with the abort error converted to the
         // transaction runtime's format of errors.
-        let action_err: ActionError = ActionErrorKind::FunctionCallError(err.into()).into();
+        let action_err: ActionError =
+            ActionErrorKind::FunctionCallError(crate::conversions::Convert::convert(err)).into();
         result.result = Err(action_err);
     }
     result.gas_burnt = safe_add_gas(result.gas_burnt, outcome.burnt_gas)?;
@@ -995,15 +996,8 @@ pub(crate) fn check_account_existence(
         | Action::Stake(_)
         | Action::AddKey(_)
         | Action::DeleteKey(_)
-        | Action::DeleteAccount(_) => {
-            if account.is_none() {
-                return Err(ActionErrorKind::AccountDoesNotExist {
-                    account_id: account_id.clone(),
-                }
-                .into());
-            }
-        }
-        Action::Delegate(_) => {
+        | Action::DeleteAccount(_)
+        | Action::Delegate(_) => {
             if account.is_none() {
                 return Err(ActionErrorKind::AccountDoesNotExist {
                     account_id: account_id.clone(),

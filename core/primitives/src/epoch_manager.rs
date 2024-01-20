@@ -522,7 +522,9 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesAssignment};
+    use crate::validator_mandates::{
+        ValidatorMandates, ValidatorMandatesAssignment, ValidatorMandatesConfig,
+    };
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -1090,12 +1092,17 @@ pub mod epoch_info {
             }
         }
 
+        pub fn get_validator_mandates_config(&self) -> ValidatorMandatesConfig {
+            match &self {
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
+                Self::V4(v4) => v4.validator_mandates.config,
+            }
+        }
+
         pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
-                Self::V1(_) => Default::default(),
-                Self::V2(_) => Default::default(),
-                Self::V3(_) => Default::default(),
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
                 Self::V4(v4) => {
                     let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                     v4.validator_mandates.sample(&mut rng)
@@ -1139,6 +1146,8 @@ pub mod epoch_info {
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
         fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+            // A deterministic seed is produces using the block height and the provided seed.
+            // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());

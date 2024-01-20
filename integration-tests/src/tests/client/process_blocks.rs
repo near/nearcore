@@ -336,6 +336,7 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -417,6 +418,7 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -629,6 +631,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -2382,6 +2385,7 @@ fn test_validate_chunk_extra() {
     let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
     let chunks = env.clients[0]
+        .chunk_inclusion_tracker
         .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();

@@ -17,8 +17,8 @@ use near_store::flat::{
     FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
+use near_store::trie::TrieNodesCount;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
-use near_vm_runner::logic::TrieNodesCount;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::str::FromStr;

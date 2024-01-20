@@ -763,6 +763,7 @@ mod test {
                 this_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
+                vec![],
                 epoch_id,
                 next_epoch_id,
                 None,

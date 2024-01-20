@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 mod rpc;
 mod runtime;
 
@@ -15,13 +13,15 @@ use near_primitives::errors::{
     MethodResolveError, TxExecutionError,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, TrieNodesCount};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
+use near_store::trie::TrieNodesCount;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::User;
