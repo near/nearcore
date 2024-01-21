@@ -307,7 +307,7 @@ impl TransactionGroupIteratorWrapper {
             .iter()
             .map(|transaction| TransactionGroup {
                 key: PoolKey::default(),
-                transactions: vec![transaction.clone()], // Modify this as needed
+                transactions: vec![transaction.clone()],
                 removed_transaction_hashes: vec![],
                 removed_transaction_size: 0,
             })

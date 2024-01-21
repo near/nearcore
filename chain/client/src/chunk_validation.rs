@@ -9,7 +9,7 @@ use near_chain::types::{
     StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use near_chain::{Chain, ChainStore, ChainStoreAccess};
+use near_chain::{Chain, ChainStoreAccess};
 use near_chain_configs::ClientConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
@@ -84,7 +84,7 @@ impl ChunkValidator {
     pub fn start_validating_chunk(
         &self,
         state_witness: ChunkStateWitness,
-        chain_store: &ChainStore,
+        chain: &Chain,
         config: ClientConfig,
     ) -> Result<(), Error> {
         let chunk_header = state_witness.chunk_header.clone();
@@ -107,8 +107,10 @@ impl ChunkValidator {
 
         let pre_validation_result = pre_validate_chunk_state_witness(
             &state_witness,
-            chain_store,
+            chain,
             self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
+            &config,
         )?;
 
         // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
@@ -129,7 +131,6 @@ impl ChunkValidator {
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
-                &config,
             ) {
                 Ok(()) => {
                     tracing::debug!(
@@ -159,9 +160,12 @@ impl ChunkValidator {
 /// validation thread.
 fn pre_validate_chunk_state_witness(
     state_witness: &ChunkStateWitness,
-    store: &ChainStore,
+    chain: &Chain,
     epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
+    config: &ClientConfig,
 ) -> Result<PreValidationOutput, Error> {
+    let store = chain.chain_store();
     let shard_id = state_witness.chunk_header.shard_id();
 
     // First, go back through the blockchain history to locate the last new chunk
@@ -266,18 +270,71 @@ fn pre_validate_chunk_state_witness(
         )));
     }
 
+    let block = Chain::get_apply_chunk_block_context(
+        epoch_manager,
+        last_chunk_block.header(),
+        &store.get_previous_header(last_chunk_block.header())?,
+        true,
+    )?;
+    let epoch_id = epoch_manager.get_epoch_id(&block.block_hash)?;
+    let chunk_header = last_chunk_block.chunks().get(shard_id as usize).unwrap().clone();
+
+    let transactions_validation_storage_config = RuntimeStorageConfig {
+        state_root: chunk_header.prev_state_root(),
+        use_flat_storage: true,
+        source: StorageDataSource::Recorded(PartialStorage {
+            nodes: state_witness.new_transactions_validation_state.clone(),
+        }),
+        state_patch: Default::default(),
+        record_storage: false,
+    };
+
+    // Verify that all proposed transactions are valid.
+    let new_transactions = &state_witness.new_transactions;
+    match runtime_adapter.prepare_transactions(
+        block.gas_price,
+        chunk_header.gas_limit(),
+        &epoch_id,
+        shard_id,
+        transactions_validation_storage_config,
+        block.height + 1,
+        &mut TransactionGroupIteratorWrapper::new(&new_transactions),
+        &mut |tx: &SignedTransaction| -> bool {
+            store
+                .check_transaction_validity_period(
+                    last_chunk_block.header(),
+                    &tx.transaction.block_hash,
+                    chain.transaction_validity_period,
+                )
+                .is_ok()
+        },
+        epoch_manager.get_epoch_protocol_version(&epoch_id)?,
+        config.produce_chunk_add_transactions_time_limit.get(),
+    ) {
+        Ok(result) => {
+            if result.transactions.len() != new_transactions.len() {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "New transactions validation failed. {} transactions out of {} proposed transactions were valid.",
+                    result.transactions.len(),
+                    new_transactions.len(),
+                )));
+            }
+        }
+        Err(error) => {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "New transactions validation failed: {}",
+                error,
+            )));
+        }
+    };
+
     Ok(PreValidationOutput {
         main_transition_params: NewChunkData {
-            chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
+            chunk_header,
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
             resharding_state_roots: None,
-            block: Chain::get_apply_chunk_block_context(
-                epoch_manager,
-                last_chunk_block.header(),
-                &store.get_previous_header(last_chunk_block.header())?,
-                true,
-            )?,
+            block,
             is_first_block_with_chunk_of_version: false,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {
@@ -313,16 +370,13 @@ fn validate_chunk_state_witness(
     pre_validation_output: PreValidationOutput,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
-    config: &ClientConfig,
 ) -> Result<(), Error> {
     let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
     let main_transition = pre_validation_output.main_transition_params;
-    let gas_price = main_transition.block.gas_price;
-    let block_height = main_transition.block.height;
     let chunk_header = main_transition.chunk_header.clone();
-    let shard_id = main_transition.chunk_header.shard_id();
     let epoch_id = epoch_manager.get_epoch_id(&main_transition.block.block_hash)?;
-    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+    let shard_uid =
+        epoch_manager.shard_id_to_uid(main_transition.chunk_header.shard_id(), &epoch_id)?;
     // Should we validate other fields?
     let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
         &span,
@@ -407,58 +461,6 @@ fn validate_chunk_state_witness(
         &outgoing_receipts_root,
     )?;
 
-    let transactions_validation_storage_config = RuntimeStorageConfig {
-        state_root: *chunk_extra.state_root(),
-        use_flat_storage: true,
-        source: StorageDataSource::Recorded(PartialStorage {
-            nodes: state_witness.new_transactions_validation_state,
-        }),
-        state_patch: Default::default(),
-        record_storage: false,
-    };
-
-    // Verify that all proposed transactions are valid.
-    let new_transactions = state_witness.new_transactions;
-    match runtime_adapter.prepare_transactions(
-        gas_price,
-        chunk_extra.gas_limit(),
-        &epoch_id,
-        shard_id,
-        transactions_validation_storage_config,
-        block_height + 1,
-        &mut TransactionGroupIteratorWrapper::new(&new_transactions),
-        &mut |_tx: &SignedTransaction| -> bool {
-            // TODO(staffik)
-            true
-            // chain
-            //     .chain_store()
-            //     .check_transaction_validity_period(
-            //         prev_block_header,
-            //         &tx.transaction.block_hash,
-            //         transaction_validity_period,
-            //     )
-            //     .is_ok()
-        },
-        epoch_manager.get_epoch_protocol_version(&epoch_id)?,
-        config.produce_chunk_add_transactions_time_limit.get(),
-    ) {
-        Ok(result) => {
-            if result.transactions.len() != new_transactions.len() {
-                return Err(Error::InvalidChunkStateWitness(format!(
-                    "Transactions validation failed. {} transactions out of {} proposed transactions were valid.",
-                    result.transactions.len(),
-                    new_transactions.len(),
-                )));
-            }
-        }
-        Err(error) => {
-            return Err(Error::InvalidChunkStateWitness(format!(
-                "Transactions validation failed: {}",
-                error,
-            )));
-        }
-    };
-
     Ok(())
 }
 
@@ -484,11 +486,7 @@ impl Client {
     pub fn process_chunk_state_witness(&mut self, witness: ChunkStateWitness) -> Result<(), Error> {
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
-        self.chunk_validator.start_validating_chunk(
-            witness,
-            self.chain.chain_store(),
-            self.config.clone(),
-        )
+        self.chunk_validator.start_validating_chunk(witness, &self.chain, self.config.clone())
     }
 
     /// Collect state transition data necessary to produce state witness for
