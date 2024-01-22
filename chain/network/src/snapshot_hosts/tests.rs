@@ -215,12 +215,14 @@ enum SelectPeerAction {
 
 struct SelectPeerTest {
     num_peers: usize,
+    part_selection_cache_batch_size: u32,
     actions: &'static [SelectPeerAction],
 }
 
 static SELECT_PEER_CASES: &[SelectPeerTest] = &[
     SelectPeerTest {
         num_peers: 2,
+        part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[0, 1]),
@@ -232,6 +234,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
     },
     SelectPeerTest {
         num_peers: 3,
+        part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::CallSelect(None),
@@ -253,6 +256,7 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
     },
     SelectPeerTest {
         num_peers: 2,
+        part_selection_cache_batch_size: 1,
         actions: &[
             SelectPeerAction::CallSelect(None),
             SelectPeerAction::InsertHosts(&[0]),
@@ -273,6 +277,21 @@ static SELECT_PEER_CASES: &[SelectPeerTest] = &[
             SelectPeerAction::CallSelect(Some(1)),
         ],
     },
+    SelectPeerTest {
+        num_peers: 5,
+        part_selection_cache_batch_size: 2,
+        actions: &[
+            SelectPeerAction::CallSelect(None),
+            SelectPeerAction::InsertHosts(&[2, 3]),
+            SelectPeerAction::CallSelect(Some(2)),
+            SelectPeerAction::CallSelect(Some(3)),
+            SelectPeerAction::InsertHosts(&[0, 1, 4]),
+            SelectPeerAction::CallSelect(Some(0)),
+            SelectPeerAction::CallSelect(Some(1)),
+            SelectPeerAction::CallSelect(Some(4)),
+            SelectPeerAction::CallSelect(Some(0)),
+        ],
+    },
 ];
 
 async fn run_select_peer_test(
@@ -280,11 +299,10 @@ async fn run_select_peer_test(
     peers: &[Arc<SnapshotHostInfo>],
     sync_hash: &CryptoHash,
     part_id: &PartId,
+    part_selection_cache_batch_size: u32,
 ) {
-    let config = Config {
-        snapshot_hosts_cache_size: peers.len() as u32,
-        part_selection_cache_batch_size: 1,
-    };
+    let config =
+        Config { snapshot_hosts_cache_size: peers.len() as u32, part_selection_cache_batch_size };
     let cache = SnapshotHostsCache::new(config);
 
     tracing::debug!("start run_select_peer_test");
@@ -339,6 +357,13 @@ async fn test_select_peer() {
     );
 
     for t in SELECT_PEER_CASES.iter() {
-        run_select_peer_test(&t.actions, &peers[..t.num_peers], &sync_hash, &part_id).await;
+        run_select_peer_test(
+            &t.actions,
+            &peers[..t.num_peers],
+            &sync_hash,
+            &part_id,
+            t.part_selection_cache_batch_size,
+        )
+        .await;
     }
 }

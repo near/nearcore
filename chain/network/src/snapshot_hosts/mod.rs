@@ -184,6 +184,9 @@ impl Inner {
     }
 
     // Try to insert up to max_entries_added more peers into the state part selector for this part ID
+    // this will look for the best priority `max_entries_added` peers that we haven't yet added to the set
+    // of peers to ask for this part, and will add them to the heap so that we can return one of those next
+    // time select_host() is called
     fn insert_part_hosts(
         &mut self,
         sync_hash: &CryptoHash,
