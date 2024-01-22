@@ -4,7 +4,6 @@ use std::sync::Arc;
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
-use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -170,12 +169,12 @@ pub struct StoredChunkStateTransitionData {
 
 #[derive(Debug, Default)]
 pub struct ChunkValidatorAssignments {
-    assignments: Vec<(AccountId, AssignmentWeight)>,
+    assignments: Vec<(AccountId, Balance)>,
     chunk_validators: HashSet<AccountId>,
 }
 
 impl ChunkValidatorAssignments {
-    pub fn new(assignments: Vec<(AccountId, AssignmentWeight)>) -> Self {
+    pub fn new(assignments: Vec<(AccountId, Balance)>) -> Self {
         let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
         Self { assignments, chunk_validators }
     }
@@ -193,12 +192,10 @@ impl ChunkValidatorAssignments {
     pub fn does_chunk_have_enough_stake(
         &self,
         endorsed_chunk_validators: &HashSet<AccountId>,
-        stake_per_mandate: Balance,
     ) -> bool {
-        let mut total_stake: Balance = 0;
-        let mut endorsed_stake: Balance = 0;
-        for (account_id, weight) in &self.assignments {
-            let stake = weight.num_mandates as Balance * stake_per_mandate + weight.partial_weight;
+        let mut total_stake = 0;
+        let mut endorsed_stake = 0;
+        for (account_id, stake) in &self.assignments {
             total_stake += stake;
             if endorsed_chunk_validators.contains(account_id) {
                 endorsed_stake += stake;
