@@ -1783,10 +1783,10 @@ impl Client {
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
             if chunk_distribution.config.enabled {
                 let partial_chunk = partial_chunk.clone();
-                let thread_local_client = chunk_distribution.clone();
+                let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
                     use crate::chunk_distribution_network::ChunkDistributionClient;
-                    if let Err(err) = thread_local_client.publish_chunk(partial_chunk).await {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });

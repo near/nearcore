@@ -26,11 +26,11 @@ pub trait ChunkDistributionClient {
         &self,
         prev_hash: CryptoHash,
         shard_id: ShardId,
-    ) -> Result<PartialEncodedChunk, Self::Error>;
+    ) -> Result<Option<PartialEncodedChunk>, Self::Error>;
 
     async fn publish_chunk(
-        &self,
-        chunk: PartialEncodedChunk,
+        &mut self,
+        chunk: &PartialEncodedChunk,
     ) -> Result<Self::Response, Self::Error>;
 }
 
@@ -95,9 +95,17 @@ fn request_missing_chunk<C>(
     let thread_local_shards_manager_adapter = adapter.clone();
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
-            Ok(chunk) => {
+            Ok(Some(chunk)) => {
                 thread_local_shards_manager_adapter
                     .send(ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(chunk));
+            }
+            Ok(None) => {
+                thread_local_shards_manager_adapter.send(
+                    ShardsManagerRequestFromClient::RequestChunks {
+                        chunks_to_request: vec![chunk],
+                        prev_hash,
+                    },
+                );
             }
             Err(err) => {
                 error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
@@ -126,9 +134,18 @@ fn request_orphan_chunk<C>(
     let thread_local_shards_manager_adapter = adapter.clone();
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(ancestor_hash, shard_id).await {
-            Ok(chunk) => {
+            Ok(Some(chunk)) => {
                 thread_local_shards_manager_adapter
                     .send(ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(chunk));
+            }
+            Ok(None) => {
+                thread_local_shards_manager_adapter.send(
+                    ShardsManagerRequestFromClient::RequestChunksForOrphan {
+                        chunks_to_request: vec![chunk],
+                        epoch_id,
+                        ancestor_hash,
+                    },
+                );
             }
             Err(err) => {
                 error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
@@ -152,23 +169,23 @@ impl ChunkDistributionClient for ChunkDistributionNetwork {
         &self,
         prev_hash: CryptoHash,
         shard_id: ShardId,
-    ) -> Result<PartialEncodedChunk, Self::Error> {
+    ) -> Result<Option<PartialEncodedChunk>, Self::Error> {
         let url = &self.config.uris.get;
         let request = self
             .client
             .get(url)
             .query(&[("prev_hash", prev_hash.to_string()), ("shard_id", shard_id.to_string())]);
         let response = request.send().await?.error_for_status()?;
-        let chunk = PartialEncodedChunk::deserialize(&mut response.bytes().await?.as_ref())?;
+        let chunk = PartialEncodedChunk::deserialize(&mut response.bytes().await?.as_ref()).ok();
         Ok(chunk)
     }
 
     async fn publish_chunk(
-        &self,
-        chunk: PartialEncodedChunk,
+        &mut self,
+        chunk: &PartialEncodedChunk,
     ) -> Result<Self::Response, Self::Error> {
         let prev_hash = chunk.prev_block();
-        let bytes = borsh::to_vec(&chunk)?;
+        let bytes = borsh::to_vec(chunk)?;
         let url = &self.config.uris.set;
         let request = self
             .client
@@ -180,5 +197,228 @@ impl ChunkDistributionClient for ChunkDistributionNetwork {
             .body(bytes);
         let response = request.send().await?.error_for_status()?;
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+    use near_async::messaging::{CanSend, IntoSender};
+    use near_primitives::{
+        hash::hash,
+        sharding::{
+            PartialEncodedChunkV2, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
+            ShardChunkHeaderV3,
+        },
+        validator_signer::EmptyValidatorSigner,
+    };
+    use std::{collections::HashMap, convert::Infallible, future::Future};
+    use tokio::sync::mpsc;
+
+    #[test]
+    fn test_request_chunks() {
+        let (mock_sender, mut message_receiver) = mpsc::unbounded_channel();
+        let mut client = MockClient::default();
+        let missing_chunk = mock_shard_chunk(0, 0);
+        let mut blocks_delay_tracker = BlocksDelayTracker::default();
+        let shards_manager = MockSender::new(mock_sender);
+        let shards_manager_adapter = shards_manager.clone().into_sender();
+
+        let system = actix::System::new();
+
+        // Empty input is a noop
+        system.block_on(async {
+            request_missing_chunks(
+                Vec::new(),
+                Vec::new(),
+                client.clone(),
+                &mut blocks_delay_tracker,
+                &shards_manager_adapter,
+            );
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => (),
+                _ = message_receiver.recv() => panic!("Unexpected message"),
+            }
+        });
+
+        // Block missing chunks unknown to the client are requested by shard manager
+        let blocks_missing_chunks = vec![BlockMissingChunks {
+            prev_hash: *missing_chunk.prev_block(),
+            missing_chunks: vec![missing_chunk.cloned_header()],
+        }];
+        system.block_on(async {
+            request_missing_chunks(
+                blocks_missing_chunks,
+                Vec::new(),
+                client.clone(),
+                &mut blocks_delay_tracker,
+                &shards_manager_adapter,
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::RequestChunks {
+                    chunks_to_request: vec![missing_chunk.cloned_header()],
+                    prev_hash: *missing_chunk.prev_block()
+                }
+            );
+            assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
+        });
+
+        // Orphan missing chunks unknown to the client are requested by shard manager
+        let orphans_missing_chunks = vec![OrphanMissingChunks {
+            missing_chunks: vec![missing_chunk.cloned_header()],
+            epoch_id: EpochId::default(),
+            ancestor_hash: *missing_chunk.prev_block(),
+        }];
+        system.block_on(async {
+            request_missing_chunks(
+                Vec::new(),
+                orphans_missing_chunks,
+                client.clone(),
+                &mut blocks_delay_tracker,
+                &shards_manager_adapter,
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::RequestChunksForOrphan {
+                    chunks_to_request: vec![missing_chunk.cloned_header()],
+                    epoch_id: EpochId::default(),
+                    ancestor_hash: *missing_chunk.prev_block()
+                }
+            );
+            assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
+        });
+
+        // When chunks are known by the client, the shards manager
+        // is told to process the chunk directly
+        let known_chunk_1 = mock_shard_chunk(1, 0);
+        let known_chunk_2 = mock_shard_chunk(2, 0);
+        client.publish_chunk(&known_chunk_1).now_or_never();
+        client.publish_chunk(&known_chunk_2).now_or_never();
+        let blocks_missing_chunks = vec![BlockMissingChunks {
+            prev_hash: *known_chunk_1.prev_block(),
+            missing_chunks: vec![known_chunk_1.cloned_header()],
+        }];
+        let orphans_missing_chunks = vec![OrphanMissingChunks {
+            missing_chunks: vec![known_chunk_2.cloned_header()],
+            epoch_id: EpochId::default(),
+            ancestor_hash: *known_chunk_2.prev_block(),
+        }];
+        system.block_on(async {
+            request_missing_chunks(
+                blocks_missing_chunks,
+                orphans_missing_chunks,
+                client,
+                &mut blocks_delay_tracker,
+                &shards_manager_adapter,
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(known_chunk_1)
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(known_chunk_2)
+            );
+            assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
+        });
+    }
+
+    fn mock_shard_chunk(height: u64, shard_id: u64) -> PartialEncodedChunk {
+        let prev_block_hash =
+            hash(&[height.to_le_bytes().as_slice(), shard_id.to_le_bytes().as_slice()].concat());
+        let mut mock_hashes = MockHashes::new(prev_block_hash);
+
+        let signer = EmptyValidatorSigner::default();
+        let header_inner = ShardChunkHeaderInner::V2(ShardChunkHeaderInnerV2 {
+            prev_block_hash,
+            prev_state_root: mock_hashes.next().unwrap(),
+            prev_outcome_root: mock_hashes.next().unwrap(),
+            encoded_merkle_root: mock_hashes.next().unwrap(),
+            encoded_length: 0,
+            height_created: height,
+            shard_id,
+            prev_gas_used: 0,
+            gas_limit: 0,
+            prev_balance_burnt: 0,
+            prev_outgoing_receipts_root: mock_hashes.next().unwrap(),
+            tx_root: mock_hashes.next().unwrap(),
+            prev_validator_proposals: Vec::new(),
+        });
+        let header = ShardChunkHeaderV3::from_inner(header_inner, &signer);
+        PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header: ShardChunkHeader::V3(header),
+            parts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
+        })
+    }
+
+    #[derive(Debug, Default, Clone)]
+    struct MockClient {
+        known_chunks: HashMap<(CryptoHash, ShardId), PartialEncodedChunk>,
+    }
+    impl ChunkDistributionClient for MockClient {
+        type Error = Infallible;
+        type Response = ();
+
+        fn lookup_chunk(
+            &self,
+            prev_hash: CryptoHash,
+            shard_id: ShardId,
+        ) -> impl Future<Output = Result<Option<PartialEncodedChunk>, Self::Error>> {
+            let chunk = self.known_chunks.get(&(prev_hash, shard_id)).cloned();
+            futures::future::ready(Ok(chunk))
+        }
+
+        fn publish_chunk(
+            &mut self,
+            chunk: &PartialEncodedChunk,
+        ) -> impl Future<Output = Result<Self::Response, Self::Error>> {
+            let prev_hash = *chunk.prev_block();
+            let shard_id = chunk.shard_id();
+            self.known_chunks.insert((prev_hash, shard_id), chunk.clone());
+            futures::future::ready(Ok(()))
+        }
+    }
+
+    #[derive(Debug)]
+    struct MockSender<M> {
+        inner: mpsc::UnboundedSender<M>,
+    }
+    impl<M> MockSender<M> {
+        fn new(sender: mpsc::UnboundedSender<M>) -> Self {
+            Self { inner: sender }
+        }
+    }
+    impl<M: Sync + Send + 'static> CanSend<M> for MockSender<M> {
+        fn send(&self, message: M) {
+            self.inner.send(message).unwrap();
+        }
+    }
+    impl<M> Clone for MockSender<M> {
+        fn clone(&self) -> Self {
+            Self { inner: self.inner.clone() }
+        }
+    }
+
+    struct MockHashes {
+        state: CryptoHash,
+    }
+    impl MockHashes {
+        fn new(init: CryptoHash) -> Self {
+            Self { state: init }
+        }
+    }
+    impl Iterator for MockHashes {
+        type Item = CryptoHash;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.state = hash(self.state.as_ref());
+            Some(self.state)
+        }
     }
 }
