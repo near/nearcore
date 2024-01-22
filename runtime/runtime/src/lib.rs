@@ -307,7 +307,9 @@ impl Runtime {
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
-        let is_the_only_action = actions.len() == 1;
+        let only_transfers = actions.iter().all(|action| {
+            matches!(action, Action::Transfer(_) | Action::NonrefundableStorageTransfer(_))
+        });
         let is_refund = receipt.predecessor_id.is_system();
 
         let receipt_starts_with_create_account =
@@ -318,7 +320,7 @@ impl Runtime {
             account,
             account_id,
             &apply_state.config,
-            is_the_only_action,
+            only_transfers,
             is_refund,
             receipt_starts_with_create_account,
         ) {

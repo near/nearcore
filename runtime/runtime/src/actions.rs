@@ -962,7 +962,7 @@ pub(crate) fn check_account_existence(
     account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
-    is_the_only_action: bool,
+    only_transfers: bool,
     is_refund: bool,
     #[cfg_attr(
         not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
@@ -1002,7 +1002,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,
-                    is_the_only_action,
+                    only_transfers,
                     account_id,
                     is_refund,
                 );
@@ -1013,7 +1013,7 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,
-                    is_the_only_action,
+                    only_transfers,
                     account_id,
                     is_refund,
                 );
@@ -1024,9 +1024,8 @@ pub(crate) fn check_account_existence(
                 // receipt which is allowed. Checking for the first action of
                 // the receipt being a `CreateAccount` action serves this
                 // purpose.
-                // For implicit accounts, it is impossible that the account was
-                // created by a prior action in the receipt because they must be
-                // created with a singleton receipt.
+                // For implicit accounts creation with non-refundable storage
+                // we require that this is the first action in the receipt.
                 return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
                     account_id: account_id.clone(),
                 }
@@ -1060,18 +1059,18 @@ pub(crate) fn check_account_existence(
 
 fn check_transfer_to_nonexisting_account(
     config: &RuntimeConfig,
-    is_the_only_action: bool,
+    only_transfers: bool,
     account_id: &AccountId,
     is_refund: bool,
 ) -> Result<(), ActionError> {
     if config.wasm_config.implicit_account_creation
-        && is_the_only_action
+        && only_transfers
         && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
         && !is_refund
     {
         // OK. It's implicit account creation.
         // Notes:
-        // - The transfer action has to be the only action in the transaction to avoid
+        // - Transfer actions have to be the only actions in the transaction to avoid
         // abuse by hijacking this account with other public keys or contracts.
         // - Refunds don't automatically create accounts, because refunds are free and
         // we don't want some type of abuse.

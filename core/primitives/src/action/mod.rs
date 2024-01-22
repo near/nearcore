@@ -194,6 +194,10 @@ pub enum Action {
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    /// Makes a non-refundable transfer for storage allowance.
+    /// Only possible during new account creation.
+    /// For implicit account creation, it has to be the first action
+    /// in the receipt. Following regular transfers are allowed in the same receipt.
     NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
 }
 // Note: If this number ever goes down, please adjust the equality accordingly. Otherwise,
