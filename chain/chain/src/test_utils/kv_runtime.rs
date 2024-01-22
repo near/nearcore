@@ -13,7 +13,9 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::PoolIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidatorAssignments};
+use near_primitives::chunk_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -922,6 +924,13 @@ impl EpochManagerAdapter for MockEpochManager {
         &self,
         _chunk_header: &ShardChunkHeader,
         _endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
+    fn verify_chunk_state_witness(
+        &self,
+        _state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error> {
         Ok(true)
     }

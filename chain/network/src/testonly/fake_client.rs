@@ -122,7 +122,7 @@ impl client::Client for Fake {
         Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, _peer_id: PeerId) {
         self.event_sink.push(Event::ChunkStateWitness(witness));
     }
 
