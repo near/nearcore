@@ -15,7 +15,7 @@ use near_primitives::types::ShardId;
 use parking_lot::Mutex;
 use rayon::iter::ParallelBridge;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -76,6 +76,34 @@ impl Ord for PartPriority {
             .reverse()
             .then_with(|| self.score.cmp(&other.score).reverse())
             .then_with(|| self.peer_id.cmp(&other.peer_id))
+    }
+}
+
+impl From<ReversePartPriority> for PartPriority {
+    fn from(ReversePartPriority { peer_id, score }: ReversePartPriority) -> Self {
+        Self { peer_id, score, times_returned: 0 }
+    }
+}
+
+// used in insert_part_hosts() to iterate through the list of unseen hosts
+// and keep the top N hosts as we go through. We use this struct there instead
+// of PartPriority because we need the comparator to be the opposite of what
+// it is for that struct
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ReversePartPriority {
+    peer_id: PeerId,
+    score: [u8; 32],
+}
+
+impl PartialOrd for ReversePartPriority {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ReversePartPriority {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score.cmp(&other.score).then_with(|| self.peer_id.cmp(&other.peer_id))
     }
 }
 
@@ -197,7 +225,7 @@ impl Inner {
         let selector = self.state_part_selectors.get(&shard_id).unwrap();
         let seen_peers = selector.seen_peers(part_id);
 
-        let mut new_peers = BTreeSet::new();
+        let mut new_peers = BinaryHeap::new();
         for (peer_id, info) in self.hosts.iter() {
             if seen_peers.contains(peer_id)
                 || info.sync_hash != *sync_hash
@@ -207,22 +235,16 @@ impl Inner {
             }
             let score = priority_score(peer_id, part_id);
             if new_peers.len() < max_entries_added {
-                new_peers.insert(PartPriority {
-                    peer_id: peer_id.clone(),
-                    score,
-                    times_returned: 0,
-                });
+                new_peers.push(ReversePartPriority { peer_id: peer_id.clone(), score });
             } else {
-                let p = PartPriority { peer_id: peer_id.clone(), score, times_returned: 0 };
-                let worst = new_peers.first().unwrap().clone();
-                if p > worst {
-                    new_peers.insert(p);
-                    assert!(new_peers.remove(&worst));
+                if score < new_peers.peek().unwrap().score {
+                    new_peers.pop();
+                    new_peers.push(ReversePartPriority { peer_id: peer_id.clone(), score });
                 }
             }
         }
         let selector = self.state_part_selectors.get_mut(&shard_id).unwrap();
-        selector.insert_peers(part_id, new_peers);
+        selector.insert_peers(part_id, new_peers.into_iter().map(Into::into));
     }
 }
 
