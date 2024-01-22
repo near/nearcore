@@ -1802,18 +1802,14 @@ impl Client {
                 let url = chunk_distribution.config.uris.set.clone();
                 let thread_local_client = chunk_distribution.client.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    use borsh::BorshSerialize;
-                    let client = thread_local_client;
-                    let mut buffer: Vec<u8> = Vec::new();
-                    let _ = partial_chunk.serialize(&mut buffer);
-                    let request = client
-                        .post(url)
-                        .query(&[
-                            ("prev_hash", prev_hash.to_string()),
-                            ("shard_id", partial_chunk.shard_id().to_string()),
-                        ])
-                        .body(buffer);
-                    if let Err(err) = request.send().await {
+                    if let Err(err) = crate::chunk_distribution_network::publish_chunk(
+                        prev_hash,
+                        partial_chunk,
+                        url,
+                        thread_local_client,
+                    )
+                    .await
+                    {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
                 });

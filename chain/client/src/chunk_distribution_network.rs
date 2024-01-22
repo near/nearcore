@@ -9,6 +9,22 @@ use near_primitives::sharding::{PartialEncodedChunk, ShardChunkHeader};
 use near_primitives::types::EpochId;
 use tracing::error;
 
+pub async fn publish_chunk(
+    prev_hash: CryptoHash,
+    chunk: PartialEncodedChunk,
+    url: String,
+    client: reqwest::Client,
+) -> Result<(), anyhow::Error> {
+    let bytes = borsh::to_vec(&chunk)?;
+    let request = client
+        .post(url)
+        .query(&[("prev_hash", prev_hash.to_string()), ("shard_id", chunk.shard_id().to_string())])
+        .body(bytes);
+    let response = request.send().await?;
+    response.error_for_status()?;
+    Ok(())
+}
+
 pub fn request_missing_chunk(
     chunk_distribution: &ChunkDistributionNetwork,
     chunk: ShardChunkHeader,
