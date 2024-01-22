@@ -18,14 +18,14 @@ impl Chain {
     /// This is because chunk producer sends state witness to chunk validators assignment for `height_created`.
     /// We expect the endorsements to come from these chunk validators only.
     /// The chunk can later be included in block at any height which is recorded in `height_included` field.
-    pub(crate) fn validate_chunk_endorsements_in_block(&self, block: &Block) -> Result<(), Error> {
+    pub fn validate_chunk_endorsements_in_block(&self, block: &Block) -> Result<(), Error> {
         // Number of chunks and chunk endorsements must match and must be equal to number of shards
         if block.chunks().len() != block.chunk_endorsements().len() {
             tracing::error!(
                 target: "chain",
                 num_chunks = block.chunks().len(),
                 num_chunk_endorsement_shards = block.chunk_endorsements().len(),
-                "Number of chunks and chunk endorsements must match",
+                "Number of chunks and chunk endorsements does not match",
             );
             return Err(Error::InvalidChunkEndorsement);
         }
@@ -46,7 +46,7 @@ impl Chain {
                     target: "chain",
                     num_ordered_chunk_validators = ordered_chunk_validators.len(),
                     num_chunk_endorsement_signatures = signatures.len(),
-                    "Number of ordered chunk validators and chunk endorsement signatures must match",
+                    "Number of ordered chunk validators and chunk endorsement signatures does not match",
                 );
                 return Err(Error::InvalidChunkEndorsement);
             }
@@ -56,36 +56,33 @@ impl Chain {
             // We calculate the stake of the chunk_validators for who we have the signature present.
             let mut endorsed_chunk_validators = HashSet::new();
             for (account_id, signature) in ordered_chunk_validators.into_iter().zip(signatures) {
-                if let Some(signature) = signature {
-                    let (validator, _) = self.epoch_manager.get_validator_by_account_id(
-                        &epoch_id,
-                        block.header().prev_hash(),
-                        &account_id,
-                    )?;
+                let Some(signature) = signature else { continue };
+                let (validator, _) = self.epoch_manager.get_validator_by_account_id(
+                    &epoch_id,
+                    block.header().prev_hash(),
+                    &account_id,
+                )?;
 
-                    // Block should not be produced with an invalid signature.
-                    if !ChunkEndorsement::validate_signature(
+                // Block should not be produced with an invalid signature.
+                if !ChunkEndorsement::validate_signature(
+                    chunk_header.chunk_hash(),
+                    signature,
+                    validator.public_key(),
+                ) {
+                    tracing::error!(
+                        target: "chain",
+                        "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
                         chunk_header.chunk_hash(),
-                        signature,
-                        validator.public_key(),
-                    ) {
-                        tracing::error!(
-                            target: "chain",
-                            "Invalid chunk endorsement signature for chunk {:?} and validator {:?}",
-                            chunk_header.chunk_hash(),
-                            validator.account_id(),
-                        );
-                        return Err(Error::InvalidChunkEndorsement);
-                    }
-
-                    // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
-                    endorsed_chunk_validators.insert(account_id);
+                        validator.account_id(),
+                    );
+                    return Err(Error::InvalidChunkEndorsement);
                 }
+
+                // Add validators with signature in endorsed_chunk_validators. We later use this to check stake.
+                endorsed_chunk_validators.insert(account_id);
             }
 
-            // TODO: Second argument `0` in `does_chunk_have_enough_stake` will go away with PR #10467
-            if !chunk_validator_assignments
-                .does_chunk_have_enough_stake(&endorsed_chunk_validators, 0)
+            if !chunk_validator_assignments.does_chunk_have_enough_stake(&endorsed_chunk_validators)
             {
                 tracing::error!(target: "chain", "Chunk does not have enough stake to be endorsed");
                 return Err(Error::InvalidChunkEndorsement);
