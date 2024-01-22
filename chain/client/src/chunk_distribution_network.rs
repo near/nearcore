@@ -234,7 +234,7 @@ mod tests {
         let missing_chunk = mock_shard_chunk(0, 0);
         let mut blocks_delay_tracker = BlocksDelayTracker::default();
         let shards_manager = MockSender::new(mock_sender);
-        let shards_manager_adapter = shards_manager.clone().into_sender();
+        let shards_manager_adapter = shards_manager.into_sender();
 
         let system = actix::System::new();
 
