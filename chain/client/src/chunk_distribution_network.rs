@@ -347,6 +347,45 @@ mod tests {
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
         });
+
+        // If the chunk distribution client is broken (returns errors to requests) then
+        // the p2p network is used for requesting chunks.
+        let blocks_missing_chunks = vec![BlockMissingChunks {
+            prev_hash: *known_chunk_1.prev_block(),
+            missing_chunks: vec![known_chunk_1.cloned_header()],
+        }];
+        let orphans_missing_chunks = vec![OrphanMissingChunks {
+            missing_chunks: vec![known_chunk_2.cloned_header()],
+            epoch_id: EpochId::default(),
+            ancestor_hash: *known_chunk_2.prev_block(),
+        }];
+        system.block_on(async {
+            request_missing_chunks(
+                blocks_missing_chunks,
+                orphans_missing_chunks,
+                ErrorClient, // intentionally broken chunk distribution client
+                &mut blocks_delay_tracker,
+                &shards_manager_adapter,
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::RequestChunks {
+                    chunks_to_request: vec![known_chunk_1.cloned_header()],
+                    prev_hash: *known_chunk_1.prev_block()
+                }
+            );
+            let message = message_receiver.recv().await.unwrap();
+            assert_eq!(
+                message,
+                ShardsManagerRequestFromClient::RequestChunksForOrphan {
+                    chunks_to_request: vec![known_chunk_2.cloned_header()],
+                    epoch_id: EpochId::default(),
+                    ancestor_hash: *known_chunk_2.prev_block(),
+                }
+            );
+            assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
+        });
     }
 
     fn mock_shard_chunk(height: u64, shard_id: u64) -> PartialEncodedChunk {
@@ -403,6 +442,28 @@ mod tests {
             let shard_id = chunk.shard_id();
             self.known_chunks.insert((prev_hash, shard_id), chunk.clone());
             futures::future::ready(Ok(()))
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ErrorClient;
+    impl ChunkDistributionClient for ErrorClient {
+        type Error = ();
+        type Response = Infallible;
+
+        fn lookup_chunk(
+            &self,
+            _prev_hash: CryptoHash,
+            _shard_id: ShardId,
+        ) -> impl Future<Output = Result<Option<PartialEncodedChunk>, Self::Error>> {
+            futures::future::ready(Err(()))
+        }
+
+        fn publish_chunk(
+            &mut self,
+            _chunk: &PartialEncodedChunk,
+        ) -> impl Future<Output = Result<Self::Response, Self::Error>> {
+            futures::future::ready(Err(()))
         }
     }
 
