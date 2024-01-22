@@ -72,7 +72,7 @@ pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
 pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_300;
-pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
+pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_300;
 
 /// Maximum time to delay block production without approvals is ms.
 pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
@@ -80,7 +80,7 @@ pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
 pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 3_000;
-pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_500;
+pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 3_000;
 
 /// Maximum time until skipping the previous block is ms.
 pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
