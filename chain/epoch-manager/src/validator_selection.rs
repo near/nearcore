@@ -390,8 +390,6 @@ mod tests {
     use near_primitives::epoch_manager::ValidatorSelectionConfig;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::types::validator_stake::ValidatorStake;
-    #[cfg(feature = "nightly")]
-    use near_primitives::validator_mandates::AssignmentWeight;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
 
@@ -703,29 +701,10 @@ mod tests {
         // Given `epoch_info` and `proposals` above, the sample at a given height is deterministic.
         let height = 42;
         let expected_assignments = vec![
-            vec![
-                (1, AssignmentWeight::new(3, 0)),
-                (0, AssignmentWeight::new(3, 0)),
-                (2, AssignmentWeight::new(3, 0)),
-                (3, AssignmentWeight::new(0, 60)),
-            ],
-            vec![
-                (0, AssignmentWeight::new(6, 0)),
-                (2, AssignmentWeight::new(2, 0)),
-                (1, AssignmentWeight::new(2, 0)),
-            ],
-            vec![
-                (3, AssignmentWeight::new(2, 0)),
-                (2, AssignmentWeight::new(3, 0)),
-                (1, AssignmentWeight::new(1, 0)),
-                (0, AssignmentWeight::new(4, 0)),
-            ],
-            vec![
-                (2, AssignmentWeight::new(2, 0)),
-                (4, AssignmentWeight::new(1, 40)),
-                (1, AssignmentWeight::new(4, 0)),
-                (0, AssignmentWeight::new(2, 0)),
-            ],
+            vec![(1, 300), (0, 300), (2, 300), (3, 60)],
+            vec![(0, 600), (2, 200), (1, 200)],
+            vec![(3, 200), (2, 300), (1, 100), (0, 400)],
+            vec![(2, 200), (4, 140), (1, 400), (0, 200)],
         ];
         assert_eq!(epoch_info.sample_chunk_validators(height), expected_assignments);
     }
