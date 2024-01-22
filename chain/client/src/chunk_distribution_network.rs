@@ -84,25 +84,30 @@ pub fn request_missing_chunks<C>(
 
 fn request_missing_chunk<C>(
     client: C,
-    chunk: ShardChunkHeader,
+    header: ShardChunkHeader,
     adapter: &Sender<ShardsManagerRequestFromClient>,
     prev_hash: CryptoHash,
 ) where
     C: ChunkDistributionClient + 'static,
     C::Error: fmt::Debug,
 {
-    let shard_id = chunk.shard_id();
+    let shard_id = header.shard_id();
     let thread_local_shards_manager_adapter = adapter.clone();
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
             Ok(Some(chunk)) => {
-                thread_local_shards_manager_adapter
-                    .send(ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(chunk));
+                thread_local_shards_manager_adapter.send(
+                    ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                        candidate_chunk: chunk,
+                        request_header: header,
+                        prev_hash,
+                    },
+                );
             }
             Ok(None) => {
                 thread_local_shards_manager_adapter.send(
                     ShardsManagerRequestFromClient::RequestChunks {
-                        chunks_to_request: vec![chunk],
+                        chunks_to_request: vec![header],
                         prev_hash,
                     },
                 );
@@ -111,7 +116,7 @@ fn request_missing_chunk<C>(
                 error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
                 thread_local_shards_manager_adapter.send(
                     ShardsManagerRequestFromClient::RequestChunks {
-                        chunks_to_request: vec![chunk],
+                        chunks_to_request: vec![header],
                         prev_hash,
                     },
                 );
@@ -122,7 +127,7 @@ fn request_missing_chunk<C>(
 
 fn request_orphan_chunk<C>(
     client: C,
-    chunk: ShardChunkHeader,
+    header: ShardChunkHeader,
     adapter: &Sender<ShardsManagerRequestFromClient>,
     epoch_id: EpochId,
     ancestor_hash: CryptoHash,
@@ -130,18 +135,24 @@ fn request_orphan_chunk<C>(
     C: ChunkDistributionClient + 'static,
     C::Error: fmt::Debug,
 {
-    let shard_id = chunk.shard_id();
+    let shard_id = header.shard_id();
     let thread_local_shards_manager_adapter = adapter.clone();
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(ancestor_hash, shard_id).await {
             Ok(Some(chunk)) => {
-                thread_local_shards_manager_adapter
-                    .send(ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(chunk));
+                thread_local_shards_manager_adapter.send(
+                    ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
+                        candidate_chunk: chunk,
+                        request_header: header,
+                        epoch_id,
+                        ancestor_hash,
+                    },
+                );
             }
             Ok(None) => {
                 thread_local_shards_manager_adapter.send(
                     ShardsManagerRequestFromClient::RequestChunksForOrphan {
-                        chunks_to_request: vec![chunk],
+                        chunks_to_request: vec![header],
                         epoch_id,
                         ancestor_hash,
                     },
@@ -151,7 +162,7 @@ fn request_orphan_chunk<C>(
                 error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
                 thread_local_shards_manager_adapter.send(
                     ShardsManagerRequestFromClient::RequestChunksForOrphan {
-                        chunks_to_request: vec![chunk],
+                        chunks_to_request: vec![header],
                         epoch_id,
                         ancestor_hash,
                     },
@@ -318,12 +329,21 @@ mod tests {
             let message = message_receiver.recv().await.unwrap();
             assert_eq!(
                 message,
-                ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(known_chunk_1)
+                ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                    candidate_chunk: known_chunk_1.clone(),
+                    request_header: known_chunk_1.cloned_header(),
+                    prev_hash: *known_chunk_1.prev_block()
+                }
             );
             let message = message_receiver.recv().await.unwrap();
             assert_eq!(
                 message,
-                ShardsManagerRequestFromClient::ProcessPartialEncodedChunk(known_chunk_2)
+                ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
+                    candidate_chunk: known_chunk_2.clone(),
+                    request_header: known_chunk_2.cloned_header(),
+                    epoch_id: EpochId::default(),
+                    ancestor_hash: *known_chunk_2.prev_block(),
+                }
             );
             assert_eq!(message_receiver.try_recv().unwrap_err(), mpsc::error::TryRecvError::Empty);
         });
