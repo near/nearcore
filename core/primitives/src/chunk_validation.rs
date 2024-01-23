@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::challenge::PartialState;
-use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
+use crate::sharding::{ChunkHash, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
 use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
+use crate::{challenge::PartialState, state_sync::ReceiptProofResponse};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
@@ -53,7 +53,7 @@ pub struct ChunkStateWitness {
     /// This field, `source_receipt_proofs`, is a (non-strict) superset of the
     /// receipts that must be applied, along with information that allows these
     /// receipts to be verifiable against the blockchain history.
-    pub source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+    pub source_receipt_proofs: Vec<ReceiptProofResponse>,
     /// An overall hash of the list of receipts that should be applied. This is
     /// redundant information but is useful for diagnosing why a witness might
     /// fail. This is the hash of the borsh encoding of the Vec<Receipt> in the
