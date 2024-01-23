@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ShardChunkHeader};
+use crate::state_sync::ReceiptProofResponse;
 use crate::transaction::SignedTransaction;
 use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
-use crate::{challenge::PartialState, state_sync::ReceiptProofResponse};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
