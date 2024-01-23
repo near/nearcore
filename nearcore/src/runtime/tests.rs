@@ -23,7 +23,7 @@ use near_chain_configs::{
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::types::{
     BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
@@ -1514,9 +1514,7 @@ fn generate_transaction_pool(
     pool
 }
 
-/// Check that transactions validation works the same when using recorded storage proof instead of db.
-#[test]
-fn test_prepare_transactions_storage_proof() {
+fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let num_nodes = 4;
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
@@ -1554,7 +1552,14 @@ fn test_prepare_transactions_storage_proof() {
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
 
-    let mut transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
+    let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
+    (env, chain, transaction_pool)
+}
+
+/// Check that transactions validation works the same when using recorded storage proof instead of db.
+#[test]
+fn test_prepare_transactions_storage_proof() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
     let storage_config = RuntimeStorageConfig {
@@ -1629,4 +1634,81 @@ fn test_prepare_transactions_storage_proof() {
         .unwrap();
 
     assert_eq!(validated_transactions.transactions, proposed_transactions.transactions);
+}
+
+/// Check that transactions validation fails if provided empty storage proof.
+#[test]
+fn test_prepare_transactions_empty_storage_proof() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let transactions_count = transaction_pool.len();
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+        record_storage: true,
+    };
+
+    let proposed_transactions = env
+        .runtime
+        .prepare_transactions(
+            env.runtime.genesis_config.min_gas_price,
+            env.runtime.genesis_config.gas_limit,
+            &env.head.epoch_id,
+            0,
+            storage_config,
+            env.head.height + 1,
+            &mut PoolIteratorWrapper::new(&mut transaction_pool),
+            &mut |tx: &SignedTransaction| -> bool {
+                chain
+                    .chain_store()
+                    .check_transaction_validity_period(
+                        &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
+                        &tx.transaction.block_hash,
+                        chain.transaction_validity_period,
+                    )
+                    .is_ok()
+            },
+            PROTOCOL_VERSION,
+            default_produce_chunk_add_transactions_time_limit(),
+        )
+        .unwrap();
+
+    assert_eq!(proposed_transactions.transactions.len(), transactions_count);
+    assert!(proposed_transactions.storage_proof.is_some());
+
+    let validator_storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Recorded(PartialStorage {
+            nodes: PartialState::default(), // We use empty storage proof here.
+        }),
+        state_patch: Default::default(),
+        record_storage: false,
+    };
+
+    let validation_result = env.runtime.prepare_transactions(
+        env.runtime.genesis_config.min_gas_price,
+        env.runtime.genesis_config.gas_limit,
+        &env.head.epoch_id,
+        0,
+        validator_storage_config,
+        env.head.height + 1,
+        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        &mut |tx: &SignedTransaction| -> bool {
+            chain
+                .chain_store()
+                .check_transaction_validity_period(
+                    &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
+                    &tx.transaction.block_hash,
+                    chain.transaction_validity_period,
+                )
+                .is_ok()
+        },
+        PROTOCOL_VERSION,
+        default_produce_chunk_add_transactions_time_limit(),
+    );
+
+    assert!(validation_result.is_err());
 }

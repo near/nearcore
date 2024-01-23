@@ -2671,16 +2671,15 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let apply_result = runtime
-            .apply(
-                tries.get_trie_for_shard(ShardUId::single_shard(), root),
-                &None,
-                &apply_state,
-                &[],
-                &transactions,
-                &epoch_info_provider,
-                Default::default(),
-            );
+        let apply_result = runtime.apply(
+            tries.get_trie_for_shard(ShardUId::single_shard(), root),
+            &None,
+            &apply_state,
+            &[],
+            &transactions,
+            &epoch_info_provider,
+            Default::default(),
+        );
         assert!(apply_result.is_err());
     }
 }

@@ -43,7 +43,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -722,11 +722,18 @@ impl RuntimeAdapter for NightshadeRuntime {
         let start_time = std::time::Instant::now();
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
 
-        let mut state_update = if storage_config.record_storage {
-            self.tries.new_trie_update_with_recording_reads(shard_uid, storage_config.state_root)
-        } else {
-            self.tries.new_trie_update(shard_uid, storage_config.state_root)
+        let mut trie = match storage_config.source {
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+            _ => self.tries.get_trie_for_shard(shard_uid, storage_config.state_root),
         };
+        if storage_config.record_storage {
+            trie = trie.recording_reads();
+        }
+        let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
