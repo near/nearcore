@@ -274,55 +274,60 @@ fn pre_validate_chunk_state_witness(
     )?;
     let epoch_id = epoch_manager.get_epoch_id(&block.block_hash)?;
     let chunk_header = last_chunk_block.chunks().get(shard_id as usize).unwrap().clone();
-
-    let transactions_validation_storage_config = RuntimeStorageConfig {
-        state_root: chunk_header.prev_state_root(),
-        use_flat_storage: true,
-        source: StorageDataSource::Recorded(PartialStorage {
-            nodes: state_witness.new_transactions_validation_state.clone(),
-        }),
-        state_patch: Default::default(),
-        record_storage: false,
-    };
+    let new_transactions = &state_witness.new_transactions;
 
     // Verify that all proposed transactions are valid.
-    let new_transactions = &state_witness.new_transactions;
-    match runtime_adapter.prepare_transactions(
-        block.gas_price,
-        chunk_header.gas_limit(),
-        &epoch_id,
-        shard_id,
-        transactions_validation_storage_config,
-        block.height + 1,
-        &mut TransactionGroupIteratorWrapper::new(&new_transactions),
-        &mut |tx: &SignedTransaction| -> bool {
-            store
-                .check_transaction_validity_period(
-                    last_chunk_block.header(),
-                    &tx.transaction.block_hash,
-                    chain.transaction_validity_period,
-                )
-                .is_ok()
-        },
-        epoch_manager.get_epoch_protocol_version(&epoch_id)?,
-        None,
-    ) {
-        Ok(result) => {
-            if result.transactions.len() != new_transactions.len() {
+    if !new_transactions.is_empty() {
+        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+        let chunk_extra =
+            chain.get_chunk_extra(&*state_witness.chunk_header.prev_block_hash(), &shard_uid)?;
+        let transactions_validation_storage_config = RuntimeStorageConfig {
+            state_root: *chunk_extra.state_root(),
+            use_flat_storage: true,
+            source: StorageDataSource::Recorded(PartialStorage {
+                nodes: state_witness.new_transactions_validation_state.clone(),
+            }),
+            state_patch: Default::default(),
+            record_storage: false,
+        };
+
+        match runtime_adapter.prepare_transactions(
+            block.gas_price,
+            chunk_header.gas_limit(),
+            &epoch_id,
+            shard_id,
+            transactions_validation_storage_config,
+            block.height + 1,
+            &mut TransactionGroupIteratorWrapper::new(&new_transactions),
+            &mut |tx: &SignedTransaction| -> bool {
+                store
+                    .check_transaction_validity_period(
+                        last_chunk_block.header(),
+                        &tx.transaction.block_hash,
+                        chain.transaction_validity_period,
+                    )
+                    .is_ok()
+            },
+            epoch_manager.get_epoch_protocol_version(&epoch_id)?,
+            None,
+        ) {
+            Ok(result) => {
+                if result.transactions.len() != new_transactions.len() {
+                    return Err(Error::InvalidChunkStateWitness(format!(
+                        "New transactions validation failed. {} transactions out of {} proposed transactions were valid.",
+                        result.transactions.len(),
+                        new_transactions.len(),
+                    )));
+                }
+            }
+            Err(error) => {
                 return Err(Error::InvalidChunkStateWitness(format!(
-                    "New transactions validation failed. {} transactions out of {} proposed transactions were valid.",
-                    result.transactions.len(),
-                    new_transactions.len(),
+                    "New transactions validation failed: {}",
+                    error,
                 )));
             }
-        }
-        Err(error) => {
-            return Err(Error::InvalidChunkStateWitness(format!(
-                "New transactions validation failed: {}",
-                error,
-            )));
-        }
-    };
+        };
+    }
 
     Ok(PreValidationOutput {
         main_transition_params: NewChunkData {
