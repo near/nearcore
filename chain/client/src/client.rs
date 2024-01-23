@@ -1824,6 +1824,8 @@ impl Client {
                     &mut self.chain.blocks_delay_tracker,
                     &self.shards_manager_adapter,
                 )
+            } else {
+                self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
             }
         } else {
             self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
