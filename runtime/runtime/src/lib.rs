@@ -2643,45 +2643,6 @@ mod tests {
             assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
     }
-
-    #[test]
-    /// TODO(staffik) There are checks in `prepare_transactions()` that `apply()` does not do.
-    /// It is fixed with Stateless Validation.
-    #[ignore]
-    fn test_apply_too_many_transactions() {
-        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
-            setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
-
-        let min_fee = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-        assert!(min_fee > 0);
-        let new_receipt_count_limit = 2 * (apply_state.gas_limit.unwrap() + min_fee - 1) / min_fee;
-        assert!(new_receipt_count_limit > 0); // 18510 at the time of writing this test.
-
-        let num_transactions = new_receipt_count_limit + 1;
-        let transactions = (0..num_transactions)
-            .map(|i| {
-                SignedTransaction::send_money(
-                    i + 1,
-                    alice_account(),
-                    alice_account(),
-                    &*signer,
-                    1,
-                    CryptoHash::default(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let apply_result = runtime.apply(
-            tries.get_trie_for_shard(ShardUId::single_shard(), root),
-            &None,
-            &apply_state,
-            &[],
-            &transactions,
-            &epoch_info_provider,
-            Default::default(),
-        );
-        assert!(apply_result.is_err());
-    }
 }
 
 /// Interface provided for gas cost estimations.
