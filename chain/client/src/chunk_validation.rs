@@ -539,9 +539,11 @@ impl Client {
         for receipt_proof_response in incoming_receipt_proofs {
             let from_block = self.chain.chain_store().get_block(&receipt_proof_response.0)?;
             for proof in receipt_proof_response.1.iter() {
-                // Converting u64 to usize won't fail on current hardware, so it's safe to use 'expect' here.
-                let from_shard_id: usize =
-                    proof.1.from_shard_id.try_into().expect("Couldn't convert u64 to usize!");
+                let from_shard_id: usize = proof
+                    .1
+                    .from_shard_id
+                    .try_into()
+                    .map_err(|_| Error::Other("Couldn't convert u64 to usize!".into()))?;
                 let from_chunk_hash = from_block
                     .chunks()
                     .get(from_shard_id)
