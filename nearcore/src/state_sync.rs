@@ -262,6 +262,39 @@ fn get_current_state(
     }
 }
 
+/// Uploads header to external storage.
+/// Returns true if it was successful.
+async fn upload_state_header(
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    state_sync_header: anyhow::Result<Vec<u8>>,
+    external: &ExternalConnection,
+) -> bool {
+    match state_sync_header {
+        Err(err) => {
+            tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to serialize header.");
+            false
+        }
+        Ok(header) => {
+            let file_type = StateFileType::StateHeader;
+            let location =
+                external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+            match external.put_file(file_type, &header, shard_id, &location).await {
+                Err(err) => {
+                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
+                    false
+                }
+                Ok(_) => {
+                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
+                    true
+                }
+            }
+        }
+    }
+}
+
 const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
@@ -328,37 +361,15 @@ async fn state_sync_dump(
                                 Ok(true) => true,
                                 // Header is missing
                                 Ok(false) => {
-                                    let state_sync_header =
-                                        get_serialized_header(shard_id, sync_hash, &chain);
-                                    match state_sync_header {
-                                        Err(err) => {
-                                            tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to serialize header.");
-                                            false
-                                        }
-                                        Ok(header) => {
-                                            let file_type = StateFileType::StateHeader;
-                                            let location = external_storage_location(
-                                                &chain_id,
-                                                &epoch_id,
-                                                epoch_height,
-                                                shard_id,
-                                                &file_type,
-                                            );
-                                            match external
-                                                .put_file(file_type, &header, shard_id, &location)
-                                                .await
-                                            {
-                                                Err(err) => {
-                                                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
-                                                    false
-                                                }
-                                                Ok(_) => {
-                                                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
-                                                    true
-                                                }
-                                            }
-                                        }
-                                    }
+                                    upload_state_header(
+                                        &chain_id,
+                                        &epoch_id,
+                                        epoch_height,
+                                        shard_id,
+                                        get_serialized_header(shard_id, sync_hash, &chain),
+                                        &external,
+                                    )
+                                    .await
                                 }
                             };
 
