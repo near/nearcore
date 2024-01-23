@@ -521,8 +521,7 @@ impl Client {
             self.epoch_manager.as_ref(),
             &prev_prev_chunk_block,
             prev_chunk_header.shard_id(),
-        )
-        .unwrap();
+        )?;
 
         // Fetch all incoming receipts for `prev_chunk`.
         // They will be between `prev_prev_chunk.height_included`` (first block containing `prev_prev_chunk`)
