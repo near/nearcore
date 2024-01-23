@@ -604,7 +604,6 @@ impl Client {
         let witness = ChunkStateWitness {
             chunk_header: chunk_header.clone(),
             main_state_transition,
-            // TODO(#9292): Iterate through the chain to derive this.
             source_receipt_proofs,
             transactions: prev_chunk.transactions().to_vec(),
             // (Could also be derived from iterating through the receipts, but
