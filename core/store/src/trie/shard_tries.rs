@@ -87,14 +87,6 @@ impl ShardTries {
         TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root))
     }
 
-    pub fn new_trie_update_with_recording_reads(
-        &self,
-        shard_uid: ShardUId,
-        state_root: StateRoot,
-    ) -> TrieUpdate {
-        TrieUpdate::new(self.get_trie_for_shard(shard_uid, state_root).recording_reads())
-    }
-
     pub fn new_trie_update_view(&self, shard_uid: ShardUId, state_root: StateRoot) -> TrieUpdate {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }

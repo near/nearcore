@@ -2645,8 +2645,8 @@ mod tests {
     }
 
     #[test]
-    /// TODO(staffik) `apply()` should fail here, because of too many transactions.
-    /// See `prepare_transactions` logic - there are checks that validators do not do.
+    /// TODO(staffik) There are checks in `prepare_transactions()` that `apply()` does not do.
+    /// It is fixed with Stateless Validation.
     #[ignore]
     fn test_apply_too_many_transactions() {
         let (runtime, tries, root, apply_state, signer, epoch_info_provider) =

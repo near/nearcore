@@ -10,7 +10,6 @@ use near_chain::types::{
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Chain, ChainStoreAccess};
-use near_chain_configs::ClientConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -85,7 +84,6 @@ impl ChunkValidator {
         &self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
-        config: ClientConfig,
     ) -> Result<(), Error> {
         let chunk_header = state_witness.chunk_header.clone();
         let Some(my_signer) = self.my_signer.as_ref() else {
@@ -110,7 +108,6 @@ impl ChunkValidator {
             chain,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
-            &config,
         )?;
 
         // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
@@ -163,7 +160,6 @@ fn pre_validate_chunk_state_witness(
     chain: &Chain,
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
-    config: &ClientConfig,
 ) -> Result<PreValidationOutput, Error> {
     let store = chain.chain_store();
     let shard_id = state_witness.chunk_header.shard_id();
@@ -309,7 +305,7 @@ fn pre_validate_chunk_state_witness(
                 .is_ok()
         },
         epoch_manager.get_epoch_protocol_version(&epoch_id)?,
-        config.produce_chunk_add_transactions_time_limit.get(),
+        None,
     ) {
         Ok(result) => {
             if result.transactions.len() != new_transactions.len() {
@@ -486,7 +482,7 @@ impl Client {
     pub fn process_chunk_state_witness(&mut self, witness: ChunkStateWitness) -> Result<(), Error> {
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
-        self.chunk_validator.start_validating_chunk(witness, &self.chain, self.config.clone())
+        self.chunk_validator.start_validating_chunk(witness, &self.chain)
     }
 
     /// Collect state transition data necessary to produce state witness for

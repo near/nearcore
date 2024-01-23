@@ -208,7 +208,6 @@ pub fn create_chunk(
         block_merkle_tree.root(),
         None,
     );
-
     (ProduceChunkResult { chunk, merkle_paths, receipts, transactions_storage_proof }, block)
 }
 
