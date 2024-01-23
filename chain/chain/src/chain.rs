@@ -2023,6 +2023,11 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
+        // TODO(shreyan): Uncomment after PR #10469 once we start populating endorsements in blocks.
+        // if checked_feature!("stable", ChunkValidation, protocol_version) {
+        //     self.validate_chunk_endorsements_in_block(&block)?;
+        // }
+
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
 
@@ -3226,6 +3231,9 @@ impl Chain {
         me: &Option<AccountId>,
         block_header: &BlockHeader,
     ) -> Result<bool, Error> {
+        if cfg!(feature = "shadow_chunk_validation") {
+            return Ok(true);
+        }
         let epoch_id = block_header.epoch_id();
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =

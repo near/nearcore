@@ -8,7 +8,7 @@ use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use near_chain::{Chain, ChainStore, ChainStoreAccess};
+use near_chain::{Block, Chain, ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -26,8 +26,9 @@ use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
-use crate::Client;
+use crate::{metrics, Client};
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
@@ -434,7 +435,7 @@ impl Client {
     fn collect_state_transition_data(
         &mut self,
         chunk_header: &ShardChunkHeader,
-        prev_chunk_header: ShardChunkHeader,
+        prev_chunk_header: &ShardChunkHeader,
     ) -> Result<(ChunkStateTransition, Vec<ChunkStateTransition>, CryptoHash), Error> {
         let shard_id = chunk_header.shard_id();
         let epoch_id =
@@ -491,7 +492,7 @@ impl Client {
     pub fn send_chunk_state_witness_to_chunk_validators(
         &mut self,
         epoch_id: &EpochId,
-        prev_chunk_header: ShardChunkHeader,
+        prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
@@ -512,6 +513,120 @@ impl Client {
                 chunk_header.height_created(),
             )?
             .ordered_chunk_validators();
+        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
+            return Ok(());
+        };
+        tracing::debug!(
+            target: "chunk_validation",
+            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
+            chunk.chunk_hash(),
+            chunk_validators,
+        );
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
+        ));
+        Ok(())
+    }
+
+    pub(crate) fn shadow_validate_block_chunks(&mut self, block: &Block) -> Result<(), Error> {
+        if !cfg!(feature = "shadow_chunk_validation") {
+            return Ok(());
+        }
+        let block_hash = block.hash();
+        tracing::debug!(target: "chunk_validation", ?block_hash, "shadow validation for block chunks");
+        let prev_block = self.chain.get_block(block.header().prev_hash())?;
+        let prev_block_chunks = prev_block.chunks();
+        for chunk in
+            block.chunks().iter().filter(|chunk| chunk.is_new_chunk(block.header().height()))
+        {
+            let chunk = self.chain.get_chunk_clone_from_header(chunk)?;
+            let prev_chunk_header = prev_block_chunks.get(chunk.shard_id() as usize).unwrap();
+            if let Err(err) = self.shadow_validate_chunk(prev_chunk_header, &chunk) {
+                metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
+                tracing::error!(
+                    target: "chunk_validation",
+                    ?err,
+                    shard_id = chunk.shard_id(),
+                    ?block_hash,
+                    "shadow chunk validation failed"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn shadow_validate_chunk(
+        &mut self,
+        prev_chunk_header: &ShardChunkHeader,
+        chunk: &ShardChunk,
+    ) -> Result<(), Error> {
+        let shard_id = chunk.shard_id();
+        let chunk_hash = chunk.chunk_hash();
+        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
+            return Err(Error::Other("State witness is None".to_owned()));
+        };
+        let witness_size = borsh::to_vec(&witness)?.len();
+        metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(witness_size as f64);
+        let pre_validation_start = Instant::now();
+        let pre_validation_result = pre_validate_chunk_state_witness(
+            &witness,
+            self.chain.chain_store(),
+            self.epoch_manager.as_ref(),
+        )?;
+        tracing::debug!(
+            target: "chunk_validation",
+            shard_id,
+            ?chunk_hash,
+            witness_size,
+            pre_validation_elapsed = ?pre_validation_start.elapsed(),
+            "completed shadow chunk pre-validation"
+        );
+        let epoch_manager = self.epoch_manager.clone();
+        let runtime_adapter = self.runtime_adapter.clone();
+        rayon::spawn(move || {
+            let validation_start = Instant::now();
+            match validate_chunk_state_witness(
+                witness,
+                pre_validation_result,
+                epoch_manager.as_ref(),
+                runtime_adapter.as_ref(),
+            ) {
+                Ok(()) => {
+                    tracing::debug!(
+                        target: "chunk_validation",
+                        shard_id,
+                        ?chunk_hash,
+                        validation_elapsed = ?validation_start.elapsed(),
+                        "completed shadow chunk validation"
+                    );
+                }
+                Err(err) => {
+                    metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
+                    tracing::error!(
+                        target: "chunk_validation",
+                        ?err,
+                        shard_id,
+                        ?chunk_hash,
+                        "shadow chunk validation failed"
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    fn create_state_witness(
+        &mut self,
+        prev_chunk_header: &ShardChunkHeader,
+        chunk: &ShardChunk,
+    ) -> Result<Option<ChunkStateWitness>, Error> {
+        // Previous chunk is genesis chunk.
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+            return Ok(None);
+        }
+        let chunk_header = chunk.cloned_header();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
@@ -531,16 +646,7 @@ impl Client {
             // prepare_transactions or the like.
             new_transactions_validation_state: PartialState::default(),
         };
-        tracing::debug!(
-            target: "chunk_validation",
-            "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
-            chunk_header.chunk_hash(),
-            chunk_validators,
-        );
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
-        ));
-        Ok(())
+        Ok(Some(witness))
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
