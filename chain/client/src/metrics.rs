@@ -554,3 +554,21 @@ pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_shadow_chunk_validation_failed_total",
+        "Shadow chunk validation failures count",
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_total_size",
+        "Stateless validation state witness size in bytes",
+        &["shard_id"],
+        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});

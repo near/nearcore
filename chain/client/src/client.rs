@@ -1616,6 +1616,14 @@ impl Client {
                 info!(target: "client", "not producing a chunk");
             }
         }
+        if let Err(err) = self.shadow_validate_block_chunks(&block) {
+            tracing::error!(
+                target: "client",
+                ?err,
+                block_hash = ?block.hash(),
+                "block chunks shadow validation failed"
+            );
+        }
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
@@ -1736,7 +1744,7 @@ impl Client {
                         .expect("Failed to process produced chunk");
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
-                        last_header,
+                        &last_header,
                         &shard_chunk,
                         result.transactions_storage_proof,
                     ) {
