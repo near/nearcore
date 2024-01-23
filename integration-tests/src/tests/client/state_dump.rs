@@ -4,7 +4,7 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis};
-use near_client::sync::external::external_part_storage_location;
+use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -90,13 +90,12 @@ fn test_state_dump() {
             for shard_id in shard_ids {
                 let num_parts = 1;
                 for part_id in 0..num_parts {
-                    let path = root_dir.path().join(external_part_storage_location(
+                    let path = root_dir.path().join(external_storage_location(
                         "unittest",
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("Missing {:?}", path);
@@ -263,13 +262,12 @@ fn run_state_sync_with_dumped_parts(
 
             for shard_id in shard_ids {
                 for part_id in 0..num_parts {
-                    let path = root_dir.path().join(external_part_storage_location(
+                    let path = root_dir.path().join(external_storage_location(
                         &config.chain_id,
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("dumping node: Missing {:?}", path);

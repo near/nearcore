@@ -22,7 +22,7 @@
 
 use crate::metrics;
 use crate::sync::external::{
-    create_bucket_readonly, external_part_storage_location, ExternalConnection,
+    create_bucket_readonly, external_storage_location, ExternalConnection,
 };
 use actix_rt::ArbiterHandle;
 use chrono::{DateTime, Duration, Utc};
@@ -60,6 +60,8 @@ use std::sync::Arc;
 use std::time::Duration as TimeDuration;
 use tokio::sync::{Semaphore, TryAcquireError};
 use tracing::info;
+
+use super::external::StateFileType;
 
 /// Maximum number of state parts to request per peer on each round when node is trying to download the state.
 pub const MAX_STATE_PART_REQUEST: u64 = 16;
@@ -1055,13 +1057,12 @@ fn request_part_from_external_storage(
     download.state_requests_count += 1;
     download.last_target = None;
 
-    let location = external_part_storage_location(
+    let location = external_storage_location(
         chain_id,
         epoch_id,
         epoch_height,
         shard_id,
-        part_id,
-        num_parts,
+        &StateFileType::StatePart { part_id, num_parts },
     );
 
     match semaphore.try_acquire_owned() {

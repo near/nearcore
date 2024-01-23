@@ -5,8 +5,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
 use near_client::sync::external::{
-    create_bucket_readwrite, external_header_storage_location, external_part_storage_location,
-    header_filename, ObjectType,
+    create_bucket_readwrite, external_storage_location, StateFileType,
 };
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
@@ -156,32 +155,28 @@ fn get_serialized_header(
 }
 
 /// Check if the state sync header exists in the external storage.
-async fn is_state_sync_header_missing_for_epoch(
+async fn is_state_sync_header_stored_for_epoch(
     shard_id: ShardId,
     chain_id: &String,
     epoch_id: &EpochId,
     epoch_height: u64,
     external: &ExternalConnection,
 ) -> Result<bool, anyhow::Error> {
-    let directory_path = external_storage_location_directory(
-        chain_id,
-        epoch_id,
-        epoch_height,
-        shard_id,
-        ObjectType::StateHeader,
-    );
+    let file_type = StateFileType::StateHeader;
+    let directory_path =
+        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, &file_type);
     let file_names = external.list_objects(shard_id, &directory_path).await?;
-    let header_missing = file_names.is_empty() || !file_names.contains(&header_filename());
+    let header_exits = !file_names.is_empty() && file_names.contains(&file_type.filename());
     tracing::debug!(
         target: "state_sync_dump",
         ?directory_path,
         "{}",
-        match header_missing {
-            false => "Header has already been dumped.",
-            true => "Header has not been dumped.",
+        match header_exits {
+            true => "Header has already been dumped.",
+            false => "Header has not been dumped.",
         }
     );
-    Ok(header_missing)
+    Ok(header_exits)
 }
 
 pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
@@ -202,7 +197,7 @@ async fn get_missing_part_ids_for_epoch(
         epoch_id,
         epoch_height,
         shard_id,
-        ObjectType::StatePart,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
     );
     let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
@@ -316,7 +311,7 @@ async fn state_sync_dump(
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
                         // Upload header
                         let header_in_external_storage =
-                            match is_state_sync_header_missing_for_epoch(
+                            match is_state_sync_header_stored_for_epoch(
                                 shard_id,
                                 &chain_id,
                                 &epoch_id,
@@ -330,9 +325,9 @@ async fn state_sync_dump(
                                     false
                                 }
                                 // Header is already stored
-                                Ok(false) => true,
+                                Ok(true) => true,
                                 // Header is missing
-                                Ok(true) => {
+                                Ok(false) => {
                                     let state_sync_header =
                                         get_serialized_header(shard_id, sync_hash, &chain);
                                     match state_sync_header {
@@ -341,19 +336,16 @@ async fn state_sync_dump(
                                             false
                                         }
                                         Ok(header) => {
-                                            let location = external_header_storage_location(
+                                            let file_type = StateFileType::StateHeader;
+                                            let location = external_storage_location(
                                                 &chain_id,
                                                 &epoch_id,
                                                 epoch_height,
                                                 shard_id,
+                                                &file_type,
                                             );
                                             match external
-                                                .put_obj(
-                                                    &header,
-                                                    shard_id,
-                                                    &location,
-                                                    ObjectType::StateHeader,
-                                                )
+                                                .put_file(file_type, &header, shard_id, &location)
                                                 .await
                                             {
                                                 Err(err) => {
@@ -444,21 +436,16 @@ async fn state_sync_dump(
                                         }
                                     };
 
-                                    let location = external_part_storage_location(
+                                    let file_type = StateFileType::StatePart { part_id, num_parts };
+                                    let location = external_storage_location(
                                         &chain_id,
                                         &epoch_id,
                                         epoch_height,
                                         shard_id,
-                                        part_id,
-                                        num_parts,
+                                        &file_type,
                                     );
                                     if let Err(err) = external
-                                        .put_obj(
-                                            &state_part,
-                                            shard_id,
-                                            &location,
-                                            ObjectType::StatePart,
-                                        )
+                                        .put_file(file_type, &state_part, shard_id, &location)
                                         .await
                                     {
                                         // no need to break if there's an error, we should keep dumping other parts.

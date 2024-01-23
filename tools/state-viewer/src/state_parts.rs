@@ -2,9 +2,9 @@ use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
-    create_bucket_readonly, create_bucket_readwrite, external_header_storage_location,
-    external_part_storage_location, external_storage_location_directory,
-    get_num_parts_from_filename, ExternalConnection, ObjectType,
+    create_bucket_readonly, create_bucket_readwrite, external_storage_location,
+    external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
+    StateFileType,
 };
 use near_client::sync::state::StateSync;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -349,7 +349,7 @@ async fn load_state_parts(
         &epoch_id,
         epoch_height,
         shard_id,
-        ObjectType::StatePart,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
     );
     let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
     assert!(!part_file_names.is_empty());
@@ -370,13 +370,12 @@ async fn load_state_parts(
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let location = external_part_storage_location(
+        let location = external_storage_location(
             chain_id,
             &epoch_id,
             epoch_height,
             shard_id,
-            part_id,
-            num_parts,
+            &StateFileType::StatePart { part_id, num_parts },
         );
         let part = external.get_part(shard_id, &location).await.unwrap();
 
@@ -472,10 +471,11 @@ async fn dump_state_parts(
         let mut state_sync_header_buf: Vec<u8> = Vec::new();
         state_header.serialize(&mut state_sync_header_buf).unwrap();
 
+        let file_type = StateFileType::StateHeader;
         let location =
-            external_header_storage_location(&chain_id, &epoch_id, epoch_height, shard_id);
+            external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
         external
-            .put_obj(&state_sync_header_buf, shard_id, &location, ObjectType::StateHeader)
+            .put_file(file_type, &state_sync_header_buf, shard_id, &location)
             .await
             .expect("Failed to put header into external storage.");
         tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "Header saved to external storage.");
@@ -495,15 +495,15 @@ async fn dump_state_parts(
             )
             .unwrap();
 
-        let location = external_part_storage_location(
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location = external_storage_location(
             &chain_id,
             &epoch_id,
             epoch.epoch_height(),
             shard_id,
-            part_id,
-            num_parts,
+            &file_type,
         );
-        external.put_obj(&state_part, shard_id, &location, ObjectType::StatePart).await.unwrap();
+        external.put_file(file_type, &state_part, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
         let first_state_record = get_first_state_record(&state_root, &state_part);
