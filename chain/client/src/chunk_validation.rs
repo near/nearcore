@@ -94,12 +94,12 @@ impl ChunkValidator {
         // We will only validate something if we are a chunk validator for this chunk.
         // Note this also covers the case before the protocol upgrade for chunk validators,
         // because the chunk validators will be empty.
-        let chunk_validators = self.epoch_manager.get_chunk_validators(
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
-        if !chunk_validators.contains_key(my_signer.validator_id()) {
+        if !chunk_validator_assignments.contains(my_signer.validator_id()) {
             return Err(Error::NotAChunkValidator);
         }
 
@@ -167,9 +167,9 @@ fn pre_validate_chunk_state_witness(
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
 
-    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
+    // Blocks from the last new chunk (inclusive) to the parent block (inclusive).
     let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
+    // Blocks from the last last new chunk (inclusive) to the last new chunk (exclusive).
     let mut blocks_after_last_last_chunk = Vec::new();
 
     {
@@ -498,13 +498,6 @@ impl Client {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let prev_chunk_height_included = prev_chunk_header.height_included();
 
-        // TODO(#9292): previous chunk is genesis chunk - consider proper
-        // result for this corner case.
-        // let prev_chunk_prev_hash = *prev_chunk_header.prev_block_hash();
-        // if prev_chunk_prev_hash == CryptoHash::default() {
-        //     return Ok(vec![]);
-        // }
-
         let mut prev_blocks = self.chain.get_blocks_until_height(
             *chunk_header.prev_block_hash(),
             prev_chunk_height_included,
@@ -562,16 +555,20 @@ impl Client {
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
             return Ok(());
         }
-        // Previous chunk is genesis chunk.
+        // First chunk after genesis doesn't have to be endorsed.
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(());
         }
+
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self.epoch_manager.get_chunk_validators(
-            epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
+        let chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                epoch_id,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+            )?
+            .ordered_chunk_validators();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
             self.collect_state_transition_data(&chunk_header, prev_chunk_header)?;
@@ -602,10 +599,10 @@ impl Client {
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
             chunk_header.chunk_hash(),
-            chunk_validators.keys(),
+            chunk_validators,
         );
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators.keys().cloned().collect(), witness),
+            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
         ));
         Ok(())
     }

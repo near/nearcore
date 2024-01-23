@@ -46,21 +46,16 @@ jobs:
       - uses: actions/checkout@v4
 
       # Install all the required tools
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-nextest
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-llvm-cov
+          tool: just,cargo-nextest,cargo-llvm-cov
 
       # Setup the dependency rust cache and llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
 
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
@@ -97,9 +92,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -126,9 +121,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -159,9 +154,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -194,9 +189,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -219,9 +214,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
@@ -238,9 +233,9 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
+          tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
         with:
           prefix-key: "0" # change this to invalidate CI cache
@@ -264,9 +259,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
         with:
-          crate: just
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
       - run: just check-rpc-errors-schema
 
   lychee_checks:
@@ -283,9 +280,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - run: just check-cargo-fmt
 
   check_clippy:
@@ -293,10 +290,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
       - run: just check-cargo-clippy
 
   check_cargo_deny:
@@ -304,12 +303,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-deny
+          tool: just,cargo-deny
       - run: just check-cargo-deny
 
   check_themis:
@@ -317,9 +313,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - run: just check-themis
 
   check_non_default:
@@ -327,9 +323,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - run: just check-non-default
 
   check_udeps:
@@ -337,13 +333,12 @@ jobs:
     runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-udeps
+          tool: just,cargo-udeps
       - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+        with:
+          save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
       - run: just check-cargo-udeps
 
   cargo_audit:
@@ -351,9 +346,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-audit
+          tool: cargo-audit
       - run: cargo audit -D warnings
 
   upload_coverage:
@@ -375,67 +370,56 @@ jobs:
       # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux.json
           fail_ci_if_error: true
           flags: integration-tests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
       # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
       #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
       #     files: integration-macos.json
       #     fail_ci_if_error: true
       #     flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-db-migration.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-sanity-checks.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-genesis-check.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux

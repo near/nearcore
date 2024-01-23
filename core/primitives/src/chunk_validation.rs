@@ -1,15 +1,14 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use crate::transaction::SignedTransaction;
-use crate::validator_mandates::AssignmentWeight;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::AccountId;
+use near_primitives_core::types::{AccountId, Balance};
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
@@ -39,7 +38,7 @@ pub struct ChunkStateWitness {
     ///
     /// The set of blocks B is defined as the contiguous subsequence of blocks
     /// B1 (EXCLUSIVE) to B2 (inclusive) in this chunk's chain (i.e. the linear
-    /// chain that this chunk's parent block is on), where B1 is the block that
+    /// chain that this chunk's parent block is on), where B2 is the block that
     /// contains the last new chunk of shard S before this chunk, and B1 is the
     /// block that contains the last new chunk of shard S before B2.
     ///
@@ -122,6 +121,16 @@ impl ChunkEndorsement {
     pub fn chunk_hash(&self) -> &ChunkHash {
         &self.inner.chunk_hash
     }
+
+    pub fn validate_signature(
+        chunk_hash: ChunkHash,
+        signature: &Signature,
+        public_key: &PublicKey,
+    ) -> bool {
+        let inner = ChunkEndorsementInner::new(chunk_hash);
+        let data = borsh::to_vec(&inner).unwrap();
+        signature.verify(&data, public_key)
+    }
 }
 
 /// This is the part of the chunk endorsement that is actually being signed.
@@ -158,4 +167,40 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
-pub type ChunkValidators = HashMap<AccountId, AssignmentWeight>;
+#[derive(Debug, Default)]
+pub struct ChunkValidatorAssignments {
+    assignments: Vec<(AccountId, Balance)>,
+    chunk_validators: HashSet<AccountId>,
+}
+
+impl ChunkValidatorAssignments {
+    pub fn new(assignments: Vec<(AccountId, Balance)>) -> Self {
+        let chunk_validators = assignments.iter().map(|(id, _)| id.clone()).collect();
+        Self { assignments, chunk_validators }
+    }
+
+    pub fn contains(&self, account_id: &AccountId) -> bool {
+        self.chunk_validators.contains(account_id)
+    }
+
+    pub fn ordered_chunk_validators(&self) -> Vec<AccountId> {
+        self.assignments.iter().map(|(id, _)| id.clone()).collect()
+    }
+
+    /// Returns true if the chunk has enough stake to be considered valid.
+    /// We require that at least 2/3 of the total stake of the chunk is endorsed by chunk_validators.
+    pub fn does_chunk_have_enough_stake(
+        &self,
+        endorsed_chunk_validators: &HashSet<AccountId>,
+    ) -> bool {
+        let mut total_stake = 0;
+        let mut endorsed_stake = 0;
+        for (account_id, stake) in &self.assignments {
+            total_stake += stake;
+            if endorsed_chunk_validators.contains(account_id) {
+                endorsed_stake += stake;
+            }
+        }
+        endorsed_stake > total_stake * 2 / 3
+    }
+}

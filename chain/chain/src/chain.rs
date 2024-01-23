@@ -637,13 +637,13 @@ impl Chain {
     }
 
     fn maybe_mark_block_invalid(&mut self, block_hash: CryptoHash, error: &Error) {
-        metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
         // We only mark the block as invalid if the block has bad data (not for other errors that would
         // not be the fault of the block itself), except when the block has a bad signature which means
         // the block might not have been what the block producer originally produced. Either way, it's
         // OK if we miss some cases here because this is just an optimization to avoid reprocessing
         // known invalid blocks so the network recovers faster in case of any issues.
         if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
+            metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
             self.invalid_blocks.put(block_hash, ());
         }
     }
@@ -2022,6 +2022,11 @@ impl Chain {
         let prev_block = self.get_block(&prev_hash)?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
+
+        // TODO(shreyan): Uncomment after PR #10469 once we start populating endorsements in blocks.
+        // if checked_feature!("stable", ChunkValidation, protocol_version) {
+        //     self.validate_chunk_endorsements_in_block(&block)?;
+        // }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
@@ -3496,30 +3501,50 @@ impl Chain {
         )))
     }
 
-    /// Function to create a new snapshot if needed
+    /// Function to create or delete a snapshot if necessary.
     fn process_snapshot(&mut self) -> Result<(), Error> {
         let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
-            if make_snapshot {
-                let head = self.head()?;
-                let epoch_height =
-                    self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
-                let shard_uids = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                    .shard_uids()
-                    .collect();
-                let last_block = self.get_block(&head.last_block_hash)?;
-                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);
-            } else if delete_snapshot {
-                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-                delete_snapshot_callback();
-            }
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        if make_snapshot {
+            let head = self.head()?;
+            let prev_hash = head.prev_block_hash;
+            let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(&prev_hash)?;
+            let shard_layout = &self.epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
+            let shard_uids = shard_layout.shard_uids().collect();
+            let last_block = self.get_block(&head.last_block_hash)?;
+            let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
+            make_snapshot_callback(prev_hash, epoch_height, shard_uids, last_block);
+        } else if delete_snapshot {
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
         }
+        Ok(())
+    }
+
+    // Similar to `process_snapshot` but only called after resharding is done.
+    // This is to speed up the snapshot removal once resharding is finished in
+    // order to minimize the storage overhead.
+    pub fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+
+        let tries = self.runtime_adapter.get_tries();
+        let snapshot_config = tries.state_snapshot_config();
+        let delete_snapshot = match snapshot_config.state_snapshot_type {
+            // Do not delete snapshot if the node is configured to snapshot every epoch.
+            StateSnapshotType::EveryEpoch => false,
+            // Delete the snapshot if it was created only for resharding.
+            StateSnapshotType::ForReshardingOnly => true,
+        };
+
+        if delete_snapshot {
+            tracing::debug!(target: "resharding", "deleting snapshot after resharding");
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
+        }
+
         Ok(())
     }
 
