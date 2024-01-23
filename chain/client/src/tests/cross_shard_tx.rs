@@ -58,6 +58,7 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                 (NetworkResponses::NoResponse.into(), true)
             }),
@@ -460,6 +461,7 @@ fn test_cross_shard_tx_common(
             vec![true; validators.len()],
             vec![false; validators.len()],
             true,
+            None,
             Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                 (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
             }),
