@@ -77,9 +77,24 @@ pub struct ChunkStateWitness {
     pub new_transactions_validation_state: PartialState,
 }
 
+impl ChunkStateWitness {
+    pub fn empty(chunk_header: ShardChunkHeader) -> Self {
+        Self {
+            chunk_header,
+            main_state_transition: Default::default(),
+            source_receipt_proofs: Default::default(),
+            applied_receipts_hash: Default::default(),
+            transactions: Default::default(),
+            implicit_transitions: Default::default(),
+            new_transactions: Default::default(),
+            new_transactions_validation_state: Default::default(),
+        }
+    }
+}
+
 /// Represents the base state and the expected post-state-root of a chunk's state
 /// transition. The actual state transition itself is not included here.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateTransition {
     /// The block that contains the chunk; this identifies which part of the
     /// state transition we're talking about.

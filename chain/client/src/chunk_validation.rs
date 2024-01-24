@@ -588,10 +588,6 @@ impl Client {
             return Ok(());
         }
 
-        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
-            return Ok(());
-        };
-
         let chunk_header = chunk.cloned_header();
         let chunk_validators = self.epoch_manager.get_chunk_validator_assignments(
             epoch_id,
@@ -599,6 +595,8 @@ impl Client {
             chunk_header.height_created(),
         )?;
         let ordered_chunk_validators = chunk_validators.ordered_chunk_validators();
+
+        let witness = self.create_state_witness(prev_chunk_header, chunk)?;
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
@@ -655,9 +653,7 @@ impl Client {
     ) -> Result<(), Error> {
         let shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
-        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
-            return Err(Error::Other("State witness is None".to_owned()));
-        };
+        let witness = self.create_state_witness(prev_chunk_header, chunk)?;
         let witness_size = borsh::to_vec(&witness)?.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
@@ -714,10 +710,10 @@ impl Client {
         &mut self,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
+    ) -> Result<ChunkStateWitness, Error> {
         // Previous chunk is genesis chunk.
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
-            return Ok(None);
+            return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
         }
         let chunk_header = chunk.cloned_header();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
@@ -739,7 +735,7 @@ impl Client {
             // prepare_transactions or the like.
             new_transactions_validation_state: PartialState::default(),
         };
-        Ok(Some(witness))
+        Ok(witness)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
