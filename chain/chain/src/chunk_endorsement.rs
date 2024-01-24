@@ -33,6 +33,19 @@ impl Chain {
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(block.header().prev_hash())?;
         for (chunk_header, signatures) in block.chunks().iter().zip(block.chunk_endorsements()) {
+            // For old chunks, we optimze the block by not including the chunk endorsements.
+            if chunk_header.height_included() != block.header().height() {
+                if !signatures.is_empty() {
+                    tracing::error!(
+                        target: "chain",
+                        chunk_header_height_included = chunk_header.height_included(),
+                        block_header_height = block.header().height(),
+                        "Expected chunk endorsements to be empty for old chunks in current block",
+                    );
+                    return Err(Error::InvalidChunkEndorsement);
+                }
+                continue;
+            }
             // Validation for chunks in each shard
             // The signatures from chunk validators for each shard must match the ordered_chunk_validators
             let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
