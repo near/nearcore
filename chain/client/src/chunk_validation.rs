@@ -588,27 +588,36 @@ impl Client {
             return Ok(());
         }
 
-        let chunk_header = chunk.cloned_header();
-        let chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )?
-            .ordered_chunk_validators();
         let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
             return Ok(());
         };
+
+        let chunk_header = chunk.cloned_header();
+        let chunk_validators = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+        let ordered_chunk_validators = chunk_validators.ordered_chunk_validators();
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
             chunk.chunk_hash(),
-            chunk_validators,
+            ordered_chunk_validators,
         );
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
+            NetworkRequests::ChunkStateWitness(ordered_chunk_validators, witness),
         ));
+
+        // Since we've created the state witness, we can directly send the chunk endorsement to ourselves.
+        let Some(my_signer) = self.validator_signer.as_ref() else {
+            return Ok(());
+        };
+        if chunk_validators.contains(my_signer.validator_id()) {
+            let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
+            self.process_chunk_endorsement(endorsement)?;
+        }
+
         Ok(())
     }
 
