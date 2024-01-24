@@ -136,12 +136,14 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::BanPeer {
-                            peer_id,
-                            ban_reason: ReasonForBan::BadChunkStateWitness,
-                        },
-                    ));
+                    if let Error::InvalidChunkStateWitness(_) = &err {
+                        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::BanPeer {
+                                peer_id,
+                                ban_reason: ReasonForBan::BadChunkStateWitness,
+                            },
+                        ));
+                    }
                     tracing::error!("Failed to validate chunk: {:?}", err);
                 }
             }
@@ -539,7 +541,7 @@ impl Client {
             self.chain.chain_store(),
             peer_id.clone(),
         );
-        if result.is_err() {
+        if let Err(Error::InvalidChunkStateWitness(_)) = &result {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BanPeer {
                     peer_id,
