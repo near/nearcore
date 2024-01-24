@@ -2386,14 +2386,14 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
     let chunks = {
         let client = &mut env.clients[0];
-        client.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
-            block1.header().epoch_id(),
-            &block1.hash(),
-            &mut client.chunk_validator,
-        )
+        client
+            .chunk_inclusion_tracker
+            .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash())
     };
-    let chunk_header =
-        env.clients[0].chunk_inclusion_tracker.chunk_header(chunks.get(&0).unwrap()).unwrap();
+    let (chunk_header, _) = env.clients[0]
+        .chunk_inclusion_tracker
+        .get_chunk_header_and_endorsements(chunks.get(&0).unwrap())
+        .unwrap();
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
@@ -2402,7 +2402,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        chunk_header,
+        &chunk_header,
     )
     .is_ok());
 }
