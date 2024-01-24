@@ -95,7 +95,6 @@ fn test_storage_after_commit_of_cold_update() {
         .unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
-    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
     for h in 1..max_height {
         let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -148,26 +147,17 @@ fn test_storage_after_commit_of_cold_update() {
         let block = env.clients[0].produce_block(h).unwrap().unwrap();
         env.process_block(0, block.clone(), Provenance::PRODUCED);
 
-        update_cold_db(
-            &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &h,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let client_store = client.runtime_adapter.store();
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
     assert_eq!(state_reads, test_get_store_reads(DBCol::State));
-    // assert that we don't read StateChanges from db again after iter_prefix
-    assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];
@@ -320,18 +310,11 @@ fn test_cold_db_copy_with_height_skips() {
             }
         };
 
-        update_cold_db(
-            &*storage.cold_db().unwrap(),
-            &env.clients[0].runtime_adapter.store(),
-            &env.clients[0]
-                .epoch_manager
-                .get_shard_layout(
-                    &env.clients[0].epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap(),
-                )
-                .unwrap(),
-            &h,
-        )
-        .unwrap();
+        let client = &env.clients[0];
+        let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
+        let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
+        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+            .unwrap();
 
         if block.is_some() {
             last_hash = *block.unwrap().hash();

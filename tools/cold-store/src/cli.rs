@@ -226,6 +226,7 @@ fn copy_next_block(store: &NodeStorage, config: &NearConfig, epoch_manager: &Epo
             .get_shard_layout(&epoch_manager.get_epoch_id_from_prev_block(&cold_head_hash).unwrap())
             .unwrap(),
         &next_height,
+        1,
     )
     .expect(&std::format!("Failed to copy block at height {} to cold db", next_height));
 
