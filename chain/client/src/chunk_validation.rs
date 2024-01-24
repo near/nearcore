@@ -108,16 +108,8 @@ impl ChunkValidator {
             self.epoch_manager.as_ref(),
         )?;
 
-        // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
-        // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
-        let block_height = chunk_header.height_created();
-        let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
-            .map_while(|i| self.epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
-            .collect_vec();
-        assert!(!block_producers.is_empty());
-
         let network_sender = self.network_sender.clone();
-        let signer = self.my_signer.clone().unwrap();
+        let signer = my_signer.clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         rayon::spawn(move || {
@@ -128,18 +120,12 @@ impl ChunkValidator {
                 runtime_adapter.as_ref(),
             ) {
                 Ok(()) => {
-                    tracing::debug!(
-                        target: "chunk_validation",
-                        chunk_hash=?chunk_header.chunk_hash(),
-                        ?block_producers,
-                        "Chunk validated successfully, sending endorsement",
+                    send_chunk_endorsement_to_block_producers(
+                        &chunk_header,
+                        epoch_manager.as_ref(),
+                        signer.as_ref(),
+                        &network_sender,
                     );
-                    let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
-                    for block_producer in block_producers {
-                        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
-                        ));
-                    }
                 }
                 Err(err) => {
                     tracing::error!("Failed to validate chunk: {:?}", err);
@@ -478,10 +464,55 @@ fn apply_result_to_chunk_extra(
     )
 }
 
+fn send_chunk_endorsement_to_block_producers(
+    chunk_header: &ShardChunkHeader,
+    epoch_manager: &dyn EpochManagerAdapter,
+    signer: &dyn ValidatorSigner,
+    network_sender: &Sender<PeerManagerMessageRequest>,
+) {
+    let epoch_id =
+        epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
+
+    // Send the chunk endorsement to the next NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT block producers.
+    // It's possible we may reach the end of the epoch, in which case, ignore the error from get_block_producer.
+    let block_height = chunk_header.height_created();
+    let block_producers = (0..NUM_NEXT_BLOCK_PRODUCERS_TO_SEND_CHUNK_ENDORSEMENT)
+        .map_while(|i| epoch_manager.get_block_producer(&epoch_id, block_height + i).ok())
+        .collect_vec();
+    assert!(!block_producers.is_empty());
+
+    tracing::debug!(
+        target: "chunk_validation",
+        chunk_hash=?chunk_header.chunk_hash(),
+        ?block_producers,
+        "Chunk validated successfully, sending endorsement",
+    );
+
+    let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
+    for block_producer in block_producers {
+        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
+        ));
+    }
+}
+
 impl Client {
     /// Responds to a network request to verify a `ChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
     pub fn process_chunk_state_witness(&mut self, witness: ChunkStateWitness) -> Result<(), Error> {
+        // First chunk after genesis doesn't have to be endorsed.
+        if witness.chunk_header.prev_block_hash() == self.chain.genesis().hash() {
+            let Some(signer) = self.validator_signer.as_ref() else {
+                return Err(Error::NotAChunkValidator);
+            };
+            send_chunk_endorsement_to_block_producers(
+                &witness.chunk_header,
+                self.epoch_manager.as_ref(),
+                signer.as_ref(),
+                &self.chunk_validator.network_sender,
+            );
+            return Ok(());
+        }
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
         self.chunk_validator.start_validating_chunk(witness, self.chain.chain_store())
@@ -554,10 +585,6 @@ impl Client {
     ) -> Result<(), Error> {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
-            return Ok(());
-        }
-        // First chunk after genesis doesn't have to be endorsed.
-        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(());
         }
 

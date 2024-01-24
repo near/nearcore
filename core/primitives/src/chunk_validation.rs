@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
@@ -106,7 +105,7 @@ pub struct ChunkEndorsement {
 }
 
 impl ChunkEndorsement {
-    pub fn new(chunk_hash: ChunkHash, signer: Arc<dyn ValidatorSigner>) -> ChunkEndorsement {
+    pub fn new(chunk_hash: ChunkHash, signer: &dyn ValidatorSigner) -> ChunkEndorsement {
         let inner = ChunkEndorsementInner::new(chunk_hash);
         let account_id = signer.validator_id().clone();
         let signature = signer.sign_chunk_endorsement(&inner);
