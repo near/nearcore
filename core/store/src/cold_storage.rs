@@ -16,6 +16,8 @@ use strum::IntoEnumIterator;
 type StoreKey = Vec<u8>;
 type StoreValue = Option<Vec<u8>>;
 
+/// This trait is used on top of Store to calculate cold loop specific metrics,
+/// and implement conversion to errors for absent data.
 pub trait ColdMigrationStore {
     fn iter_prefix_with_callback_for_cold(
         &self,
@@ -94,13 +96,15 @@ pub fn update_cold_db(
         get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
     let cold_columns = DBCol::iter().filter(|col| col.is_cold()).collect::<Vec<DBCol>>();
 
+    // Create new thread pool with `num_threads`.
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .build()
         .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create rayon pool"))?
         .install(|| {
             cold_columns
-                .into_par_iter()
+                .into_par_iter() // Process every cold column as a separate task in thread pool in parallel.
+                // Copy column to cold db.
                 .map(|col: DBCol| -> io::Result<()> {
                     if col == DBCol::State {
                         copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
@@ -109,8 +113,10 @@ pub fn update_cold_db(
                         copy_from_store(cold_db, &hot_store, col, keys)
                     }
                 })
+                // Return first found error, or Ok(())
                 .reduce(
-                    || Ok(()),
+                    || Ok(()), // Ok(()) by default
+                    // First found Err, or Ok(())g
                     |left, right| -> io::Result<()> {
                         vec![left, right]
                             .into_iter()
@@ -532,6 +538,7 @@ impl ColdMigrationStore for Store {
         mut callback: impl FnMut(Box<[u8]>),
     ) -> io::Result<()> {
         for iter_result in self.iter_prefix(col, key_prefix) {
+            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
             let (key, _) = iter_result?;
             callback(key);
         }

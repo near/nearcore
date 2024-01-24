@@ -170,9 +170,6 @@ fn test_storage_after_commit_of_cold_update() {
 
     // assert that we don't read State from db, but from TrieChanges
     assert_eq!(state_reads, test_get_store_reads(DBCol::State));
-    // This check is removed, because we removed cache from `update_cold_db`.
-    // assert that we don't read StateChanges from db again after iter_prefix
-    // assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];

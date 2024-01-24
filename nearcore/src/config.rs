@@ -377,7 +377,7 @@ fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
 }
 
 fn default_num_cold_store_read_threads() -> usize {
-    1
+    4
 }
 
 fn default_cold_store_loop_sleep_duration() -> Duration {
