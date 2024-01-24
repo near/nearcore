@@ -85,7 +85,9 @@ impl ChunkValidator {
         chain_store: &ChainStore,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        self.epoch_manager.verify_chunk_state_witness(&state_witness)?;
+        if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
+            return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
+        }
 
         let state_witness_inner = state_witness.inner;
         let chunk_header = state_witness_inner.chunk_header.clone();
@@ -442,24 +444,20 @@ impl Client {
     ) -> Result<(), Error> {
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
-        match self.chunk_validator.start_validating_chunk(
+        let result = self.chunk_validator.start_validating_chunk(
             witness,
             self.chain.chain_store(),
             peer_id.clone(),
-        ) {
-            Err(err) => {
-                if !matches!(err, Error::NotAValidator) {
-                    self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::BanPeer {
-                            peer_id,
-                            ban_reason: ReasonForBan::BadChunkStateWitness,
-                        },
-                    ));
-                }
-                Err(err)
-            }
-            Ok(()) => Ok(()),
+        );
+        if result.is_err() {
+            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::BanPeer {
+                    peer_id,
+                    ban_reason: ReasonForBan::BadChunkStateWitness,
+                },
+            ));
         }
+        result
     }
 
     /// Collect state transition data necessary to produce state witness for

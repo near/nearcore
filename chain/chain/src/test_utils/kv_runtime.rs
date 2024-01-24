@@ -920,7 +920,7 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
-    fn verify_chunk_state_witness(
+    fn verify_chunk_state_witness_signature(
         &self,
         _state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error> {

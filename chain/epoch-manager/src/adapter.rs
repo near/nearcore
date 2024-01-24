@@ -388,7 +388,10 @@ pub trait EpochManagerAdapter: Send + Sync {
         endorsement: &ChunkEndorsement,
     ) -> Result<bool, Error>;
 
-    fn verify_chunk_state_witness(&self, state_witness: &ChunkStateWitness) -> Result<bool, Error>;
+    fn verify_chunk_state_witness_signature(
+        &self,
+        state_witness: &ChunkStateWitness,
+    ) -> Result<bool, Error>;
 
     fn cares_about_shard_from_prev_block(
         &self,
@@ -993,7 +996,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         Ok(endorsement.verify(validator.public_key()))
     }
 
-    fn verify_chunk_state_witness(&self, state_witness: &ChunkStateWitness) -> Result<bool, Error> {
+    fn verify_chunk_state_witness_signature(
+        &self,
+        state_witness: &ChunkStateWitness,
+    ) -> Result<bool, Error> {
         let epoch_manager = self.read();
         let chunk_header = &state_witness.inner.chunk_header;
         let epoch_id =

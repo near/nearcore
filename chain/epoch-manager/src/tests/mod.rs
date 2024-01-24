@@ -2686,6 +2686,11 @@ fn test_verify_chunk_endorsements() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
+
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
@@ -2748,6 +2753,11 @@ fn test_verify_chunk_state_witness() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
+
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
     let validators = vec![(account_id.clone(), amount_staked)];
@@ -2786,14 +2796,14 @@ fn test_verify_chunk_state_witness() {
 
     // Check chunk state witness validity.
     let mut chunk_state_witness = ChunkStateWitness { inner: witness_inner, signature };
-    assert!(epoch_manager.verify_chunk_state_witness(&chunk_state_witness).unwrap());
+    assert!(epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
 
     // Check invalid chunk state witness signature.
     chunk_state_witness.signature = Signature::default();
-    assert!(!epoch_manager.verify_chunk_state_witness(&chunk_state_witness).unwrap());
+    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
     chunk_state_witness.signature = bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner);
-    assert!(!epoch_manager.verify_chunk_state_witness(&chunk_state_witness).unwrap());
+    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
 }
