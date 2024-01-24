@@ -163,7 +163,7 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height, 1).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
