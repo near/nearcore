@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::adapter::ProcessTxResponse;
 use crate::Client;
@@ -19,14 +19,13 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -37,6 +36,8 @@ use once_cell::sync::OnceCell;
 use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
+
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -54,6 +55,12 @@ pub struct TestEnv {
     pub(crate) seeds: HashMap<AccountId, RngSeed>,
     pub(crate) archive: bool,
     pub(crate) save_trie_changes: bool,
+}
+
+pub struct StateWitnessPropagationOutput {
+    /// Whether some propagated state witness includes two different post state
+    /// roots.
+    pub found_differing_post_state_root_due_to_state_transitions: bool,
 }
 
 impl TestEnv {
@@ -241,7 +248,8 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                        .chunk_inclusion_tracker
+                        .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
             any_processed = true;
@@ -261,7 +269,9 @@ impl TestEnv {
         }
     }
 
-    pub fn propagate_chunk_state_witnesses(&mut self) {
+    /// Triggers processing of all chunk state witnesses received by network.
+    pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationOutput {
+        let mut found_differing_post_state_root_due_to_state_transitions = false;
         for idx in 0..self.clients.len() {
             let _span =
                 tracing::debug_span!(target: "test", "propagate_chunk_state_witnesses", client=idx)
@@ -272,6 +282,13 @@ impl TestEnv {
                     NetworkRequests::ChunkStateWitness(accounts, chunk_state_witness),
                 ) = msg
                 {
+                    let mut post_state_roots =
+                        HashSet::from([chunk_state_witness.main_state_transition.post_state_root]);
+                    post_state_roots.extend(
+                        chunk_state_witness.implicit_transitions.iter().map(|t| t.post_state_root),
+                    );
+                    found_differing_post_state_root_due_to_state_transitions |=
+                        post_state_roots.len() >= 2;
                     for account in accounts {
                         self.account_indices
                             .lookup_mut(&mut self.clients, &account)
@@ -284,28 +301,44 @@ impl TestEnv {
                 }
             });
         }
+        StateWitnessPropagationOutput { found_differing_post_state_root_due_to_state_transitions }
     }
 
-    pub fn get_all_chunk_endorsements(&mut self) -> Vec<ChunkEndorsement> {
-        let mut approvals = Vec::new();
-        for idx in 0..self.clients.len() {
-            let _span =
-                tracing::debug_span!(target: "test", "get_all_chunk_endorsements", client=idx)
-                    .entered();
+    /// Waits for `CHUNK_ENDORSEMENTS_TIMEOUT` to receive at least one chunk
+    /// endorsement for the given chunk hashes.
+    /// Panics if it doesn't happen.
+    /// `chunk_hashes` maps hashes to pair of height at which chunk is included
+    /// and shard id for better debugging.
+    pub fn wait_for_chunk_endorsements(
+        &mut self,
+        mut chunk_hashes: HashMap<ChunkHash, (BlockHeight, ShardId)>,
+    ) {
+        let _span = tracing::debug_span!(target: "test", "get_all_chunk_endorsements").entered();
+        let timer = Instant::now();
+        loop {
+            tracing::debug!(target: "test", "remaining endorsements: {:?}", chunk_hashes);
+            for idx in 0..self.clients.len() {
+                self.network_adapters[idx].handle_filtered(|msg| {
+                    if let PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ChunkEndorsement(_, endorsement),
+                    ) = msg
+                    {
+                        chunk_hashes.remove(endorsement.chunk_hash());
+                        None
+                    } else {
+                        Some(msg)
+                    }
+                });
+            }
 
-            self.network_adapters[idx].handle_filtered(|msg| {
-                if let PeerManagerMessageRequest::NetworkRequests(
-                    NetworkRequests::ChunkEndorsement(_, endorsement),
-                ) = msg
-                {
-                    approvals.push(endorsement);
-                    None
-                } else {
-                    Some(msg)
-                }
-            });
+            if chunk_hashes.is_empty() {
+                break;
+            }
+            if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
+                panic!("Missing chunk endorsements: {:?}", chunk_hashes);
+            }
+            std::thread::sleep(Duration::from_micros(100));
         }
-        approvals
     }
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {

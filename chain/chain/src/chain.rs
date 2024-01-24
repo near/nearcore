@@ -637,13 +637,13 @@ impl Chain {
     }
 
     fn maybe_mark_block_invalid(&mut self, block_hash: CryptoHash, error: &Error) {
-        metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
         // We only mark the block as invalid if the block has bad data (not for other errors that would
         // not be the fault of the block itself), except when the block has a bad signature which means
         // the block might not have been what the block producer originally produced. Either way, it's
         // OK if we miss some cases here because this is just an optimization to avoid reprocessing
         // known invalid blocks so the network recovers faster in case of any issues.
         if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
+            metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
             self.invalid_blocks.put(block_hash, ());
         }
     }
@@ -1014,6 +1014,7 @@ impl Chain {
             Err(err) => return Err(err.into()),
         };
         let epoch_protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+
         // Check that block body hash matches the block body. This makes sure that the block body
         // content is not tampered
         if checked_feature!("stable", BlockHeaderV4, epoch_protocol_version) {
@@ -1112,7 +1113,7 @@ impl Chain {
         for pair in block
             .chunks()
             .iter()
-            .filter(|chunk| block_height == chunk.height_included())
+            .filter(|chunk| chunk.is_new_chunk(block_height))
             .flat_map(|chunk| chunk.prev_validator_proposals())
             .zip_longest(block.header().prev_validator_proposals())
         {
@@ -1169,7 +1170,7 @@ impl Chain {
             return Ok(());
         }
         let mut missing = vec![];
-        let height = block.header().height();
+        let block_height = block.header().height();
         for (shard_id, chunk_header) in block.chunks().iter().enumerate() {
             // Check if any chunks are invalid in this block.
             if let Some(encoded_chunk) =
@@ -1186,7 +1187,7 @@ impl Chain {
                 return Err(Error::InvalidChunkProofs(Box::new(chunk_proof)));
             }
             let shard_id = shard_id as ShardId;
-            if chunk_header.height_included() == height {
+            if chunk_header.is_new_chunk(block_height) {
                 let chunk_hash = chunk_header.chunk_hash();
 
                 if let Err(_) = self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()) {
@@ -1255,11 +1256,11 @@ impl Chain {
         if !self.care_about_any_shard_or_part(me, *block.header().prev_hash())? {
             return Ok(HashMap::new());
         }
-        let height = block.header().height();
+        let block_height = block.header().height();
         let mut receipt_proofs_by_shard_id = HashMap::new();
 
         for chunk_header in block.chunks().iter() {
-            if chunk_header.height_included() != height {
+            if !chunk_header.is_new_chunk(block_height) {
                 continue;
             }
             let partial_encoded_chunk =
@@ -1877,7 +1878,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -2012,6 +2013,11 @@ impl Chain {
         let prev_block = self.get_block(&prev_hash)?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
+
+        // TODO(shreyan): Uncomment after PR #10469 once we start populating endorsements in blocks.
+        // if checked_feature!("stable", ChunkValidation, protocol_version) {
+        //     self.validate_chunk_endorsements_in_block(&block)?;
+        // }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
@@ -3216,6 +3222,9 @@ impl Chain {
         me: &Option<AccountId>,
         block_header: &BlockHeader,
     ) -> Result<bool, Error> {
+        if cfg!(feature = "shadow_chunk_validation") {
+            return Ok(true);
+        }
         let epoch_id = block_header.epoch_id();
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
@@ -3364,7 +3373,7 @@ impl Chain {
                 None
             };
 
-        let is_new_chunk = chunk_header.height_included() == block.header().height();
+        let is_new_chunk = chunk_header.is_new_chunk(block.header().height());
         let shard_update_reason = if shard_context.should_apply_chunk {
             let block_context = Self::get_apply_chunk_block_context(
                 self.epoch_manager.as_ref(),
@@ -3486,30 +3495,50 @@ impl Chain {
         )))
     }
 
-    /// Function to create a new snapshot if needed
+    /// Function to create or delete a snapshot if necessary.
     fn process_snapshot(&mut self) -> Result<(), Error> {
         let (make_snapshot, delete_snapshot) = self.should_make_or_delete_snapshot()?;
         if !make_snapshot && !delete_snapshot {
             return Ok(());
         }
-        if let Some(snapshot_callbacks) = &self.snapshot_callbacks {
-            if make_snapshot {
-                let head = self.head()?;
-                let epoch_height =
-                    self.epoch_manager.get_epoch_height_from_prev_block(&head.prev_block_hash)?;
-                let shard_uids = self
-                    .epoch_manager
-                    .get_shard_layout_from_prev_block(&head.prev_block_hash)?
-                    .shard_uids()
-                    .collect();
-                let last_block = self.get_block(&head.last_block_hash)?;
-                let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
-                make_snapshot_callback(head.prev_block_hash, epoch_height, shard_uids, last_block);
-            } else if delete_snapshot {
-                let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
-                delete_snapshot_callback();
-            }
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+        if make_snapshot {
+            let head = self.head()?;
+            let prev_hash = head.prev_block_hash;
+            let epoch_height = self.epoch_manager.get_epoch_height_from_prev_block(&prev_hash)?;
+            let shard_layout = &self.epoch_manager.get_shard_layout_from_prev_block(&prev_hash)?;
+            let shard_uids = shard_layout.shard_uids().collect();
+            let last_block = self.get_block(&head.last_block_hash)?;
+            let make_snapshot_callback = &snapshot_callbacks.make_snapshot_callback;
+            make_snapshot_callback(prev_hash, epoch_height, shard_uids, last_block);
+        } else if delete_snapshot {
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
         }
+        Ok(())
+    }
+
+    // Similar to `process_snapshot` but only called after resharding is done.
+    // This is to speed up the snapshot removal once resharding is finished in
+    // order to minimize the storage overhead.
+    pub fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
+        let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
+
+        let tries = self.runtime_adapter.get_tries();
+        let snapshot_config = tries.state_snapshot_config();
+        let delete_snapshot = match snapshot_config.state_snapshot_type {
+            // Do not delete snapshot if the node is configured to snapshot every epoch.
+            StateSnapshotType::EveryEpoch => false,
+            // Delete the snapshot if it was created only for resharding.
+            StateSnapshotType::ForReshardingOnly => true,
+        };
+
+        if delete_snapshot {
+            tracing::debug!(target: "resharding", "deleting snapshot after resharding");
+            let delete_snapshot_callback = &snapshot_callbacks.delete_snapshot_callback;
+            delete_snapshot_callback();
+        }
+
         Ok(())
     }
 
@@ -4102,16 +4131,15 @@ impl Chain {
         Ok(headers)
     }
 
-    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
-    /// a chunk in the block after `prev_block`
+    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block`.
+    /// from `prev_block` in cases of resharding.
     /// In block production and processing, often we need to get the previous chunks of chunks
     /// in the current block, this function provides a way to do so while handling sharding changes
     /// correctly.
     /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
+    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
         epoch_manager: &dyn EpochManagerAdapter,

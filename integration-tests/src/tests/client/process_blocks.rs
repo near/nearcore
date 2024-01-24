@@ -336,6 +336,7 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -417,6 +418,7 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -629,6 +631,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -2381,8 +2384,16 @@ fn test_validate_chunk_extra() {
     // Validate that result of chunk execution in `block1` is legit.
     let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
-    let chunks = env.clients[0]
-        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let chunks = {
+        let client = &mut env.clients[0];
+        client
+            .chunk_inclusion_tracker
+            .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash())
+    };
+    let (chunk_header, _) = env.clients[0]
+        .chunk_inclusion_tracker
+        .get_chunk_header_and_endorsements(chunks.get(&0).unwrap())
+        .unwrap();
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
@@ -2391,7 +2402,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        &chunks.get(&0).cloned().unwrap().0,
+        &chunk_header,
     )
     .is_ok());
 }

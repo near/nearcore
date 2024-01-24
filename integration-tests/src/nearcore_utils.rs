@@ -59,6 +59,7 @@ pub fn add_blocks(
             prev.header().height() + 1,
             prev.header().block_ordinal() + 1,
             blocks[0].chunks().iter().cloned().collect(),
+            vec![],
             epoch_id,
             next_epoch_id,
             None,

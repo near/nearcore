@@ -2678,9 +2678,10 @@ fn test_verify_chunk_endorsements() {
     let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
 
     // verify if we have one chunk validator
-    let chunk_validators = epoch_manager.get_chunk_validators(&epoch_id, 0, 1).unwrap();
-    assert_eq!(chunk_validators.len(), 1);
-    assert!(chunk_validators.contains_key(&account_id));
+    let chunk_validator_assignments =
+        &epoch_manager.get_chunk_validator_assignments(&epoch_id, 0, 1).unwrap();
+    assert_eq!(chunk_validator_assignments.ordered_chunk_validators().len(), 1);
+    assert!(chunk_validator_assignments.contains(&account_id));
 
     // verify if the test signer has same public key as the chunk validator
     let (validator, _) =
@@ -2707,7 +2708,7 @@ fn test_verify_chunk_endorsements() {
     ));
 
     // check chunk endorsement validity
-    let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.clone());
+    let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.as_ref());
     assert!(epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check invalid chunk endorsement signature
@@ -2715,7 +2716,7 @@ fn test_verify_chunk_endorsements() {
     assert!(!epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap());
 
     // check chunk endorsement invalidity when chunk header and chunk endorsement don't match
-    let chunk_endorsement = ChunkEndorsement::new(h[3].into(), signer);
+    let chunk_endorsement = ChunkEndorsement::new(h[3].into(), signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
@@ -2725,7 +2726,7 @@ fn test_verify_chunk_endorsements() {
 
     // check chunk endorsement invalidity when signer is not chunk validator
     let bad_signer = Arc::new(create_test_signer("test2"));
-    let chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), bad_signer);
+    let chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), bad_signer.as_ref());
     let err =
         epoch_manager.verify_chunk_endorsement(&chunk_header, &chunk_endorsement).unwrap_err();
     match err {
