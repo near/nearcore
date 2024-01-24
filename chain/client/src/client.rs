@@ -674,11 +674,9 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let (mut chunk_headers, mut chunk_endorsements) =
-            Chain::get_prev_chunk_headers_and_chunk_endorsements(
-                self.epoch_manager.as_ref(),
-                &prev_block,
-            )?;
+        let mut chunk_headers =
+            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let mut chunk_endorsements = vec![vec![]; chunk_headers.len()];
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(

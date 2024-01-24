@@ -250,7 +250,7 @@ impl Block {
         height: BlockHeight,
         block_ordinal: NumBlocks,
         chunks: Vec<ShardChunkHeader>,
-        chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
         epoch_id: EpochId,
         next_epoch_id: EpochId,
         epoch_sync_data_hash: Option<CryptoHash>,
