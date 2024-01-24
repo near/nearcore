@@ -340,7 +340,7 @@ fn pre_validate_chunk_state_witness(
             &mut |tx: &SignedTransaction| -> bool {
                 store
                     .check_transaction_validity_period(
-                        last_chunk_block.header(),
+                        parent_block.header(),
                         &tx.transaction.block_hash,
                         chain.transaction_validity_period,
                     )

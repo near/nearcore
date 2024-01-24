@@ -2333,8 +2333,12 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
-        create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult {
+        chunk: encoded_chunk,
+        encoded_chunk_parts_paths: merkle_paths,
+        receipts,
+        ..
+    } = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
 

@@ -723,12 +723,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
 
         let mut trie = match storage_config.source {
+            StorageDataSource::Db => {
+                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+            }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             ),
-            _ => self.tries.get_trie_for_shard(shard_uid, storage_config.state_root),
         };
         if storage_config.record_storage {
             trie = trie.recording_reads();
