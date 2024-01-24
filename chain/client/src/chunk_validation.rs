@@ -454,6 +454,7 @@ impl Client {
                 signer.as_ref(),
                 &self.chunk_validator.network_sender,
             );
+            return Ok(());
         }
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
