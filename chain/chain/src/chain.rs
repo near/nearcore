@@ -3484,13 +3484,13 @@ impl Chain {
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
-                Ok(ShardUpdateResult::Stateful(process_shard_update(
+                Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
-                )?))
+                )?)
             }),
         )))
     }
