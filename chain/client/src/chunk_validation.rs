@@ -12,6 +12,7 @@ use near_chain::{Block, Chain, ChainStore, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::chunk_validation::{
@@ -146,6 +147,64 @@ impl ChunkValidator {
             }
         });
         Ok(())
+    }
+
+    /// Called by block producer.
+    /// Returns Some(signatures) if node has enough signed stake for the chunk represented by chunk_header.
+    /// Signatures have the same order as ordered_chunk_validators, thus ready to be included in a block as is.
+    /// Returns None if chunk doesn't have enough stake.
+    /// For older protocol version, we return an empty array of chunk endorsements.
+    pub fn get_chunk_endorsement_signatures(
+        &self,
+        chunk_header: &ShardChunkHeader,
+    ) -> Result<Option<ChunkEndorsementSignatures>, Error> {
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if !checked_feature!("stable", ChunkValidation, protocol_version) {
+            // Return an empty array of chunk endorsements for older protocol versions.
+            return Ok(Some(vec![]));
+        }
+
+        // Get the chunk_endorsements for the chunk from our cache.
+        // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
+        // We can safely rely on the the following details
+        //    1. The chunk endorsements are from valid chunk_validator for this chunk.
+        //    2. The chunk endorsements signatures are valid.
+        let Some(chunk_endorsements) = self.chunk_endorsements.peek(&chunk_header.chunk_hash())
+        else {
+            // Early return if no chunk_enforsements found in our cache.
+            return Ok(None);
+        };
+
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+
+        // Check whether the current set of chunk_validators have enough stake to include chunk in block.
+        if !chunk_validator_assignments
+            .does_chunk_have_enough_stake(&chunk_endorsements.keys().cloned().collect())
+        {
+            return Ok(None);
+        }
+
+        // We've already verified the chunk_endorsements are valid, collect signatures.
+        let signatures = chunk_validator_assignments
+            .ordered_chunk_validators()
+            .iter()
+            .map(|account_id| {
+                // map Option<ChunkEndorsement> to Option<Box<Signature>>
+                chunk_endorsements
+                    .get(account_id)
+                    .map(|endorsement| Box::new(endorsement.signature.clone()))
+            })
+            .collect();
+
+        Ok(Some(signatures))
     }
 }
 
@@ -297,7 +356,6 @@ fn pre_validate_chunk_state_witness(
     })
 }
 
-#[allow(unused)]
 struct PreValidationOutput {
     main_transition_params: NewChunkData,
     implicit_transition_params: Vec<ApplyChunkBlockContext>,
@@ -405,7 +463,6 @@ fn validate_chunk_state_witness(
     Ok(())
 }
 
-#[allow(unused)]
 fn apply_result_to_chunk_extra(
     apply_result: ApplyChunkResult,
     chunk: &ShardChunkHeader,

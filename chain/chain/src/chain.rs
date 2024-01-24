@@ -47,6 +47,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::EpochManagerAdapter;
 use near_o11y::log_assert;
 use near_primitives::block::{genesis_chunks, Block, BlockValidityError, Tip};
+use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChallengesResult, ChunkProofs, ChunkState,
@@ -1029,15 +1030,6 @@ impl Chain {
             }
         }
 
-        // Check that block has chunk endorsements.
-        if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
-            // TODO(shreyan): Enable this in next PR once we start adding chunk endorsements.
-            // if block.chunk_endorsements().is_empty() {
-            //     tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
-            //     return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            // }
-        }
-
         // Verify the signature. Since the signature is signed on the hash of block header, this check
         // makes sure the block header content is not tampered
         if !self.epoch_manager.verify_header_signature(block.header())? {
@@ -1101,8 +1093,10 @@ impl Chain {
 
     /// Do basic validation of the information that we can get from the chunk headers in `block`
     fn validate_chunk_headers(&self, block: &Block, prev_block: &Block) -> Result<(), Error> {
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let (prev_chunk_headers, _) = Chain::get_prev_chunk_headers_and_chunk_endorsements(
+            self.epoch_manager.as_ref(),
+            prev_block,
+        )?;
         for (chunk_header, prev_chunk_header) in
             block.chunks().iter().zip(prev_chunk_headers.iter())
         {
@@ -1887,7 +1881,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -3264,8 +3258,10 @@ impl Chain {
         invalid_chunks: &mut Vec<ShardChunkHeader>,
     ) -> Result<Vec<UpdateShardJob>, Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunks_preprocessing").entered();
-        let prev_chunk_headers =
-            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), prev_block)?;
+        let (prev_chunk_headers, _) = Chain::get_prev_chunk_headers_and_chunk_endorsements(
+            self.epoch_manager.as_ref(),
+            prev_block,
+        )?;
 
         let mut maybe_jobs = vec![];
         for (shard_id, (chunk_header, prev_chunk_header)) in
@@ -4140,29 +4136,37 @@ impl Chain {
         Ok(headers)
     }
 
-    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
-    /// a chunk in the block after `prev_block`
+    /// Returns a vector of chunk headers, and vector of chunk endorsement signatures each of which corresponds
+    /// to the chunk in the `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block`.
+    /// from `prev_block` in cases of resharding.
     /// In block production and processing, often we need to get the previous chunks of chunks
     /// in the current block, this function provides a way to do so while handling sharding changes
     /// correctly.
     /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
+    /// `get_prev_chunk_headers_and_chunk_endorsements(epoch_manager, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
-    pub fn get_prev_chunk_headers(
+    /// and the corresponding chunk endorsements.
+    pub fn get_prev_chunk_headers_and_chunk_endorsements(
         epoch_manager: &dyn EpochManagerAdapter,
         prev_block: &Block,
-    ) -> Result<Vec<ShardChunkHeader>, Error> {
+    ) -> Result<(Vec<ShardChunkHeader>, Vec<ChunkEndorsementSignatures>), Error> {
         let epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block.hash())?;
         let shard_ids = epoch_manager.shard_ids(&epoch_id)?;
         let prev_shard_ids = epoch_manager.get_prev_shard_ids(prev_block.hash(), shard_ids)?;
         let chunks = prev_block.chunks();
-        Ok(prev_shard_ids
-            .into_iter()
-            .map(|shard_id| chunks.get(shard_id as usize).unwrap().clone())
-            .collect())
+        let chunk_endorsements = prev_block.chunk_endorsements();
+
+        let chunk_headers = prev_shard_ids
+            .iter()
+            .map(|shard_id| chunks.get(*shard_id as usize).cloned().unwrap())
+            .collect();
+        let chunk_endorsement = prev_shard_ids
+            .iter()
+            .map(|shard_id| chunk_endorsements.get(*shard_id as usize).cloned().unwrap_or_default())
+            .collect();
+        Ok((chunk_headers, chunk_endorsement))
     }
 
     pub fn get_prev_chunk_header(
