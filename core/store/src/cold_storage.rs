@@ -1,6 +1,5 @@
 use crate::columns::DBKeyType;
 use crate::db::{ColdDB, COLD_HEAD_KEY, HEAD_KEY};
-use crate::trie::TrieRefcountAddition;
 use crate::{metrics, DBCol, DBTransaction, Database, Store, TrieChanges};
 
 use borsh::BorshDeserialize;
@@ -9,17 +8,39 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::types::BlockHeight;
-use std::collections::{hash_map, HashMap};
+use rayon::prelude::{IntoParallelIterator, ParallelIterator};
+use std::collections::HashMap;
 use std::io;
 use strum::IntoEnumIterator;
 
 type StoreKey = Vec<u8>;
 type StoreValue = Option<Vec<u8>>;
-type StoreCache = HashMap<(DBCol, StoreKey), StoreValue>;
 
-struct StoreWithCache<'a> {
-    store: &'a Store,
-    cache: StoreCache,
+/// This trait is used on top of Store to calculate cold loop specific metrics,
+/// and implement conversion to errors for absent data.
+pub trait ColdMigrationStore {
+    fn iter_prefix_with_callback_for_cold(
+        &self,
+        col: DBCol,
+        key_prefix: &[u8],
+        callback: impl FnMut(Box<[u8]>),
+    ) -> io::Result<()>;
+
+    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue>;
+
+    fn get_ser_for_cold<T: BorshDeserialize>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> io::Result<Option<T>>;
+
+    fn get_or_err_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<Vec<u8>>;
+
+    fn get_ser_or_err_for_cold<T: BorshDeserialize>(
+        &self,
+        column: DBCol,
+        key: &[u8],
+    ) -> io::Result<T>;
 }
 
 /// The BatchTransaction can be used to write multiple set operations to the cold db in batches.
@@ -37,7 +58,6 @@ struct BatchTransaction {
 /// Updates provided cold database from provided hot store with information about block at `height`.
 /// Returns if the block was copied (false only if height is not present in `hot_store`).
 /// Block as `height` has to be final.
-/// Wraps hot store in `StoreWithCache` for optimizing reads.
 ///
 /// First, we read from hot store information necessary
 /// to determine all the keys that need to be updated in cold db.
@@ -59,35 +79,53 @@ pub fn update_cold_db(
     hot_store: &Store,
     shard_layout: &ShardLayout,
     height: &BlockHeight,
+    num_threads: usize,
 ) -> io::Result<bool> {
     let _span = tracing::debug_span!(target: "cold_store", "update cold db", height = height);
     let _timer = metrics::COLD_COPY_DURATION.start_timer();
 
-    let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
-
-    if store_with_cache.get(DBCol::BlockHeight, &height.to_le_bytes())?.is_none() {
+    if hot_store.get_for_cold(DBCol::BlockHeight, &height.to_le_bytes())?.is_none() {
         return Ok(false);
     }
 
     let height_key = height.to_le_bytes();
-    let block_hash_vec = store_with_cache.get_or_err(DBCol::BlockHeight, &height_key)?;
+    let block_hash_vec = hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?;
     let block_hash_key = block_hash_vec.as_slice();
 
     let key_type_to_keys =
-        get_keys_from_store(&mut store_with_cache, shard_layout, &height_key, block_hash_key)?;
-    for col in DBCol::iter() {
-        if !col.is_cold() {
-            continue;
-        }
+        get_keys_from_store(&hot_store, shard_layout, &height_key, block_hash_key)?;
+    let cold_columns = DBCol::iter().filter(|col| col.is_cold()).collect::<Vec<DBCol>>();
 
-        if col == DBCol::State {
-            copy_state_from_store(shard_layout, block_hash_key, cold_db, &mut store_with_cache)?;
-            continue;
-        }
-
-        let keys = combine_keys(&key_type_to_keys, &col.key_type());
-        copy_from_store(cold_db, &mut store_with_cache, col, keys)?;
-    }
+    // Create new thread pool with `num_threads`.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to create rayon pool"))?
+        .install(|| {
+            cold_columns
+                .into_par_iter() // Process every cold column as a separate task in thread pool in parallel.
+                // Copy column to cold db.
+                .map(|col: DBCol| -> io::Result<()> {
+                    if col == DBCol::State {
+                        copy_state_from_store(shard_layout, block_hash_key, cold_db, &hot_store)
+                    } else {
+                        let keys = combine_keys(&key_type_to_keys, &col.key_type());
+                        copy_from_store(cold_db, &hot_store, col, keys)
+                    }
+                })
+                // Return first found error, or Ok(())
+                .reduce(
+                    || Ok(()), // Ok(()) by default
+                    // First found Err, or Ok(())g
+                    |left, right| -> io::Result<()> {
+                        vec![left, right]
+                            .into_iter()
+                            .filter(|res| res.is_err())
+                            .next()
+                            .unwrap_or(Ok(()))
+                    },
+                )
+        })?;
 
     Ok(true)
 }
@@ -128,7 +166,7 @@ fn copy_state_from_store(
     shard_layout: &ShardLayout,
     block_hash_key: &[u8],
     cold_db: &ColdDB,
-    hot_store: &mut StoreWithCache,
+    hot_store: &Store,
 ) -> io::Result<()> {
     let col = DBCol::State;
     let _span = tracing::debug_span!(target: "cold_store", "copy_state_from_store", %col);
@@ -148,12 +186,8 @@ fn copy_state_from_store(
 
         let Some(trie_changes) = trie_changes else { continue };
         for op in trie_changes.insertions() {
-            hot_store.insert_state_to_cache_from_op(op, &shard_uid_key);
-
             let key = join_two_keys(&shard_uid_key, op.hash().as_bytes());
-            let value = hot_store.get(DBCol::State, &key)?;
-            let value =
-                value.ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, hex::encode(&key)))?;
+            let value = op.payload().to_vec();
 
             tracing::trace!(target: "cold_store", pretty_key=?near_fmt::StorageKey(&key), "copying state node to colddb");
             rc_aware_set(&mut transaction, DBCol::State, key, value);
@@ -176,7 +210,7 @@ fn copy_state_from_store(
 /// Writes that transaction to cold_db.
 fn copy_from_store(
     cold_db: &ColdDB,
-    hot_store: &mut StoreWithCache,
+    hot_store: &Store,
     col: DBCol,
     keys: Vec<StoreKey>,
 ) -> io::Result<()> {
@@ -196,7 +230,7 @@ fn copy_from_store(
         // might speed things up.  Currently our Database abstraction
         // doesn’t offer interface for it so that would need to be
         // added.
-        let data = hot_store.get(col, &key)?;
+        let data = hot_store.get_for_cold(col, &key)?;
         if let Some(value) = data {
             // TODO: As an optimisation, we might consider breaking the
             // abstraction layer.  Since we’re always writing to cold database,
@@ -236,11 +270,11 @@ pub fn update_cold_head(
 ) -> io::Result<()> {
     tracing::debug!(target: "cold_store", "update HEAD of cold db to {}", height);
 
-    let mut store = StoreWithCache { store: hot_store, cache: StoreCache::new() };
-
     let height_key = height.to_le_bytes();
-    let block_hash_key = store.get_or_err(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
-    let tip_header = &store.get_ser_or_err::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
+    let block_hash_key =
+        hot_store.get_or_err_for_cold(DBCol::BlockHeight, &height_key)?.as_slice().to_vec();
+    let tip_header =
+        &hot_store.get_ser_or_err_for_cold::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)?;
     let tip = Tip::from_header(tip_header);
 
     // Write HEAD to the cold db.
@@ -306,7 +340,6 @@ pub fn copy_all_data_to_cold(
 // can be used to copy the genesis records from hot to cold.
 // TODO - How did copying from genesis worked in the prod migration to split storage?
 pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Result<()> {
-    let mut store_with_cache = StoreWithCache { store: hot_store, cache: StoreCache::new() };
     for col in DBCol::iter() {
         if !col.is_cold() {
             continue;
@@ -317,7 +350,7 @@ pub fn test_cold_genesis_update(cold_db: &ColdDB, hot_store: &Store) -> io::Resu
         // specialized `copy_state_from_store`.
         copy_from_store(
             cold_db,
-            &mut store_with_cache,
+            &hot_store,
             col,
             hot_store.iter(col).map(|x| x.unwrap().0.to_vec()).collect(),
         )?;
@@ -342,19 +375,19 @@ pub fn test_get_store_initial_writes(column: DBCol) -> u64 {
 /// For BlockHash it is just one key -- block hash of that height.
 /// But for TransactionHash, for example, it is all of the tx hashes in that block.
 fn get_keys_from_store(
-    store: &mut StoreWithCache,
+    store: &Store,
     shard_layout: &ShardLayout,
     height_key: &[u8],
     block_hash_key: &[u8],
 ) -> io::Result<HashMap<DBKeyType, Vec<StoreKey>>> {
     let mut key_type_to_keys = HashMap::new();
 
-    let block: Block = store.get_ser_or_err(DBCol::Block, &block_hash_key)?;
+    let block: Block = store.get_ser_or_err_for_cold(DBCol::Block, &block_hash_key)?;
     let chunks = block
         .chunks()
         .iter()
         .map(|chunk_header| {
-            store.get_ser_or_err(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
+            store.get_ser_or_err_for_cold(DBCol::Chunks, chunk_header.chunk_hash().as_bytes())
         })
         .collect::<io::Result<Vec<ShardChunk>>>()?;
 
@@ -386,7 +419,7 @@ fn get_keys_from_store(
                 // TODO: write StateChanges values to colddb directly, not to cache.
                 DBKeyType::TrieKey => {
                     let mut keys = vec![];
-                    store.iter_prefix_with_callback(
+                    store.iter_prefix_with_callback_for_cold(
                         DBCol::StateChanges,
                         &block_hash_key,
                         |full_key| {
@@ -497,65 +530,50 @@ where
     }
 }
 
-impl StoreWithCache<'_> {
-    pub fn iter_prefix_with_callback(
-        &mut self,
+impl ColdMigrationStore for Store {
+    fn iter_prefix_with_callback_for_cold(
+        &self,
         col: DBCol,
         key_prefix: &[u8],
         mut callback: impl FnMut(Box<[u8]>),
     ) -> io::Result<()> {
-        for iter_result in self.store.iter_prefix(col, key_prefix) {
-            let (key, value) = iter_result?;
-            self.cache.insert((col, key.to_vec()), Some(value.into()));
+        for iter_result in self.iter_prefix(col, key_prefix) {
+            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(col)]).inc();
+            let (key, _) = iter_result?;
             callback(key);
         }
         Ok(())
     }
 
-    pub fn get(&mut self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
-        if let hash_map::Entry::Vacant(e) = self.cache.entry((column, key.to_vec())) {
-            crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
-            e.insert(self.store.get(column, key)?.map(|x| x.as_slice().to_vec()));
-        }
-        Ok(self.cache[&(column, key.to_vec())].clone())
+    fn get_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<StoreValue> {
+        crate::metrics::COLD_MIGRATION_READS.with_label_values(&[<&str>::from(column)]).inc();
+        Ok(self.get(column, key)?.map(|x| x.as_slice().to_vec()))
     }
 
-    pub fn get_ser<T: BorshDeserialize>(
-        &mut self,
+    fn get_ser_for_cold<T: BorshDeserialize>(
+        &self,
         column: DBCol,
         key: &[u8],
     ) -> io::Result<Option<T>> {
-        match self.get(column, key)? {
+        match self.get_for_cold(column, key)? {
             Some(bytes) => Ok(Some(T::try_from_slice(&bytes)?)),
             None => Ok(None),
         }
     }
 
-    pub fn get_or_err(&mut self, column: DBCol, key: &[u8]) -> io::Result<Vec<u8>> {
-        option_to_not_found(self.get(column, key), format_args!("{:?}: {:?}", column, key))
+    fn get_or_err_for_cold(&self, column: DBCol, key: &[u8]) -> io::Result<Vec<u8>> {
+        option_to_not_found(self.get_for_cold(column, key), format_args!("{:?}: {:?}", column, key))
     }
 
-    pub fn get_ser_or_err<T: BorshDeserialize>(
-        &mut self,
+    fn get_ser_or_err_for_cold<T: BorshDeserialize>(
+        &self,
         column: DBCol,
         key: &[u8],
     ) -> io::Result<T> {
-        option_to_not_found(self.get_ser(column, key), format_args!("{:?}: {:?}", column, key))
-    }
-
-    pub fn insert_state_to_cache_from_op(
-        &mut self,
-        op: &TrieRefcountAddition,
-        shard_uid_key: &[u8],
-    ) {
-        debug_assert_eq!(
-            DBCol::State.key_type(),
-            &[DBKeyType::ShardUId, DBKeyType::TrieNodeOrValueHash]
-        );
-        self.cache.insert(
-            (DBCol::State, join_two_keys(shard_uid_key, op.hash().as_bytes())),
-            Some(op.payload().to_vec()),
-        );
+        option_to_not_found(
+            self.get_ser_for_cold(column, key),
+            format_args!("{:?}: {:?}", column, key),
+        )
     }
 }
 
