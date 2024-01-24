@@ -78,6 +78,8 @@ pub struct ChunkStateWitness {
 }
 
 impl ChunkStateWitness {
+    // TODO(stateless_validation): To be used only for creating state witness when previous chunk is genesis.
+    // Clean this up once we can properly handle creating state witness for genesis chunk.
     pub fn empty(chunk_header: ShardChunkHeader) -> Self {
         Self {
             chunk_header,

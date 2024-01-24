@@ -152,6 +152,14 @@ impl ChunkValidator {
             return Ok(Some(vec![]));
         }
 
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+
         // Get the chunk_endorsements for the chunk from our cache.
         // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
         // We can safely rely on the the following details
@@ -160,16 +168,13 @@ impl ChunkValidator {
         let Some(chunk_endorsements) = self.chunk_endorsements.peek(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_enforsements found in our cache.
-            return Ok(None);
+            // Special case when we are using MockEpochManagerAdapter and chunk_validator_assignments is an empty set
+            // In case we don't have any chunk validators, we return an empty array of chunk endorsements.
+            return Ok(chunk_validator_assignments
+                .ordered_chunk_validators()
+                .is_empty()
+                .then_some(vec![]));
         };
-
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-            &epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !chunk_validator_assignments
@@ -500,7 +505,9 @@ impl Client {
     /// Responds to a network request to verify a `ChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
     pub fn process_chunk_state_witness(&mut self, witness: ChunkStateWitness) -> Result<(), Error> {
-        // First chunk after genesis doesn't have to be endorsed.
+        // TODO(stateless_validation): Properly handle case for chunk right after genesis
+        // Context: We can not generate a state witness for the first chunk after genesis as it's not possible
+        // to run the genesis chunk in runtime. For now we just send an empty state witness
         if witness.chunk_header.prev_block_hash() == self.chain.genesis().hash() {
             let Some(signer) = self.validator_signer.as_ref() else {
                 return Err(Error::NotAChunkValidator);
@@ -711,7 +718,7 @@ impl Client {
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<ChunkStateWitness, Error> {
-        // Previous chunk is genesis chunk.
+        // TODO(stateless_validation): Previous chunk is genesis chunk. Properly handle creating state witness.
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
         }
