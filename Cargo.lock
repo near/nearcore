@@ -4023,6 +4023,7 @@ dependencies = [
  "rayon",
  "rlimit",
  "serde",
+ "sha2",
  "smart-default",
  "strum",
  "stun",

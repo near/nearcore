@@ -45,16 +45,9 @@ pub struct ReshardingResult {
     pub(crate) results: Vec<ApplyResultForResharding>,
 }
 
-/// Result of processing shard update.
-#[derive(Debug)]
-pub enum ShardUpdateResult {
-    /// Stateful scenario - processed update for a single block.
-    Stateful(ShardBlockUpdateResult),
-}
-
 /// Result for a shard update for a single block.
 #[derive(Debug)]
-pub enum ShardBlockUpdateResult {
+pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
     Resharding(ReshardingResult),
@@ -132,25 +125,29 @@ pub(crate) fn process_shard_update(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
-) -> Result<ShardBlockUpdateResult, Error> {
+) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
-        ShardUpdateReason::NewChunk(data) => ShardBlockUpdateResult::NewChunk(apply_new_chunk(
+        ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
             parent_span,
             data,
             shard_context,
             runtime,
             epoch_manager,
         )?),
-        ShardUpdateReason::OldChunk(data) => ShardBlockUpdateResult::OldChunk(apply_old_chunk(
+        ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
             parent_span,
             data,
             shard_context,
             runtime,
             epoch_manager,
         )?),
-        ShardUpdateReason::Resharding(data) => ShardBlockUpdateResult::Resharding(
-            apply_resharding(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)?,
-        ),
+        ShardUpdateReason::Resharding(data) => ShardUpdateResult::Resharding(apply_resharding(
+            parent_span,
+            data,
+            shard_context.shard_uid,
+            runtime,
+            epoch_manager,
+        )?),
     })
 }
 
