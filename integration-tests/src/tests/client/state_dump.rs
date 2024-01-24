@@ -4,7 +4,7 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis};
-use near_client::sync::external::external_storage_location;
+use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -95,8 +95,7 @@ fn test_state_dump() {
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("Missing {:?}", path);
@@ -268,8 +267,7 @@ fn run_state_sync_with_dumped_parts(
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("dumping node: Missing {:?}", path);

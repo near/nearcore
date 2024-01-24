@@ -1029,15 +1029,6 @@ impl Chain {
             }
         }
 
-        // Check that block has chunk endorsements.
-        if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
-            // TODO(shreyan): Enable this in next PR once we start adding chunk endorsements.
-            // if block.chunk_endorsements().is_empty() {
-            //     tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
-            //     return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            // }
-        }
-
         // Verify the signature. Since the signature is signed on the hash of block header, this check
         // makes sure the block header content is not tampered
         if !self.epoch_manager.verify_header_signature(block.header())? {
@@ -1887,7 +1878,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -3231,6 +3222,9 @@ impl Chain {
         me: &Option<AccountId>,
         block_header: &BlockHeader,
     ) -> Result<bool, Error> {
+        if cfg!(feature = "shadow_chunk_validation") {
+            return Ok(true);
+        }
         let epoch_id = block_header.epoch_id();
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
@@ -3490,13 +3484,13 @@ impl Chain {
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
-                Ok(ShardUpdateResult::Stateful(process_shard_update(
+                Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
-                )?))
+                )?)
             }),
         )))
     }
@@ -4137,16 +4131,15 @@ impl Chain {
         Ok(headers)
     }
 
-    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
-    /// a chunk in the block after `prev_block`
+    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block`.
+    /// from `prev_block` in cases of resharding.
     /// In block production and processing, often we need to get the previous chunks of chunks
     /// in the current block, this function provides a way to do so while handling sharding changes
     /// correctly.
     /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
+    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
         epoch_manager: &dyn EpochManagerAdapter,

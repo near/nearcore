@@ -523,6 +523,11 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
 
+        self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            &head.last_block_hash,
+            &mut self.chunk_validator,
+        )?;
+
         self.produce_block_on(height, head.last_block_hash)
     }
 
@@ -592,7 +597,7 @@ impl Client {
             prev_height=prev.height(),
             prev_hash=format_hash(prev_hash),
             new_chunks_count=new_chunks.len(),
-            new_chunks=?new_chunks.keys().sorted().collect_vec(),
+            new_chunks=?new_chunks.values().collect_vec(),
             "Producing block",
         );
 
@@ -669,7 +674,9 @@ impl Client {
         let block_ordinal: NumBlocks = block_merkle_tree.size() + 1;
         let prev_block_extra = self.chain.get_block_extra(&prev_hash)?;
         let prev_block = self.chain.get_block(&prev_hash)?;
-        let mut chunks = Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let mut chunk_headers =
+            Chain::get_prev_chunk_headers(self.epoch_manager.as_ref(), &prev_block)?;
+        let mut chunk_endorsements = vec![vec![]; chunk_headers.len()];
 
         // Add debug information about the block production (and info on when did the chunks arrive).
         self.block_production_info.record_block_production(
@@ -677,16 +684,20 @@ impl Client {
             BlockProductionTracker::construct_chunk_collection_info(
                 height,
                 &epoch_id,
-                chunks.len() as ShardId,
+                chunk_headers.len() as ShardId,
                 &new_chunks,
                 self.epoch_manager.as_ref(),
+                &self.chunk_inclusion_tracker,
             )?,
         );
 
-        // Collect new chunks.
-        for (shard_id, (mut chunk_header, _, _)) in new_chunks {
+        // Collect new chunk headers and endorsements.
+        for (shard_id, chunk_hash) in new_chunks {
+            let (mut chunk_header, chunk_endorsement) =
+                self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
-            chunks[shard_id as usize] = chunk_header;
+            chunk_headers[shard_id as usize] = chunk_header;
+            chunk_endorsements[shard_id as usize] = chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -723,8 +734,8 @@ impl Client {
             prev_header,
             height,
             block_ordinal,
-            chunks,
-            vec![],
+            chunk_headers,
+            chunk_endorsements,
             epoch_id,
             next_epoch_id,
             epoch_sync_data_hash,
@@ -1587,6 +1598,14 @@ impl Client {
                 info!(target: "client", "not producing a chunk");
             }
         }
+        if let Err(err) = self.shadow_validate_block_chunks(&block) {
+            tracing::error!(
+                target: "client",
+                ?err,
+                block_hash = ?block.hash(),
+                "block chunks shadow validation failed"
+            );
+        }
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
@@ -1707,7 +1726,7 @@ impl Client {
                         .expect("Failed to process produced chunk");
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
-                        last_header,
+                        &last_header,
                         &shard_chunk,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");

@@ -1,5 +1,6 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
+use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::ClientActor;
 use actix::{Context, Handler};
 
@@ -31,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
-use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
@@ -118,15 +119,18 @@ impl BlockProductionTracker {
         block_height: BlockHeight,
         epoch_id: &EpochId,
         num_shards: ShardId,
-        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
+        new_chunks: &HashMap<ShardId, ChunkHash>,
         epoch_manager: &dyn EpochManagerAdapter,
+        chunk_inclusion_tracker: &ChunkInclusionTracker,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
-            if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
+            if let Some(chunk_hash) = new_chunks.get(&shard_id) {
+                let (chunk_producer, received_time) =
+                    chunk_inclusion_tracker.get_chunk_producer_and_received_time(chunk_hash)?;
                 chunk_collection_info.push(ChunkCollection {
-                    chunk_producer: chunk_producer.clone(),
-                    received_time: Some(*chunk_time),
+                    chunk_producer,
+                    received_time: Some(received_time),
                     chunk_included: true,
                 });
             } else {
