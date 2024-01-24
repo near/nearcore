@@ -225,7 +225,7 @@ pub struct BlockDebugStatus {
 
 pub struct ProduceChunkResult {
     pub chunk: EncodedShardChunk,
-    pub merkle_paths: Vec<MerklePath>,
+    pub encoded_chunk_parts_paths: Vec<MerklePath>,
     pub receipts: Vec<Receipt>,
     pub transactions_storage_proof: Option<PartialState>,
 }
@@ -883,7 +883,7 @@ impl Client {
 
         Ok(Some(ProduceChunkResult {
             chunk: encoded_chunk,
-            merkle_paths,
+            encoded_chunk_parts_paths: merkle_paths,
             receipts: outgoing_receipts,
             transactions_storage_proof: prepared_transactions.storage_proof,
         }))
@@ -1737,7 +1737,7 @@ impl Client {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
                             result.chunk,
-                            result.merkle_paths,
+                            result.encoded_chunk_parts_paths,
                             result.receipts,
                             validator_id.clone(),
                         )

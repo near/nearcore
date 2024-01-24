@@ -1280,8 +1280,12 @@ fn test_bad_chunk_mask() {
         let block_producer = (height % 2) as usize;
         let chunk_producer = ((height + 1) % 2) as usize;
 
-        let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
-            create_chunk_on_height(&mut clients[chunk_producer], height);
+        let ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            ..
+        } = create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
             client
                 .persist_and_distribute_encoded_chunk(
@@ -2846,8 +2850,12 @@ fn test_epoch_protocol_version_change() {
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer == "test0" { 0 } else { 1 };
-        let ProduceChunkResult { chunk: encoded_chunk, merkle_paths, receipts, .. } =
-            create_chunk_on_height(&mut env.clients[index], i);
+        let ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            ..
+        } = create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
             let validator_id =

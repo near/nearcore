@@ -18,7 +18,6 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -799,13 +798,10 @@ impl RuntimeAdapter for NightshadeRuntime {
                 result.limited_by = Some(PrepareTransactionsLimit::ReceiptCount);
                 break;
             }
-            // With Stateless Validation we want prepare_transactions to be deterministic.
-            if !checked_feature!("stable", ChunkValidation, current_protocol_version) {
-                if let Some(time_limit) = &time_limit {
-                    if start_time.elapsed() >= *time_limit {
-                        result.limited_by = Some(PrepareTransactionsLimit::Time);
-                        break;
-                    }
+            if let Some(time_limit) = &time_limit {
+                if start_time.elapsed() >= *time_limit {
+                    result.limited_by = Some(PrepareTransactionsLimit::Time);
+                    break;
                 }
             }
 

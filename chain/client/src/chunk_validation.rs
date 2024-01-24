@@ -267,23 +267,15 @@ fn pre_validate_chunk_state_witness(
         )));
     }
 
-    let block = Chain::get_apply_chunk_block_context(
-        epoch_manager,
-        last_chunk_block.header(),
-        &store.get_previous_header(last_chunk_block.header())?,
-        true,
-    )?;
-    let epoch_id = epoch_manager.get_epoch_id(&block.block_hash)?;
-    let chunk_header = last_chunk_block.chunks().get(shard_id as usize).unwrap().clone();
-    let new_transactions = &state_witness.new_transactions;
-
     // Verify that all proposed transactions are valid.
+    let new_transactions = &state_witness.new_transactions;
     if !new_transactions.is_empty() {
-        let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-        let chunk_extra =
-            chain.get_chunk_extra(&*state_witness.chunk_header.prev_block_hash(), &shard_uid)?;
+        let epoch_id = epoch_manager
+            .get_epoch_id_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
+        let parent_block = store.get_block(state_witness.chunk_header.prev_block_hash())?;
+
         let transactions_validation_storage_config = RuntimeStorageConfig {
-            state_root: *chunk_extra.state_root(),
+            state_root: state_witness.chunk_header.prev_state_root(),
             use_flat_storage: true,
             source: StorageDataSource::Recorded(PartialStorage {
                 nodes: state_witness.new_transactions_validation_state.clone(),
@@ -293,12 +285,12 @@ fn pre_validate_chunk_state_witness(
         };
 
         match runtime_adapter.prepare_transactions(
-            block.gas_price,
-            chunk_header.gas_limit(),
+            parent_block.header().next_gas_price(),
+            state_witness.chunk_header.gas_limit(),
             &epoch_id,
             shard_id,
             transactions_validation_storage_config,
-            block.height + 1,
+            parent_block.header().height() + 1,
             &mut TransactionGroupIteratorWrapper::new(&new_transactions),
             &mut |tx: &SignedTransaction| -> bool {
                 store
@@ -332,11 +324,16 @@ fn pre_validate_chunk_state_witness(
 
     Ok(PreValidationOutput {
         main_transition_params: NewChunkData {
-            chunk_header,
+            chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
             resharding_state_roots: None,
-            block,
+            block: Chain::get_apply_chunk_block_context(
+                epoch_manager,
+                last_chunk_block.header(),
+                &store.get_previous_header(last_chunk_block.header())?,
+                true,
+            )?,
             is_first_block_with_chunk_of_version: false,
             storage_context: StorageContext {
                 storage_data_source: StorageDataSource::Recorded(PartialStorage {

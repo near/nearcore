@@ -1556,6 +1556,35 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     (env, chain, transaction_pool)
 }
 
+fn prepare_transactions(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    config: RuntimeStorageConfig,
+) -> Result<PreparedTransactions, Error> {
+    env.runtime.prepare_transactions(
+        env.runtime.genesis_config.min_gas_price,
+        env.runtime.genesis_config.gas_limit,
+        &env.head.epoch_id,
+        0,
+        config,
+        env.head.height + 1,
+        transaction_groups,
+        &mut |tx: &SignedTransaction| -> bool {
+            chain
+                .chain_store()
+                .check_transaction_validity_period(
+                    &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
+                    &tx.transaction.block_hash,
+                    chain.transaction_validity_period,
+                )
+                .is_ok()
+        },
+        PROTOCOL_VERSION,
+        default_produce_chunk_add_transactions_time_limit(),
+    )
+}
+
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
@@ -1570,30 +1599,13 @@ fn test_prepare_transactions_storage_proof() {
         record_storage: true,
     };
 
-    let proposed_transactions = env
-        .runtime
-        .prepare_transactions(
-            env.runtime.genesis_config.min_gas_price,
-            env.runtime.genesis_config.gas_limit,
-            &env.head.epoch_id,
-            0,
-            storage_config,
-            env.head.height + 1,
-            &mut PoolIteratorWrapper::new(&mut transaction_pool),
-            &mut |tx: &SignedTransaction| -> bool {
-                chain
-                    .chain_store()
-                    .check_transaction_validity_period(
-                        &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
-                        &tx.transaction.block_hash,
-                        chain.transaction_validity_period,
-                    )
-                    .is_ok()
-            },
-            PROTOCOL_VERSION,
-            default_produce_chunk_add_transactions_time_limit(),
-        )
-        .unwrap();
+    let proposed_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        storage_config,
+    )
+    .unwrap();
 
     assert_eq!(proposed_transactions.transactions.len(), transactions_count);
     assert!(proposed_transactions.storage_proof.is_some());
@@ -1608,30 +1620,13 @@ fn test_prepare_transactions_storage_proof() {
         record_storage: false,
     };
 
-    let validated_transactions = env
-        .runtime
-        .prepare_transactions(
-            env.runtime.genesis_config.min_gas_price,
-            env.runtime.genesis_config.gas_limit,
-            &env.head.epoch_id,
-            0,
-            validator_storage_config,
-            env.head.height + 1,
-            &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
-            &mut |tx: &SignedTransaction| -> bool {
-                chain
-                    .chain_store()
-                    .check_transaction_validity_period(
-                        &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
-                        &tx.transaction.block_hash,
-                        chain.transaction_validity_period,
-                    )
-                    .is_ok()
-            },
-            PROTOCOL_VERSION,
-            default_produce_chunk_add_transactions_time_limit(),
-        )
-        .unwrap();
+    let validated_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        validator_storage_config,
+    )
+    .unwrap();
 
     assert_eq!(validated_transactions.transactions, proposed_transactions.transactions);
 }
@@ -1650,30 +1645,13 @@ fn test_prepare_transactions_empty_storage_proof() {
         record_storage: true,
     };
 
-    let proposed_transactions = env
-        .runtime
-        .prepare_transactions(
-            env.runtime.genesis_config.min_gas_price,
-            env.runtime.genesis_config.gas_limit,
-            &env.head.epoch_id,
-            0,
-            storage_config,
-            env.head.height + 1,
-            &mut PoolIteratorWrapper::new(&mut transaction_pool),
-            &mut |tx: &SignedTransaction| -> bool {
-                chain
-                    .chain_store()
-                    .check_transaction_validity_period(
-                        &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
-                        &tx.transaction.block_hash,
-                        chain.transaction_validity_period,
-                    )
-                    .is_ok()
-            },
-            PROTOCOL_VERSION,
-            default_produce_chunk_add_transactions_time_limit(),
-        )
-        .unwrap();
+    let proposed_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        storage_config,
+    )
+    .unwrap();
 
     assert_eq!(proposed_transactions.transactions.len(), transactions_count);
     assert!(proposed_transactions.storage_proof.is_some());
@@ -1688,26 +1666,11 @@ fn test_prepare_transactions_empty_storage_proof() {
         record_storage: false,
     };
 
-    let validation_result = env.runtime.prepare_transactions(
-        env.runtime.genesis_config.min_gas_price,
-        env.runtime.genesis_config.gas_limit,
-        &env.head.epoch_id,
-        0,
+    let validation_result = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
         validator_storage_config,
-        env.head.height + 1,
-        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
-        &mut |tx: &SignedTransaction| -> bool {
-            chain
-                .chain_store()
-                .check_transaction_validity_period(
-                    &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
-                    &tx.transaction.block_hash,
-                    chain.transaction_validity_period,
-                )
-                .is_ok()
-        },
-        PROTOCOL_VERSION,
-        default_produce_chunk_add_transactions_time_limit(),
     );
 
     assert!(validation_result.is_err());
