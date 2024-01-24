@@ -254,10 +254,6 @@ impl ChainGenesis {
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
-    /// Trie is present in DB and flat storage is not.
-    /// Used for testing stateless validation jobs, should be removed after
-    /// stateless validation release.
-    DbTrieOnly,
     /// State data is supplied from state witness, there is no state data
     /// stored on disk.
     Recorded(PartialStorage),

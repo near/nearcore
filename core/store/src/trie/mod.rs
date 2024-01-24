@@ -648,11 +648,6 @@ impl Trie {
         }
     }
 
-    /// Temporary helper, must be removed after stateless validation release.
-    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
-        self.charge_gas_for_trie_node_access = false;
-    }
-
     /// Makes a new trie that has everything the same except that access
     /// through that trie accumulates a state proof for all nodes accessed.
     pub fn recording_reads(&self) -> Self {
