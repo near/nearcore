@@ -3461,7 +3461,6 @@ impl Chain {
         )))
     }
 
-<<<<<<< HEAD
     /// Gets range of block and shard contexts for blocks between two
     /// consecutive chunks for given `shard_id`.
     /// One chunk is represented by `chunk_prev_hash`.
