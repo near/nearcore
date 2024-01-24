@@ -5,8 +5,8 @@ use near_chain::chain::{
     ShardContext, StorageContext,
 };
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, Chain, ChainStoreAccess};
@@ -198,6 +198,43 @@ impl ChunkValidator {
     }
 }
 
+/// Checks that proposed `transactions` are valid for a chunk with `chunk_header`.
+/// Uses `storage_config` to possibly record reads or use recorded storage.
+fn validate_prepared_transactions(
+    chain: &Chain,
+    epoch_manager: &dyn EpochManagerAdapter,
+    runtime_adapter: &dyn RuntimeAdapter,
+    chunk_header: &ShardChunkHeader,
+    storage_config: RuntimeStorageConfig,
+    transactions: &[SignedTransaction],
+) -> Result<PreparedTransactions, Error> {
+    let store = chain.chain_store();
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+    let parent_block = store.get_block(chunk_header.prev_block_hash())?;
+    let parent_block_header = parent_block.header();
+
+    runtime_adapter.prepare_transactions(
+        parent_block_header.next_gas_price(),
+        chunk_header.gas_limit(),
+        &epoch_id,
+        chunk_header.shard_id(),
+        storage_config,
+        parent_block_header.height() + 1,
+        &mut TransactionGroupIteratorWrapper::new(transactions),
+        &mut |tx: &SignedTransaction| -> bool {
+            store
+                .check_transaction_validity_period(
+                    parent_block_header,
+                    &tx.transaction.block_hash,
+                    chain.transaction_validity_period,
+                )
+                .is_ok()
+        },
+        epoch_manager.get_epoch_protocol_version(&epoch_id)?,
+        None,
+    )
+}
+
 /// Pre-validates the chunk's receipts and transactions against the chain.
 /// We do this before handing off the computationally intensive part to a
 /// validation thread.
@@ -315,10 +352,6 @@ fn pre_validate_chunk_state_witness(
     // Verify that all proposed transactions are valid.
     let new_transactions = &state_witness.new_transactions;
     if !new_transactions.is_empty() {
-        let epoch_id = epoch_manager
-            .get_epoch_id_from_prev_block(state_witness.chunk_header.prev_block_hash())?;
-        let parent_block = store.get_block(state_witness.chunk_header.prev_block_hash())?;
-
         let transactions_validation_storage_config = RuntimeStorageConfig {
             state_root: state_witness.chunk_header.prev_state_root(),
             use_flat_storage: true,
@@ -329,25 +362,13 @@ fn pre_validate_chunk_state_witness(
             record_storage: false,
         };
 
-        match runtime_adapter.prepare_transactions(
-            parent_block.header().next_gas_price(),
-            state_witness.chunk_header.gas_limit(),
-            &epoch_id,
-            shard_id,
+        match validate_prepared_transactions(
+            chain,
+            epoch_manager,
+            runtime_adapter,
+            &state_witness.chunk_header,
             transactions_validation_storage_config,
-            parent_block.header().height() + 1,
-            &mut TransactionGroupIteratorWrapper::new(&new_transactions),
-            &mut |tx: &SignedTransaction| -> bool {
-                store
-                    .check_transaction_validity_period(
-                        parent_block.header(),
-                        &tx.transaction.block_hash,
-                        chain.transaction_validity_period,
-                    )
-                    .is_ok()
-            },
-            epoch_manager.get_epoch_protocol_version(&epoch_id)?,
-            None,
+            &new_transactions,
         ) {
             Ok(result) => {
                 if result.transactions.len() != new_transactions.len() {
@@ -707,7 +728,35 @@ impl Client {
     ) -> Result<(), Error> {
         let shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
-        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk, None)? else {
+        let chunk_header = chunk.cloned_header();
+
+        let transactions_validation_storage_config = RuntimeStorageConfig {
+            state_root: chunk_header.prev_state_root(),
+            use_flat_storage: true,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+            record_storage: true,
+        };
+
+        let Ok(validated_transactions) = validate_prepared_transactions(
+            &self.chain,
+            self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
+            &chunk_header,
+            transactions_validation_storage_config,
+            chunk.transactions(),
+        ) else {
+            return Err(Error::Other(
+                "Could not produce storage proof for new transactions".to_owned(),
+            ));
+        };
+
+        let Some(witness) = self.create_state_witness(
+            prev_chunk_header,
+            chunk,
+            validated_transactions.storage_proof,
+        )?
+        else {
             return Err(Error::Other("State witness is None".to_owned()));
         };
         let witness_size = borsh::to_vec(&witness)?.len();
