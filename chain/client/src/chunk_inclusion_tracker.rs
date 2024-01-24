@@ -143,9 +143,9 @@ impl ChunkInclusionTracker {
         &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-    ) -> Result<HashMap<ShardId, ChunkHash>, Error> {
+    ) -> HashMap<ShardId, ChunkHash> {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
-            return Ok(HashMap::new());
+            return HashMap::new();
         };
 
         let mut chunk_headers_ready_for_inclusion = HashMap::new();
@@ -160,7 +160,7 @@ impl ChunkInclusionTracker {
                 chunk_headers_ready_for_inclusion.insert(*shard_id, chunk_hash.clone());
             }
         }
-        Ok(chunk_headers_ready_for_inclusion)
+        chunk_headers_ready_for_inclusion
     }
 
     pub fn num_chunk_headers_ready_for_inclusion(
@@ -168,8 +168,7 @@ impl ChunkInclusionTracker {
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
     ) -> usize {
-        self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash)
-            .map_or(0, |chunks| chunks.len())
+        self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash).len()
     }
 
     pub fn get_banned_chunk_producers(&self) -> Vec<(EpochId, Vec<AccountId>)> {

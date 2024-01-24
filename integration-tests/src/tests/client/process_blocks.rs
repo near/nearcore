@@ -2386,14 +2386,11 @@ fn test_validate_chunk_extra() {
     env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
     let chunks = {
         let client = &mut env.clients[0];
-        client
-            .chunk_inclusion_tracker
-            .get_chunk_headers_ready_for_inclusion(
-                block1.header().epoch_id(),
-                &block1.hash(),
-                &mut client.chunk_validator,
-            )
-            .unwrap()
+        client.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
+            block1.header().epoch_id(),
+            &block1.hash(),
+            &mut client.chunk_validator,
+        )
     };
     let chunk_header =
         env.clients[0].chunk_inclusion_tracker.chunk_header(chunks.get(&0).unwrap()).unwrap();

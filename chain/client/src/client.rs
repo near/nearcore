@@ -589,7 +589,7 @@ impl Client {
 
         let new_chunks = self
             .chunk_inclusion_tracker
-            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash)?;
+            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash);
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
