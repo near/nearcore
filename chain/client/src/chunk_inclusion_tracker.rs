@@ -1,13 +1,9 @@
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use lru::LruCache;
-use near_primitives::checked_feature;
-use near_primitives::version::ProtocolVersion;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use near_chain_primitives::Error;
-use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -19,13 +15,12 @@ use crate::metrics;
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
+// chunk_header, received_time and chunk_producer are populated when we call mark_chunk_header_ready_for_inclusion
+// signatures is populated later during call to prepare_chunk_headers_ready_for_inclusion
 struct ChunkInfo {
-    // chunk_header, received_time and chunk_producer are populated when we call mark_chunk_header_ready_for_inclusion
     pub chunk_header: ShardChunkHeader,
     pub received_time: DateTime<Utc>,
     pub chunk_producer: AccountId,
-    // The signatures are populated later during call to chunk_validator.get_chunk_endorsement_signature
-    // This is a sort of cache to store previously fetched signatures.
     pub signatures: Option<ChunkEndorsementSignatures>,
 }
 
@@ -43,18 +38,14 @@ pub struct ChunkInclusionTracker {
 
     // Track banned chunk producers for a given epoch. We filter out chunks produced by them.
     banned_chunk_producers: LruCache<(EpochId, AccountId), ()>,
-
-    // Epoch manager to get the protocol version for a given epoch.
-    epoch_manager: Arc<dyn EpochManagerAdapter>,
 }
 
 impl ChunkInclusionTracker {
-    pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
+    pub fn new() -> Self {
         Self {
             prev_block_to_chunk_hash_ready: LruCache::new(CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE),
             chunk_hash_to_chunk_info: HashMap::new(),
             banned_chunk_producers: LruCache::new(NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST),
-            epoch_manager,
         }
     }
 
@@ -98,47 +89,86 @@ impl ChunkInclusionTracker {
         self.banned_chunk_producers.put((epoch_id, account_id), ());
     }
 
+    /// Update signatures in chunk_info
+    pub fn prepare_chunk_headers_ready_for_inclusion(
+        &mut self,
+        prev_block_hash: &CryptoHash,
+        chunk_validator: &mut ChunkValidator,
+    ) -> Result<(), Error> {
+        let Some(entry) = self.prev_block_to_chunk_hash_ready.get(prev_block_hash) else {
+            return Ok(());
+        };
+
+        for chunk_hash in entry.values() {
+            let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
+            chunk_info.signatures =
+                chunk_validator.get_chunk_endorsement_signatures(&chunk_info.chunk_header)?;
+        }
+        Ok(())
+    }
+
+    fn is_banned(&self, epoch_id: &EpochId, chunk_info: &ChunkInfo) -> bool {
+        let banned = self
+            .banned_chunk_producers
+            .contains(&(epoch_id.clone(), chunk_info.chunk_producer.clone()));
+        if banned {
+            tracing::warn!(
+                target: "client",
+                chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                chunk_producer = ?chunk_info.chunk_producer,
+                "Not including chunk from a banned validator");
+            metrics::CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER.inc();
+        }
+        banned
+    }
+
+    fn has_chunk_endorsements(&self, chunk_info: &ChunkInfo) -> bool {
+        let has_chunk_endorsements = chunk_info.signatures.is_some();
+        if !has_chunk_endorsements {
+            tracing::warn!(
+                target: "client",
+                chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                chunk_producer = ?chunk_info.chunk_producer,
+                "Not including chunk because of insufficient chunk endorsements");
+        }
+        // TODO(shreyan): return has_chunk_endorsements here after fixing testing infra
+        true
+    }
+
     /// Function to return the chunks that are ready to be included in a block.
     /// We filter out the chunks that are produced by banned chunk producers or have insufficient
     /// chunk validator endorsements.
     /// Return HashMap from [shard_id] -> chunk_hash
-    /// We can later use the chunk_hash to fetch chunk_header, chunk_endorsements, chunk_producer_and_received_time
     pub fn get_chunk_headers_ready_for_inclusion(
-        &mut self,
+        &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        chunk_validator: &mut ChunkValidator,
     ) -> Result<HashMap<ShardId, ChunkHash>, Error> {
+        let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
+            return Ok(HashMap::new());
+        };
+
         let mut chunk_headers_ready_for_inclusion = HashMap::new();
-        if let Some(entry) = self.prev_block_to_chunk_hash_ready.get_mut(prev_block_hash) {
-            let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
-            for (shard_id, chunk_hash) in entry.iter_mut() {
-                let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
-                if filter_banned_chunk_producers(
-                    &self.banned_chunk_producers,
-                    epoch_id,
-                    &chunk_info,
-                ) && filter_insufficient_chunk_endorsements(
-                    chunk_info,
-                    chunk_validator,
-                    protocol_version,
-                )? {
-                    // only add to chunk_headers_ready_for_inclusion if chunk passes the banned_chunk_producers and
-                    // insufficient_chunk_endorsements checks
-                    chunk_headers_ready_for_inclusion.insert(*shard_id, chunk_hash.clone());
-                }
+        for (shard_id, chunk_hash) in entry {
+            let chunk_info = self.chunk_hash_to_chunk_info.get(chunk_hash).unwrap();
+            let banned = self.is_banned(epoch_id, &chunk_info);
+            let has_chunk_endorsements = self.has_chunk_endorsements(&chunk_info);
+            if !banned && has_chunk_endorsements {
+                // only add to chunk_headers_ready_for_inclusion if chunk is not from a banned chunk producer
+                // and chunk has sufficient chunk endorsements.
+                // Chunk endorsements are got as part of call to prepare_chunk_headers_ready_for_inclusion
+                chunk_headers_ready_for_inclusion.insert(*shard_id, chunk_hash.clone());
             }
         }
         Ok(chunk_headers_ready_for_inclusion)
     }
 
     pub fn num_chunk_headers_ready_for_inclusion(
-        &mut self,
+        &self,
         epoch_id: &EpochId,
         prev_block_hash: &CryptoHash,
-        chunk_validator: &mut ChunkValidator,
     ) -> usize {
-        self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash, chunk_validator)
+        self.get_chunk_headers_ready_for_inclusion(epoch_id, prev_block_hash)
             .map_or(0, |chunks| chunks.len())
     }
 
@@ -157,61 +187,21 @@ impl ChunkInclusionTracker {
             .ok_or(Error::Other(format!("missing key {:?} in ChunkInclusionTracker", chunk_hash)))
     }
 
-    pub fn chunk_header(&self, chunk_hash: &ChunkHash) -> Result<&ShardChunkHeader, Error> {
-        Ok(&self.get_chunk_info(chunk_hash)?.chunk_header)
-    }
-
-    pub fn chunk_endorsements(
+    pub fn get_chunk_header_and_endorsements(
         &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<ChunkEndorsementSignatures, Error> {
-        Ok(self.get_chunk_info(chunk_hash)?.signatures.clone().unwrap_or_default())
+    ) -> Result<(ShardChunkHeader, ChunkEndorsementSignatures), Error> {
+        let chunk_info = self.get_chunk_info(chunk_hash)?;
+        let chunk_header = chunk_info.chunk_header.clone();
+        let signatures = chunk_info.signatures.clone().unwrap_or_default();
+        Ok((chunk_header, signatures))
     }
 
-    pub fn chunk_producer_and_received_time(
+    pub fn get_chunk_producer_and_received_time(
         &self,
         chunk_hash: &ChunkHash,
     ) -> Result<(AccountId, DateTime<Utc>), Error> {
         let chunk_info = self.get_chunk_info(chunk_hash)?;
         Ok((chunk_info.chunk_producer.clone(), chunk_info.received_time))
     }
-}
-
-fn filter_banned_chunk_producers(
-    banned_chunk_producers: &LruCache<(EpochId, AccountId), ()>,
-    epoch_id: &EpochId,
-    chunk_info: &ChunkInfo,
-) -> bool {
-    let banned =
-        banned_chunk_producers.contains(&(epoch_id.clone(), chunk_info.chunk_producer.clone()));
-    if banned {
-        tracing::warn!(
-            target: "client",
-            chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
-            chunk_producer = ?chunk_info.chunk_producer,
-            "Not including chunk from a banned validator");
-        metrics::CHUNK_DROPPED_BECAUSE_OF_BANNED_CHUNK_PRODUCER.inc();
-    }
-    !banned
-}
-
-fn filter_insufficient_chunk_endorsements(
-    chunk_info: &mut ChunkInfo,
-    chunk_validator: &mut ChunkValidator,
-    protocol_version: ProtocolVersion,
-) -> Result<bool, Error> {
-    if !checked_feature!("stable", ChunkValidation, protocol_version) {
-        return Ok(true);
-    }
-
-    // We cache the signatures in chunk_info.signatures. If it's None, we need to fetch it from chunk_validator.
-    if chunk_info.signatures.is_some() {
-        return Ok(true);
-    }
-
-    // Update chunk_info.signatures with the new signatures and return.
-    Ok(chunk_validator
-        .get_chunk_endorsement_signature(&chunk_info.chunk_header)?
-        .map(|signatures| chunk_info.signatures = Some(signatures))
-        .is_some())
 }

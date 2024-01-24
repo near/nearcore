@@ -127,7 +127,7 @@ impl BlockProductionTracker {
         for shard_id in 0..num_shards {
             if let Some(chunk_hash) = new_chunks.get(&shard_id) {
                 let (chunk_producer, received_time) =
-                    chunk_inclusion_tracker.chunk_producer_and_received_time(chunk_hash)?;
+                    chunk_inclusion_tracker.get_chunk_producer_and_received_time(chunk_hash)?;
                 chunk_collection_info.push(ChunkCollection {
                     chunk_producer,
                     received_time: Some(received_time),

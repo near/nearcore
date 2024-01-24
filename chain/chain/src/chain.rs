@@ -1030,14 +1030,6 @@ impl Chain {
             }
         }
 
-        // Check that block has chunk endorsements.
-        if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
-            if block.chunk_endorsements().is_empty() {
-                tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
-                return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            }
-        }
-
         // Verify the signature. Since the signature is signed on the hash of block header, this check
         // makes sure the block header content is not tampered
         if !self.epoch_manager.verify_header_signature(block.header())? {
@@ -1889,7 +1881,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,

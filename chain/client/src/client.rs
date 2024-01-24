@@ -335,7 +335,6 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
         );
-        let chunk_inclusion_tracker = ChunkInclusionTracker::new(epoch_manager.clone());
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -373,7 +372,7 @@ impl Client {
             flat_storage_creator,
             last_time_sync_block_requested: None,
             chunk_validator,
-            chunk_inclusion_tracker,
+            chunk_inclusion_tracker: ChunkInclusionTracker::new(),
         })
     }
 
@@ -524,6 +523,11 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
 
+        self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+            &head.last_block_hash,
+            &mut self.chunk_validator,
+        )?;
+
         self.produce_block_on(height, head.last_block_hash)
     }
 
@@ -583,12 +587,9 @@ impl Client {
             }
         }
 
-        let new_chunks = self.chunk_inclusion_tracker.get_chunk_headers_ready_for_inclusion(
-            &epoch_id,
-            &prev_hash,
-            &mut self.chunk_validator,
-        )?;
-
+        let new_chunks = self
+            .chunk_inclusion_tracker
+            .get_chunk_headers_ready_for_inclusion(&epoch_id, &prev_hash)?;
         debug!(
             target: "client",
             validator=?validator_signer.validator_id(),
@@ -694,8 +695,8 @@ impl Client {
 
         // Collect new chunk headers and endorsements.
         for (shard_id, chunk_hash) in new_chunks {
-            let mut chunk_header = self.chunk_inclusion_tracker.chunk_header(&chunk_hash)?.clone();
-            let chunk_endorsement = self.chunk_inclusion_tracker.chunk_endorsements(&chunk_hash)?;
+            let (mut chunk_header, chunk_endorsement) =
+                self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
             chunk_headers[shard_id as usize] = chunk_header;
             chunk_endorsements[shard_id as usize] = chunk_endorsement;

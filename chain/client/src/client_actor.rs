@@ -1063,12 +1063,14 @@ impl ClientActor {
                 self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
-                let num_chunks =
-                    self.client.chunk_inclusion_tracker.num_chunk_headers_ready_for_inclusion(
-                        &epoch_id,
-                        &head.last_block_hash,
-                        &mut self.client.chunk_validator,
-                    );
+                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                    &head.last_block_hash,
+                    &mut self.client.chunk_validator,
+                )?;
+                let num_chunks = self
+                    .client
+                    .chunk_inclusion_tracker
+                    .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
 
