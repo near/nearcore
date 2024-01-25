@@ -342,7 +342,7 @@ impl TestEnv {
                         // Remove endorsement.account_id on receiving endorsement.
                         chunk_hash_to_account_ids
                             .get_mut(endorsement.chunk_hash())
-                            .map(|entry| entry.remove(&account_id));
+                            .map(|entry| entry.remove(&endorsement.account_id));
 
                         self.client(&account_id).process_chunk_endorsement(endorsement).unwrap();
 
