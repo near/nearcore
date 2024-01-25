@@ -7,7 +7,7 @@
 use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
-use near_client::ProcessTxResponse;
+use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
 use near_primitives::transaction::{Action, DeployContractAction, SignedTransaction};
 use nearcore::config::GenesisExt;
@@ -52,7 +52,7 @@ fn benchmark_large_chunk_production_time() {
     }
 
     let t = std::time::Instant::now();
-    let (chunk, _, _) = create_chunk_on_height(&mut env.clients[0], 0);
+    let ProduceChunkResult { chunk, .. } = create_chunk_on_height(&mut env.clients[0], 0);
     let time = t.elapsed();
 
     let size = borsh::object_length(&chunk).unwrap();

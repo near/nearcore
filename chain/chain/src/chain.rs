@@ -3217,7 +3217,7 @@ impl Chain {
     /// returning true only if node produces state witness only for the next
     /// chunk. However, node can't determine this if next validators missed
     /// chunks.
-    fn should_produce_state_witness_for_this_or_next_epoch(
+    pub fn should_produce_state_witness_for_this_or_next_epoch(
         &self,
         me: &Option<AccountId>,
         block_header: &BlockHeader,
