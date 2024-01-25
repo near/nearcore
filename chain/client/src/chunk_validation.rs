@@ -738,6 +738,8 @@ impl Client {
             record_storage: true,
         };
 
+        // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.
+        // Normally it is provided by chunk producer, but for shadow validation we need to generate it ourselves.
         let Ok(validated_transactions) = validate_prepared_transactions(
             &self.chain,
             self.epoch_manager.as_ref(),
