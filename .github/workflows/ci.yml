@@ -60,12 +60,13 @@ jobs:
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: mv coverage/profraw/{new,unit}
+      - run: ZSTD_CLEVEL=19 tar -c --zstd coverage/profraw/new/* -f coverage/profraw/unit/${{matrix.id}}.tar.zst
+      - run: rm -rf coverage/profraw/new
       - run: just codecov "nextest-integration ${{ matrix.type }}"
         if: matrix.runs_integ_tests
       - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
         if: matrix.runs_integ_tests
-      - run: mv coverage/profraw/{new,integration}
+      - run: ZSTD_CLEVEL=19 tar -c --zstd coverage/profraw/new/* -f coverage/profraw/integration/${{matrix.id}}.tar.zst
         if: matrix.runs_integ_tests
 
       # Upload the coverage
@@ -379,6 +380,7 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: coverage-profraw
+          path: coverage/profraw
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
@@ -387,7 +389,7 @@ jobs:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user diff-cover
-      - run: mv coverage-profraw/${{matrix.type}}/*.profraw target/
+      - run: for f in coverage/profraw/${{matrix.type}}/*.tar.zst; do tar -x --zstd -C target/ -f $f; done
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: mkdir -p coverage/lcov coverage/html
       - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
