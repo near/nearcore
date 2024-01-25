@@ -299,46 +299,6 @@ fn pre_validate_chunk_state_witness(
         }
     }
 
-    // Compute the chunks from which receipts should be collected.
-    // let mut chunks_to_collect_receipts_from = Vec::new();
-    // for block in blocks_after_last_last_chunk.iter().rev() {
-    //     // To stay consistent with the order in which receipts are applied,
-    //     // blocks are iterated in reverse order (from new to old), and
-    //     // chunks are shuffled for each block.
-    //     let mut chunks_in_block = block
-    //         .chunks()
-    //         .iter()
-    //         .map(|chunk| (chunk.chunk_hash(), chunk.prev_outgoing_receipts_root()))
-    //         .collect::<Vec<_>>();
-    //     shuffle_receipt_proofs(&mut chunks_in_block, block.hash());
-    //     chunks_to_collect_receipts_from.extend(chunks_in_block);
-    // }
-
-    // Verify that for each chunk, the receipts that have been provided match
-    // the receipts that we are expecting.
-    // let mut receipts_to_apply = Vec::new();
-    // for (chunk_hash, receipt_root) in chunks_to_collect_receipts_from {
-    //     let Some(receipt_proof) = state_witness.source_receipt_proofs.get(&chunk_hash) else {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Missing source receipt proof for chunk {:?}",
-    //             chunk_hash
-    //         )));
-    //     };
-    //     if !receipt_proof.verify_against_receipt_root(receipt_root) {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Provided receipt proof failed verification against receipt root for chunk {:?}",
-    //             chunk_hash
-    //         )));
-    //     }
-    //     // TODO(#10265): This does not currently handle shard layout change.
-    //     if receipt_proof.1.to_shard_id != shard_id {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Receipt proof for chunk {:?} is for shard {}, expected shard {}",
-    //             chunk_hash, receipt_proof.1.to_shard_id, shard_id
-    //         )));
-    //     }
-    //     receipts_to_apply.extend(receipt_proof.0.iter().cloned());
-    // }
     let (last_chunk_block, implicit_transition_blocks) =
         blocks_after_last_chunk.split_last().unwrap();
     let receipts_response = &store.get_incoming_receipts_for_shard(
