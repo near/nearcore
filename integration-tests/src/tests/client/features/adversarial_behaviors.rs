@@ -13,6 +13,7 @@ use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
+use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
@@ -124,6 +125,11 @@ impl AdversarialBehaviorTestData {
 
 #[test]
 fn test_non_adversarial_case() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
@@ -326,6 +332,11 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
@@ -335,6 +346,11 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;

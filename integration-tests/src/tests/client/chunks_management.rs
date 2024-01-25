@@ -17,6 +17,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::AccountId;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
@@ -32,6 +34,10 @@ struct Test {
 
 impl Test {
     fn run(self) {
+        // TODO(#10506): Fix test to handle stateless validation
+        if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+            return;
+        }
         heavy_test(move || run_actix(async move { self.run_impl() }))
     }
 

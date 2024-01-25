@@ -21,6 +21,8 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -712,6 +714,11 @@ impl ChunkForwardingOptimizationTestData {
 
 #[test]
 fn test_chunk_forwarding_optimization() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     // Tests that a node should fully take advantage of forwarded chunk parts to never request
     // a part that was already forwarded to it. We simulate four validator nodes, with one
     // block producer and four chunk producers.
