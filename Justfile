@@ -95,9 +95,10 @@ codecov RULE:
     cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS= | grep -v LLVM_PROFILE_FILE= > env
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
-    export LLVM_PROFILE_FILE="{{ absolute_path("coverage/profraw/new") }}"
+    export LLVM_PROFILE_FILE="{{ absolute_path("target/profraw") }}"
     {{ just_executable() }} {{ RULE }}
     cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
+    mv target/profraw coverage/profraw/new
 
 # style checks from python scripts
 python-style-checks:
