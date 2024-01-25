@@ -9,7 +9,7 @@ use near_chain::types::{
     RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use near_chain::{Block, Chain, ChainStoreAccess};
+use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest, ReasonForBan};
@@ -700,6 +700,7 @@ impl Client {
     pub fn send_chunk_state_witness_to_chunk_validators(
         &mut self,
         epoch_id: &EpochId,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
@@ -718,8 +719,12 @@ impl Client {
                 chunk_header.height_created(),
             )?
             .ordered_chunk_validators();
-        let witness =
-            self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
+        let witness = self.create_state_witness(
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
 
         // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
         // chunk endorsement related network messages.
@@ -761,7 +766,9 @@ impl Client {
         {
             let chunk = self.chain.get_chunk_clone_from_header(chunk)?;
             let prev_chunk_header = prev_block_chunks.get(chunk.shard_id() as usize).unwrap();
-            if let Err(err) = self.shadow_validate_chunk(prev_chunk_header, &chunk) {
+            if let Err(err) =
+                self.shadow_validate_chunk(prev_block.header(), prev_chunk_header, &chunk)
+            {
                 metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
                 tracing::error!(
                     target: "chunk_validation",
@@ -777,6 +784,7 @@ impl Client {
 
     fn shadow_validate_chunk(
         &mut self,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
@@ -808,6 +816,7 @@ impl Client {
         };
 
         let witness = self.create_state_witness_inner(
+            prev_block_header,
             prev_chunk_header,
             chunk,
             validated_transactions.storage_proof,
@@ -867,6 +876,7 @@ impl Client {
 
     fn create_state_witness_inner(
         &mut self,
+        _prev_block_header: &BlockHeader, // TODO: Will be used to collect source_receipt_proofs
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
@@ -903,6 +913,7 @@ impl Client {
 
     fn create_state_witness(
         &mut self,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
@@ -911,8 +922,12 @@ impl Client {
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
         }
-        let witness_inner =
-            self.create_state_witness_inner(prev_chunk_header, chunk, transactions_storage_proof)?;
+        let witness_inner = self.create_state_witness_inner(
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
         let signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?;
         let signature = signer.sign_chunk_state_witness(&witness_inner);
         let witness = ChunkStateWitness { inner: witness_inner, signature };
