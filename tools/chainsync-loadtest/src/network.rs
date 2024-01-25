@@ -305,7 +305,7 @@ impl near_network::client::Client for Network {
         Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 
-    async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
+    async fn chunk_state_witness(&self, _witness: ChunkStateWitness, _peer_id: PeerId) {}
 
     async fn chunk_endorsement(&self, _endorsement: ChunkEndorsement) {}
 }

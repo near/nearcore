@@ -22,6 +22,7 @@ use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
+use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -282,17 +283,31 @@ impl TestEnv {
                     NetworkRequests::ChunkStateWitness(accounts, chunk_state_witness),
                 ) = msg
                 {
-                    let mut post_state_roots =
-                        HashSet::from([chunk_state_witness.main_state_transition.post_state_root]);
+                    let chunk_state_witness_inner = &chunk_state_witness.inner;
+                    let mut post_state_roots = HashSet::from([chunk_state_witness_inner
+                        .main_state_transition
+                        .post_state_root]);
                     post_state_roots.extend(
-                        chunk_state_witness.implicit_transitions.iter().map(|t| t.post_state_root),
+                        chunk_state_witness_inner
+                            .implicit_transitions
+                            .iter()
+                            .map(|t| t.post_state_root),
                     );
                     found_differing_post_state_root_due_to_state_transitions |=
                         post_state_roots.len() >= 2;
                     for account in accounts {
+                        let sender_public_key = self.clients[idx]
+                            .validator_signer
+                            .as_ref()
+                            .unwrap()
+                            .public_key()
+                            .clone();
                         self.account_indices
                             .lookup_mut(&mut self.clients, &account)
-                            .process_chunk_state_witness(chunk_state_witness.clone())
+                            .process_chunk_state_witness(
+                                chunk_state_witness.clone(),
+                                PeerId::new(sender_public_key),
+                            )
                             .unwrap();
                     }
                     None
