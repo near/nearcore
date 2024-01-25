@@ -363,6 +363,8 @@ fn run_chain_for_some_blocks_while_sending_money_around(
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
+        let mut output = env.propagate_chunk_state_witnesses();
+        env.wait_to_propagate_chunk_endorsements(&mut output.chunk_hash_to_account_ids);
     }
 
     for (account, balance) in balances {

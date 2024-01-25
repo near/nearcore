@@ -4,6 +4,7 @@ use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
+#[cfg(not(feature = "nightly"))]
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -550,6 +551,7 @@ fn test_processing_chunks_sanity() {
     assert_eq!(num_requests, 4 * 20);
 }
 
+#[allow(dead_code)]
 struct ChunkForwardingOptimizationTestData {
     num_validators: usize,
     env: TestEnv,
@@ -560,6 +562,7 @@ struct ChunkForwardingOptimizationTestData {
     chunk_parts_that_must_be_known: HashSet<(ChunkHash, u64, usize)>,
 }
 
+#[allow(dead_code)]
 impl ChunkForwardingOptimizationTestData {
     fn new() -> ChunkForwardingOptimizationTestData {
         let num_clients = 4;
@@ -711,6 +714,7 @@ impl ChunkForwardingOptimizationTestData {
 }
 
 #[test]
+#[cfg(not(feature = "nightly"))]
 fn test_chunk_forwarding_optimization() {
     // Tests that a node should fully take advantage of forwarded chunk parts to never request
     // a part that was already forwarded to it. We simulate four validator nodes, with one

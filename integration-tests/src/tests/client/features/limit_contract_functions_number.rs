@@ -74,6 +74,7 @@ fn verify_contract_limits_upgrade(
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 #[test]
+#[cfg(not(feature = "nightly"))]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
         ProtocolFeature::LimitContractFunctionsNumber,

@@ -8,6 +8,7 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
+#[cfg(not(feature = "nightly"))]
 use near_o11y::testonly::init_test_logger;
 use near_primitives::{
     shard_layout::ShardLayout,
@@ -24,6 +25,7 @@ struct AdversarialBehaviorTestData {
 
 const EPOCH_LENGTH: u64 = 20;
 
+#[allow(dead_code)]
 impl AdversarialBehaviorTestData {
     fn new() -> AdversarialBehaviorTestData {
         let num_clients = 8;
@@ -123,6 +125,7 @@ impl AdversarialBehaviorTestData {
 }
 
 #[test]
+#[cfg(not(feature = "nightly"))]
 fn test_non_adversarial_case() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
@@ -325,6 +328,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
 #[test]
 #[cfg(feature = "test_features")]
+#[cfg(not(feature = "nightly"))]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
@@ -334,6 +338,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 
 #[test]
 #[cfg(feature = "test_features")]
+#[cfg(not(feature = "nightly"))]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();

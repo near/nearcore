@@ -610,7 +610,15 @@ impl Client {
         // TODO(stateless_validation): Properly handle case for chunk right after genesis
         // Context: We can not generate a state witness for the first chunk after genesis as it's not possible
         // to run the genesis chunk in runtime. For now we just send an empty state witness
-        if witness.inner.chunk_header.prev_block_hash() == self.chain.genesis().hash() {
+        let chunk_header = &witness.inner.chunk_header;
+        let prev_block_hash = chunk_header.prev_block_hash();
+        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            &prev_block,
+            chunk_header.shard_id(),
+        )?;
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             let Some(signer) = self.validator_signer.as_ref() else {
                 return Err(Error::NotAChunkValidator);
             };
@@ -707,17 +715,16 @@ impl Client {
         }
 
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )?
-            .ordered_chunk_validators();
-        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
-            return Ok(());
-        };
+        let chunk_validators = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+        let ordered_chunk_validators = chunk_validators.ordered_chunk_validators();
+
+        let witness =
+            self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
+
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
@@ -774,9 +781,36 @@ impl Client {
     ) -> Result<(), Error> {
         let shard_id = chunk.shard_id();
         let chunk_hash = chunk.chunk_hash();
-        let Some(witness) = self.create_state_witness(prev_chunk_header, chunk)? else {
-            return Err(Error::Other("State witness is None".to_owned()));
+        let chunk_header = chunk.cloned_header();
+
+        let transactions_validation_storage_config = RuntimeStorageConfig {
+            state_root: chunk_header.prev_state_root(),
+            use_flat_storage: true,
+            source: StorageDataSource::Db,
+            state_patch: Default::default(),
+            record_storage: true,
         };
+
+        // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.
+        // Normally it is provided by chunk producer, but for shadow validation we need to generate it ourselves.
+        let Ok(validated_transactions) = validate_prepared_transactions(
+            &self.chain,
+            self.epoch_manager.as_ref(),
+            self.runtime_adapter.as_ref(),
+            &chunk_header,
+            transactions_validation_storage_config,
+            chunk.transactions(),
+        ) else {
+            return Err(Error::Other(
+                "Could not produce storage proof for new transactions".to_owned(),
+            ));
+        };
+
+        let witness = self.create_state_witness_inner(
+            prev_chunk_header,
+            chunk,
+            validated_transactions.storage_proof,
+        )?;
         let witness_size = borsh::to_vec(&witness)?.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
@@ -834,7 +868,8 @@ impl Client {
         &mut self,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
+        transactions_storage_proof: Option<PartialState>,
+    ) -> Result<ChunkStateWitnessInner, Error> {
         let chunk_header = chunk.cloned_header();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
