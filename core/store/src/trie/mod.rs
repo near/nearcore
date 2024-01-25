@@ -1253,6 +1253,10 @@ impl Trie {
     /// `charge_gas_for_trie_node_access` is used to control whether Trie node
     /// accesses incur any gas. Note that access to values is never charged here;
     /// it is only charged when the returned ref is dereferenced.
+    ///
+    /// The storage of memtries and the data therein are behind a lock, as thus unlike many other
+    /// functions here, the access to the value reference is provided as an argument to the
+    /// `map_result` closure.
     fn lookup_from_memory<R: 'static>(
         &self,
         key: &[u8],
