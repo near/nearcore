@@ -92,13 +92,12 @@ codecov RULE:
     # Note: macos seems to not support `source <()` as a way to set environment variables, but
     # this variant seems to work on both linux and macos.
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
-    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS > env
+    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS= | grep -v LLVM_PROFILE_FILE= > env
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
+    export LLVM_PROFILE_FILE="{{ absolute_path("coverage/profraw/new") }}"
     {{ just_executable() }} {{ RULE }}
-    cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
-    # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
-    find target -name '*.profraw' -delete
+    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
 
 # style checks from python scripts
 python-style-checks:

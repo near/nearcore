@@ -59,19 +59,26 @@ jobs:
 
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
-      - run: mv codecov.json unit-${{ matrix.id }}.json
+      - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
+      - run: mv coverage/profraw/{new,unit}
       - run: just codecov "nextest-integration ${{ matrix.type }}"
         if: matrix.runs_integ_tests
-      - run: mv codecov.json integration-${{ matrix.id }}.json
+      - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
+        if: matrix.runs_integ_tests
+      - run: mv coverage/profraw/{new,integration}
         if: matrix.runs_integ_tests
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
+          name: coverage-profraw
           path: |
-            unit-${{ matrix.id }}.json
-            integration-${{ matrix.id }}.json
+            coverage/profraw
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-codecov
+          path: |
+            coverage/codecov
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
@@ -106,11 +113,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-backward-compat.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-backward-compat.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_db_migration:
     name: "Database Migration"
@@ -136,11 +143,11 @@ jobs:
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/db_migration.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-db-migration.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-db-migration.json
+          name: coverage-codecov
+          path: coverage/cordecov
 
   py_sanity_checks:
     name: "Sanity Checks"
@@ -174,11 +181,11 @@ jobs:
       - run: python3 pytest/tests/sanity/spin_up_cluster.py
         env:
           NEAR_ROOT: "target/dev-release"
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-sanity-checks.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-sanity-checks.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_genesis_check:
     name: "Genesis Changes"
@@ -203,11 +210,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-genesis-check.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-genesis-check.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_style_check:
     name: "Style"
@@ -247,11 +254,11 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/upgradable.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-upgradability.json
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-upgradability.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   rpc_error_schema:
     name: "RPC Schema"
@@ -351,6 +358,43 @@ jobs:
           tool: cargo-audit
       - run: cargo audit -D warnings
 
+  generate_coverage:
+    name: "Generate Coverage Artifact"
+    runs-on: ubuntu-latest
+    needs:
+      - cargo_nextest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - type: unit
+          - type: integration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v3
+        with:
+          name: coverage-profraw
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: cargo-llvm-cov
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+      - run: pip3 install --user diff-cover
+      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
+      - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}
+      - run: diff-cover --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-lcov
+          path: coverage/lcov
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-html
+          path: coverage/html
+
   upload_coverage:
     name: "Upload Coverage"
     runs-on: ubuntu-latest
@@ -365,7 +409,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v3
         with:
-          name: coverage
+          name: coverage-codecov
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
