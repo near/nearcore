@@ -98,7 +98,7 @@ codecov RULE:
     {{ just_executable() }} {{ RULE }}
     mkdir -p coverage/codecov
     cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
-    mkdir coverage/profraw/new
+    mkdir -p coverage/profraw/new
     mv target/*.profraw coverage/profraw/new
 
 # style checks from python scripts
