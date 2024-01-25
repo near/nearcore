@@ -94,15 +94,21 @@ impl PendingRequestStatus {
     }
 }
 
+pub enum StateSyncDataType {
+    StatePart {
+        part_id: PartId,
+        /// Either the length of state part, or an error describing where the
+        /// process failed.
+        part_result: Result<u64, String>,
+    },
+}
+
 /// Signals that a state part was downloaded and saved to RocksDB.
 /// Or failed to do so.
-pub struct StateSyncGetPartResult {
+pub struct StateSyncGetResult {
     sync_hash: CryptoHash,
     shard_id: ShardId,
-    part_id: PartId,
-    /// Either the length of state part, or an error describing where the
-    /// process failed.
-    part_result: Result<u64, String>,
+    result: StateSyncDataType,
 }
 
 /// How to retrieve the state data.
@@ -146,8 +152,8 @@ pub struct StateSync {
         HashMap<ShardId, Result<HashMap<ShardUId, StateRoot>, near_chain::Error>>,
 
     /// Message queue to process the received state parts.
-    state_parts_mpsc_tx: Sender<StateSyncGetPartResult>,
-    state_parts_mpsc_rx: Receiver<StateSyncGetPartResult>,
+    state_parts_mpsc_tx: Sender<StateSyncGetResult>,
+    state_parts_mpsc_rx: Receiver<StateSyncGetResult>,
 }
 
 impl StateSync {
@@ -198,7 +204,7 @@ impl StateSync {
             }
         };
         let timeout = Duration::from_std(timeout).unwrap();
-        let (tx, rx) = channel::<StateSyncGetPartResult>();
+        let (tx, rx) = channel::<StateSyncGetResult>();
         StateSync {
             inner,
             network_adapter,
@@ -359,40 +365,45 @@ impl StateSync {
         Ok(all_done)
     }
 
-    // Checks the message queue for new downloaded parts and writes them.
+    /// Checks the message queue for new downloaded parts and writes them.
+    // TODO: Process headers as well.
     fn process_downloaded_parts(
         &mut self,
         sync_hash: CryptoHash,
         shard_sync: &mut HashMap<u64, ShardSyncDownload>,
     ) {
-        for StateSyncGetPartResult { sync_hash: msg_sync_hash, shard_id, part_id, part_result } in
+        for StateSyncGetResult { sync_hash: msg_sync_hash, shard_id, result } in
             self.state_parts_mpsc_rx.try_iter()
         {
+            // result = part_id, part_result
             if msg_sync_hash != sync_hash {
                 tracing::debug!(target: "sync",
                     ?shard_id,
-                    ?part_id,
                     ?sync_hash,
                     ?msg_sync_hash,
-                    "Received message for other sync.",
+                    "Received message for other epoch.",
                 );
                 continue;
             }
-            info!(target: "sync", ?part_result, ?part_id, ?shard_id, "downloaded a state part");
             if let Some(shard_sync_download) = shard_sync.get_mut(&shard_id) {
-                if shard_sync_download.status != ShardSyncStatus::StateDownloadParts {
-                    continue;
-                }
-                if let Some(part_download) =
-                    shard_sync_download.downloads.get_mut(part_id.idx as usize)
-                {
-                    process_part_response(
-                        part_id.idx,
-                        shard_id,
-                        sync_hash,
-                        part_download,
-                        part_result,
-                    );
+                match result {
+                    StateSyncDataType::StatePart { part_id, part_result } => {
+                        info!(target: "sync", ?part_result, ?part_id, ?shard_id, "downloaded a state part");
+                        if shard_sync_download.status != ShardSyncStatus::StateDownloadParts {
+                            continue;
+                        }
+                        if let Some(part_download) =
+                            shard_sync_download.downloads.get_mut(part_id.idx as usize)
+                        {
+                            process_part_response(
+                                part_id.idx,
+                                shard_id,
+                                sync_hash,
+                                part_download,
+                                part_result,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1049,7 +1060,7 @@ fn request_part_from_external_storage(
     external: ExternalConnection,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     state_parts_arbiter_handle: &ArbiterHandle,
-    state_parts_mpsc_tx: Sender<StateSyncGetPartResult>,
+    state_parts_mpsc_tx: Sender<StateSyncGetResult>,
 ) {
     if !download.run_me.swap(false, Ordering::SeqCst) {
         tracing::info!(target: "sync", %shard_id, part_id, "run_me is already false");
@@ -1088,11 +1099,10 @@ fn request_part_from_external_storage(
                         },
                         Err(err) => Err(err.to_string()),
                     };
-                    match state_parts_mpsc_tx.send(StateSyncGetPartResult {
+                    match state_parts_mpsc_tx.send(StateSyncGetResult {
                         sync_hash,
                         shard_id,
-                        part_id,
-                        part_result,
+                        result: StateSyncDataType::StatePart { part_id, part_result },
                     }) {
                         Ok(_) => tracing::debug!(target: "sync", %shard_id, ?part_id, "Download response sent to processing thread."),
                         Err(err) => {
