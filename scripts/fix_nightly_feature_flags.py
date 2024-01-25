@@ -65,7 +65,11 @@ class Crate:
     def build_deps(self, crates_by_name):
         self.deps = [
             crates_by_name[dep]
-            for dep in self.toml['dependencies'].keys()
+            for dep in self.toml.get('dependencies', {}).keys()
+            if dep in crates_by_name
+        ] + [
+            crates_by_name[dep]
+            for dep in self.toml.get('dev-dependencies', {}).keys()
             if dep in crates_by_name
         ]
 
@@ -127,13 +131,15 @@ class Crate:
         if self.has_nightly_feature:
             ensure_features()
             replace_nightly(
-                list(sorted(self.local_nightly_features)) +
-                list(sorted(self.dependency_nightly_features)))
+                sorted(
+                    set(self.local_nightly_features) |
+                    set(self.dependency_nightly_features)))
         if self.has_nightly_protocol_feature:
             ensure_features()
             replace_nightly_protocol(
-                list(sorted(self.local_nightly_protocol_features)) +
-                list(sorted(self.dependency_nightly_protocol_features)))
+                sorted(
+                    set(self.local_nightly_protocol_features) |
+                    set(self.dependency_nightly_protocol_features)))
 
         if apply_fix:
             open(toml_file_name, "w").write(new_toml_text)

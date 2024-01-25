@@ -22,6 +22,7 @@ derive_more.workspace = true
 easy-ext.workspace = true
 enum-map.workspace = true
 hex.workspace = true
+itertools.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
@@ -56,16 +57,16 @@ protocol_feature_fix_contract_loading_cost = ["near-primitives-core/protocol_fea
 protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version"]
 protocol_feature_nonrefundable_transfer_nep491 = ["near-primitives-core/protocol_feature_nonrefundable_transfer_nep491"]
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_fix_staking_threshold",
-  "protocol_feature_nonrefundable_transfer_nep491",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-fmt/nightly",
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
   "near-vm-runner/nightly",
+  "nightly_protocol",
+  "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_fix_staking_threshold",
+  "protocol_feature_nonrefundable_transfer_nep491",
+  "protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
 
 nightly_protocol = [
@@ -84,6 +85,7 @@ calimero_zero_storage = []
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+expect-test.workspace = true
 
 [[bench]]
 name = "serialization"

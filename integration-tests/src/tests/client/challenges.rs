@@ -4,7 +4,7 @@ use near_chain::{Block, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
-use near_client::{Client, ProcessTxResponse};
+use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
@@ -12,9 +12,8 @@ use near_primitives::challenge::{
     TrieValue,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
-use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::test_utils::create_test_signer;
@@ -26,7 +25,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use std::sync::Arc;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
@@ -45,17 +43,7 @@ fn test_block_with_challenges() {
         });
         let challenge = Challenge::produce(challenge_body, &*signer);
         let challenges = vec![challenge];
-        match &mut block {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(body) => {
-                let body = Arc::make_mut(body);
-                body.challenges = challenges.clone();
-            }
-            Block::BlockV3(body) => {
-                let body = Arc::make_mut(body);
-                body.body.challenges = challenges.clone();
-            }
-        };
+        block.set_challenges(challenges.clone());
         let block_body_hash = block.compute_block_body_hash().unwrap();
         block.mut_header().get_mut().inner_rest.block_body_hash = block_body_hash;
         block.mut_header().get_mut().inner_rest.challenges_root =
@@ -114,6 +102,7 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
+        vec![],
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
         None,
@@ -195,9 +184,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(seen_challenge);
 }
 
-fn create_invalid_proofs_chunk(
-    client: &mut Client,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+fn create_invalid_proofs_chunk(client: &mut Client) -> (ProduceChunkResult, Block) {
     create_chunk(
         client,
         None,
@@ -209,11 +196,12 @@ fn create_invalid_proofs_chunk(
 fn test_verify_chunk_invalid_proofs_challenge() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
-    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+    let (ProduceChunkResult { chunk, .. }, block) =
+        create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -221,14 +209,14 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
-    let (encoded_chunk, _merkle_paths, _receipts, block) =
+    let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
     let chunk =
         encoded_chunk.decode_chunk(env.clients[0].chain.epoch_manager.num_data_parts()).unwrap();
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Decoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
@@ -237,11 +225,11 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     // Valid chunk
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk(&mut env.clients[0], None, None);
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -253,7 +241,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
@@ -277,7 +265,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_matches!(challenge_result.unwrap_err(), Error::MaliciousChallenge);
 }
 
@@ -289,7 +277,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
@@ -313,14 +301,14 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
 
     let shard_id = chunk.shard_id();
     let challenge_result =
-        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk), &block);
+        challenge(env, shard_id as usize, MaybeEncodedShardChunk::Encoded(chunk).into(), &block);
     assert_eq!(challenge_result.unwrap(), (*block.hash(), vec!["test0".parse().unwrap()]));
 }
 
 fn challenge(
     env: TestEnv,
     shard_id: usize,
-    chunk: MaybeEncodedShardChunk,
+    chunk: Box<MaybeEncodedShardChunk>,
     block: &Block,
 ) -> Result<(CryptoHash, Vec<AccountId>), Error> {
     let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
@@ -427,6 +415,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
+        vec![],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,

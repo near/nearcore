@@ -4,8 +4,7 @@ use near_primitives::transaction::SignedTransaction;
 /// Trait acts like an iterator. It iterates over transactions groups by returning mutable
 /// references to them. Each transaction group implements a draining iterator to pull transactions.
 /// The order of the transaction groups is round robin scheduling.
-/// When this iterator is dropped the remaining transactions are returned back to the pool.
-pub trait PoolIterator {
+pub trait TransactionGroupIterator {
     fn next(&mut self) -> Option<&mut TransactionGroup>;
 }
 

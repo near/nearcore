@@ -15,16 +15,13 @@ workspace = true
 serde.workspace = true
 
 near-primitives.workspace = true
-near-network.workspace = true
 
 [features]
 nightly_protocol = [
-  "near-network/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
-  "near-network/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
 ]
-test_features = ["near-network/test_features"]
+test_features = []

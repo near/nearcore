@@ -690,7 +690,7 @@ impl Handler<WithSpanContext<Status>> for ClientActor {
                 network_info: new_network_info_view(&self.client.chain, &self.network_info),
                 sync_status: format!(
                     "{} ({})",
-                    self.client.sync_status.as_variant_name().to_string(),
+                    self.client.sync_status.as_variant_name(),
                     display_sync_status(
                         &self.client.sync_status,
                         &self.client.chain.head()?,
@@ -1063,8 +1063,13 @@ impl ClientActor {
                 self.client.epoch_manager.get_block_producer(&epoch_id, height)?;
 
             if me == next_block_producer_account {
+                self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                    &head.last_block_hash,
+                    &mut self.client.chunk_validator,
+                )?;
                 let num_chunks = self
                     .client
+                    .chunk_inclusion_tracker
                     .num_chunk_headers_ready_for_inclusion(&epoch_id, &head.last_block_hash);
                 let have_all_chunks = head.height == 0
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
@@ -1958,7 +1963,9 @@ impl Handler<WithSpanContext<ShardsManagerResponse>> for ClientActor {
                 chunk_header,
                 chunk_producer,
             } => {
-                self.client.on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                self.client
+                    .chunk_inclusion_tracker
+                    .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
             }
         }
     }
@@ -2002,7 +2009,7 @@ impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
         _: &mut Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        if let Err(err) = self.client.process_chunk_state_witness(msg.0) {
+        if let Err(err) = self.client.process_chunk_state_witness(msg.witness, msg.peer_id) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }

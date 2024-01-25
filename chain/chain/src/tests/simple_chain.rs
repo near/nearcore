@@ -52,7 +52,7 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"8WF4fG7WCM2ysZvFQAgEfTEfBovtULxnWeRpwAt3BTBJ");
+        insta::assert_display_snapshot!(hash, @"9JRdRkSfVRwYBVFNzfKwuhuUabMkQN14b1Ge7z1FRnMF");
     } else {
         insta::assert_display_snapshot!(hash, @"HJmRPXT4JM9tt6mXw2gM75YaSoqeDCphhFK26uRpd1vw");
     }
@@ -82,7 +82,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"3iXi6BshQaPx9TsbDt5itAXUjnTQz9AR9pg2w349TFNj");
+        insta::assert_display_snapshot!(hash, @"4tEtbSAU6GgB4wdDfgdzhPm3H7fd5cyWtzFFiYo7kopi");
     } else {
         insta::assert_display_snapshot!(hash, @"HbQVGVZ3WGxsNqeM3GfSwDoxwYZ2RBP1SinAze9SYR3C");
     }
@@ -105,6 +105,7 @@ fn build_chain_with_orphans() {
         10,
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
+        vec![],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,

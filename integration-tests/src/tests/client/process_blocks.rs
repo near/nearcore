@@ -25,7 +25,8 @@ use near_client::test_utils::{
     setup_mock_all_validators, TestEnv,
 };
 use near_client::{
-    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse, SetNetworkInfo,
+    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse,
+    ProduceChunkResult, SetNetworkInfo,
 };
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -336,6 +337,7 @@ fn receive_network_block() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -417,6 +419,7 @@ fn produce_block_with_approvals() {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.into_iter().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -629,6 +632,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 last_block.header.height + 1,
                 next_block_ordinal,
                 last_block.chunks.iter().cloned().map(Into::into).collect(),
+                vec![],
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -1195,9 +1199,8 @@ fn test_bad_orphan() {
         // Orphan block with a valid header, but garbage in body
         let mut block = env.clients[0].produce_block(8).unwrap().unwrap();
         {
-            let block = block.get_mut();
             // Change the chunk in any way, chunk_headers_root won't match
-            let chunk = &mut block.body.chunks[0].get_mut();
+            let chunk = block.mut_chunks()[0].get_mut();
 
             match &mut chunk.inner {
                 ShardChunkHeaderInner::V1(inner) => inner.prev_outcome_root = CryptoHash([1; 32]),
@@ -1227,7 +1230,7 @@ fn test_bad_orphan() {
         let some_signature = Signature::from_parts(KeyType::ED25519, &[1; 64]).unwrap();
         {
             // Change the chunk in any way, chunk_headers_root won't match
-            let chunk = block.get_mut().body.chunks[0].get_mut();
+            let chunk = block.mut_chunks()[0].get_mut();
             chunk.signature = some_signature;
             chunk.hash = ShardChunkHeaderV3::compute_hash(&chunk.inner);
         }
@@ -1277,8 +1280,12 @@ fn test_bad_chunk_mask() {
         let block_producer = (height % 2) as usize;
         let chunk_producer = ((height + 1) % 2) as usize;
 
-        let (encoded_chunk, merkle_paths, receipts) =
-            create_chunk_on_height(&mut clients[chunk_producer], height);
+        let ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            ..
+        } = create_chunk_on_height(&mut clients[chunk_producer], height);
         for client in clients.iter_mut() {
             client
                 .persist_and_distribute_encoded_chunk(
@@ -1510,7 +1517,7 @@ fn test_archival_gc_common(
         blocks.push(block);
 
         if i <= max_cold_head_height {
-            update_cold_db(storage.cold_db().unwrap(), hot_store, &shard_layout, &i).unwrap();
+            update_cold_db(storage.cold_db().unwrap(), hot_store, &shard_layout, &i, 1).unwrap();
             update_cold_head(storage.cold_db().unwrap(), &hot_store, &i).unwrap();
         }
     }
@@ -2326,8 +2333,12 @@ fn test_validate_chunk_extra() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_block.header().height() + 1;
-    let (encoded_chunk, merkle_paths, receipts) =
-        create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult {
+        chunk: encoded_chunk,
+        encoded_chunk_parts_paths: merkle_paths,
+        receipts,
+        ..
+    } = create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(next_height).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(next_height + 1).unwrap().unwrap();
 
@@ -2382,8 +2393,16 @@ fn test_validate_chunk_extra() {
     // Validate that result of chunk execution in `block1` is legit.
     let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
     env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
-    let chunks = env.clients[0]
-        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let chunks = {
+        let client = &mut env.clients[0];
+        client
+            .chunk_inclusion_tracker
+            .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash())
+    };
+    let (chunk_header, _) = env.clients[0]
+        .chunk_inclusion_tracker
+        .get_chunk_header_and_endorsements(chunks.get(&0).unwrap())
+        .unwrap();
     let chunk_extra =
         env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
@@ -2392,7 +2411,7 @@ fn test_validate_chunk_extra() {
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),
-        &chunks.get(&0).cloned().unwrap().0,
+        &chunk_header,
     )
     .is_ok());
 }
@@ -2842,8 +2861,12 @@ fn test_epoch_protocol_version_change() {
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&epoch_id, i, 0).unwrap();
         let index = if chunk_producer == "test0" { 0 } else { 1 };
-        let (encoded_chunk, merkle_paths, receipts) =
-            create_chunk_on_height(&mut env.clients[index], i);
+        let ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            ..
+        } = create_chunk_on_height(&mut env.clients[index], i);
 
         for j in 0..2 {
             let validator_id =
@@ -3036,7 +3059,8 @@ fn test_fork_receipt_ids() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let last_height = produced_block.header().height();
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], last_height + 1);
+    let ProduceChunkResult { chunk: encoded_chunk, .. } =
+        create_chunk_on_height(&mut env.clients[0], last_height + 1);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 
@@ -3092,7 +3116,8 @@ fn test_fork_execution_outcome() {
     // Construct two blocks that contain the same chunk and make the chunk unavailable.
     let validator_signer = create_test_signer("test0");
     let next_height = last_height + 1;
-    let (encoded_chunk, _, _) = create_chunk_on_height(&mut env.clients[0], next_height);
+    let ProduceChunkResult { chunk: encoded_chunk, .. } =
+        create_chunk_on_height(&mut env.clients[0], next_height);
     let mut block1 = env.clients[0].produce_block(last_height + 1).unwrap().unwrap();
     let mut block2 = env.clients[0].produce_block(last_height + 2).unwrap().unwrap();
 

@@ -11,9 +11,10 @@ use near_primitives::test_utils::encode;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, FunctionCallAction, SignedTransaction,
 };
-use near_primitives::types::{BlockHeightDelta, Gas, TrieNodesCount};
+use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
+use near_vm_runner::logic::TrieNodesCount;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 

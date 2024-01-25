@@ -12,10 +12,20 @@ export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
 
 # all the tests, as close to CI as possible
-test: test-ci test-extra
+test *FLAGS: (test-ci FLAGS) test-extra
 
 # only the tests that are exactly the same as the ones in CI
-test-ci: (nextest "stable") (nextest "nightly") python-style-checks
+test-ci *FLAGS: check-cargo-fmt \
+                python-style-checks \
+                check-cargo-deny \
+                check-themis \
+                check-cargo-clippy \
+                check-non-default \
+                check-cargo-udeps \
+                (nextest "nightly" FLAGS) \
+                (nextest "stable" FLAGS)
+# order them with the fastest / most likely to fail checks first
+# when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -54,6 +64,27 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
+# check various build configurations compile as anticipated
+check-non-default:
+    # Ensure that near-vm-runner always builds without default features enabled
+    cargo check -p near-vm-runner --no-default-features
+
+# check rust formatting
+check-cargo-fmt:
+    cargo fmt -- --check
+
+# check clippy lints
+check-cargo-clippy:
+    env CARGO_TARGET_DIR="target/clippy" cargo clippy --all-features --all-targets --locked
+
+# check cargo deny lints
+check-cargo-deny:
+    cargo deny --all-features --locked check bans
+
+# themis-based checks
+check-themis:
+    env CARGO_TARGET_DIR="target/themis" cargo run --locked -p themis
+
 # generate a codecov report for RULE
 codecov RULE:
     #!/usr/bin/env bash
@@ -75,6 +106,12 @@ python-style-checks:
     python3 scripts/check_pytests.py
     python3 scripts/fix_nightly_feature_flags.py
     ./scripts/formatting --check
+
+# verify there is no unused dependency specified in a Cargo.toml
+check-cargo-udeps:
+    rustup toolchain install nightly
+    rustup target add wasm32-unknown-unknown --toolchain nightly
+    env CARGO_TARGET_DIR={{justfile_directory()}}/target/udeps RUSTFLAGS='--cfg=udeps --cap-lints=allow' cargo +nightly udeps
 
 # lychee-based url validity checks
 check-lychee:

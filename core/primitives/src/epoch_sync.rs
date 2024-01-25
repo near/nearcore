@@ -30,5 +30,5 @@ pub struct EpochSyncFinalizationResponse {
 #[derive(BorshSerialize, BorshDeserialize, Eq, PartialEq, Debug, Clone)]
 pub enum EpochSyncResponse {
     UpToDate,
-    Advance { light_client_block_view: LightClientBlockView },
+    Advance { light_client_block_view: Box<LightClientBlockView> },
 }

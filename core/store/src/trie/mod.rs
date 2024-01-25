@@ -26,7 +26,6 @@ use near_primitives::state::{FlatStateValue, ValueRef};
 use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_prefix;
 use near_primitives::trie_key::TrieKey;
-pub use near_primitives::types::TrieNodesCount;
 use near_primitives::types::{AccountId, StateRoot, StateRootNode};
 use near_vm_runner::ContractCode;
 pub use raw_node::{Children, RawTrieNode, RawTrieNodeWithSize};
@@ -556,7 +555,7 @@ pub struct ApplyStatePartResult {
 }
 
 enum NodeOrValue {
-    Node(RawTrieNodeWithSize),
+    Node(Box<RawTrieNodeWithSize>),
     Value(std::sync::Arc<[u8]>),
 }
 
@@ -647,11 +646,6 @@ impl Trie {
             accounting_cache,
             recorder: None,
         }
-    }
-
-    /// Temporary helper, must be removed after stateless validation release.
-    pub fn dont_charge_gas_for_trie_node_access(&mut self) {
-        self.charge_gas_for_trie_node_access = false;
     }
 
     /// Makes a new trie that has everything the same except that access
@@ -1105,7 +1099,7 @@ impl Trie {
     ) -> Result<NodeOrValue, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
-            Ok(node) => Ok(NodeOrValue::Node(node)),
+            Ok(node) => Ok(NodeOrValue::Node(Box::new(node))),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
         }
     }
@@ -1490,6 +1484,25 @@ impl Trie {
 impl TrieAccess for Trie {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         Trie::get(self, &key.to_vec())
+    }
+}
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+#[derive(Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+impl TrieNodesCount {
+    /// Used to determine the number of trie nodes charged during some operation.
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
+        Some(Self {
+            db_reads: self.db_reads.checked_sub(other.db_reads)?,
+            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
+        })
     }
 }
 

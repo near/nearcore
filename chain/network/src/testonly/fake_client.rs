@@ -16,6 +16,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     AnnounceAccount(Vec<(AnnounceAccount, Option<EpochId>)>),
     Block(Block),
@@ -121,7 +122,7 @@ impl client::Client for Fake {
         Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, _peer_id: PeerId) {
         self.event_sink.push(Event::ChunkStateWitness(witness));
     }
 

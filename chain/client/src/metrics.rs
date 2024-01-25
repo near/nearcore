@@ -22,6 +22,18 @@ pub(crate) static CHUNK_PRODUCED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static PRODUCED_CHUNKS_SOME_POOL_TRANSACTIONS_DIDNT_FIT: Lazy<IntCounterVec> = Lazy::new(
+    || {
+        try_create_int_counter_vec(
+        "near_produced_chunks_some_pool_transactions_didnt_fit",
+        "Total number of produced chunks where some transactions from the pool didn't fit in the chunk \
+        (since starting this node). The limited_by label specifies which limit was hit.",
+        &["shard_id", "limited_by"],
+    )
+    .unwrap()
+    },
+);
+
 pub(crate) static IS_VALIDATOR: Lazy<IntGauge> = Lazy::new(|| {
     try_create_int_gauge(
         "near_is_validator",
@@ -509,7 +521,7 @@ pub(crate) static STATE_SYNC_DUMP_PUT_OBJECT_ELAPSED: Lazy<HistogramVec> = Lazy:
     try_create_histogram_vec(
         "near_state_sync_dump_put_object_elapsed_sec",
         "Latency of writes to external storage",
-        &["shard_id", "result"],
+        &["shard_id", "result", "type"],
         Some(exponential_buckets(0.001, 1.6, 25).unwrap()),
     )
     .unwrap()
@@ -539,6 +551,34 @@ pub(crate) static SYNC_REQUIREMENT_CURRENT: Lazy<IntGaugeVec> = Lazy::new(|| {
         "near_sync_requirements_current",
         "The latest SyncRequirement",
         &["state"],
+    )
+    .unwrap()
+});
+
+pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
+    try_create_int_counter(
+        "near_shadow_chunk_validation_failed_total",
+        "Shadow chunk validation failures count",
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_validation_time",
+        "State witness validation latency in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_total_size",
+        "Stateless validation state witness size in bytes",
+        &["shard_id"],
+        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
     )
     .unwrap()
 });

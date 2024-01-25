@@ -981,15 +981,8 @@ impl PeerActor {
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
-            RoutedMessageBody::ReceiptOutcomeRequest(_) => {
-                // Silently ignore for the time being.  We’ve been still
-                // sending those messages at protocol version 56 so we
-                // need to wait until 59 before we can remove the
-                // variant completely.
-                None
-            }
             RoutedMessageBody::ChunkStateWitness(witness) => {
-                network_state.client.chunk_state_witness(witness).await;
+                network_state.client.chunk_state_witness(witness, peer_id).await;
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {

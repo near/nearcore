@@ -7,6 +7,7 @@ pub use near_primitives_core::serialize;
 
 pub mod action;
 pub mod block;
+pub mod block_body;
 pub mod block_header;
 pub mod challenge;
 pub mod chunk_validation;
@@ -15,6 +16,7 @@ pub mod epoch_sync;
 pub mod errors;
 pub mod merkle;
 pub mod network;
+pub mod profile_data_v2;
 pub mod rand;
 pub mod receipt;
 pub mod runtime;

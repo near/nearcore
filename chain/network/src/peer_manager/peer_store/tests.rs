@@ -201,11 +201,8 @@ fn check_exist(
     if let Some(peer_info) = inner.peer_states.peek(peer_id) {
         let peer_info = &peer_info.peer_info;
         if let Some((addr, level)) = addr_level {
-            peer_info.addr.map_or(false, |cur_addr| cur_addr == addr)
-                && inner
-                    .addr_peers
-                    .get(&addr)
-                    .map_or(false, |verified| verified.trust_level == level)
+            peer_info.addr.is_some_and(|cur_addr| cur_addr == addr)
+                && inner.addr_peers.get(&addr).is_some_and(|verified| verified.trust_level == level)
         } else {
             peer_info.addr.is_none()
         }

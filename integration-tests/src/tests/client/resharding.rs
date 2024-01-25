@@ -677,15 +677,28 @@ impl TestReshardingEnv {
             // At the epoch boundary, right before resharding, snapshot should exist
             assert!(snapshot.is_ok());
         } else if head.height <= 2 * self.epoch_length {
-            // All blocks in the epoch while resharding is going on, snapshot should exist but we should get
-            // IncorrectSnapshotRequested as snapshot exists at hash as of the last block of the previous epoch
+            // In the resharding epoch there are two cases to consider
+            // * While the resharding is in progress, snapshot should exist but
+            //   not at the current block hash and we should get
+            //   IncorrectSnapshotRequested
+            // * Once resharding is finished the snapshot should not exist at
+            //   all and we should get SnapshotNotFound.
             let snapshot_block_header =
                 env.clients[0].chain.get_block_header_by_height(self.epoch_length).unwrap();
-            assert!(snapshot.is_err_and(|e| e
-                == SnapshotError::IncorrectSnapshotRequested(
-                    *block_header.prev_hash(),
-                    *snapshot_block_header.prev_hash(),
-                )));
+            let Err(err) = snapshot else { panic!("snapshot should not exist at given hash") };
+
+            match err {
+                SnapshotError::IncorrectSnapshotRequested(requested, current) => {
+                    assert_eq!(requested, *block_header.prev_hash());
+                    assert_eq!(current, *snapshot_block_header.prev_hash());
+                }
+                SnapshotError::SnapshotNotFound(requested) => {
+                    assert_eq!(requested, *block_header.prev_hash());
+                }
+                err => {
+                    panic!("unexpected snapshot error: {:?}", err);
+                }
+            }
         } else if (head.height - 1) % self.epoch_length == 0 {
             // At other epoch boundries, snapshot should exist only if state_snapshot_enabled is true
             assert_eq!(state_snapshot_enabled, snapshot.is_ok());
@@ -895,7 +908,7 @@ fn generate_create_accounts_txs(
         let signer0 = InMemorySigner::from_seed(
             signer_account.clone(),
             KeyType::ED25519,
-            &signer_account.to_string(),
+            signer_account.as_ref(),
         );
         let account_id = gen_account(&mut rng);
         if all_accounts.insert(account_id.clone()) {
@@ -1103,7 +1116,7 @@ fn setup_test_env_with_cross_contract_txs(
             let signer = InMemorySigner::from_seed(
                 account_id.clone(),
                 KeyType::ED25519,
-                &account_id.to_string(),
+                account_id.as_ref(),
             );
             SignedTransaction::from_actions(
                 1,
@@ -1124,7 +1137,7 @@ fn setup_test_env_with_cross_contract_txs(
     let mut new_accounts = HashMap::new();
 
     // add a bunch of transactions before the two epoch boundaries
-    for height in vec![
+    for height in [
         epoch_length - 2,
         epoch_length - 1,
         epoch_length,
@@ -1238,8 +1251,7 @@ fn gen_cross_contract_tx_impl(
     nonce: u64,
     block_hash: &CryptoHash,
 ) -> SignedTransaction {
-    let signer0 =
-        InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, &account0.to_string());
+    let signer0 = InMemorySigner::from_seed(account0.clone(), KeyType::ED25519, account0.as_ref());
     let signer_new_account =
         InMemorySigner::from_seed(new_account.clone(), KeyType::ED25519, new_account.as_ref());
     let data = serde_json::json!([

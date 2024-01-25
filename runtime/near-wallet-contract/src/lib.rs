@@ -25,7 +25,7 @@ pub fn wallet_contract_magic_bytes() -> Arc<ContractCode> {
     CONTRACT
         .get_or_init(|| {
             let wallet_contract_hash = *wallet_contract().hash();
-            let magic_bytes = format!("near{}", wallet_contract_hash.to_string());
+            let magic_bytes = format!("near{}", wallet_contract_hash);
             Arc::new(ContractCode::new(magic_bytes.into(), None))
         })
         .clone()

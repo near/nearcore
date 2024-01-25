@@ -972,6 +972,9 @@ impl<'a> ChainStoreUpdate<'a> {
             DBCol::HeaderHashesByHeight => {
                 store_update.delete(col, key);
             }
+            DBCol::StateTransitionData => {
+                store_update.delete(col, key);
+            }
             DBCol::DbVersion
             | DBCol::BlockMisc
             | DBCol::_GCCount

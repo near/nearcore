@@ -55,7 +55,7 @@ pub enum ImportError {
 pub enum LinkError {
     /// An error occurred when checking the import types.
     #[error("Error while importing {0:?}.{1:?}: {2}")]
-    Import(String, String, ImportError),
+    Import(String, String, Box<ImportError>),
 
     /// A trap ocurred during linking.
     #[error("RuntimeError occurred during linking: {0}")]

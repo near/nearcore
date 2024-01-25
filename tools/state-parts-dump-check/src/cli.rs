@@ -1,9 +1,9 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
-use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
 use near_client::sync::external::{
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+    create_bucket_readonly, external_storage_location, external_storage_location_directory,
+    get_num_parts_from_filename, ExternalConnection, StateFileType,
 };
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
@@ -462,10 +462,15 @@ async fn run_single_check(
         gcs_bucket.clone(),
     );
 
-    let directory_path =
-        external_storage_location_directory(&chain_id, &epoch_id, epoch_height, shard_id);
+    let directory_path = external_storage_location_directory(
+        &chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
     tracing::info!(directory_path, "the storage location for the state parts being checked:");
-    let part_file_names = external.list_state_parts(shard_id, &directory_path).await?;
+    let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     if part_file_names.is_empty() {
         return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
     }
@@ -622,8 +627,13 @@ async fn process_part(
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
-    let location =
-        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, part_id, num_parts);
+    let location = external_storage_location(
+        &chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id, num_parts },
+    );
     let part = external.get_part(shard_id, &location).await?;
     let is_part_valid = validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
     if is_part_valid {

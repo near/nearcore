@@ -6,6 +6,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
@@ -13,8 +14,7 @@ use num_rational::Rational32;
 
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -110,6 +110,11 @@ pub struct ApplyChunkResult {
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
     pub processed_delayed_receipts: Vec<Receipt>,
+    /// Hash of Vec<Receipt> which were applied in a chunk, later used for
+    /// chunk validation with state witness.
+    /// Note that applied receipts are not necessarily executed as they can
+    /// be delayed.
+    pub applied_receipts_hash: CryptoHash,
 }
 
 impl ApplyChunkResult {
@@ -249,10 +254,6 @@ impl ChainGenesis {
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
-    /// Trie is present in DB and flat storage is not.
-    /// Used for testing stateless validation jobs, should be removed after
-    /// stateless validation release.
-    DbTrieOnly,
     /// State data is supplied from state witness, there is no state data
     /// stored on disk.
     Recorded(PartialStorage),
@@ -309,6 +310,29 @@ pub struct ApplyChunkShardContext<'a> {
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub is_first_block_with_chunk_of_version: bool,
+}
+
+/// Contains transactions that were fetched from the transaction pool
+/// and prepared for adding them to a new chunk that is being produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTransactions {
+    /// Prepared transactions
+    pub transactions: Vec<SignedTransaction>,
+    /// Describes which limit was hit when preparing the transactions.
+    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// May contain partial state that was used to verify transactions when preparing.
+    pub storage_proof: Option<PartialState>,
+}
+
+/// Chunk producer prepares transactions from the transaction pool
+/// until it hits some limit (too many transactions, too much gas used, etc).
+/// This enum describes which limit was hit when preparing transactions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
+pub enum PrepareTransactionsLimit {
+    Gas,
+    Size,
+    Time,
+    ReceiptCount,
 }
 
 /// Bridge between the chain and the runtime.
@@ -372,13 +396,13 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         epoch_id: &EpochId,
         shard_id: ShardId,
-        state_root: StateRoot,
+        storage: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error>;
+    ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`

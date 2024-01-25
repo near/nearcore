@@ -159,7 +159,7 @@ pub fn verify_and_charge_transaction(
             return Err(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone(),
+                    public_key: transaction.public_key.clone().into(),
                 },
             )
             .into());
@@ -204,7 +204,7 @@ pub fn verify_and_charge_transaction(
             *allowance = allowance.checked_sub(total_cost).ok_or_else(|| {
                 InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::NotEnoughAllowance {
                     account_id: signer_id.clone(),
-                    public_key: transaction.public_key.clone(),
+                    public_key: transaction.public_key.clone().into(),
                     allowance: *allowance,
                     cost: total_cost,
                 })
@@ -467,7 +467,7 @@ fn validate_function_call_action(
 fn validate_stake_action(action: &StakeAction) -> Result<(), ActionsValidationError> {
     if !is_valid_staking_key(&action.public_key) {
         return Err(ActionsValidationError::UnsuitableStakingKey {
-            public_key: action.public_key.clone(),
+            public_key: Box::new(action.public_key.clone()),
         });
     }
 
@@ -921,7 +921,7 @@ mod tests {
             RuntimeError::InvalidTxError(InvalidTxError::InvalidAccessKeyError(
                 InvalidAccessKeyError::AccessKeyNotFound {
                     account_id: alice_account(),
-                    public_key: bad_signer.public_key(),
+                    public_key: bad_signer.public_key().into(),
                 },
             )),
         );
@@ -1124,7 +1124,7 @@ mod tests {
         )) = err
         {
             assert_eq!(account_id, alice_account());
-            assert_eq!(public_key, signer.public_key());
+            assert_eq!(*public_key, signer.public_key());
             assert_eq!(allowance, 100);
             assert!(cost > allowance);
         } else {
@@ -1788,7 +1788,7 @@ mod tests {
             )
             .expect_err("Expected an error"),
             ActionsValidationError::UnsuitableStakingKey {
-                public_key: PublicKey::empty(KeyType::ED25519),
+                public_key: PublicKey::empty(KeyType::ED25519).into(),
             },
         );
     }

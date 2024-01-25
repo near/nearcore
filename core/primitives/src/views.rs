@@ -44,8 +44,6 @@ use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::ContractCode;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -100,7 +98,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn near_vm_runner::logic::CompiledContractCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -136,20 +134,6 @@ impl From<&AccountView> for Account {
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         (&view).into()
-    }
-}
-
-impl From<ContractCode> for ContractCodeView {
-    fn from(contract_code: ContractCode) -> Self {
-        let hash = *contract_code.hash();
-        let code = contract_code.into_code();
-        ContractCodeView { code, hash }
-    }
-}
-
-impl From<ContractCodeView> for ContractCode {
-    fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
@@ -2375,8 +2359,9 @@ pub struct SplitStorageInfoView {
 #[cfg(test)]
 mod tests {
     use super::ExecutionMetadataView;
+    use crate::profile_data_v2::ProfileDataV2;
     use crate::transaction::ExecutionMetadata;
-    use near_vm_runner::{ProfileDataV2, ProfileDataV3};
+    use near_vm_runner::ProfileDataV3;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
@@ -2414,7 +2399,7 @@ mod tests {
     #[test]
     #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
-        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }

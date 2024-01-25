@@ -48,8 +48,7 @@ impl ShardTries {
                         let receipt = Receipt::try_from_slice(&value).map_err(|err| {
                             StorageError::StorageInconsistentState(format!(
                                 "invalid delayed receipt {:?}, err: {}",
-                                value,
-                                err.to_string(),
+                                value, err,
                             ))
                         })?;
                         insert_receipts.push((*index, receipt));

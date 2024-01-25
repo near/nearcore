@@ -42,14 +42,15 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    DBCol, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
-    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, TAIL_KEY,
+    DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_primitives::chunk_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
@@ -1438,11 +1439,10 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
-
+    state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     // All state changes made by a chunk, this is only used for resharding.
     add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
     remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
-
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1467,6 +1467,7 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
+            state_transition_data: Default::default(),
             add_state_changes_for_resharding: HashMap::new(),
             remove_state_changes_for_resharding: HashSet::new(),
             add_blocks_to_catchup: vec![],
@@ -2077,6 +2078,24 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
+    pub fn save_state_transition_data(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        partial_storage: Option<PartialStorage>,
+        applied_receipts_hash: CryptoHash,
+    ) {
+        if let Some(partial_storage) = partial_storage {
+            self.state_transition_data.insert(
+                (block_hash, shard_id),
+                StoredChunkStateTransitionData {
+                    base_state: partial_storage.nodes,
+                    receipts_hash: applied_receipts_hash,
+                },
+            );
+        }
+    }
+
     pub fn add_state_changes_for_resharding(
         &mut self,
         block_hash: CryptoHash,
@@ -2526,6 +2545,13 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
+        for ((block_hash, shard_id), state_transition_data) in self.state_transition_data.drain() {
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            )?;
+        }
         for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()
         {
             store_update.set_ser(
