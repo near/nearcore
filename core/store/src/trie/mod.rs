@@ -365,6 +365,11 @@ pub trait TrieAccess {
     /// root are already known by the object rather than being passed as
     /// argument.
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError>;
+
+    /// Check if the key is present.
+    ///
+    /// Equivalent to `Self::get(k)?.is_some()`, but avoids reading out the value.
+    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError>;
 }
 
 /// Stores reference count addition for some key-value pair in DB.
@@ -1507,6 +1512,10 @@ impl Trie {
 impl TrieAccess for Trie {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         Trie::get(self, &key.to_vec())
+    }
+
+    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
+        Trie::contains_key(&self, &key.to_vec())
     }
 }
 
