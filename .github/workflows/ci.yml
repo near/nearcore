@@ -382,7 +382,7 @@ jobs:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user diff-cover
-      - run: mv coverage-profraw/${{matrix.type}} target/profraw
+      - run: mv coverage-profraw/${{matrix.type}}/*.profraw target/
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
       - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}
