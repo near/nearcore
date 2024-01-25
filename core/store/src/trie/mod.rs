@@ -1,4 +1,5 @@
 use self::accounting_cache::TrieAccountingCache;
+use self::mem::flexible_data::value::ValueView;
 use self::mem::lookup::memtrie_lookup;
 use self::mem::updating::{UpdatedMemTrieNode, UpdatedMemTrieNodeId};
 use self::mem::MemTries;
@@ -1252,11 +1253,12 @@ impl Trie {
     /// `charge_gas_for_trie_node_access` is used to control whether Trie node
     /// accesses incur any gas. Note that access to values is never charged here;
     /// it is only charged when the returned ref is dereferenced.
-    fn lookup_from_memory(
+    fn lookup_from_memory<R: 'static>(
         &self,
         key: &[u8],
         charge_gas_for_trie_node_access: bool,
-    ) -> Result<Option<OptimizedValueRef>, StorageError> {
+        map_result: impl FnOnce(ValueView<'_>) -> R,
+    ) -> Result<Option<R>, StorageError> {
         if self.root == Self::EMPTY_ROOT {
             return Ok(None);
         }
@@ -1269,7 +1271,7 @@ impl Trie {
         })?;
 
         let mut accessed_nodes = Vec::new();
-        let flat_value = memtrie_lookup(root, key, Some(&mut accessed_nodes));
+        let mem_value = memtrie_lookup(root, key, Some(&mut accessed_nodes));
         if charge_gas_for_trie_node_access {
             for (node_hash, serialized_node) in &accessed_nodes {
                 self.accounting_cache
@@ -1282,7 +1284,7 @@ impl Trie {
                 recorder.borrow_mut().record(&node_hash, serialized_node);
             }
         }
-        Ok(flat_value.map(|v| v.to_optimized_value_ref()))
+        Ok(mem_value.map(map_result))
     }
 
     /// For debugging only. Returns the raw node at the given path starting from the root.
@@ -1378,7 +1380,9 @@ impl Trie {
         let charge_gas_for_trie_node_access =
             mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if self.memtries.is_some() {
-            self.lookup_from_memory(key, charge_gas_for_trie_node_access)
+            self.lookup_from_memory(key, charge_gas_for_trie_node_access, |v| {
+                v.to_optimized_value_ref()
+            })
         } else if mode == KeyLookupMode::FlatStorage && self.flat_storage_chunk_view.is_some() {
             self.lookup_from_flat_storage(key)
         } else {
