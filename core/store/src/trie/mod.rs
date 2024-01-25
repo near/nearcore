@@ -1360,6 +1360,21 @@ impl Trie {
         Ok(bytes.to_vec())
     }
 
+    /// Check if the column contains a value with the given `key`.
+    ///
+    /// This method is guaranteed to not inspect the value stored for this key, which would
+    /// otherwise have potential gas cost implications.
+    pub fn contains_key(&self, key: &[u8]) -> Result<bool, StorageError> {
+        let charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
+        if self.memtries.is_some() {
+            Ok(self.lookup_from_memory(key, charge_gas_for_trie_node_access, |_| ())?.is_some())
+        } else {
+            Ok(self
+                .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
+                .is_some())
+        }
+    }
+
     /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
     ///
     /// `mode`: whether we will try to perform the lookup through flat storage or trie.
