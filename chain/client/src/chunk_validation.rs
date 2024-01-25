@@ -354,7 +354,7 @@ fn validate_chunk_state_witness(
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<(), Error> {
     let main_transition = pre_validation_output.main_transition_params;
-    let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_ELAPSED
+    let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
         .with_label_values(&[&main_transition.chunk_header.shard_id().to_string()])
         .start_timer();
     let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
