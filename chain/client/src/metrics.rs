@@ -563,6 +563,16 @@ pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy:
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_validation_time",
+        "State witness validation latency in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",

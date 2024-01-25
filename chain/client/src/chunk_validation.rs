@@ -451,8 +451,11 @@ fn validate_chunk_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<(), Error> {
-    let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
     let main_transition = pre_validation_output.main_transition_params;
+    let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
+        .with_label_values(&[&main_transition.chunk_header.shard_id().to_string()])
+        .start_timer();
+    let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
     let chunk_header = main_transition.chunk_header.clone();
     let epoch_id = epoch_manager.get_epoch_id(&main_transition.block.block_hash)?;
     let shard_uid =
