@@ -47,6 +47,10 @@ jobs:
         run: |
           echo $(git rev-parse HEAD) > latest
           BRANCH=$(git branch --show-current)
+          # in case of Release triggered run, branch is empty
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(git branch -r --contains=${{ github.ref_name }} | head -n1 | cut -c3- | cut -d / -f 2)
+          fi
           aws s3 cp --acl public-read latest s3://build.nearprotocol.com/nearcore/$(uname)/${BRANCH}/latest
 
   docker-release:
