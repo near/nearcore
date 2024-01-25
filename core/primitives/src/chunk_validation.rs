@@ -245,6 +245,9 @@ impl ChunkValidatorAssignments {
         &self,
         endorsed_chunk_validators: &HashSet<AccountId>,
     ) -> bool {
+        if self.assignments.is_empty() {
+            return true;
+        }
         let mut total_stake = 0;
         let mut endorsed_stake = 0;
         for (account_id, stake) in &self.assignments {
