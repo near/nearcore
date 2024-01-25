@@ -172,14 +172,6 @@ impl ChunkValidator {
             return Ok(Some(vec![]));
         }
 
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-            &epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
-
         // Get the chunk_endorsements for the chunk from our cache.
         // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
         // We can safely rely on the the following details
@@ -188,13 +180,16 @@ impl ChunkValidator {
         let Some(chunk_endorsements) = self.chunk_endorsements.peek(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_enforsements found in our cache.
-            // Special case when we are using MockEpochManagerAdapter and chunk_validator_assignments is an empty set
-            // In case we don't have any chunk validators, we return an empty array of chunk endorsements.
-            return Ok(chunk_validator_assignments
-                .ordered_chunk_validators()
-                .is_empty()
-                .then_some(vec![]));
+            return Ok(None);
         };
+
+        let epoch_id =
+            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !chunk_validator_assignments
