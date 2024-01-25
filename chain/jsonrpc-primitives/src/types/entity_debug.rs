@@ -33,6 +33,10 @@ impl EntityDataStruct {
     pub fn new() -> EntityDataStruct {
         EntityDataStruct { entries: Vec::new() }
     }
+
+    pub fn add(&mut self, name: &str, value: EntityDataValue) {
+        self.entries.push(EntityDataEntry { name: name.to_string(), value });
+    }
 }
 
 /// All queries supported by the Entity Debug UI.

@@ -1,6 +1,7 @@
 use crate::entity_debug_serializer::serialize_entity;
 use anyhow::anyhow;
 
+use borsh::BorshDeserialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Block, BlockHeader};
 use near_epoch_manager::EpochManagerAdapter;
@@ -9,8 +10,9 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataEntry, EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery,
 };
 use near_primitives::block::Tip;
+use near_primitives::challenge::{PartialState, TrieValue};
 use near_primitives::chunk_validation::StoredChunkStateTransitionData;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
@@ -23,10 +25,11 @@ use near_store::flat::delta::KeyForFlatStateDelta;
 use near_store::flat::store_helper::encode_flat_state_db_key;
 use near_store::flat::{FlatStateChanges, FlatStateDeltaMetadata, FlatStorageStatus};
 use near_store::{
-    DBCol, NibbleSlice, ShardUId, Store, TrieCachingStorage, FINAL_HEAD_KEY, HEADER_HEAD_KEY,
-    HEAD_KEY,
+    DBCol, NibbleSlice, RawTrieNode, RawTrieNodeWithSize, ShardUId, Store, TrieCachingStorage,
+    FINAL_HEAD_KEY, HEADER_HEAD_KEY, HEAD_KEY,
 };
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub struct EntityDebugHandlerImpl {
@@ -206,7 +209,7 @@ impl EntityDebugHandlerImpl {
                 let epoch_id = block.header().epoch_id();
                 let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
                 let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
-                let mut state_transitions = Vec::new();
+                let mut state_transitions = EntityDataStruct::new();
                 for shard_id in shard_ids {
                     let state_transition = self
                         .store
@@ -215,9 +218,19 @@ impl EntityDebugHandlerImpl {
                             &get_block_shard_id(&block_hash, shard_id),
                         )?
                         .ok_or_else(|| anyhow!("State transition not found"))?;
-                    state_transitions.push(state_transition);
+                    let mut serialized = EntityDataStruct::new();
+                    serialized.add(
+                        "base_state",
+                        PartialStateParser::parse_and_serialize_partial_state(
+                            state_transition.base_state,
+                        ),
+                    );
+                    serialized
+                        .add("receipts_hash", serialize_entity(&state_transition.receipts_hash));
+                    state_transitions
+                        .add(&shard_id.to_string(), EntityDataValue::Struct(serialized.into()));
                 }
-                Ok(serialize_entity(&state_transitions))
+                Ok(EntityDataValue::Struct(state_transitions.into()))
             }
             EntityQuery::TipAtFinalHead(_) => {
                 let tip = self
@@ -438,4 +451,136 @@ impl TriePath {
 struct FlatStateChangeView {
     pub key: String,
     pub value: Option<String>,
+}
+
+struct PartialStateParser {
+    nodes: HashMap<CryptoHash, TrieValue>,
+}
+
+impl PartialStateParser {
+    pub fn parse_and_serialize_partial_state(partial_state: PartialState) -> EntityDataValue {
+        let PartialState::TrieValues(nodes) = partial_state;
+        let parser = Self::new(&nodes);
+        let root = parser.find_root();
+        match root {
+            Some(root) => {
+                let mut ret = EntityDataStruct::new();
+                ret.add("root", parser.visit_node(root));
+                EntityDataValue::Struct(ret.into())
+            }
+            None => {
+                let mut ret = EntityDataStruct::new();
+                ret.add("error", EntityDataValue::String("No root found".to_string()));
+                let mut inner = EntityDataStruct::new();
+                for (hash, data) in &parser.nodes {
+                    inner.add(&format!("{}", hash), EntityDataValue::String(hex::encode(data)));
+                }
+                ret.add("raw_nodes", EntityDataValue::Struct(inner.into()));
+                EntityDataValue::Struct(ret.into())
+            }
+        }
+    }
+
+    fn new(nodes: &[TrieValue]) -> Self {
+        Self {
+            nodes: nodes
+                .iter()
+                .map(|node| {
+                    let hash = hash(&node);
+                    (hash, node.clone())
+                })
+                .collect(),
+        }
+    }
+
+    fn find_root(&self) -> Option<CryptoHash> {
+        let mut node_to_children: HashMap<CryptoHash, Vec<CryptoHash>> = HashMap::new();
+        let mut nodes_not_yet_seen_as_children: HashSet<CryptoHash> = HashSet::new();
+        for (hash, _) in &self.nodes {
+            nodes_not_yet_seen_as_children.insert(*hash);
+        }
+        for (hash, data) in &self.nodes {
+            let children = self.detect_children_of(&data);
+            node_to_children.insert(*hash, children.clone());
+            for child in children {
+                nodes_not_yet_seen_as_children.remove(&child);
+            }
+        }
+        for node in nodes_not_yet_seen_as_children {
+            if node_to_children.get(&node).is_some() {
+                return Some(node);
+            }
+        }
+        None
+    }
+
+    fn detect_children_of(&self, data: &[u8]) -> Vec<CryptoHash> {
+        let Ok(node) = RawTrieNodeWithSize::try_from_slice(data) else {
+            return vec![];
+        };
+        match &node.node {
+            RawTrieNode::Leaf(_, value) => {
+                vec![value.hash]
+            }
+            RawTrieNode::BranchNoValue(children) => {
+                children.iter().map(|(_, child)| *child).collect()
+            }
+            RawTrieNode::BranchWithValue(value, children) => children
+                .iter()
+                .map(|(_, child)| *child)
+                .chain(std::iter::once(value.hash))
+                .collect(),
+            RawTrieNode::Extension(_, child) => vec![*child],
+        }
+    }
+
+    fn visit_node(&self, hash: CryptoHash) -> EntityDataValue {
+        let Some(data) = self.nodes.get(&hash) else {
+            return EntityDataValue::String("(missing)".to_string());
+        };
+        let mut ret = EntityDataStruct::new();
+        let node = RawTrieNodeWithSize::try_from_slice(data.as_ref()).unwrap();
+        match &node.node {
+            RawTrieNode::Leaf(extension, value_ref) => {
+                let (nibbles, _) = NibbleSlice::from_encoded(&extension);
+                ret.add(
+                    "extension",
+                    EntityDataValue::String(TriePath::nibbles_to_hex(
+                        &nibbles.iter().collect::<Vec<_>>(),
+                    )),
+                );
+                ret.add("value", self.visit_value(value_ref.hash));
+            }
+            RawTrieNode::BranchNoValue(children) => {
+                for (index, child) in children.iter() {
+                    ret.add(&format!("{:x}", index), self.visit_node(*child));
+                }
+            }
+            RawTrieNode::BranchWithValue(value_ref, children) => {
+                ret.add("value", self.visit_value(value_ref.hash));
+                for (index, child) in children.iter() {
+                    ret.add(&format!("{:x}", index), self.visit_node(*child));
+                }
+            }
+            RawTrieNode::Extension(extension, child) => {
+                let (nibbles, _) = NibbleSlice::from_encoded(&extension);
+                ret.add(
+                    "extension",
+                    EntityDataValue::String(TriePath::nibbles_to_hex(
+                        &nibbles.iter().collect::<Vec<_>>(),
+                    )),
+                );
+                ret.add("child", self.visit_node(*child));
+            }
+        }
+        EntityDataValue::Struct(ret.into())
+    }
+
+    fn visit_value(&self, hash: CryptoHash) -> EntityDataValue {
+        let value = match self.nodes.get(&hash) {
+            Some(data) => hex::encode(data),
+            None => "(missing)".to_string(),
+        };
+        EntityDataValue::String(value)
+    }
 }
