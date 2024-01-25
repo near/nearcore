@@ -700,16 +700,26 @@ impl Client {
         }
 
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self
-            .epoch_manager
-            .get_chunk_validator_assignments(
-                epoch_id,
-                chunk_header.shard_id(),
-                chunk_header.height_created(),
-            )?
-            .ordered_chunk_validators();
+        let chunk_validators_assignment = self.epoch_manager.get_chunk_validator_assignments(
+            epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
+        let mut chunk_validators = chunk_validators_assignment.ordered_chunk_validators();
         let witness =
             self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
+
+        if let Some(my_signer) = self.validator_signer.clone() {
+            // Since we've created the state witness, we can directly send the chunk endorsement to ourselves.
+            if chunk_validators_assignment.contains(my_signer.validator_id()) {
+                let endorsement =
+                    ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
+                self.process_chunk_endorsement(endorsement)?;
+                // remove ourselves from the list of chunk validators to send the chunk state witness to.
+                chunk_validators.retain(|account_id| account_id != my_signer.validator_id());
+            }
+        };
+
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
