@@ -64,7 +64,7 @@ pub trait Client: Send + Sync + 'static {
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness);
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId);
 
     async fn chunk_endorsement(&self, endorsement: ChunkEndorsement);
 }
@@ -135,7 +135,7 @@ impl Client for Noop {
         Ok(vec![])
     }
 
-    async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
+    async fn chunk_state_witness(&self, _witness: ChunkStateWitness, _peer_id: PeerId) {}
 
     async fn chunk_endorsement(&self, _endorsement: ChunkEndorsement) {}
 }

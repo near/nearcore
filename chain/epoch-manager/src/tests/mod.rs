@@ -11,10 +11,15 @@ use crate::test_utils::{
 };
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::challenge::SlashedValidator;
+use near_primitives::chunk_validation::{
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
+use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
@@ -2654,15 +2659,37 @@ fn test_max_kickout_stake_ratio() {
     );
 }
 
+fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
+    ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        h[0],
+        h[2],
+        h[2],
+        h[2],
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        h[2],
+        h[2],
+        vec![],
+        signer,
+    ))
+}
+
 #[test]
-#[cfg(feature = "nightly")]
 fn test_verify_chunk_endorsements() {
     use near_chain_primitives::Error;
     use near_crypto::Signature;
     use near_primitives::chunk_validation::ChunkEndorsement;
-    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
+
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
 
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
@@ -2690,22 +2717,7 @@ fn test_verify_chunk_endorsements() {
     assert_eq!(signer.public_key(), validator.public_key().clone());
 
     // make chunk header
-    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        h[0],
-        h[2],
-        h[2],
-        h[2],
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-        h[2],
-        h[2],
-        vec![],
-        signer.as_ref(),
-    ));
+    let chunk_header = test_chunk_header(&h, signer.as_ref());
 
     // check chunk endorsement validity
     let mut chunk_endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer.as_ref());
@@ -2733,4 +2745,65 @@ fn test_verify_chunk_endorsements() {
         Error::NotAValidator => (),
         _ => assert!(false, "Expected NotAValidator error but got {:?}", err),
     }
+}
+
+#[test]
+fn test_verify_chunk_state_witness() {
+    use near_crypto::Signature;
+    use near_primitives::test_utils::create_test_signer;
+    use std::str::FromStr;
+
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
+
+    let amount_staked = 1_000_000;
+    let account_id = AccountId::from_str("test1").unwrap();
+    let validators = vec![(account_id.clone(), amount_staked)];
+    let h = hash_range(6);
+
+    let mut epoch_manager = setup_default_epoch_manager(validators, 5, 1, 2, 2, 90, 60);
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], 0, vec![]);
+    record_block(&mut epoch_manager, h[0], h[1], 1, vec![]);
+
+    let epoch_manager = epoch_manager.into_handle();
+    let epoch_id = epoch_manager.get_epoch_id(&h[1]).unwrap();
+
+    // Verify if the test signer has same public key as the chunk validator.
+    let (validator, _) =
+        epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
+    let signer = Arc::new(create_test_signer("test1"));
+    assert_eq!(signer.public_key(), validator.public_key().clone());
+
+    // Build a chunk state witness with arbitrary data.
+    let chunk_header = test_chunk_header(&h, signer.as_ref());
+    let witness_inner = ChunkStateWitnessInner::new(
+        chunk_header,
+        ChunkStateTransition {
+            block_hash: h[0],
+            base_state: Default::default(),
+            post_state_root: h[3],
+        },
+        Default::default(),
+        h[4],
+        vec![],
+        vec![],
+        vec![],
+        Default::default(),
+    );
+    let signature = signer.sign_chunk_state_witness(&witness_inner);
+
+    // Check chunk state witness validity.
+    let mut chunk_state_witness = ChunkStateWitness { inner: witness_inner, signature };
+    assert!(epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+
+    // Check invalid chunk state witness signature.
+    chunk_state_witness.signature = Signature::default();
+    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+
+    // Check chunk state witness invalidity when signer is not a chunk validator.
+    let bad_signer = Arc::new(create_test_signer("test2"));
+    chunk_state_witness.signature = bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner);
+    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
 }

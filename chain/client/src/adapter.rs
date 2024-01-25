@@ -138,7 +138,10 @@ pub enum ProcessTxResponse {
 
 #[derive(actix::Message, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
+pub struct ChunkStateWitnessMessage {
+    pub witness: ChunkStateWitness,
+    pub peer_id: PeerId,
+}
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
@@ -343,8 +346,12 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
-        match self.client_addr.send(ChunkStateWitnessMessage(witness).with_span_context()).await {
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId) {
+        match self
+            .client_addr
+            .send(ChunkStateWitnessMessage { witness, peer_id }.with_span_context())
+            .await
+        {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }

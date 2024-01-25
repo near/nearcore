@@ -9,10 +9,25 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance};
 
+/// An arbitrary static string to make sure that this struct cannot be
+/// serialized to look identical to another serialized struct. For chunk
+/// production we are signing a chunk hash, so we need to make sure that
+/// this signature means something different.
+///
+/// This is a messy workaround until we know what to do with NEP 483.
+type SignatureDifferentiator = String;
+
+/// Signable
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkStateWitness {
+    pub inner: ChunkStateWitnessInner,
+    pub signature: Signature,
+}
+
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkStateWitness {
+pub struct ChunkStateWitnessInner {
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
@@ -75,22 +90,49 @@ pub struct ChunkStateWitness {
     /// accounts have appropriate balances, access keys, nonces, etc.
     pub new_transactions: Vec<SignedTransaction>,
     pub new_transactions_validation_state: PartialState,
+    signature_differentiator: SignatureDifferentiator,
+}
+
+impl ChunkStateWitnessInner {
+    pub fn new(
+        chunk_header: ShardChunkHeader,
+        main_state_transition: ChunkStateTransition,
+        source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
+        applied_receipts_hash: CryptoHash,
+        transactions: Vec<SignedTransaction>,
+        implicit_transitions: Vec<ChunkStateTransition>,
+        new_transactions: Vec<SignedTransaction>,
+        new_transactions_validation_state: PartialState,
+    ) -> Self {
+        Self {
+            chunk_header,
+            main_state_transition,
+            source_receipt_proofs,
+            applied_receipts_hash,
+            transactions,
+            implicit_transitions,
+            new_transactions,
+            new_transactions_validation_state,
+            signature_differentiator: "ChunkStateWitness".to_owned(),
+        }
+    }
 }
 
 impl ChunkStateWitness {
     // TODO(stateless_validation): To be used only for creating state witness when previous chunk is genesis.
     // Clean this up once we can properly handle creating state witness for genesis chunk.
     pub fn empty(chunk_header: ShardChunkHeader) -> Self {
-        Self {
+        let inner = ChunkStateWitnessInner::new(
             chunk_header,
-            main_state_transition: Default::default(),
-            source_receipt_proofs: Default::default(),
-            applied_receipts_hash: Default::default(),
-            transactions: Default::default(),
-            implicit_transitions: Default::default(),
-            new_transactions: Default::default(),
-            new_transactions_validation_state: Default::default(),
-        }
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        ChunkStateWitness { inner, signature: Signature::default() }
     }
 }
 
@@ -153,13 +195,7 @@ impl ChunkEndorsement {
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkEndorsementInner {
     chunk_hash: ChunkHash,
-    /// An arbitrary static string to make sure that this struct cannot be
-    /// serialized to look identical to another serialized struct. For chunk
-    /// production we are signing a chunk hash, so we need to make sure that
-    /// this signature means something different.
-    ///
-    /// This is a messy workaround until we know what to do with NEP 483.
-    signature_differentiator: String,
+    signature_differentiator: SignatureDifferentiator,
 }
 
 impl ChunkEndorsementInner {
