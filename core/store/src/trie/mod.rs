@@ -1282,7 +1282,7 @@ impl Trie {
                 recorder.borrow_mut().record(&node_hash, serialized_node);
             }
         }
-        Ok(flat_value.map(OptimizedValueRef::from_flat_value))
+        Ok(flat_value.map(|v| v.to_optimized_value_ref()))
     }
 
     /// For debugging only. Returns the raw node at the given path starting from the root.
