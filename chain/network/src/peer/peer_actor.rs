@@ -982,7 +982,7 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::ChunkStateWitness(witness) => {
-                network_state.client.chunk_state_witness(witness).await;
+                network_state.client.chunk_state_witness(witness, peer_id).await;
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {

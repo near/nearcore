@@ -69,6 +69,7 @@ pub enum ReasonForBan {
     InvalidDistanceVector = 11,
     Blacklisted = 14,
     ProvidedNotEnoughHeaders = 15,
+    BadChunkStateWitness = 16,
 }
 
 /// Banning signal sent from Peer instance to PeerManager

@@ -5,7 +5,9 @@ use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidatorAssignments};
+use near_primitives::chunk_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -384,6 +386,11 @@ pub trait EpochManagerAdapter: Send + Sync {
         &self,
         chunk_header: &ShardChunkHeader,
         endorsement: &ChunkEndorsement,
+    ) -> Result<bool, Error>;
+
+    fn verify_chunk_state_witness_signature(
+        &self,
+        state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error>;
 
     fn cares_about_shard_from_prev_block(
@@ -987,6 +994,24 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let validator =
             epoch_manager.get_validator_by_account_id(&epoch_id, &endorsement.account_id)?;
         Ok(endorsement.verify(validator.public_key()))
+    }
+
+    fn verify_chunk_state_witness_signature(
+        &self,
+        state_witness: &ChunkStateWitness,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let chunk_header = &state_witness.inner.chunk_header;
+        let epoch_id =
+            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        let chunk_producer = epoch_manager.get_chunk_producer_info(
+            &epoch_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
+        )?;
+        Ok(state_witness
+            .signature
+            .verify(&borsh::to_vec(&state_witness.inner)?, chunk_producer.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
