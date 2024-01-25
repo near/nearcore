@@ -710,11 +710,17 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn get_chunk_validator_assignments(
         &self,
-        _epoch_id: &EpochId,
+        epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
-        Ok(Arc::new(Default::default()))
+        let chunk_validators = self
+            .get_block_producers(self.get_valset_for_epoch(epoch_id)?)
+            .into_iter()
+            .cloned()
+            .map(|validator| validator.account_and_stake())
+            .collect();
+        Ok(Arc::new(ChunkValidatorAssignments::new(chunk_validators)))
     }
 
     fn get_validator_by_account_id(
