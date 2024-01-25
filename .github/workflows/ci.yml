@@ -113,6 +113,7 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
+      - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
       - uses: actions/upload-artifact@v3
         with:
@@ -181,6 +182,7 @@ jobs:
       - run: python3 pytest/tests/sanity/spin_up_cluster.py
         env:
           NEAR_ROOT: "target/dev-release"
+      - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
       - uses: actions/upload-artifact@v3
         with:
@@ -210,6 +212,7 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
+      - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
       - uses: actions/upload-artifact@v3
         with:
@@ -254,6 +257,7 @@ jobs:
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/upgradable.py
+      - run: mkdir -p coverage/codecov
       - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
       - uses: actions/upload-artifact@v3
         with:
@@ -384,6 +388,7 @@ jobs:
       - run: pip3 install --user diff-cover
       - run: mv coverage-profraw/${{matrix.type}}/*.profraw target/
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: mkdir -p coverage/lcov coverage/html
       - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
       - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}
       - run: diff-cover --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov

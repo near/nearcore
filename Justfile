@@ -96,6 +96,7 @@ codecov RULE:
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
+    mkdir -p coverage/codecov
     cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
     mkdir coverage/profraw/new
     mv target/*.profraw coverage/profraw/new
