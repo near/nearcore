@@ -579,9 +579,7 @@ impl Block {
 
     pub fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
         match self {
-            Block::BlockV1(_) => unreachable!(),
-            Block::BlockV2(_) => unreachable!(),
-            Block::BlockV3(_) => unreachable!(),
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => (),
             Block::BlockV4(body) => {
                 let body = Arc::make_mut(body);
                 body.body.set_chunk_endorsements(chunk_endorsements);

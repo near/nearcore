@@ -6,6 +6,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::messaging::IntoSender;
 use near_chain::chain::ApplyStatePartsRequest;
@@ -412,14 +413,16 @@ fn produce_block_with_approvals() {
             block_merkle_tree.insert(last_block.header.hash);
             let signer1 = create_test_signer("test2");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+            let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
+            let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                vec![],
+                chunks,
+                chunk_endorsements,
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
