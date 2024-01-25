@@ -708,11 +708,8 @@ impl Client {
                 chunk_header.height_created(),
             )?
             .ordered_chunk_validators();
-        let Some(witness) =
-            self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?
-        else {
-            return Ok(());
-        };
+        let witness =
+            self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
@@ -784,21 +781,18 @@ impl Client {
             ));
         };
 
-        let Some(witness) = self.create_state_witness(
+        let witness = self.create_state_witness_inner(
             prev_chunk_header,
             chunk,
             validated_transactions.storage_proof,
-        )?
-        else {
-            return Err(Error::Other("State witness is None".to_owned()));
-        };
+        )?;
         let witness_size = borsh::to_vec(&witness)?.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
-            &witness.inner,
+            &witness,
             &self.chain,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
@@ -816,7 +810,7 @@ impl Client {
         rayon::spawn(move || {
             let validation_start = Instant::now();
             match validate_chunk_state_witness(
-                witness.inner,
+                witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
@@ -845,12 +839,12 @@ impl Client {
         Ok(())
     }
 
-    fn create_state_witness(
+    fn create_state_witness_inner(
         &mut self,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
+    ) -> Result<ChunkStateWitnessInner, Error> {
         let chunk_header = chunk.cloned_header();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
@@ -878,10 +872,21 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
+        Ok(witness_inner)
+    }
+
+    fn create_state_witness(
+        &mut self,
+        prev_chunk_header: &ShardChunkHeader,
+        chunk: &ShardChunk,
+        transactions_storage_proof: Option<PartialState>,
+    ) -> Result<ChunkStateWitness, Error> {
+        let witness_inner =
+            self.create_state_witness_inner(prev_chunk_header, chunk, transactions_storage_proof)?;
         let signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?;
         let signature = signer.sign_chunk_state_witness(&witness_inner);
         let witness = ChunkStateWitness { inner: witness_inner, signature };
-        Ok(Some(witness))
+        Ok(witness)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
