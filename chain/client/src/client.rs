@@ -29,8 +29,10 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::{ChainConfig, LatestKnown};
-use near_chain::types::{PreparedTransactions, RuntimeAdapter};
+use near_chain::types::{
+    ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    StorageDataSource,
+};
 use near_chain::{
     BlockProcessingArtifact, BlockStatus, Chain, ChainGenesis, ChainStoreAccess,
     DoneApplyChunkCallback, Doomslug, DoomslugThresholdMode, Provenance,
@@ -57,7 +59,7 @@ use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
-use near_primitives::challenge::{Challenge, ChallengeBody};
+use near_primitives::challenge::{Challenge, ChallengeBody, PartialState};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
@@ -219,6 +221,13 @@ pub struct BlockDebugStatus {
     pub chunks_received: HashSet<ChunkHash>,
     // Chunks completed - fully rebuild and present in database.
     pub chunks_completed: HashSet<ChunkHash>,
+}
+
+pub struct ProduceChunkResult {
+    pub chunk: EncodedShardChunk,
+    pub encoded_chunk_parts_paths: Vec<MerklePath>,
+    pub receipts: Vec<Receipt>,
+    pub transactions_storage_proof: Option<PartialState>,
 }
 
 impl Client {
@@ -769,7 +778,7 @@ impl Client {
         last_header: ShardChunkHeader,
         next_height: BlockHeight,
         shard_id: ShardId,
-    ) -> Result<Option<(EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>)>, Error> {
+    ) -> Result<Option<ProduceChunkResult>, Error> {
         let timer = Instant::now();
         let _timer =
             metrics::PRODUCE_CHUNK_TIME.with_label_values(&[&shard_id.to_string()]).start_timer();
@@ -826,6 +835,7 @@ impl Client {
                 self.produce_invalid_tx_in_chunks,
             ),
             limited_by: prepared_transactions.limited_by,
+            storage_proof: prepared_transactions.storage_proof,
         };
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
@@ -882,7 +892,12 @@ impl Client {
                 .inc();
         }
 
-        Ok(Some((encoded_chunk, merkle_paths, outgoing_receipts)))
+        Ok(Some(ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts: outgoing_receipts,
+            transactions_storage_proof: prepared_transactions.storage_proof,
+        }))
     }
 
     /// Calculates the root of receipt proofs.
@@ -942,36 +957,50 @@ impl Client {
         let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
         let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
-        let prepared_transactions =
-            if let Some(mut iter) = sharded_tx_pool.get_pool_iterator(shard_uid) {
-                let transaction_validity_period = chain.transaction_validity_period;
-                runtime.prepare_transactions(
-                    prev_block_header.next_gas_price(),
-                    gas_limit,
-                    &next_epoch_id,
-                    shard_id,
-                    state_root,
-                    // while the height of the next block that includes the chunk might not be prev_height + 1,
-                    // passing it will result in a more conservative check and will not accidentally allow
-                    // invalid transactions to be included.
-                    prev_block_header.height() + 1,
-                    &mut iter,
-                    &mut |tx: &SignedTransaction| -> bool {
-                        chain
-                            .chain_store()
-                            .check_transaction_validity_period(
-                                prev_block_header,
-                                &tx.transaction.block_hash,
-                                transaction_validity_period,
-                            )
-                            .is_ok()
-                    },
-                    protocol_version,
-                    self.config.produce_chunk_add_transactions_time_limit.get(),
-                )?
-            } else {
-                PreparedTransactions { transactions: Vec::new(), limited_by: None }
+        let prepared_transactions = if let Some(mut iter) =
+            sharded_tx_pool.get_pool_iterator(shard_uid)
+        {
+            let transaction_validity_period = chain.transaction_validity_period;
+            let me = self
+                .validator_signer
+                .as_ref()
+                .map(|validator_signer| validator_signer.validator_id().clone());
+            let record_storage = chain
+                .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
+            let storage_config = RuntimeStorageConfig {
+                state_root,
+                use_flat_storage: true,
+                source: StorageDataSource::Db,
+                state_patch: Default::default(),
+                record_storage,
             };
+            runtime.prepare_transactions(
+                prev_block_header.next_gas_price(),
+                gas_limit,
+                &next_epoch_id,
+                shard_id,
+                storage_config,
+                // while the height of the next block that includes the chunk might not be prev_height + 1,
+                // passing it will result in a more conservative check and will not accidentally allow
+                // invalid transactions to be included.
+                prev_block_header.height() + 1,
+                &mut iter,
+                &mut |tx: &SignedTransaction| -> bool {
+                    chain
+                        .chain_store()
+                        .check_transaction_validity_period(
+                            prev_block_header,
+                            &tx.transaction.block_hash,
+                            transaction_validity_period,
+                        )
+                        .is_ok()
+                },
+                protocol_version,
+                self.config.produce_chunk_add_transactions_time_limit.get(),
+            )?
+        } else {
+            PreparedTransactions { transactions: Vec::new(), limited_by: None, storage_proof: None }
+        };
         // Reintroduce valid transactions back to the pool. They will be removed when the chunk is
         // included into the block.
         let reintroduced_count = sharded_tx_pool
@@ -1715,12 +1744,12 @@ impl Client {
                 next_height,
                 shard_id,
             ) {
-                Ok(Some((encoded_chunk, merkle_paths, receipts))) => {
+                Ok(Some(result)) => {
                     let shard_chunk = self
                         .persist_and_distribute_encoded_chunk(
-                            encoded_chunk,
-                            merkle_paths,
-                            receipts,
+                            result.chunk,
+                            result.encoded_chunk_parts_paths,
+                            result.receipts,
                             validator_id.clone(),
                         )
                         .expect("Failed to process produced chunk");
@@ -1728,6 +1757,7 @@ impl Client {
                         &epoch_id,
                         &last_header,
                         &shard_chunk,
+                        result.transactions_storage_proof,
                     ) {
                         tracing::error!(target: "client", ?err, "Failed to send chunk state witness to chunk validators");
                     }

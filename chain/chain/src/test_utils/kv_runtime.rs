@@ -10,7 +10,7 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_pool::types::PoolIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::chunk_validation::{
@@ -1043,18 +1043,18 @@ impl RuntimeAdapter for KeyValueRuntime {
         _gas_limit: Gas,
         _epoch_id: &EpochId,
         _shard_id: ShardId,
-        _state_root: StateRoot,
+        _storage_config: RuntimeStorageConfig,
         _next_block_height: BlockHeight,
-        transactions: &mut dyn PoolIterator,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
-        while let Some(iter) = transactions.next() {
+        while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions { transactions: res, limited_by: None })
+        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
     }
 
     fn apply_chunk(

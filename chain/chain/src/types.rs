@@ -6,6 +6,7 @@ use chrono::DateTime;
 use chrono::Utc;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
@@ -13,8 +14,7 @@ use num_rational::Rational32;
 
 use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::challenge::ChallengesResult;
+use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
@@ -320,6 +320,8 @@ pub struct PreparedTransactions {
     pub transactions: Vec<SignedTransaction>,
     /// Describes which limit was hit when preparing the transactions.
     pub limited_by: Option<PrepareTransactionsLimit>,
+    /// May contain partial state that was used to verify transactions when preparing.
+    pub storage_proof: Option<PartialState>,
 }
 
 /// Chunk producer prepares transactions from the transaction pool
@@ -394,9 +396,9 @@ pub trait RuntimeAdapter: Send + Sync {
         gas_limit: Gas,
         epoch_id: &EpochId,
         shard_id: ShardId,
-        state_root: StateRoot,
+        storage: RuntimeStorageConfig,
         next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
         current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
