@@ -906,6 +906,10 @@ impl Client {
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
     ) -> Result<ChunkStateWitness, Error> {
+        // TODO(stateless_validation): Previous chunk is genesis chunk. Properly handle creating state witness.
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+            return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
+        }
         let witness_inner =
             self.create_state_witness_inner(prev_chunk_header, chunk, transactions_storage_proof)?;
         let signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?;
