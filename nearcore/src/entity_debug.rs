@@ -9,12 +9,13 @@ use near_jsonrpc_primitives::types::entity_debug::{
     EntityDataEntry, EntityDataStruct, EntityDataValue, EntityDebugHandler, EntityQuery,
 };
 use near_primitives::block::Tip;
+use near_primitives::chunk_validation::StoredChunkStateTransitionData;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
-use near_primitives::utils::get_outcome_id_block_hash;
+use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
 };
@@ -49,7 +50,15 @@ impl EntityDebugHandlerImpl {
                 let author = self
                     .epoch_manager
                     .get_block_producer(block.header().epoch_id(), block.header().height())?;
-                Ok(serialize_entity(&BlockView::from_author_block(author, block)))
+                let mut ret =
+                    serialize_entity(&BlockView::from_author_block(author, block.clone()));
+                if let EntityDataValue::Struct(inner) = &mut ret {
+                    inner.entries.push(EntityDataEntry {
+                        name: "chunk_endorsements".to_owned(),
+                        value: serialize_entity(block.chunk_endorsements()),
+                    });
+                }
+                Ok(ret)
             }
             EntityQuery::BlockHashByHeight { block_height } => {
                 let block_hash = self
@@ -188,6 +197,27 @@ impl EntityDebugHandlerImpl {
                     .nth(shard_id as usize)
                     .ok_or_else(|| anyhow!("Shard {} not found", shard_id))?;
                 Ok(serialize_entity(&shard_uid))
+            }
+            EntityQuery::StateTransitionData { block_hash } => {
+                let block = self
+                    .store
+                    .get_ser::<Block>(DBCol::Block, &borsh::to_vec(&block_hash).unwrap())?
+                    .ok_or_else(|| anyhow!("Block not found"))?;
+                let epoch_id = block.header().epoch_id();
+                let shard_layout = self.epoch_manager.get_shard_layout(&epoch_id)?;
+                let shard_ids = shard_layout.shard_ids().collect::<Vec<_>>();
+                let mut state_transitions = Vec::new();
+                for shard_id in shard_ids {
+                    let state_transition = self
+                        .store
+                        .get_ser::<StoredChunkStateTransitionData>(
+                            DBCol::StateTransitionData,
+                            &get_block_shard_id(&block_hash, shard_id),
+                        )?
+                        .ok_or_else(|| anyhow!("State transition not found"))?;
+                    state_transitions.push(state_transition);
+                }
+                Ok(serialize_entity(&state_transitions))
             }
             EntityQuery::TipAtFinalHead(_) => {
                 let tip = self

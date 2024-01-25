@@ -67,6 +67,7 @@ pub enum EntityQuery {
     ShardIdByAccountId { account_id: String, epoch_id: EpochId },
     ShardLayoutByEpochId { epoch_id: EpochId },
     ShardUIdByShardId { shard_id: ShardId, epoch_id: EpochId },
+    StateTransitionData { block_hash: CryptoHash },
     TipAtFinalHead(()),
     TipAtHead(()),
     TipAtHeaderHead(()),

@@ -230,6 +230,7 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     ShardId: shardId,
     ShardLayout: undefined,
     ShardUId: shardUId,
+    StateTransitionData: undefined,
     Tip: tip,
     Transaction: transaction,
     TrieNode: trieNode,

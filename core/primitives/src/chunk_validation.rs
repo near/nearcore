@@ -206,7 +206,7 @@ impl ChunkEndorsementInner {
 
 /// Stored on disk for each chunk, including missing chunks, in order to
 /// produce a chunk state witness when needed.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize, serde::Serialize)]
 pub struct StoredChunkStateTransitionData {
     /// The partial state that is needed to apply the state transition,
     /// whether it is a new chunk state transition or a implicit missing chunk
