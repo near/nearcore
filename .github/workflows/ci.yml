@@ -60,6 +60,7 @@ jobs:
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
+      - run: mkdir -p coverage/profraw/{unit,integration}
       - run: ZSTD_CLEVEL=19 tar -c --zstd -f coverage/profraw/unit/${{matrix.id}}.tar.zst coverage/profraw/new/*
       - run: rm -rf coverage/profraw/new
       - run: just codecov "nextest-integration ${{ matrix.type }}"
