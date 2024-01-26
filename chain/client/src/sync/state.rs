@@ -1081,7 +1081,7 @@ fn request_part_from_external_storage(
         Ok(permit) => {
             if state_parts_arbiter_handle.spawn({
                 async move {
-                    let result = external.get_part(shard_id, &location).await;
+                    let result = external.get_file(shard_id, &location, &StateFileType::StatePart { part_id, num_parts }).await;
                     let part_id = PartId{ idx: part_id, total: num_parts };
                     let part_result = match result {
                         Ok(data) => {
@@ -1189,21 +1189,22 @@ fn process_part_response(
     part_download: &mut DownloadStatus,
     part_result: Result<u64, String>,
 ) {
+    let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
     match part_result {
         Ok(data_len) => {
             // No error, aka Success.
             metrics::STATE_SYNC_EXTERNAL_PARTS_DONE
-                .with_label_values(&[&shard_id.to_string()])
+                .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                 .inc();
             metrics::STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED
-                .with_label_values(&[&shard_id.to_string()])
+                .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                 .inc_by(data_len);
             part_download.done = true;
         }
         // The request failed without reaching the external storage.
         Err(err) => {
             metrics::STATE_SYNC_EXTERNAL_PARTS_FAILED
-                .with_label_values(&[&shard_id.to_string()])
+                .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
                 .inc();
             tracing::debug!(target: "sync", ?err, %shard_id, %sync_hash, part_id, "Failed to get a part from external storage, will retry");
             part_download.error = true;
