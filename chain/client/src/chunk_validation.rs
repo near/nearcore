@@ -700,30 +700,24 @@ impl Client {
         }
 
         let chunk_header = chunk.cloned_header();
-        let chunk_validators_assignment = self.epoch_manager.get_chunk_validator_assignments(
-            epoch_id,
-            chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
-        let mut chunk_validators = chunk_validators_assignment.ordered_chunk_validators();
+        let chunk_validators = self
+            .epoch_manager
+            .get_chunk_validator_assignments(
+                epoch_id,
+                chunk_header.shard_id(),
+                chunk_header.height_created(),
+            )?
+            .ordered_chunk_validators();
         let witness =
             self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
 
+        // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
+        // chunk endorsement related network messages.
         if let Some(my_signer) = self.validator_signer.clone() {
-            if chunk_validators_assignment.contains(my_signer.validator_id()) {
-                // Since we've created the state witness, directly send the chunk endorsement to block producers.
-                // We can bypass the state witness validation logic.
-                send_chunk_endorsement_to_block_producers(
-                    &chunk_header,
-                    self.epoch_manager.as_ref(),
-                    my_signer.as_ref(),
-                    &self.chunk_validator.network_sender,
-                );
-
-                // remove ourselves from the list of chunk validators to send the chunk state witness to.
-                chunk_validators.retain(|account_id| account_id != my_signer.validator_id());
-
-                // Additionally send a copy of the chunk endorsement to ourselves.
+            let block_producer =
+                self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+            if my_signer.validator_id() == &block_producer {
+                // Send a copy of the chunk endorsement to ourselves.
                 // Mainly useful in tests where we don't have a good way to handle network messages and there's
                 // only a single client.
                 let endorsement =
