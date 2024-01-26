@@ -33,11 +33,15 @@ use crate::node::RuntimeNode;
 
 #[derive(Clone, Debug)]
 struct Transfers {
+    /// Regular transfer amount (if any).
     regular_amount: Balance,
+    /// Non-refundable transfer amount (if any).
     nonrefundable_amount: Balance,
+    /// Whether non-refundable transfer action should be first in the receipt.
     nonrefundable_transfer_first: bool,
 }
 
+/// Different `Transfers` configurations, where we only test cases where non-refundable transfer happens.
 const TEST_CASES: [Transfers; 3] = [
     Transfers { regular_amount: 0, nonrefundable_amount: 1, nonrefundable_transfer_first: true },
     Transfers { regular_amount: 1, nonrefundable_amount: 1, nonrefundable_transfer_first: true },
@@ -45,9 +49,13 @@ const TEST_CASES: [Transfers; 3] = [
 ];
 
 struct TransferConfig {
+    /// Describes transfers configuration we are interested in.
     transfers: Transfers,
+    /// True if the receipt should create account.
     account_creation: bool,
+    /// Differentaties between named and implicit account creation, if `account_creation` is true.
     implicit_account_creation: bool,
+    /// Whether the last action in the receipt should deploy a contract.
     deploy_contract: bool,
 }
 
@@ -129,6 +137,7 @@ fn execute_transaction_from_actions(
 }
 
 /// Submits a transfer (regular, non-refundable, or both).
+/// Can possibly create an account or deploy a contract, depending on the `config`.
 ///
 /// This methods checks that the balance is subtracted from the sender and added
 /// to the receiver, if the status was ok. No checks are done on an error.

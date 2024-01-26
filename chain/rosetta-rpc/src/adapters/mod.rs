@@ -2,7 +2,6 @@ use actix::Addr;
 use near_chain_configs::Genesis;
 use near_client::ViewClientActor;
 use near_o11y::WithSpanContextExt;
-use near_primitives::transaction::TransferAction;
 use validated_operations::ValidatedOperation;
 
 pub(crate) mod nep141;
@@ -326,8 +325,8 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                     );
                 }
 
-                near_primitives::transaction::Action::Transfer(TransferAction { deposit }) => {
-                    let transfer_amount = crate::models::Amount::from_yoctonear(deposit);
+                near_primitives::transaction::Action::Transfer(action) => {
+                    let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
 
                     let sender_transfer_operation_id =
                         crate::models::OperationIdentifier::new(&operations);
@@ -355,6 +354,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
 
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 // Note(jakmeier): Both refundable and non-refundable transfers are considered as available balance.
+                // TODO(nonrefundable) Merge with the arm above on stabilization.
                 near_primitives::transaction::Action::NonrefundableStorageTransfer(action) => {
                     let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);
 

@@ -31,7 +31,6 @@ use crate::transaction::{
     ExecutionStatus, FunctionCallAction, PartialExecutionOutcome, PartialExecutionStatus,
     SignedTransaction, StakeAction, TransferAction,
 };
-
 use crate::types::{
     AccountId, AccountWithPublicKey, Balance, BlockHeight, EpochHeight, EpochId, FunctionArgs, Gas,
     Nonce, NumBlocks, ShardId, StateChangeCause, StateChangeKind, StateChangeValue,
