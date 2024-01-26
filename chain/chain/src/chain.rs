@@ -2014,10 +2014,9 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        // TODO(shreyan): Uncomment after PR #10469 once we start populating endorsements in blocks.
-        // if checked_feature!("stable", ChunkValidation, protocol_version) {
-        //     self.validate_chunk_endorsements_in_block(&block)?;
-        // }
+        if checked_feature!("stable", ChunkValidation, protocol_version) {
+            self.validate_chunk_endorsements_in_block(&block)?;
+        }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;

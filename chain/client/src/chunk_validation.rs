@@ -4,12 +4,13 @@ use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
 };
+use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
     RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
-use near_chain::{Block, Chain, ChainStoreAccess};
+use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest, ReasonForBan};
@@ -24,10 +25,11 @@ use near_primitives::chunk_validation::{
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{ChunkHash, ShardChunk, ShardChunkHeader};
+use near_primitives::receipt::Receipt;
+use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::{AccountId, EpochId};
+use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use std::collections::HashMap;
@@ -266,9 +268,9 @@ fn pre_validate_chunk_state_witness(
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
 
-    // Blocks from the last new chunk (inclusive) to the parent block (inclusive).
+    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
     let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (inclusive) to the last new chunk (exclusive).
+    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
     let mut blocks_after_last_last_chunk = Vec::new();
 
     {
@@ -285,13 +287,13 @@ fn pre_validate_chunk_state_witness(
             };
             let is_new_chunk = chunk.is_new_chunk(block.header().height());
             block_hash = *block.header().prev_hash();
+            if is_new_chunk {
+                prev_chunks_seen += 1;
+            }
             if prev_chunks_seen == 0 {
                 blocks_after_last_chunk.push(block);
             } else if prev_chunks_seen == 1 {
                 blocks_after_last_last_chunk.push(block);
-            }
-            if is_new_chunk {
-                prev_chunks_seen += 1;
             }
             if prev_chunks_seen == 2 {
                 break;
@@ -299,55 +301,11 @@ fn pre_validate_chunk_state_witness(
         }
     }
 
-    // Compute the chunks from which receipts should be collected.
-    // let mut chunks_to_collect_receipts_from = Vec::new();
-    // for block in blocks_after_last_last_chunk.iter().rev() {
-    //     // To stay consistent with the order in which receipts are applied,
-    //     // blocks are iterated in reverse order (from new to old), and
-    //     // chunks are shuffled for each block.
-    //     let mut chunks_in_block = block
-    //         .chunks()
-    //         .iter()
-    //         .map(|chunk| (chunk.chunk_hash(), chunk.prev_outgoing_receipts_root()))
-    //         .collect::<Vec<_>>();
-    //     shuffle_receipt_proofs(&mut chunks_in_block, block.hash());
-    //     chunks_to_collect_receipts_from.extend(chunks_in_block);
-    // }
-
-    // Verify that for each chunk, the receipts that have been provided match
-    // the receipts that we are expecting.
-    // let mut receipts_to_apply = Vec::new();
-    // for (chunk_hash, receipt_root) in chunks_to_collect_receipts_from {
-    //     let Some(receipt_proof) = state_witness.source_receipt_proofs.get(&chunk_hash) else {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Missing source receipt proof for chunk {:?}",
-    //             chunk_hash
-    //         )));
-    //     };
-    //     if !receipt_proof.verify_against_receipt_root(receipt_root) {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Provided receipt proof failed verification against receipt root for chunk {:?}",
-    //             chunk_hash
-    //         )));
-    //     }
-    //     // TODO(#10265): This does not currently handle shard layout change.
-    //     if receipt_proof.1.to_shard_id != shard_id {
-    //         return Err(Error::InvalidChunkStateWitness(format!(
-    //             "Receipt proof for chunk {:?} is for shard {}, expected shard {}",
-    //             chunk_hash, receipt_proof.1.to_shard_id, shard_id
-    //         )));
-    //     }
-    //     receipts_to_apply.extend(receipt_proof.0.iter().cloned());
-    // }
-    let (last_chunk_block, implicit_transition_blocks) =
-        blocks_after_last_chunk.split_last().unwrap();
-    let receipts_response = &store.get_incoming_receipts_for_shard(
-        epoch_manager,
+    let receipts_to_apply = validate_source_receipt_proofs(
+        &state_witness.source_receipt_proofs,
+        &blocks_after_last_last_chunk,
         shard_id,
-        *last_chunk_block.header().hash(),
-        blocks_after_last_last_chunk.last().unwrap().header().height(),
     )?;
-    let receipts_to_apply = near_chain::chain::collect_receipts_from_response(receipts_response);
     let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
     if applied_receipts_hash != state_witness.applied_receipts_hash {
         return Err(Error::InvalidChunkStateWitness(format!(
@@ -356,6 +314,9 @@ fn pre_validate_chunk_state_witness(
         )));
     }
     let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions);
+    let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
+        Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
+    })?;
     let last_new_chunk_tx_root =
         last_chunk_block.chunks().get(shard_id as usize).unwrap().tx_root();
     if last_new_chunk_tx_root != tx_root_from_state_witness {
@@ -425,7 +386,7 @@ fn pre_validate_chunk_state_witness(
                 record_storage: false,
             },
         },
-        implicit_transition_params: implicit_transition_blocks
+        implicit_transition_params: blocks_after_last_chunk
             .into_iter()
             .rev()
             .map(|block| -> Result<_, Error> {
@@ -438,6 +399,97 @@ fn pre_validate_chunk_state_witness(
             })
             .collect::<Result<_, _>>()?,
     })
+}
+
+/// Validate that receipt proofs contain the receipts that should be applied during the
+/// transition proven by ChunkStateWitness. The receipts are extracted from the proofs
+/// and arranged in the order in which they should be applied during the transition.
+/// TODO(resharding): Handle resharding properly. If the receipts were sent from before
+/// a resharding boundary, we should first validate the proof using the pre-resharding
+/// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
+fn validate_source_receipt_proofs(
+    source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
+    receipt_source_blocks: &[Block],
+    target_chunk_shard_id: ShardId,
+) -> Result<Vec<Receipt>, Error> {
+    let mut receipts_to_apply = Vec::new();
+    let mut expected_proofs_len = 0;
+
+    // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
+    // from the newest blocks to the oldest.
+    for block in receipt_source_blocks {
+        // Collect all receipts coming from this block.
+        let mut block_receipt_proofs = Vec::new();
+
+        for chunk in block.chunks().iter() {
+            if !chunk.is_new_chunk(block.header().height()) {
+                continue;
+            }
+
+            // Collect receipts coming from this chunk and validate that they are correct.
+            let Some(receipt_proof) = source_receipt_proofs.get(&chunk.chunk_hash()) else {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "Missing source receipt proof for chunk {:?}",
+                    chunk.chunk_hash()
+                )));
+            };
+            validate_receipt_proof(receipt_proof, chunk, target_chunk_shard_id)?;
+
+            expected_proofs_len += 1;
+            block_receipt_proofs.push(receipt_proof);
+        }
+
+        // Arrange the receipts in the order in which they should be applied.
+        shuffle_receipt_proofs(&mut block_receipt_proofs, block.hash());
+        for proof in block_receipt_proofs {
+            receipts_to_apply.extend(proof.0.iter().cloned());
+        }
+    }
+
+    // Check that there are no extraneous proofs in source_receipt_proofs.
+    if source_receipt_proofs.len() != expected_proofs_len {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "source_receipt_proofs contains too many proofs. Expected {} proofs, found {}",
+            expected_proofs_len,
+            source_receipt_proofs.len()
+        )));
+    }
+    Ok(receipts_to_apply)
+}
+
+fn validate_receipt_proof(
+    receipt_proof: &ReceiptProof,
+    from_chunk: &ShardChunkHeader,
+    target_chunk_shard_id: ShardId,
+) -> Result<(), Error> {
+    // Validate that from_shard_id is correct. The receipts must match the outgoing receipt root
+    // for this shard, so it's impossible to fake it.
+    if receipt_proof.1.from_shard_id != from_chunk.shard_id() {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} is from shard {}, expected shard {}",
+            from_chunk.chunk_hash(),
+            receipt_proof.1.from_shard_id,
+            from_chunk.shard_id(),
+        )));
+    }
+    // Validate that to_shard_id is correct. to_shard_id is also encoded in the merkle tree,
+    // so it's impossible to fake it.
+    if receipt_proof.1.to_shard_id != target_chunk_shard_id {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} is for shard {}, expected shard {}",
+            from_chunk.chunk_hash(),
+            receipt_proof.1.to_shard_id,
+            target_chunk_shard_id
+        )));
+    }
+    // Verify that (receipts, to_shard_id) belongs to the merkle tree of outgoing receipts in from_chunk.
+    if !receipt_proof.verify_against_receipt_root(from_chunk.prev_outgoing_receipts_root()) {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "Receipt proof for chunk {:?} has invalid merkle path, doesn't match outgoing receipts root",
+            from_chunk.chunk_hash()
+        )));
+    }
+    Ok(())
 }
 
 struct PreValidationOutput {
@@ -602,8 +654,18 @@ impl Client {
         witness: ChunkStateWitness,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        // First chunk after genesis doesn't have to be endorsed.
-        if witness.inner.chunk_header.prev_block_hash() == self.chain.genesis().hash() {
+        // TODO(#10502): Handle production of state witness for first chunk after genesis.
+        // Properly handle case for chunk right after genesis.
+        // Context: We are currently unable to handle production of the state witness for the
+        // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
+        let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
+        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            &prev_block,
+            witness.inner.chunk_header.shard_id(),
+        )?;
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             let Some(signer) = self.validator_signer.as_ref() else {
                 return Err(Error::NotAChunkValidator);
             };
@@ -690,6 +752,7 @@ impl Client {
     pub fn send_chunk_state_witness_to_chunk_validators(
         &mut self,
         epoch_id: &EpochId,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
@@ -708,11 +771,28 @@ impl Client {
                 chunk_header.height_created(),
             )?
             .ordered_chunk_validators();
-        let Some(witness) =
-            self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?
-        else {
-            return Ok(());
+        let witness = self.create_state_witness(
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
+
+        // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
+        // chunk endorsement related network messages.
+        if let Some(my_signer) = self.validator_signer.clone() {
+            let block_producer =
+                self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+            if my_signer.validator_id() == &block_producer {
+                // Send a copy of the chunk endorsement to ourselves.
+                // Mainly useful in tests where we don't have a good way to handle network messages and there's
+                // only a single client.
+                let endorsement =
+                    ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
+                self.process_chunk_endorsement(endorsement)?;
+            }
         };
+
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
@@ -738,7 +818,9 @@ impl Client {
         {
             let chunk = self.chain.get_chunk_clone_from_header(chunk)?;
             let prev_chunk_header = prev_block_chunks.get(chunk.shard_id() as usize).unwrap();
-            if let Err(err) = self.shadow_validate_chunk(prev_chunk_header, &chunk) {
+            if let Err(err) =
+                self.shadow_validate_chunk(prev_block.header(), prev_chunk_header, &chunk)
+            {
                 metrics::SHADOW_CHUNK_VALIDATION_FAILED_TOTAL.inc();
                 tracing::error!(
                     target: "chunk_validation",
@@ -754,6 +836,7 @@ impl Client {
 
     fn shadow_validate_chunk(
         &mut self,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
     ) -> Result<(), Error> {
@@ -784,21 +867,19 @@ impl Client {
             ));
         };
 
-        let Some(witness) = self.create_state_witness(
+        let witness = self.create_state_witness_inner(
+            prev_block_header,
             prev_chunk_header,
             chunk,
             validated_transactions.storage_proof,
-        )?
-        else {
-            return Err(Error::Other("State witness is None".to_owned()));
-        };
+        )?;
         let witness_size = borsh::to_vec(&witness)?.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
-            &witness.inner,
+            &witness,
             &self.chain,
             self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
@@ -816,7 +897,7 @@ impl Client {
         rayon::spawn(move || {
             let validation_start = Instant::now();
             match validate_chunk_state_witness(
-                witness.inner,
+                witness,
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
@@ -845,12 +926,13 @@ impl Client {
         Ok(())
     }
 
-    fn create_state_witness(
+    fn create_state_witness_inner(
         &mut self,
+        prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
+    ) -> Result<ChunkStateWitnessInner, Error> {
         let chunk_header = chunk.cloned_header();
         let prev_chunk = self.chain.get_chunk(&prev_chunk_header.chunk_hash())?;
         let (main_state_transition, implicit_transitions, applied_receipts_hash) =
@@ -864,11 +946,13 @@ impl Client {
             transactions_storage_proof.expect("Missing storage proof for transactions validation")
         };
 
+        let source_receipt_proofs =
+            self.collect_source_receipt_proofs(prev_block_header, prev_chunk_header)?;
+
         let witness_inner = ChunkStateWitnessInner::new(
             chunk_header.clone(),
             main_state_transition,
-            // TODO(#9292): Iterate through the chain to derive this.
-            HashMap::new(),
+            source_receipt_proofs,
             // (Could also be derived from iterating through the receipts, but
             // that defeats the purpose of this check being a debugging
             // mechanism.)
@@ -878,10 +962,30 @@ impl Client {
             new_transactions,
             new_transactions_validation_state,
         );
+        Ok(witness_inner)
+    }
+
+    fn create_state_witness(
+        &mut self,
+        prev_block_header: &BlockHeader,
+        prev_chunk_header: &ShardChunkHeader,
+        chunk: &ShardChunk,
+        transactions_storage_proof: Option<PartialState>,
+    ) -> Result<ChunkStateWitness, Error> {
+        // TODO(#10502): Handle production of state witness for first chunk after genesis.
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+            return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
+        }
+        let witness_inner = self.create_state_witness_inner(
+            prev_block_header,
+            prev_chunk_header,
+            chunk,
+            transactions_storage_proof,
+        )?;
         let signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?;
         let signature = signer.sign_chunk_state_witness(&witness_inner);
         let witness = ChunkStateWitness { inner: witness_inner, signature };
-        Ok(Some(witness))
+        Ok(witness)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
@@ -926,5 +1030,86 @@ impl Client {
         chunk_endorsements.insert(account_id.clone(), endorsement);
 
         Ok(())
+    }
+
+    /// State witness proves the execution of receipts proposed by `prev_chunk`.
+    /// This function collects all incoming receipts for `prev_chunk`, along with the proofs
+    /// that those receipts really originate from the right chunks.
+    /// TODO(resharding): `get_incoming_receipts_for_shard` generates invalid proofs on resharding
+    /// boundaries, because it removes the receipts that target the other half of a split shard,
+    /// which makes the proof invalid. We need to collect the original proof and later, after verifcation,
+    /// filter it to remove the receipts that were meant for the other half of the split shard.
+    fn collect_source_receipt_proofs(
+        &self,
+        prev_block_header: &BlockHeader,
+        prev_chunk_header: &ShardChunkHeader,
+    ) -> Result<HashMap<ChunkHash, ReceiptProof>, Error> {
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+            // State witness which proves the execution of the first chunk in the blockchain
+            // doesn't have any source receipts.
+            return Ok(HashMap::new());
+        }
+
+        // Find the first block that included `prev_chunk`.
+        // Incoming receipts were generated by the blocks before this one.
+        let prev_chunk_original_block: BlockHeader = {
+            let mut cur_block: BlockHeader = prev_block_header.clone();
+            loop {
+                if prev_chunk_header.is_new_chunk(cur_block.height()) {
+                    break cur_block;
+                }
+
+                cur_block = self.chain.chain_store().get_block_header(cur_block.prev_hash())?;
+            }
+        };
+
+        // Get the last block that contained `prev_prev_chunk` (the chunk before `prev_chunk`).
+        // We are interested in all incoming receipts that weren't handled by `prev_prev_chunk`.
+        let prev_prev_chunk_block =
+            self.chain.chain_store().get_block(prev_chunk_original_block.prev_hash())?;
+        // Find the header of the chunk before `prev_chunk`
+        let prev_prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            &prev_prev_chunk_block,
+            prev_chunk_header.shard_id(),
+        )?;
+
+        // Fetch all incoming receipts for `prev_chunk`.
+        // They will be between `prev_prev_chunk.height_included`` (first block containing `prev_prev_chunk`)
+        // and `prev_chunk_original_block`
+        let incoming_receipt_proofs = self.chain.chain_store().get_incoming_receipts_for_shard(
+            self.epoch_manager.as_ref(),
+            prev_chunk_header.shard_id(),
+            *prev_chunk_original_block.hash(),
+            prev_prev_chunk_header.height_included(),
+        )?;
+
+        // Convert to the right format (from [block_hash -> Vec<ReceiptProof>] to [chunk_hash -> ReceiptProof])
+        let mut source_receipt_proofs = HashMap::new();
+        for receipt_proof_response in incoming_receipt_proofs {
+            let from_block = self.chain.chain_store().get_block(&receipt_proof_response.0)?;
+            for proof in receipt_proof_response.1.iter() {
+                let from_shard_id: usize = proof
+                    .1
+                    .from_shard_id
+                    .try_into()
+                    .map_err(|_| Error::Other("Couldn't convert u64 to usize!".into()))?;
+                let from_chunk_hash = from_block
+                    .chunks()
+                    .get(from_shard_id)
+                    .ok_or_else(|| Error::InvalidShardId(proof.1.from_shard_id))?
+                    .chunk_hash();
+                let insert_res =
+                    source_receipt_proofs.insert(from_chunk_hash.clone(), proof.clone());
+                if insert_res.is_some() {
+                    // There should be exactly one chunk proof for every chunk
+                    return Err(Error::Other(format!(
+                        "collect_source_receipt_proofs: duplicate receipt proof for chunk {:?}",
+                        from_chunk_hash
+                    )));
+                }
+            }
+        }
+        Ok(source_receipt_proofs)
     }
 }

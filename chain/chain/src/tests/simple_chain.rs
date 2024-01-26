@@ -82,7 +82,7 @@ fn build_chain() {
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"4tEtbSAU6GgB4wdDfgdzhPm3H7fd5cyWtzFFiYo7kopi");
+        insta::assert_display_snapshot!(hash, @"HkPEDHWJHuW8Yzw9FonrJarVAHi51mQt7A4DQUtBagko");
     } else {
         insta::assert_display_snapshot!(hash, @"HbQVGVZ3WGxsNqeM3GfSwDoxwYZ2RBP1SinAze9SYR3C");
     }
@@ -105,7 +105,7 @@ fn build_chain_with_orphans() {
         10,
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
-        vec![],
+        vec![vec![]; last_block.chunks().len()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,

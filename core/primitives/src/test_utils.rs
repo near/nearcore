@@ -8,7 +8,7 @@ use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block_body::BlockBody;
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
 use crate::challenge::Challenges;
 use crate::errors::EpochError;
@@ -366,6 +366,13 @@ impl BlockBody {
             BlockBody::V2(body) => body.vrf_value = vrf_value,
         }
     }
+
+    fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
+        match self {
+            BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
+            BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
+        }
+    }
 }
 
 /// Builder class for blocks to make testing easier.
@@ -442,7 +449,7 @@ impl TestBlockBuilder {
             self.height,
             self.prev.header().block_ordinal() + 1,
             self.prev.chunks().iter().cloned().collect(),
-            vec![],
+            vec![vec![]; self.prev.chunks().len()],
             self.epoch_id,
             self.next_epoch_id,
             None,
@@ -566,6 +573,16 @@ impl Block {
             Block::BlockV4(body) => {
                 let body = Arc::make_mut(body);
                 body.body.set_vrf_value(vrf_value);
+            }
+        };
+    }
+
+    pub fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => (),
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_chunk_endorsements(chunk_endorsements);
             }
         };
     }

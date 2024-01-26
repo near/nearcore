@@ -1755,6 +1755,7 @@ impl Client {
                         .expect("Failed to process produced chunk");
                     if let Err(err) = self.send_chunk_state_witness_to_chunk_validators(
                         &epoch_id,
+                        block.header(),
                         &last_header,
                         &shard_chunk,
                         result.transactions_storage_proof,

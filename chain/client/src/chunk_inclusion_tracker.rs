@@ -131,8 +131,7 @@ impl ChunkInclusionTracker {
                 chunk_producer = ?chunk_info.chunk_producer,
                 "Not including chunk because of insufficient chunk endorsements");
         }
-        // TODO(shreyan): return has_chunk_endorsements here after fixing testing infra
-        true
+        has_chunk_endorsements
     }
 
     /// Function to return the chunks that are ready to be included in a block.

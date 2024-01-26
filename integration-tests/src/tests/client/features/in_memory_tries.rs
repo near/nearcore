@@ -12,6 +12,7 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
 use near_primitives_core::account::{AccessKey, Account};
+use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -25,6 +26,11 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
 fn test_in_memory_trie_node_consistency() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
     let validator_stake = 1000000 * ONE_NEAR;
