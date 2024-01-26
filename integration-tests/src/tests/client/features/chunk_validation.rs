@@ -1,3 +1,7 @@
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use std::collections::HashSet;
+
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
@@ -18,9 +22,6 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, NumSeats};
 use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -126,7 +127,6 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let mut tx_hashes = vec![];
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
-    let mut expected_chunks = HashMap::new();
     let mut found_differing_post_state_root_due_to_state_transitions = false;
     for round in 0..blocks_to_produce {
         let heads = env
@@ -185,9 +185,15 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
-        let result = env.propagate_chunk_state_witnesses();
+
+        // First propagate chunk state witnesses, then chunk endorsements.
+        // Note that validation of chunk state witness is done asynchonously
+        // which is why it's important to pass the expected set of chunk endorsements to wait for.
+        let output = env.propagate_chunk_state_witnesses();
+        env.wait_to_propagate_chunk_endorsements(output.chunk_hash_to_account_ids);
+
         found_differing_post_state_root_due_to_state_transitions |=
-            result.found_differing_post_state_root_due_to_state_transitions;
+            output.found_differing_post_state_root_due_to_state_transitions;
     }
 
     // Check that at least one tx was fully executed, ensuring that executing
@@ -211,32 +217,6 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     if prob_missing_chunk >= 0.8 {
         assert!(found_differing_post_state_root_due_to_state_transitions);
     }
-
-    // Collect chunk hashes which have to be endorsed and check that it indeed
-    // happens.
-    let mut block = env.clients[0]
-        .chain
-        .get_block(&env.clients[0].chain.head().unwrap().last_block_hash)
-        .unwrap();
-    loop {
-        let prev_hash = *block.header().prev_hash();
-        if prev_hash == CryptoHash::default() {
-            break;
-        }
-        let prev_block = env.clients[0].chain.get_block(&prev_hash).unwrap();
-        for (chunk, prev_chunk) in block.chunks().iter().zip(prev_block.chunks().iter()) {
-            if chunk.is_new_chunk(block.header().height()) {
-                // First chunk after genesis doesn't have to be endorsed.
-                if prev_chunk.prev_block_hash() != &CryptoHash::default() {
-                    expected_chunks
-                        .insert(chunk.chunk_hash(), (block.header().height(), chunk.shard_id()));
-                }
-            }
-        }
-        block = prev_block;
-    }
-
-    env.wait_for_chunk_endorsements(expected_chunks);
 }
 
 #[test]
