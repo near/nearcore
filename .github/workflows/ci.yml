@@ -393,7 +393,9 @@ jobs:
           cache: pip
       - run: pip3 install --user diff-cover
       - run: mkdir target
+      - run: find coverage/profraw
       - run: for f in coverage/profraw/${{matrix.type}}/*.tar.zst; do tar -x --zstd -C target/ -f $f; done
+      - run: ls target
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: mkdir -p coverage/lcov coverage/html
       - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
