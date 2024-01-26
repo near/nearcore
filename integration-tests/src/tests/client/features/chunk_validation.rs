@@ -25,24 +25,20 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
-fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
-    init_integration_logger();
-
-    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
-        return;
-    }
-
+/// Number of validators should be strictly lower than number of accounts.
+/// Number of seats defines required number of block and chunk producer seats.
+fn setup(
+    num_accounts: usize,
+    num_validators: usize,
+    num_seats: NumSeats,
+) -> (TestEnv, Vec<AccountId>) {
     let initial_balance = 100 * ONE_NEAR;
     let validator_stake = 1000000 * ONE_NEAR;
-    let blocks_to_produce = 50;
-    let num_accounts = 9;
     let accounts = (0..num_accounts)
         .map(|i| format!("account{}", i).parse().unwrap())
         .collect::<Vec<AccountId>>();
-    let num_validators = 8;
-    // Split accounts into 4 shards, so that each shard will store two
-    // validator accounts.
+    // Split accounts into 4 shards, so that for 8 validators each shard will
+    // store 2 validator accounts.
     let shard_layout = ShardLayout::v1(
         vec!["account2", "account4", "account6"].into_iter().map(|s| s.parse().unwrap()).collect(),
         None,
@@ -70,13 +66,13 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         // The genesis requires this, so set it to something arbitrary.
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
-        num_block_producer_seats: num_validators as NumSeats,
+        num_block_producer_seats: num_seats as NumSeats,
         // Make all validators produce chunks for all shards.
-        minimum_validators_per_shard: num_validators as NumSeats,
+        minimum_validators_per_shard: num_seats as NumSeats,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
-        num_block_producer_seats_per_shard: vec![8; num_shards],
+        num_block_producer_seats_per_shard: vec![num_seats as NumSeats; num_shards],
         gas_limit: 10u64.pow(15),
         transaction_validity_period: 120,
         // Needed to completely avoid validator kickouts as we want to test
@@ -119,11 +115,25 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let chain_genesis = ChainGenesis::new(&genesis);
 
-    let mut env = TestEnv::builder(chain_genesis)
-        .clients(accounts.iter().take(8).cloned().collect())
+    let env = TestEnv::builder(chain_genesis)
+        .clients(accounts.iter().take(num_validators).cloned().collect())
         .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)
         .build();
+    (env, accounts)
+}
+
+fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
+    init_integration_logger();
+
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
+
+    let num_accounts = 9;
+    let blocks_to_produce = 50;
+    let (mut env, accounts) = setup(num_accounts, num_accounts - 1, (num_accounts - 1) as NumSeats);
     let mut tx_hashes = vec![];
 
     let mut rng: StdRng = SeedableRng::seed_from_u64(seed);
@@ -234,6 +244,47 @@ fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81);
 }
 
+#[test]
+fn test_orphaned_state_witness() {
+    init_integration_logger();
+
+    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        println!("Test not applicable without ChunkValidation enabled");
+        return;
+    }
+
+    let (mut env, _) = setup(3, 2, 1);
+    let blocks_to_produce = 50;
+
+    for round in 0..blocks_to_produce {
+        let heads = env
+            .clients
+            .iter()
+            .map(|client| client.chain.head().unwrap().last_block_hash)
+            .collect::<HashSet<_>>();
+        assert_eq!(heads.len(), 1, "All clients should have the same head");
+        let tip = env.clients[0].chain.head().unwrap();
+
+        let block_producer = get_block_producer(&env, &tip, 1);
+        let chunk_producers = get_chunk_producers(&env, &tip, 1);
+        println!("{} {} {:?}", round, block_producer, chunk_producers);
+        // tracing::debug!(
+        //     target: "chunk_validation",
+        //     "Producing block at height {} by {}", tip.height + 1, block_producer
+        // );
+        let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
+        // Apply the block.
+        for i in 0..env.clients.len() {
+            let validator_id = env.get_client_id(i);
+            tracing::debug!(
+                target: "chunk_validation",
+                "Applying block at height {} at {}", block.header().height(), validator_id
+            );
+            env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
+        }
+    }
+}
+
 /// Returns the block producer for the height of head + height_offset.
 fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountId {
     let client = &env.clients[0];
@@ -243,4 +294,17 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     let height = head.height + height_offset;
     let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
     block_producer
+}
+
+fn get_chunk_producers(env: &TestEnv, head: &Tip, height_offset: u64) -> Vec<AccountId> {
+    let client = &env.clients[0];
+    let epoch_manager = &client.epoch_manager;
+    let parent_hash = &head.last_block_hash;
+    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+    let height = head.height + height_offset;
+    let shards_ids = epoch_manager.shard_ids(&epoch_id).unwrap();
+    shards_ids
+        .into_iter()
+        .map(|shard_id| epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap())
+        .collect()
 }
