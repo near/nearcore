@@ -73,9 +73,9 @@ jobs:
         if: matrix.runs_integ_tests
 
       # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
-      - run: find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \;
-      - run: find target/dev-release/ -not -executable -delete
-      - run: find target/dev-release/ -name 'build*script*build*' -delete
+      - run: find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \; || true
+      - run: find target/dev-release/ -not -executable -delete || true
+      - run: find target/dev-release/ -name 'build*script*build*' -delete || true
       - run: tar -c --zstd -f coverage/profraw/binaries/${{matrix.id}}.tar.zst target/dev-release/
 
       # Upload the coverage
