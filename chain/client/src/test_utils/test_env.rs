@@ -330,12 +330,12 @@ impl TestEnv {
     /// Note that we need to wait here as the chunk state witness is processed asynchronously.
     pub fn wait_to_propagate_chunk_endorsements(
         &mut self,
-        chunk_hash_to_account_ids: &mut HashMap<ChunkHash, HashSet<AccountId>>,
+        mut chunk_hash_to_account_ids: HashMap<ChunkHash, HashSet<AccountId>>,
     ) {
         let network_adapters = self.network_adapters.clone();
         let timer = Instant::now();
         loop {
-            for network_adapter in network_adapters.iter() {
+            for network_adapter in &network_adapters {
                 network_adapter.handle_filtered(|request| match request {
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(account_id, endorsement),

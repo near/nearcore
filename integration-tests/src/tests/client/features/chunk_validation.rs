@@ -189,8 +189,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         // First propagate chunk state witnesses, then chunk endorsements.
         // Note that validation of chunk state witness is done asynchonously
         // which is why it's important to pass the expected set of chunk endorsements to wait for.
-        let mut output = env.propagate_chunk_state_witnesses();
-        env.wait_to_propagate_chunk_endorsements(&mut output.chunk_hash_to_account_ids);
+        let output = env.propagate_chunk_state_witnesses();
+        env.wait_to_propagate_chunk_endorsements(output.chunk_hash_to_account_ids);
 
         found_differing_post_state_root_due_to_state_transitions |=
             output.found_differing_post_state_root_due_to_state_transitions;
