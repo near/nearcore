@@ -316,15 +316,15 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     block_producer
 }
 
-fn get_chunk_producers(env: &TestEnv, head: &Tip, height_offset: u64) -> Vec<AccountId> {
-    let client = &env.clients[0];
-    let epoch_manager = &client.epoch_manager;
-    let parent_hash = &head.last_block_hash;
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-    let height = head.height + height_offset;
-    let shards_ids = epoch_manager.shard_ids(&epoch_id).unwrap();
-    shards_ids
-        .into_iter()
-        .map(|shard_id| epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap())
-        .collect()
-}
+// fn get_chunk_producers(env: &TestEnv, head: &Tip, height_offset: u64) -> Vec<AccountId> {
+//     let client = &env.clients[0];
+//     let epoch_manager = &client.epoch_manager;
+//     let parent_hash = &head.last_block_hash;
+//     let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+//     let height = head.height + height_offset;
+//     let shards_ids = epoch_manager.shard_ids(&epoch_id).unwrap();
+//     shards_ids
+//         .into_iter()
+//         .map(|shard_id| epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap())
+//         .collect()
+// }
