@@ -29,6 +29,8 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
+use near_chain::types::PrepareTransactionsBlockContext;
+use near_chain::types::PrepareTransactionsChunkContext;
 use near_chain::types::{
     ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
     StorageDataSource,
@@ -951,11 +953,8 @@ impl Client {
         state_root: StateRoot,
         prev_block_header: &BlockHeader,
     ) -> Result<PreparedTransactions, Error> {
-        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
-
+        let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
 
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
@@ -975,15 +974,9 @@ impl Client {
                 record_storage,
             };
             runtime.prepare_transactions(
-                prev_block_header.next_gas_price(),
-                gas_limit,
-                &next_epoch_id,
-                shard_id,
                 storage_config,
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
-                prev_block_header.height() + 1,
+                PrepareTransactionsChunkContext { shard_id, gas_limit },
+                PrepareTransactionsBlockContext::from_header(prev_block_header),
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
@@ -995,7 +988,6 @@ impl Client {
                         )
                         .is_ok()
                 },
-                protocol_version,
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {

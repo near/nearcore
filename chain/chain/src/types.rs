@@ -335,6 +335,27 @@ pub enum PrepareTransactionsLimit {
     ReceiptCount,
 }
 
+pub struct PrepareTransactionsBlockContext {
+    pub next_gas_price: Balance,
+    pub height: BlockHeight,
+    pub block_hash: CryptoHash,
+}
+
+impl PrepareTransactionsBlockContext {
+    pub fn from_header(header: &BlockHeader) -> Self {
+        Self {
+            next_gas_price: header.next_gas_price(),
+            height: header.height(),
+            block_hash: *header.hash(),
+        }
+    }
+}
+
+pub struct PrepareTransactionsChunkContext {
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -392,15 +413,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        gas_price: Balance,
-        gas_limit: Gas,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
         storage: RuntimeStorageConfig,
-        next_block_height: BlockHeight,
+        chunk: PrepareTransactionsChunkContext,
+        prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 
