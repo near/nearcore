@@ -963,8 +963,7 @@ pub(crate) fn check_account_existence(
     account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
-    only_transfers: bool,
-    is_refund: bool,
+    implicit_account_creation_eligible: bool,
     #[cfg_attr(
         not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
         allow(unused_variables)
@@ -1003,9 +1002,8 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,
-                    only_transfers,
                     account_id,
-                    is_refund,
+                    implicit_account_creation_eligible,
                 );
             }
         }
@@ -1014,9 +1012,8 @@ pub(crate) fn check_account_existence(
             if account.is_none() {
                 return check_transfer_to_nonexisting_account(
                     config,
-                    only_transfers,
                     account_id,
-                    is_refund,
+                    implicit_account_creation_eligible,
                 );
             } else if !receipt_starts_with_create_account {
                 // If the account already existed before the current receipt,
@@ -1053,14 +1050,12 @@ pub(crate) fn check_account_existence(
 
 fn check_transfer_to_nonexisting_account(
     config: &RuntimeConfig,
-    only_transfers: bool,
     account_id: &AccountId,
-    is_refund: bool,
+    implicit_account_creation_eligible: bool,
 ) -> Result<(), ActionError> {
     if config.wasm_config.implicit_account_creation
-        && only_transfers
+        && implicit_account_creation_eligible
         && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
-        && !is_refund
     {
         // OK. It's implicit account creation.
         // Notes:
@@ -1486,7 +1481,6 @@ mod tests {
                 &mut None,
                 &sender_id,
                 &RuntimeConfig::test(),
-                false,
                 false,
                 false,
             ),

@@ -344,10 +344,21 @@ impl Runtime {
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
+        let is_refund = receipt.predecessor_id.is_system();
+
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let is_the_only_action = actions.len() == 1;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         let only_transfers = actions.iter().all(|action| {
             matches!(action, Action::Transfer(_) | Action::NonrefundableStorageTransfer(_))
         });
-        let is_refund = receipt.predecessor_id.is_system();
+
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let implicit_account_creation_eligible = only_transfers && !is_refund;
 
         let receipt_starts_with_create_account =
             matches!(actions.get(0), Some(Action::CreateAccount(_)));
@@ -357,8 +368,7 @@ impl Runtime {
             account,
             account_id,
             &apply_state.config,
-            only_transfers,
-            is_refund,
+            implicit_account_creation_eligible,
             receipt_starts_with_create_account,
         ) {
             result.result = Err(e);
