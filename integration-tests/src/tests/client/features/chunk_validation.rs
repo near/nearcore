@@ -260,6 +260,7 @@ fn test_orphaned_state_witness() {
     // Produce 2 blocks. Identify validator who doesn't produce blocks.
     let mut found_block_producers = HashSet::<AccountId>::default();
     for _ in 0..2 {
+        println!("!!!");
         let heads = env
             .clients
             .iter()
@@ -290,6 +291,7 @@ fn test_orphaned_state_witness() {
     // Block producer creates 2 more blocks.
     // But chunk validator doesn't process them.
     for _ in 0..2 {
+        println!("!!!");
         let client = env.client(&block_producer);
         let tip = client.chain.head().unwrap();
         let block = client.produce_block(tip.height + 1).unwrap().unwrap();
