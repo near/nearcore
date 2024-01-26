@@ -1370,14 +1370,40 @@ impl Trie {
     /// This method is guaranteed to not inspect the value stored for this key, which would
     /// otherwise have potential gas cost implications.
     pub fn contains_key(&self, key: &[u8]) -> Result<bool, StorageError> {
-        let charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
+        self.contains_key_mode(key, KeyLookupMode::FlatStorage)
+    }
+
+    /// Check if the column contains a value with the given `key`.
+    ///
+    /// This method is guaranteed to not inspect the value stored for this key, which would
+    /// otherwise have potential gas cost implications.
+    pub fn contains_key_mode(&self, key: &[u8], mode: KeyLookupMode) -> Result<bool, StorageError> {
+        let charge_gas_for_trie_node_access =
+            mode == KeyLookupMode::Trie || self.charge_gas_for_trie_node_access;
         if self.memtries.is_some() {
-            Ok(self.lookup_from_memory(key, charge_gas_for_trie_node_access, |_| ())?.is_some())
-        } else {
-            Ok(self
-                .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
-                .is_some())
+            return Ok(self
+                .lookup_from_memory(key, charge_gas_for_trie_node_access, |_| ())?
+                .is_some());
         }
+
+        'flat: {
+            let KeyLookupMode::FlatStorage = mode else { break 'flat };
+            let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view else { break 'flat };
+            let value = flat_storage_chunk_view.contains_value(key)?;
+            if self.recorder.is_some() {
+                // If recording, we need to look up in the trie as well to record the trie nodes,
+                // as they are needed to prove the value. Also, it's important that this lookup
+                // is done even if the key was not found, because intermediate trie nodes may be
+                // needed to prove the non-existence of the key.
+                let value_ref_from_trie =
+                    self.lookup_from_state_column(NibbleSlice::new(key), false)?;
+                debug_assert_eq!(&value_ref_from_trie.is_some(), &value);
+            }
+        }
+
+        Ok(self
+            .lookup_from_state_column(NibbleSlice::new(key), charge_gas_for_trie_node_access)?
+            .is_some())
     }
 
     /// Retrieves an `OptimizedValueRef`` for the given key. See `OptimizedValueRef`.
