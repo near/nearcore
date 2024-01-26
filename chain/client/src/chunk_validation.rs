@@ -710,13 +710,25 @@ impl Client {
             self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
 
         if let Some(my_signer) = self.validator_signer.clone() {
-            // Since we've created the state witness, we can directly send the chunk endorsement to ourselves.
             if chunk_validators_assignment.contains(my_signer.validator_id()) {
+                // Since we've created the state witness, directly send the chunk endorsement to block producers.
+                // We can bypass the state witness validation logic.
+                send_chunk_endorsement_to_block_producers(
+                    &chunk_header,
+                    self.epoch_manager.as_ref(),
+                    my_signer.as_ref(),
+                    &self.chunk_validator.network_sender,
+                );
+
+                // remove ourselves from the list of chunk validators to send the chunk state witness to.
+                chunk_validators.retain(|account_id| account_id != my_signer.validator_id());
+
+                // Additionally send a copy of the chunk endorsement to ourselves.
+                // Mainly useful in tests where we don't have a good way to handle network messages and there's
+                // only a single client.
                 let endorsement =
                     ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
                 self.process_chunk_endorsement(endorsement)?;
-                // remove ourselves from the list of chunk validators to send the chunk state witness to.
-                chunk_validators.retain(|account_id| account_id != my_signer.validator_id());
             }
         };
 
