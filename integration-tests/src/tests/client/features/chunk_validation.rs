@@ -258,7 +258,7 @@ fn test_orphaned_state_witness() {
         (0..2).map(|i| env.get_client_id(i).clone()).collect();
 
     // Produce 2 blocks. Identify validator who doesn't produce blocks.
-    let mut found_block_producers = HashSet::default();
+    let mut found_block_producers = HashSet::<AccountId>::default();
     for _ in 0..2 {
         let heads = env
             .clients
