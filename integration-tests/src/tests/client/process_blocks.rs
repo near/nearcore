@@ -6,14 +6,13 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use assert_matches::assert_matches;
 use futures::{future, FutureExt};
+use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::messaging::IntoSender;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
-#[cfg(not(feature = "nightly"))]
 use near_chain::validate::validate_chunk_with_chunk_extra;
-#[cfg(not(feature = "nightly"))]
 use near_chain::ChainStore;
 use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Error, Provenance,
@@ -67,6 +66,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
+use near_primitives_core::checked_feature;
 use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
@@ -412,14 +412,17 @@ fn produce_block_with_approvals() {
             block_merkle_tree.insert(last_block.header.hash);
             let signer1 = create_test_signer("test2");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
+
+            let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
+            let chunk_endorsements = vec![vec![]; chunks.len()];
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
                 &last_block.header.clone().into(),
                 last_block.header.height + 1,
                 next_block_ordinal,
-                last_block.chunks.into_iter().map(Into::into).collect(),
-                vec![],
+                chunks,
+                chunk_endorsements,
                 EpochId::default(),
                 if last_block.header.prev_hash == CryptoHash::default() {
                     EpochId(last_block.header.hash)
@@ -1253,6 +1256,11 @@ fn test_bad_orphan() {
 
 #[test]
 fn test_bad_chunk_mask() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     init_test_logger();
     let chain_genesis = ChainGenesis::test();
     let validators = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
@@ -2265,11 +2273,13 @@ fn test_block_height_processed_orphan() {
     assert!(env.clients[0].chain.mut_chain_store().is_height_processed(block_height).unwrap());
 }
 
-// Disabled until stateless validation release, because the test relies on
-// logging which is impacted by the release process.
 #[test]
-#[cfg(not(feature = "nightly"))]
 fn test_validate_chunk_extra() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let epoch_length = 5;
@@ -2389,25 +2399,28 @@ fn test_validate_chunk_extra() {
     let accepted_blocks = env.clients[0].finish_block_in_processing(block2.hash());
     assert_eq!(accepted_blocks.len(), 1);
 
+    let client = &mut env.clients[0];
+
     // Produce a block on top of block1.
     // Validate that result of chunk execution in `block1` is legit.
-    let b = env.clients[0].produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
-    env.clients[0].process_block_test(b.into(), Provenance::PRODUCED).unwrap();
-    let chunks = {
-        let client = &mut env.clients[0];
-        client
-            .chunk_inclusion_tracker
-            .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash())
-    };
-    let (chunk_header, _) = env.clients[0]
+    client
+        .chunk_inclusion_tracker
+        .prepare_chunk_headers_ready_for_inclusion(block1.hash(), &mut client.chunk_validator)
+        .unwrap();
+    let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
+    client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
+    let chunks = client
+        .chunk_inclusion_tracker
+        .get_chunk_headers_ready_for_inclusion(block1.header().epoch_id(), &block1.hash());
+    let (chunk_header, _) = client
         .chunk_inclusion_tracker
         .get_chunk_header_and_endorsements(chunks.get(&0).unwrap())
         .unwrap();
     let chunk_extra =
-        env.clients[0].chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
+        client.chain.get_chunk_extra(block1.hash(), &ShardUId::single_shard()).unwrap();
     assert!(validate_chunk_with_chunk_extra(
         &mut chain_store,
-        env.clients[0].epoch_manager.as_ref(),
+        client.epoch_manager.as_ref(),
         block1.hash(),
         &chunk_extra,
         block1.chunks()[0].height_included(),

@@ -16,6 +16,7 @@ use near_chain::{Chain, ChainStoreAccess, Provenance};
 use near_client_primitives::types::Error;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
@@ -188,6 +189,9 @@ pub fn create_chunk(
     let block_merkle_tree =
         client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+
+    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
@@ -196,7 +200,7 @@ pub fn create_chunk(
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
-        vec![],
+        vec![vec![Some(Box::new(endorsement.signature))]],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,

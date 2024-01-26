@@ -11,6 +11,7 @@ use near_primitives::challenge::{
     BlockDoubleSign, Challenge, ChallengeBody, ChunkProofs, MaybeEncodedShardChunk, PartialState,
     TrieValue,
 };
+use near_primitives::chunk_validation::ChunkEndorsement;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
@@ -102,7 +103,7 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
-        vec![],
+        vec![vec![]; genesis.chunks().len()],
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
         None,
@@ -408,6 +409,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         client.chain.mut_chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
+
+    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let endorsement =
+        ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -415,7 +420,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
-        vec![],
+        vec![vec![Some(Box::new(endorsement.signature))]],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,
