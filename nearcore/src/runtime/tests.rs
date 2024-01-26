@@ -10,7 +10,6 @@ use near_pool::{
 };
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
-use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
@@ -1560,15 +1559,19 @@ fn prepare_transactions(
     env: &TestEnv,
     chain: &Chain,
     transaction_groups: &mut dyn TransactionGroupIterator,
-    config: RuntimeStorageConfig,
+    storage_config: RuntimeStorageConfig,
 ) -> Result<PreparedTransactions, Error> {
     env.runtime.prepare_transactions(
-        env.runtime.genesis_config.min_gas_price,
-        env.runtime.genesis_config.gas_limit,
-        &env.head.epoch_id,
-        0,
-        config,
-        env.head.height + 1,
+        storage_config,
+        PrepareTransactionsChunkContext {
+            shard_id: 0,
+            gas_limit: env.runtime.genesis_config.gas_limit,
+        },
+        PrepareTransactionsBlockContext {
+            next_gas_price: env.runtime.genesis_config.min_gas_price,
+            height: env.head.height,
+            block_hash: env.head.last_block_hash,
+        },
         transaction_groups,
         &mut |tx: &SignedTransaction| -> bool {
             chain
@@ -1580,7 +1583,6 @@ fn prepare_transactions(
                 )
                 .is_ok()
         },
-        PROTOCOL_VERSION,
         default_produce_chunk_add_transactions_time_limit(),
     )
 }

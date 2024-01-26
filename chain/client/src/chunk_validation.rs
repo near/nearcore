@@ -220,35 +220,28 @@ impl ChunkValidator {
 /// Uses `storage_config` to possibly record reads or use recorded storage.
 fn validate_prepared_transactions(
     chain: &Chain,
-    epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
     chunk_header: &ShardChunkHeader,
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
     let store = chain.chain_store();
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-    let parent_block = store.get_block(chunk_header.prev_block_hash())?;
-    let parent_block_header = parent_block.header();
+    let parent_block_header = store.get_block_header(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
-        parent_block_header.next_gas_price(),
-        chunk_header.gas_limit(),
-        &epoch_id,
-        chunk_header.shard_id(),
         storage_config,
-        parent_block_header.height() + 1,
+        chunk_header.into(),
+        (&parent_block_header).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut |tx: &SignedTransaction| -> bool {
             store
                 .check_transaction_validity_period(
-                    parent_block_header,
+                    &parent_block_header,
                     &tx.transaction.block_hash,
                     chain.transaction_validity_period,
                 )
                 .is_ok()
         },
-        epoch_manager.get_epoch_protocol_version(&epoch_id)?,
         None,
     )
 }
@@ -341,7 +334,6 @@ fn pre_validate_chunk_state_witness(
 
         match validate_prepared_transactions(
             chain,
-            epoch_manager,
             runtime_adapter,
             &state_witness.chunk_header,
             transactions_validation_storage_config,
@@ -856,7 +848,6 @@ impl Client {
         // Normally it is provided by chunk producer, but for shadow validation we need to generate it ourselves.
         let Ok(validated_transactions) = validate_prepared_transactions(
             &self.chain,
-            self.epoch_manager.as_ref(),
             self.runtime_adapter.as_ref(),
             &chunk_header,
             transactions_validation_storage_config,
