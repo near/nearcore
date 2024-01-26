@@ -254,9 +254,12 @@ fn test_orphaned_state_witness() {
     }
 
     let (mut env, _) = setup(3, 2, 1);
-    let blocks_to_produce = 50;
+    let mut validator_candidates: HashSet<_> =
+        (0..2).map(|i| env.get_client_id(i).clone()).collect();
 
-    for round in 0..blocks_to_produce {
+    // Produce 2 blocks. Identify validator who doesn't produce blocks.
+    let mut found_block_producers = HashSet::default();
+    for _ in 0..2 {
         let heads = env
             .clients
             .iter()
@@ -266,23 +269,40 @@ fn test_orphaned_state_witness() {
         let tip = env.clients[0].chain.head().unwrap();
 
         let block_producer = get_block_producer(&env, &tip, 1);
-        let chunk_producers = get_chunk_producers(&env, &tip, 1);
-        println!("{} {} {:?}", round, block_producer, chunk_producers);
-        // tracing::debug!(
-        //     target: "chunk_validation",
-        //     "Producing block at height {} by {}", tip.height + 1, block_producer
-        // );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
-        // Apply the block.
+        found_block_producers.insert(block_producer);
         for i in 0..env.clients.len() {
-            let validator_id = env.get_client_id(i);
-            tracing::debug!(
-                target: "chunk_validation",
-                "Applying block at height {} at {}", block.header().height(), validator_id
-            );
             env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
         }
+        env.process_partial_encoded_chunks();
+        for j in 0..env.clients.len() {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
+        let output = env.propagate_chunk_state_witnesses();
+        env.wait_to_propagate_chunk_endorsements(output.chunk_hash_to_account_ids);
     }
+
+    assert_eq!(found_block_producers.len(), 1);
+    let block_producer = found_block_producers.into_iter().next().unwrap();
+    validator_candidates.remove(&block_producer);
+    let chunk_validator = validator_candidates.into_iter().next().unwrap();
+
+    // Block producer creates 2 more blocks.
+    // But chunk validator doesn't process them.
+    for _ in 0..2 {
+        let client = env.client(&block_producer);
+        let tip = client.chain.head().unwrap();
+        let block = client.produce_block(tip.height + 1).unwrap().unwrap();
+        client.process_block_test(block.into(), Provenance::PRODUCED).unwrap();
+        env.process_partial_encoded_chunks();
+        for j in 0..env.clients.len() {
+            env.process_shards_manager_responses_and_finish_processing_blocks(j);
+        }
+    }
+    assert_eq!(
+        env.client(&block_producer).chain.head().unwrap().height,
+        env.client(&chunk_validator).chain.head().unwrap().height + 2
+    );
 }
 
 /// Returns the block producer for the height of head + height_offset.
