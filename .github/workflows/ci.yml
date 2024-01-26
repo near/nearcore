@@ -69,6 +69,8 @@ jobs:
         if: matrix.runs_integ_tests
       - run: tar -c --zstd -f coverage/profraw/integration/${{matrix.id}}.tar.zst coverage/profraw/new/*
         if: matrix.runs_integ_tests
+      - run: rm -rf coverage/profraw/new
+        if: matrix.runs_integ_tests
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
