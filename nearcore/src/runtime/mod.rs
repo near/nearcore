@@ -720,8 +720,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
-        // while the height of the next block that includes the chunk might not be prev_height + 1,
-        // passing it will result in a more conservative check and will not accidentally allow
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
         // invalid transactions to be included.
         let next_block_height = prev_block.height + 1;
 
