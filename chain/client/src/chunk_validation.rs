@@ -659,7 +659,20 @@ impl Client {
         // Context: We are currently unable to handle production of the state witness for the
         // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
-        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_block = match self.chain.get_block(prev_block_hash) {
+            Ok(block) => block,
+            Err(e) => {
+                // TODO(#10265): We should queue this instead (similar to orphans)
+                // to retry later.
+                tracing::error!(
+                    target: "chunk_validation",
+                    prev_block_hash = ?prev_block_hash,
+                    "Not found previous block for state witness",
+                );
+                return Err(e);
+            }
+        };
+
         let prev_chunk_header = Chain::get_prev_chunk_header(
             self.epoch_manager.as_ref(),
             &prev_block,
@@ -678,8 +691,6 @@ impl Client {
             return Ok(());
         }
 
-        // TODO(#10265): If the previous block does not exist, we should
-        // queue this (similar to orphans) to retry later.
         let result =
             self.chunk_validator.start_validating_chunk(witness, &self.chain, peer_id.clone());
         if let Err(Error::InvalidChunkStateWitness(_)) = &result {
