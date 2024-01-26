@@ -720,6 +720,22 @@ impl Client {
             .ordered_chunk_validators();
         let witness =
             self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
+
+        // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
+        // chunk endorsement related network messages.
+        if let Some(my_signer) = self.validator_signer.clone() {
+            let block_producer =
+                self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+            if my_signer.validator_id() == &block_producer {
+                // Send a copy of the chunk endorsement to ourselves.
+                // Mainly useful in tests where we don't have a good way to handle network messages and there's
+                // only a single client.
+                let endorsement =
+                    ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
+                self.process_chunk_endorsement(endorsement)?;
+            }
+        };
+
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
