@@ -268,9 +268,9 @@ fn pre_validate_chunk_state_witness(
     // First, go back through the blockchain history to locate the last new chunk
     // and last last new chunk for the shard.
 
-    // Blocks from the last new chunk (inclusive) to the parent block (inclusive).
+    // Blocks from the last new chunk (exclusive) to the parent block (inclusive).
     let mut blocks_after_last_chunk = Vec::new();
-    // Blocks from the last last new chunk (inclusive) to the last new chunk (exclusive).
+    // Blocks from the last last new chunk (exclusive) to the last new chunk (inclusive).
     let mut blocks_after_last_last_chunk = Vec::new();
 
     {
@@ -287,13 +287,13 @@ fn pre_validate_chunk_state_witness(
             };
             let is_new_chunk = chunk.is_new_chunk(block.header().height());
             block_hash = *block.header().prev_hash();
+            if is_new_chunk {
+                prev_chunks_seen += 1;
+            }
             if prev_chunks_seen == 0 {
                 blocks_after_last_chunk.push(block);
             } else if prev_chunks_seen == 1 {
                 blocks_after_last_last_chunk.push(block);
-            }
-            if is_new_chunk {
-                prev_chunks_seen += 1;
             }
             if prev_chunks_seen == 2 {
                 break;
@@ -301,12 +301,9 @@ fn pre_validate_chunk_state_witness(
         }
     }
 
-    let (last_chunk_block, implicit_transition_blocks) =
-        blocks_after_last_chunk.split_last().unwrap();
     let receipts_to_apply = validate_source_receipt_proofs(
         &state_witness.source_receipt_proofs,
         &blocks_after_last_last_chunk,
-        &last_chunk_block,
         shard_id,
     )?;
     let applied_receipts_hash = hash(&borsh::to_vec(receipts_to_apply.as_slice()).unwrap());
@@ -317,6 +314,9 @@ fn pre_validate_chunk_state_witness(
         )));
     }
     let (tx_root_from_state_witness, _) = merklize(&state_witness.transactions);
+    let last_chunk_block = blocks_after_last_last_chunk.first().ok_or_else(|| {
+        Error::Other("blocks_after_last_last_chunk is empty, this should be impossible!".into())
+    })?;
     let last_new_chunk_tx_root =
         last_chunk_block.chunks().get(shard_id as usize).unwrap().tx_root();
     if last_new_chunk_tx_root != tx_root_from_state_witness {
@@ -386,7 +386,7 @@ fn pre_validate_chunk_state_witness(
                 record_storage: false,
             },
         },
-        implicit_transition_params: implicit_transition_blocks
+        implicit_transition_params: blocks_after_last_chunk
             .into_iter()
             .rev()
             .map(|block| -> Result<_, Error> {
@@ -409,8 +409,7 @@ fn pre_validate_chunk_state_witness(
 /// target_shard_id and then extract the receipts that are targeted at this half of a split shard.
 fn validate_source_receipt_proofs(
     source_receipt_proofs: &HashMap<ChunkHash, ReceiptProof>,
-    blocks_after_last_last_chunk: &[Block],
-    last_chunk_block: &Block,
+    receipt_source_blocks: &[Block],
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
     let mut receipts_to_apply = Vec::new();
@@ -418,10 +417,7 @@ fn validate_source_receipt_proofs(
 
     // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
     // from the newest blocks to the oldest.
-    let blocks_after_last_last_without_last_last = blocks_after_last_last_chunk
-        .iter()
-        .take(blocks_after_last_last_chunk.len().saturating_sub(1));
-    for block in std::iter::once(last_chunk_block).chain(blocks_after_last_last_without_last_last) {
+    for block in receipt_source_blocks {
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
