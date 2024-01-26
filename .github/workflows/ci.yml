@@ -76,13 +76,12 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: coverage-profraw
-          path: |
-            coverage/profraw
+          path: coverage/profraw
+          retention-days: 7
       - uses: actions/upload-artifact@v3
         with:
           name: coverage-codecov
-          path: |
-            coverage/codecov
+          path: coverage/codecov
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
