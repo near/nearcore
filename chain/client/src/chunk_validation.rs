@@ -6,9 +6,8 @@ use near_chain::chain::{
 };
 use near_chain::sharding::shuffle_receipt_proofs;
 use near_chain::types::{
-    ApplyChunkBlockContext, ApplyChunkResult, PrepareTransactionsBlockContext,
-    PrepareTransactionsChunkContext, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, PreparedTransactions, RuntimeAdapter,
+    RuntimeStorageConfig, StorageDataSource,
 };
 use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, BlockHeader, Chain, ChainStoreAccess};
@@ -231,11 +230,8 @@ fn validate_prepared_transactions(
 
     runtime_adapter.prepare_transactions(
         storage_config,
-        PrepareTransactionsChunkContext {
-            shard_id: chunk_header.shard_id(),
-            gas_limit: chunk_header.gas_limit(),
-        },
-        PrepareTransactionsBlockContext::from_header(&parent_block_header),
+        chunk_header.into(),
+        (&parent_block_header).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
         &mut |tx: &SignedTransaction| -> bool {
             store

@@ -8,6 +8,7 @@ use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::sharding::ShardChunkHeader;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
 use num_rational::Rational32;
@@ -341,8 +342,8 @@ pub struct PrepareTransactionsBlockContext {
     pub block_hash: CryptoHash,
 }
 
-impl PrepareTransactionsBlockContext {
-    pub fn from_header(header: &BlockHeader) -> Self {
+impl From<&BlockHeader> for PrepareTransactionsBlockContext {
+    fn from(header: &BlockHeader) -> Self {
         Self {
             next_gas_price: header.next_gas_price(),
             height: header.height(),
@@ -350,10 +351,15 @@ impl PrepareTransactionsBlockContext {
         }
     }
 }
-
 pub struct PrepareTransactionsChunkContext {
     pub shard_id: ShardId,
     pub gas_limit: Gas,
+}
+
+impl From<&ShardChunkHeader> for PrepareTransactionsChunkContext {
+    fn from(header: &ShardChunkHeader) -> Self {
+        Self { shard_id: header.shard_id(), gas_limit: header.gas_limit() }
+    }
 }
 
 /// Bridge between the chain and the runtime.

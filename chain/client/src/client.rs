@@ -29,7 +29,6 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
-use near_chain::types::PrepareTransactionsBlockContext;
 use near_chain::types::PrepareTransactionsChunkContext;
 use near_chain::types::{
     ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
@@ -75,8 +74,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Gas;
-use near_primitives::types::StateRoot;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -823,12 +821,8 @@ impl Client {
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
         let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let prepared_transactions = self.prepare_transactions(
-            shard_uid,
-            chunk_extra.gas_limit(),
-            *chunk_extra.state_root(),
-            &prev_block_header,
-        )?;
+        let prepared_transactions =
+            self.prepare_transactions(shard_uid, chunk_extra.as_ref(), &prev_block_header)?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = PreparedTransactions {
             transactions: Self::maybe_insert_invalid_transaction(
@@ -949,8 +943,7 @@ impl Client {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
-        gas_limit: Gas,
-        state_root: StateRoot,
+        chunk_extra: &ChunkExtra,
         prev_block_header: &BlockHeader,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
@@ -967,7 +960,7 @@ impl Client {
             let record_storage = chain
                 .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
-                state_root,
+                state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
@@ -975,8 +968,8 @@ impl Client {
             };
             runtime.prepare_transactions(
                 storage_config,
-                PrepareTransactionsChunkContext { shard_id, gas_limit },
-                PrepareTransactionsBlockContext::from_header(prev_block_header),
+                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                prev_block_header.into(),
                 &mut iter,
                 &mut |tx: &SignedTransaction| -> bool {
                     chain
