@@ -60,7 +60,7 @@ jobs:
       # Run the tests
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: mkdir -p coverage/profraw/{unit,integration}
+      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
       - run: cd coverage/profraw/new && tar -c --zstd -f ../unit/${{matrix.id}}.tar.zst *
       - run: rm -rf coverage/profraw/new
       - run: just codecov "nextest-integration ${{ matrix.type }}"
@@ -71,6 +71,12 @@ jobs:
         if: matrix.runs_integ_tests
       - run: rm -rf coverage/profraw/new
         if: matrix.runs_integ_tests
+
+      # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
+      - run: find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \;
+      - run: find target/dev-release/ -not -executable -delete
+      - run: find target/dev-release/ -name 'build*script*build*' -delete
+      - run: tar -c --zstd -f coverage/profraw/binaries/${{matrix.id}}.tar.zst target/dev-release/
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
@@ -391,7 +397,7 @@ jobs:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user diff-cover
-      - run: mkdir target
+      - run: for f in coverage/profraw/binaries/*.tar.zst; do tar -x --zstd -f $f; done
       - run: find coverage/profraw
       - run: for f in coverage/profraw/${{matrix.type}}/*.tar.zst; do tar -x --zstd -C target/ -f $f; done
       - run: find target
