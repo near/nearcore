@@ -83,7 +83,7 @@ jobs:
         with:
           name: coverage-profraw
           path: coverage/profraw
-          retention-days: 7
+          retention-days: 2
       - uses: actions/upload-artifact@v3
         with:
           name: coverage-codecov
