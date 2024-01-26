@@ -602,8 +602,18 @@ impl Client {
         witness: ChunkStateWitness,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        // First chunk after genesis doesn't have to be endorsed.
-        if witness.inner.chunk_header.prev_block_hash() == self.chain.genesis().hash() {
+        // TODO(#10502): Handle production of state witness for first chunk after genesis.
+        // Properly handle case for chunk right after genesis.
+        // Context: We are currently unable to handle production of the state witness for the
+        // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
+        let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
+        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            &prev_block,
+            witness.inner.chunk_header.shard_id(),
+        )?;
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             let Some(signer) = self.validator_signer.as_ref() else {
                 return Err(Error::NotAChunkValidator);
             };
@@ -710,6 +720,22 @@ impl Client {
             .ordered_chunk_validators();
         let witness =
             self.create_state_witness(prev_chunk_header, chunk, transactions_storage_proof)?;
+
+        // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
+        // chunk endorsement related network messages.
+        if let Some(my_signer) = self.validator_signer.clone() {
+            let block_producer =
+                self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
+            if my_signer.validator_id() == &block_producer {
+                // Send a copy of the chunk endorsement to ourselves.
+                // Mainly useful in tests where we don't have a good way to handle network messages and there's
+                // only a single client.
+                let endorsement =
+                    ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
+                self.process_chunk_endorsement(endorsement)?;
+            }
+        };
+
         tracing::debug!(
             target: "chunk_validation",
             "Sending chunk state witness for chunk {:?} to chunk validators {:?}",
@@ -881,6 +907,10 @@ impl Client {
         chunk: &ShardChunk,
         transactions_storage_proof: Option<PartialState>,
     ) -> Result<ChunkStateWitness, Error> {
+        // TODO(#10502): Handle production of state witness for first chunk after genesis.
+        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+            return Ok(ChunkStateWitness::empty(chunk.cloned_header()));
+        }
         let witness_inner =
             self.create_state_witness_inner(prev_chunk_header, chunk, transactions_storage_proof)?;
         let signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?;

@@ -118,9 +118,27 @@ impl ChunkStateWitnessInner {
     }
 }
 
+impl ChunkStateWitness {
+    // TODO(#10502): To be used only for creating state witness when previous chunk is genesis.
+    // Clean this up once we can properly handle creating state witness for genesis chunk.
+    pub fn empty(chunk_header: ShardChunkHeader) -> Self {
+        let inner = ChunkStateWitnessInner::new(
+            chunk_header,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        ChunkStateWitness { inner, signature: Signature::default() }
+    }
+}
+
 /// Represents the base state and the expected post-state-root of a chunk's state
 /// transition. The actual state transition itself is not included here.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateTransition {
     /// The block that contains the chunk; this identifies which part of the
     /// state transition we're talking about.
