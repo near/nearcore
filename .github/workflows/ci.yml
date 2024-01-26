@@ -390,6 +390,7 @@ jobs:
           python-version: 3.11
           cache: pip
       - run: pip3 install --user diff-cover
+      - run: mkdir target
       - run: for f in coverage/profraw/${{matrix.type}}/*.tar.zst; do tar -x --zstd -C target/ -f $f; done
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: mkdir -p coverage/lcov coverage/html
