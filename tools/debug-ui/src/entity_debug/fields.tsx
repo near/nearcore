@@ -243,6 +243,21 @@ const stateTransitionData = {
     array: chunkStateTransitionData,
 };
 
+const oneValidatorAssignment = {
+    struct: {
+        account_id: accountId,
+    },
+    titleKey: 'account_id',
+};
+
+const validatorAssignmentsAtHeight = {
+    struct: {
+        blockProducer: accountId,
+        chunkProducers: { array: accountId },
+        chunkValidatorAssignments: { array: { array: oneValidatorAssignment } },
+    },
+};
+
 export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     AllShards: { array: shardUId },
     Block: block,
@@ -264,4 +279,5 @@ export const fieldSemantics: Record<EntityType, FieldSemantic> = {
     Transaction: transaction,
     TrieNode: trieNode,
     TrieRoot: triePath,
+    ValidatorAssignmentsAtHeight: validatorAssignmentsAtHeight,
 };

@@ -1,5 +1,5 @@
 use crate::entity_debug_serializer::serialize_entity;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 
 use borsh::BorshDeserialize;
 use near_chain::types::RuntimeAdapter;
@@ -17,6 +17,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
 use near_primitives::views::{
     BlockHeaderView, BlockView, ChunkView, ExecutionOutcomeView, ReceiptView, SignedTransactionView,
@@ -379,6 +380,49 @@ impl EntityDebugHandlerImpl {
                 let path = TriePath { path: vec![], shard_uid, state_root };
                 Ok(serialize_entity(&path.to_string()))
             }
+            EntityQuery::ValidatorAssignmentsAtHeight { block_height, epoch_id } => {
+                let block_producer = self
+                    .epoch_manager
+                    .get_block_producer(&epoch_id, block_height)
+                    .context("Getting block producer")?;
+                let shard_layout = self
+                    .epoch_manager
+                    .get_shard_layout(&epoch_id)
+                    .context("Getting shard layout")?;
+                let chunk_producers = shard_layout
+                    .shard_ids()
+                    .map(|shard_id| {
+                        self.epoch_manager
+                            .get_chunk_producer(&epoch_id, block_height, shard_id)
+                            .context("Getting chunk producer")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let chunk_validator_assignments = shard_layout
+                    .shard_ids()
+                    .map(|shard_id| {
+                        self.epoch_manager
+                            .get_chunk_validator_assignments(&epoch_id, shard_id, block_height)
+                            .context("Getting chunk validator assignments")
+                            .map(|assignments| {
+                                assignments
+                                    .assignments()
+                                    .iter()
+                                    .cloned()
+                                    .map(|(account_id, stake)| OneValidatorAssignment {
+                                        account_id,
+                                        stake,
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ret = ValidatorAssignmentsAtHeight {
+                    block_producer,
+                    chunk_producers,
+                    chunk_validator_assignments,
+                };
+                Ok(serialize_entity(&ret))
+            }
         }
     }
 
@@ -583,4 +627,17 @@ impl PartialStateParser {
         };
         EntityDataValue::String(value)
     }
+}
+
+#[derive(serde::Serialize)]
+struct ValidatorAssignmentsAtHeight {
+    block_producer: AccountId,
+    chunk_producers: Vec<AccountId>,
+    chunk_validator_assignments: Vec<Vec<OneValidatorAssignment>>,
+}
+
+#[derive(serde::Serialize)]
+struct OneValidatorAssignment {
+    account_id: AccountId,
+    stake: Balance,
 }

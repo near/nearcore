@@ -79,6 +79,7 @@ pub enum EntityQuery {
     TrieNode { trie_path: String },
     TrieRootByChunkHash { chunk_hash: CryptoHash },
     TrieRootByStateRoot { state_root: CryptoHash, shard_uid: ShardUId },
+    ValidatorAssignmentsAtHeight { block_height: BlockHeight, epoch_id: EpochId },
 }
 
 /// We use a trait for this, because jsonrpc does not have access to low-level
