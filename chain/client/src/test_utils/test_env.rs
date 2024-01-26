@@ -335,11 +335,12 @@ impl TestEnv {
         let network_adapters = self.network_adapters.clone();
         let timer = Instant::now();
         loop {
-            for network_adapter in &network_adapters {
+            for (i, network_adapter) in network_adapters.iter().enumerate() {
                 network_adapter.handle_filtered(|request| match request {
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::ChunkEndorsement(account_id, endorsement),
                     ) => {
+                        println!("ChunkEndorsement {} {}", i, account_id);
                         // Remove endorsement.account_id on receiving endorsement.
                         chunk_hash_to_account_ids
                             .get_mut(endorsement.chunk_hash())
