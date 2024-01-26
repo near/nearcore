@@ -1744,6 +1744,41 @@ mod tests {
     }
 
     #[test]
+    fn test_contains_key() {
+        let sid = ShardUId::single_shard();
+        let bid = CryptoHash::default();
+        let tries = TestTriesBuilder::new().with_flat_storage().build();
+        let initial = vec![
+            (vec![99, 44, 100, 58, 58, 49], Some(vec![1])),
+            (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
+            (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
+        ];
+        let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, sid, initial);
+        let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
+        assert!(trie.has_flat_storage_chunk_view());
+        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
+        assert!(trie
+            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
+            .unwrap());
+        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::Trie).unwrap());
+        assert!(!trie
+            .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage)
+            .unwrap());
+        let changes = vec![(vec![99, 44, 100, 58, 58, 49], None)];
+        let root = test_populate_trie(&tries, &root, sid, changes);
+        let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
+        assert!(trie.has_flat_storage_chunk_view());
+        assert!(trie.contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::Trie).unwrap());
+        assert!(trie
+            .contains_key_mode(&[99, 44, 100, 58, 58, 50], KeyLookupMode::FlatStorage)
+            .unwrap());
+        assert!(!trie
+            .contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::FlatStorage)
+            .unwrap());
+        assert!(!trie.contains_key_mode(&[99, 44, 100, 58, 58, 49], KeyLookupMode::Trie).unwrap());
+    }
+
+    #[test]
     fn test_equal_leafs() {
         let initial = vec![
             (vec![1, 2, 3], Some(vec![1])),
