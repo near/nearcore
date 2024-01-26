@@ -659,11 +659,15 @@ impl Client {
         // Context: We are currently unable to handle production of the state witness for the
         // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
+        let shard_id = witness.inner.chunk_header.shard_id();
         let prev_block = match self.chain.get_block(prev_block_hash) {
             Ok(block) => block,
             Err(e) => {
                 // TODO(#10265): We should queue this instead (similar to orphans)
                 // to retry later.
+                metrics::CHUNK_STATE_WITNESS_ORPHAN
+                    .with_label_values(&[&shard_id.to_string()])
+                    .inc();
                 tracing::error!(
                     target: "chunk_validation",
                     prev_block_hash = ?prev_block_hash,
@@ -673,11 +677,8 @@ impl Client {
             }
         };
 
-        let prev_chunk_header = Chain::get_prev_chunk_header(
-            self.epoch_manager.as_ref(),
-            &prev_block,
-            witness.inner.chunk_header.shard_id(),
-        )?;
+        let prev_chunk_header =
+            Chain::get_prev_chunk_header(self.epoch_manager.as_ref(), &prev_block, shard_id)?;
         if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
             let Some(signer) = self.validator_signer.as_ref() else {
                 return Err(Error::NotAChunkValidator);
