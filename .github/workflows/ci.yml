@@ -61,13 +61,13 @@ jobs:
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
       - run: mkdir -p coverage/profraw/{unit,integration}
-      - run: tar -c --zstd -f coverage/profraw/unit/${{matrix.id}}.tar.zst coverage/profraw/new/*
+      - run: cd coverage/profraw/new && tar -c --zstd -f ../unit/${{matrix.id}}.tar.zst *
       - run: rm -rf coverage/profraw/new
       - run: just codecov "nextest-integration ${{ matrix.type }}"
         if: matrix.runs_integ_tests
       - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
         if: matrix.runs_integ_tests
-      - run: tar -c --zstd -f coverage/profraw/integration/${{matrix.id}}.tar.zst coverage/profraw/new/*
+      - run: cd coverage/profraw/new && tar -c --zstd -f ../integration/${{matrix.id}}.tar.zst *
         if: matrix.runs_integ_tests
       - run: rm -rf coverage/profraw/new
         if: matrix.runs_integ_tests
