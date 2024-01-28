@@ -1133,6 +1133,7 @@ impl EpochManager {
         match self.get_epoch_info(&EpochId(*hash)) {
             Ok(_) => Ok(true),
             Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => {
                 warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");

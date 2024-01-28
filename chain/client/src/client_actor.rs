@@ -423,7 +423,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
-            info!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
+            debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
             let blocks_at_height = this
                 .client
                 .chain
