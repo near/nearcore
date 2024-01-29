@@ -60,11 +60,7 @@ pub struct Account {
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
     storage_usage: StorageUsage,
-    /// Version of Account in re migrations and similar
-    ///
-    /// Note(jakmeier): Why does this exist? We only have one version right now
-    /// and the code doesn't allow adding a new version at all since this field
-    /// is not included in the merklized state...
+    /// Version of Account in re migrations and similar.
     #[serde(default)]
     version: AccountVersion,
 }
@@ -85,8 +81,10 @@ impl Account {
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
     ) -> Self {
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-        assert_eq!(nonrefundable, 0);
+        let version = AccountVersion::default();
+        if version == AccountVersion::V1 {
+            assert_eq!(nonrefundable, 0);
+        }
         Account {
             amount,
             locked,
@@ -94,7 +92,7 @@ impl Account {
             nonrefundable,
             code_hash,
             storage_usage,
-            version: AccountVersion::default(),
+            version,
         }
     }
 
@@ -166,8 +164,8 @@ impl Account {
     }
 }
 
-/// Note(jakmeier): Even though this is called "legacy", it looks like this is
-/// the one and only serialization format of Accounts currently in use.
+/// These accounts are serialized in merklized state.
+/// We keep old accounts in the old format to avoid migration of the MPT.
 #[derive(BorshSerialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
 #[cfg_attr(
     not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
@@ -178,6 +176,17 @@ struct LegacyAccount {
     locked: Balance,
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
+}
+
+/// We only allow nonrefundable storage on new accounts (see `LegacyAccount`).
+#[derive(BorshSerialize, BorshDeserialize)]
+struct AccountV2 {
+    amount: Balance,
+    locked: Balance,
+    code_hash: CryptoHash,
+    storage_usage: StorageUsage,
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    nonrefundable: Balance,
 }
 
 /// We need custom serde deserialization in order to parse mainnet genesis accounts (LegacyAccounts)
@@ -267,22 +276,16 @@ impl BorshDeserialize for Account {
                     format!("Expected account version 2 or higher, got {:?}", version),
                 ));
             }
-
-            let amount = u128::deserialize_reader(rd)?;
-            let locked = u128::deserialize_reader(rd)?;
-            let code_hash = CryptoHash::deserialize_reader(rd)?;
-            let storage_usage = StorageUsage::deserialize_reader(rd)?;
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            let nonrefundable = u128::deserialize_reader(rd)?;
+            let account = AccountV2::deserialize_reader(rd)?;
 
             Ok(Account {
-                amount,
-                locked,
-                code_hash,
-                storage_usage,
-                version,
+                amount: account.amount,
+                locked: account.locked,
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                nonrefundable,
+                nonrefundable: account.nonrefundable,
+                code_hash: account.code_hash,
+                storage_usage: account.storage_usage,
+                version,
             })
         } else {
             // Account v1
@@ -320,23 +323,19 @@ impl BorshSerialize for Account {
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         {
             match self.version {
-                // Note(jakmeier): It might be tempting to lazily convert old V1 to V2
+                // It might be tempting to lazily convert old V1 to V2
                 // while serializing. But that would break the borsh assumptions
                 // of unique binary representation.
-                AccountVersion::V1 => legacy_account.serialize(writer),
-                // Note(jakmeier): These accounts are serialized in merklized state.
-                // I would really like to avoid migration of the MPT.
-                // This here would keep old accounts in the old format
-                // and only allow nonrefundable storage on new accounts.
-                AccountVersion::V2 => {
-                    #[derive(BorshSerialize)]
-                    struct AccountV2 {
-                        amount: Balance,
-                        locked: Balance,
-                        code_hash: CryptoHash,
-                        storage_usage: StorageUsage,
-                        nonrefundable: Balance,
+                AccountVersion::V1 => {
+                    if self.nonrefundable > 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Trying to serialize V1 account with nonrefundable amount"),
+                        ));
                     }
+                    legacy_account.serialize(writer)
+                }
+                AccountVersion::V2 => {
                     let account = AccountV2 {
                         amount: self.amount(),
                         locked: self.locked(),
@@ -518,6 +517,9 @@ mod tests {
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    /// It is impossible to construct V1 account with nonrefundable amount greater than 0.
+    /// So the situation in this test is theoretical.
+    ///
     /// Serialization of account V1 with non-refundable amount greater than 0 would pass without an error,
     /// but an error would be raised on deserialization of such invalid data.
     #[test]
@@ -558,8 +560,10 @@ mod tests {
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    /// That must not happen, but if a V1 account had nonrefundable amount greater than zero,
-    /// it would be truncated during Borsh serialization.
+    /// It is impossible to construct V1 account with nonrefundable amount greater than 0.
+    /// So the situation in this test is theoretical.
+    ///
+    /// If a V1 account had nonrefundable amount greater than zero, it would fail during Borsh serialization.
     #[test]
     fn test_account_v1_borsh_serialization_invalid_data() {
         let account = Account {
@@ -570,14 +574,8 @@ mod tests {
             storage_usage: 100,
             version: AccountVersion::V1,
         };
-        let serialized_account = borsh::to_vec(&account).unwrap();
-        assert_eq!(
-            &hash(&serialized_account).to_string(),
-            "EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ"
-        );
-        let deserialized_account =
-            <Account as BorshDeserialize>::deserialize(&mut &serialized_account[..]).unwrap();
-        assert_eq!(deserialized_account.nonrefundable, 0);
+        let serialized_account = borsh::to_vec(&account);
+        assert!(serialized_account.is_err());
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]

@@ -353,7 +353,7 @@ impl From<NearActions> for Vec<crate::models::Operation> {
                 }
 
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                // Note(jakmeier): Both refundable and non-refundable transfers are considered as available balance.
+                // Both refundable and non-refundable transfers are considered as available balance.
                 // TODO(nonrefundable) Merge with the arm above on stabilization.
                 near_primitives::transaction::Action::NonrefundableStorageTransfer(action) => {
                     let transfer_amount = crate::models::Amount::from_yoctonear(action.deposit);

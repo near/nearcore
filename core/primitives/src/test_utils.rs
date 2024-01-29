@@ -682,7 +682,7 @@ impl FinalExecutionOutcomeView {
         }
     }
 
-    /// Calculates how much NEAR was burn for gas, after refunds.
+    /// Calculates how much NEAR was burnt for gas, after refunds.
     pub fn gas_cost(&self) -> Balance {
         self.transaction_outcome.outcome.tokens_burnt
             + self.receipts_outcome.iter().map(|r| r.outcome.tokens_burnt).sum::<u128>()
