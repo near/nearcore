@@ -1178,7 +1178,7 @@ impl EncodedShardChunk {
     pub fn create_partial_encoded_chunk_with_arc_receipts(
         &self,
         part_ords: Vec<u64>,
-        receipts: Vec<Arc<ReceiptProof>>,
+        prev_outgoing_receipts: Vec<Arc<ReceiptProof>>,
         merkle_paths: &[MerklePath],
     ) -> PartialEncodedChunkWithArcReceipts {
         let parts = self.part_ords_to_parts(part_ords, merkle_paths);
@@ -1186,7 +1186,7 @@ impl EncodedShardChunk {
             Self::V1(chunk) => ShardChunkHeader::V1(chunk.header.clone()),
             Self::V2(chunk) => chunk.header.clone(),
         };
-        PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts: receipts }
+        PartialEncodedChunkWithArcReceipts { header, parts, prev_outgoing_receipts }
     }
 
     pub fn decode_chunk(&self, data_parts: usize) -> Result<ShardChunk, std::io::Error> {
