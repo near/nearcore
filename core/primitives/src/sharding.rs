@@ -488,15 +488,13 @@ impl PartialEncodedChunk {
     pub fn new(
         header: ShardChunkHeader,
         parts: Vec<PartialEncodedChunkPart>,
-        receipts: Vec<ReceiptProof>,
+        prev_outgoing_receipts: Vec<ReceiptProof>,
     ) -> Self {
         match header {
             ShardChunkHeader::V1(header) => {
-                Self::V1(PartialEncodedChunkV1 { header, parts, prev_outgoing_receipts: receipts })
+                Self::V1(PartialEncodedChunkV1 { header, parts, prev_outgoing_receipts })
             }
-            header => {
-                Self::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts: receipts })
-            }
+            header => Self::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts }),
         }
     }
 
@@ -1153,7 +1151,7 @@ impl EncodedShardChunk {
     pub fn create_partial_encoded_chunk(
         &self,
         part_ords: Vec<u64>,
-        receipts: Vec<ReceiptProof>,
+        prev_outgoing_receipts: Vec<ReceiptProof>,
         merkle_paths: &[MerklePath],
     ) -> PartialEncodedChunk {
         let parts = self.part_ords_to_parts(part_ords, merkle_paths);
@@ -1162,7 +1160,7 @@ impl EncodedShardChunk {
                 let chunk = PartialEncodedChunkV1 {
                     header: chunk.header.clone(),
                     parts,
-                    prev_outgoing_receipts: receipts,
+                    prev_outgoing_receipts,
                 };
                 PartialEncodedChunk::V1(chunk)
             }
@@ -1170,7 +1168,7 @@ impl EncodedShardChunk {
                 let chunk = PartialEncodedChunkV2 {
                     header: chunk.header.clone(),
                     parts,
-                    prev_outgoing_receipts: receipts,
+                    prev_outgoing_receipts,
                 };
                 PartialEncodedChunk::V2(chunk)
             }

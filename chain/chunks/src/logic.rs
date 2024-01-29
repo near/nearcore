@@ -118,7 +118,7 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         })
         .cloned()
         .collect();
-    let mut receipts: Vec<_> = receipts
+    let mut prev_outgoing_receipts: Vec<_> = receipts
         .filter(|receipt| {
             cares_about_shard
                 || need_receipt(prev_block_hash, receipt.1.to_shard_id, me, shard_tracker)
@@ -126,18 +126,14 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
         .cloned()
         .collect();
     // Make sure the receipts are in a deterministic order.
-    receipts.sort();
+    prev_outgoing_receipts.sort();
     match header.clone() {
-        ShardChunkHeader::V1(header) => PartialEncodedChunk::V1(PartialEncodedChunkV1 {
-            header,
-            parts,
-            prev_outgoing_receipts: receipts,
-        }),
-        header => PartialEncodedChunk::V2(PartialEncodedChunkV2 {
-            header,
-            parts,
-            prev_outgoing_receipts: receipts,
-        }),
+        ShardChunkHeader::V1(header) => {
+            PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, prev_outgoing_receipts })
+        }
+        header => {
+            PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, prev_outgoing_receipts })
+        }
     }
 }
 
@@ -201,7 +197,7 @@ fn create_partial_chunk(
     shard_tracker: &ShardTracker,
 ) -> Result<PartialEncodedChunk, EpochError> {
     let header = encoded_chunk.cloned_header();
-    let receipts =
+    let prev_outgoing_receipts =
         make_outgoing_receipts_proofs(&header, &outgoing_receipts, epoch_manager)?.collect();
     let partial_chunk = PartialEncodedChunkV2 {
         header,
@@ -218,7 +214,7 @@ fn create_partial_chunk(
                 PartialEncodedChunkPart { part_ord, part, merkle_proof }
             })
             .collect(),
-        prev_outgoing_receipts: receipts,
+        prev_outgoing_receipts,
     };
 
     Ok(make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
