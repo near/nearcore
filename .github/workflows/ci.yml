@@ -385,6 +385,8 @@ jobs:
           - type: integration
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1000 # have enough history to find the merge-base between PR and master
       - uses: actions/download-artifact@v3
         with:
           name: coverage-profraw
