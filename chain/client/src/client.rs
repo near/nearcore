@@ -820,9 +820,8 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
         let prepared_transactions =
-            self.prepare_transactions(shard_uid, chunk_extra.as_ref(), &prev_block_header)?;
+            self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = PreparedTransactions {
             transactions: Self::maybe_insert_invalid_transaction(
@@ -943,22 +942,22 @@ impl Client {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
+        prev_block_hash: CryptoHash,
         chunk_extra: &ChunkExtra,
-        prev_block_header: &BlockHeader,
     ) -> Result<PreparedTransactions, Error> {
         let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
+        let prev_block_header = chain.get_block_header(&prev_block_hash)?;
 
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
-            let transaction_validity_period = chain.transaction_validity_period;
             let me = self
                 .validator_signer
                 .as_ref()
                 .map(|validator_signer| validator_signer.validator_id().clone());
             let record_storage = chain
-                .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
+                .should_produce_state_witness_for_this_or_next_epoch(&me, &prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
@@ -969,18 +968,9 @@ impl Client {
             runtime.prepare_transactions(
                 storage_config,
                 PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
-                prev_block_header.into(),
+                (&prev_block_header).into(),
                 &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .chain_store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
+                &mut chain.transaction_validity_check(prev_block_header),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {
