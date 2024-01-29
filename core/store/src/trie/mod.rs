@@ -1399,6 +1399,7 @@ impl Trie {
                     self.lookup_from_state_column(NibbleSlice::new(key), false)?;
                 debug_assert_eq!(&value_ref_from_trie.is_some(), &value);
             }
+            return Ok(value);
         }
 
         Ok(self
