@@ -60,18 +60,15 @@ jobs:
       # Run the tests:
       - run: mkdir -p coverage/profraw/{unit,integration,binaries}
       # - Run the unit tests, retrieving the coverage information
-      - run: just codecov "nextest-unit ${{ matrix.type }}"
+      - run: just codecov-ci "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: cd coverage/profraw/new && tar -c --zstd -f ../unit/${{matrix.id}}.tar.zst *
-      - run: rm -rf coverage/profraw/new
+      - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
       # - Run the integration tests, retrieving the coverage information
-      - run: just codecov "nextest-integration ${{ matrix.type }}"
+      - run: just codecov-ci "nextest-integration ${{ matrix.type }}"
         if: matrix.runs_integ_tests
       - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
         if: matrix.runs_integ_tests
-      - run: cd coverage/profraw/new && tar -c --zstd -f ../integration/${{matrix.id}}.tar.zst *
-        if: matrix.runs_integ_tests
-      - run: rm -rf coverage/profraw/new
+      - run: mv coverage/profraw/{new,integration/${{matrix.id}}}.tar.zst
         if: matrix.runs_integ_tests
 
       # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it

@@ -98,8 +98,16 @@ codecov RULE:
     {{ just_executable() }} {{ RULE }}
     mkdir -p coverage/codecov
     cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
-    mkdir -p coverage/profraw/new
-    mv target/*.profraw coverage/profraw/new
+
+# generate a codecov report for RULE, CI version
+codecov-ci RULE:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    {{ just_executable() }} codecov "{{ RULE }}"
+    pushd target
+    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw
+    popd
+    rm -rf target/*.profraw
 
 # style checks from python scripts
 python-style-checks:
