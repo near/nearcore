@@ -45,8 +45,8 @@ impl FlatStorageChunkView {
         self.flat_storage.get_value(&self.block_hash, key)
     }
 
-    pub fn contains_value(&self, key: &[u8]) -> Result<bool, crate::StorageError> {
-        self.flat_storage.contains_value(&self.block_hash, key)
+    pub fn contains_key(&self, key: &[u8]) -> Result<bool, crate::StorageError> {
+        self.flat_storage.contains_key(&self.block_hash, key)
     }
 
     pub fn iter_flat_state_entries<'a>(

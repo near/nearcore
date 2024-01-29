@@ -315,7 +315,7 @@ impl FlatStorage {
     }
 
     /// Same as `get_value()?.is_some()`, but avoids reading out the value.
-    pub fn contains_value(
+    pub fn contains_key(
         &self,
         block_hash: &CryptoHash,
         key: &[u8],
