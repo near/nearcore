@@ -391,15 +391,15 @@ fn non_refundable_transfer_create_near_implicit_account() {
                 deploy_contract: false,
             },
         );
-        if transfers.nonrefundable_transfer_first {
+        if transfers.regular_amount == 0 {
             tx_result.unwrap().assert_success();
         } else {
-            // Non-refundable transfer must be the first action if it appears in implicit account creation transaction.
+            // Non-refundable transfer must be the only action in an implicit account creation transaction.
             let status = &tx_result.unwrap().receipts_outcome[0].outcome.status;
             assert!(matches!(
                 status,
                 ExecutionStatusView::Failure(TxExecutionError::ActionError(
-                    ActionError { kind: ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id }, .. }
+                    ActionError { kind: ActionErrorKind::AccountDoesNotExist { account_id }, .. }
                 )) if *account_id == new_account_id,
             ));
         }
@@ -424,15 +424,15 @@ fn non_refundable_transfer_create_eth_implicit_account() {
                 deploy_contract: false,
             },
         );
-        if transfers.nonrefundable_transfer_first {
+        if transfers.regular_amount == 0 {
             tx_result.unwrap().assert_success();
         } else {
-            // Non-refundable transfer must be the first action if it appears in implicit account creation transaction.
+            // Non-refundable transfer must be the only action in an implicit account creation transaction.
             let status = &tx_result.unwrap().receipts_outcome[0].outcome.status;
             assert!(matches!(
                 status,
                 ExecutionStatusView::Failure(TxExecutionError::ActionError(
-                    ActionError { kind: ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id }, .. }
+                    ActionError { kind: ActionErrorKind::AccountDoesNotExist { account_id }, .. }
                 )) if *account_id == new_account_id,
             ));
         }

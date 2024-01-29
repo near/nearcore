@@ -196,8 +196,7 @@ pub enum Action {
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     /// Makes a non-refundable transfer for storage allowance.
     /// Only possible during new account creation.
-    /// For implicit account creation, it has to be the first action
-    /// in the receipt. Following regular transfers are allowed in the same receipt.
+    /// For implicit account creation, it has to be the only action in the receipt.
     NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
 }
 

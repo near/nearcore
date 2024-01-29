@@ -1023,7 +1023,7 @@ pub(crate) fn check_account_existence(
                 // the receipt being a `CreateAccount` action serves this
                 // purpose.
                 // For implicit accounts creation with non-refundable storage
-                // we require that this is the first action in the receipt.
+                // we require that this is the only action in the receipt.
                 return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
                     account_id: account_id.clone(),
                 }
@@ -1059,7 +1059,7 @@ fn check_transfer_to_nonexisting_account(
     {
         // OK. It's implicit account creation.
         // Notes:
-        // - Transfer actions have to be the only actions in the transaction to avoid
+        // - Transfer action has to be the only action in the transaction to avoid
         // abuse by hijacking this account with other public keys or contracts.
         // - Refunds don't automatically create accounts, because refunds are free and
         // we don't want some type of abuse.

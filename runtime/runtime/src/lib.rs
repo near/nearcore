@@ -345,20 +345,8 @@ impl Runtime {
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
         let is_refund = receipt.predecessor_id.is_system();
-
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
         let is_the_only_action = actions.len() == 1;
-
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let only_transfers = actions.iter().all(|action| {
-            matches!(action, Action::Transfer(_) | Action::NonrefundableStorageTransfer(_))
-        });
-
-        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
-
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let implicit_account_creation_eligible = only_transfers && !is_refund;
 
         let receipt_starts_with_create_account =
             matches!(actions.get(0), Some(Action::CreateAccount(_)));
