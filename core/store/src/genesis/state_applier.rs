@@ -1,6 +1,6 @@
 use crate::flat::FlatStateChanges;
 use crate::{
-    get_account, get_received_data, set, set_access_key, set_account, set_code,
+    get_account, has_received_data, set, set_access_key, set_account, set_code,
     set_delayed_receipt, set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
 };
 
@@ -277,9 +277,8 @@ impl GenesisStateApplier {
             let mut pending_data_count: u32 = 0;
             for data_id in &action_receipt.input_data_ids {
                 storage.modify(|state_update| {
-                    if get_received_data(state_update, account_id, *data_id)
+                    if !has_received_data(state_update, account_id, *data_id)
                         .expect("Genesis storage error")
-                        .is_none()
                     {
                         pending_data_count += 1;
                         set(
