@@ -1389,7 +1389,7 @@ impl Trie {
         'flat: {
             let KeyLookupMode::FlatStorage = mode else { break 'flat };
             let Some(flat_storage_chunk_view) = &self.flat_storage_chunk_view else { break 'flat };
-            let value = flat_storage_chunk_view.contains_value(key)?;
+            let value = flat_storage_chunk_view.contains_key(key)?;
             if self.recorder.is_some() {
                 // If recording, we need to look up in the trie as well to record the trie nodes,
                 // as they are needed to prove the value. Also, it's important that this lookup
