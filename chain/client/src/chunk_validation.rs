@@ -225,23 +225,15 @@ fn validate_prepared_transactions(
     storage_config: RuntimeStorageConfig,
     transactions: &[SignedTransaction],
 ) -> Result<PreparedTransactions, Error> {
-    let store = chain.chain_store();
-    let parent_block_header = store.get_block_header(chunk_header.prev_block_hash())?;
+    let parent_block_header =
+        chain.chain_store().get_block_header(chunk_header.prev_block_hash())?;
 
     runtime_adapter.prepare_transactions(
         storage_config,
         chunk_header.into(),
         (&parent_block_header).into(),
         &mut TransactionGroupIteratorWrapper::new(transactions),
-        &mut |tx: &SignedTransaction| -> bool {
-            store
-                .check_transaction_validity_period(
-                    &parent_block_header,
-                    &tx.transaction.block_hash,
-                    chain.transaction_validity_period,
-                )
-                .is_ok()
-        },
+        &mut chain.transaction_validity_check(parent_block_header),
         None,
     )
 }
