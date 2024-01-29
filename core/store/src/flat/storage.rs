@@ -304,7 +304,7 @@ impl FlatStorage {
             let changes = guard.get_block_changes(block_hash)?;
             match changes.get(key) {
                 Some(value_ref) => {
-                    return Ok(value_ref.map(|value_ref| FlatStateValue::Ref(value_ref)));
+                    return Ok(value_ref.clone().map(|value_ref| FlatStateValue::Ref(value_ref)));
                 }
                 None => {}
             };
@@ -312,6 +312,30 @@ impl FlatStorage {
 
         let value = store_helper::get_flat_state_value(&guard.store, guard.shard_uid, key)?;
         Ok(value)
+    }
+
+    /// Same as `get_value()?.is_some()`, but avoids reading out the value.
+    pub fn contains_key(
+        &self,
+        block_hash: &CryptoHash,
+        key: &[u8],
+    ) -> Result<bool, crate::StorageError> {
+        let guard = self.0.read().expect(super::POISONED_LOCK_ERR);
+        let blocks_to_head =
+            guard.get_blocks_to_head(block_hash).map_err(|e| StorageError::from(e))?;
+        for block_hash in blocks_to_head.iter() {
+            // If we found a key in changes, we can return a value because it is the most recent key update.
+            let changes = guard.get_block_changes(block_hash)?;
+            match changes.get(key) {
+                Some(value_ref) => return Ok(value_ref.is_some()),
+                None => {}
+            };
+        }
+
+        let db_key = store_helper::encode_flat_state_db_key(guard.shard_uid, key);
+        Ok(guard.store.exists(crate::DBCol::FlatState, &db_key).map_err(|err| {
+            FlatStorageError::StorageInternalError(format!("failed to read FlatState value: {err}"))
+        })?)
     }
 
     /// Update the head of the flat storage, including updating the flat state
