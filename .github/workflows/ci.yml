@@ -57,12 +57,14 @@ jobs:
           shared-key: "cargo_nextest-${{ matrix.cache_id }}"
           save-if: "${{ github.event_name == 'merge_group' }}" # save the cache only from master CI
 
-      # Run the tests
+      # Run the tests:
+      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
+      # - Run the unit tests, retrieving the coverage information
       - run: just codecov "nextest-unit ${{ matrix.type }}"
       - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
-      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
       - run: cd coverage/profraw/new && tar -c --zstd -f ../unit/${{matrix.id}}.tar.zst *
       - run: rm -rf coverage/profraw/new
+      # - Run the integration tests, retrieving the coverage information
       - run: just codecov "nextest-integration ${{ matrix.type }}"
         if: matrix.runs_integ_tests
       - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
