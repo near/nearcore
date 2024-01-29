@@ -502,6 +502,8 @@ struct PartialStateParser {
 }
 
 impl PartialStateParser {
+    /// Takes the flattened partial trie nodes and turn them into a hierarchical view,
+    /// automatically finding the root. Only used for debugging.
     pub fn parse_and_serialize_partial_state(partial_state: PartialState) -> EntityDataValue {
         let PartialState::TrieValues(nodes) = partial_state;
         let parser = Self::new(&nodes);
@@ -509,10 +511,11 @@ impl PartialStateParser {
         match root {
             Some(root) => {
                 let mut ret = EntityDataStruct::new();
-                ret.add("root", parser.visit_node(root));
+                ret.add("root", parser.serialize_node(root));
                 EntityDataValue::Struct(ret.into())
             }
             None => {
+                // If finding root failed, just dump the raw nodes as hex.
                 let mut ret = EntityDataStruct::new();
                 ret.add("error", EntityDataValue::String("No root found".to_string()));
                 let mut inner = EntityDataStruct::new();
@@ -537,28 +540,35 @@ impl PartialStateParser {
         }
     }
 
+    /// Finds what's most likely the root node, which is the node that isn't listed
+    /// as a child of any other node.
     fn find_root(&self) -> Option<CryptoHash> {
-        let mut node_to_children: HashMap<CryptoHash, Vec<CryptoHash>> = HashMap::new();
         let mut nodes_not_yet_seen_as_children: HashSet<CryptoHash> = HashSet::new();
-        for (hash, _) in &self.nodes {
+        for hash in self.nodes.keys() {
             nodes_not_yet_seen_as_children.insert(*hash);
         }
-        for (hash, data) in &self.nodes {
-            let children = self.detect_children_of(&data);
-            node_to_children.insert(*hash, children.clone());
+        for data in self.nodes.values() {
+            // Note that here it's possible that we're parsing a value that is not a trie
+            // node, so we may get some false positive. But that is very rare and only
+            // a problem if a child parsed from such a ill-constructed value happens to
+            // be the root hash. In that case, we would fail to find the root and will just
+            // fall back to showing the raw values.
+            let children = self.detect_possible_children_of(&data);
             for child in children {
                 nodes_not_yet_seen_as_children.remove(&child);
             }
         }
-        for node in nodes_not_yet_seen_as_children {
-            if node_to_children.get(&node).is_some() {
-                return Some(node);
-            }
+        if nodes_not_yet_seen_as_children.len() == 1 {
+            nodes_not_yet_seen_as_children.iter().next().copied()
+        } else {
+            None
         }
-        None
     }
 
-    fn detect_children_of(&self, data: &[u8]) -> Vec<CryptoHash> {
+    /// Parses the given data that is possibly a trie node (and possibly a value),
+    /// and if it looks like a trie node, return all its children hashes (nodes and
+    /// values).
+    fn detect_possible_children_of(&self, data: &[u8]) -> Vec<CryptoHash> {
         let Ok(node) = RawTrieNodeWithSize::try_from_slice(data) else {
             return vec![];
         };
@@ -578,8 +588,10 @@ impl PartialStateParser {
         }
     }
 
-    fn visit_node(&self, hash: CryptoHash) -> EntityDataValue {
+    /// Visits node, serializing it as entity debug output.
+    fn serialize_node(&self, hash: CryptoHash) -> EntityDataValue {
         let Some(data) = self.nodes.get(&hash) else {
+            // This is a partial trie, so missing is very normal.
             return EntityDataValue::String("(missing)".to_string());
         };
         let mut ret = EntityDataStruct::new();
@@ -593,17 +605,17 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("value", self.visit_value(value_ref.hash));
+                ret.add("value", self.serialize_value(value_ref.hash));
             }
             RawTrieNode::BranchNoValue(children) => {
                 for (index, child) in children.iter() {
-                    ret.add(&format!("{:x}", index), self.visit_node(*child));
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
                 }
             }
             RawTrieNode::BranchWithValue(value_ref, children) => {
-                ret.add("value", self.visit_value(value_ref.hash));
+                ret.add("value", self.serialize_value(value_ref.hash));
                 for (index, child) in children.iter() {
-                    ret.add(&format!("{:x}", index), self.visit_node(*child));
+                    ret.add(&format!("{:x}", index), self.serialize_node(*child));
                 }
             }
             RawTrieNode::Extension(extension, child) => {
@@ -614,15 +626,17 @@ impl PartialStateParser {
                         &nibbles.iter().collect::<Vec<_>>(),
                     )),
                 );
-                ret.add("child", self.visit_node(*child));
+                ret.add("child", self.serialize_node(*child));
             }
         }
         EntityDataValue::Struct(ret.into())
     }
 
-    fn visit_value(&self, hash: CryptoHash) -> EntityDataValue {
+    /// Visits value, serializing it as entity debug output.
+    fn serialize_value(&self, hash: CryptoHash) -> EntityDataValue {
         let value = match self.nodes.get(&hash) {
             Some(data) => hex::encode(data),
+            // This is a partial trie, so missing is very normal.
             None => "(missing)".to_string(),
         };
         EntityDataValue::String(value)
