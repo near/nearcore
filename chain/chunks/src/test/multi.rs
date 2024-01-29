@@ -309,12 +309,15 @@ fn test_distribute_chunk_with_chunk_only_producers() {
                             if data.chain.cares_about_shard_this_or_next_epoch(1) {
                                 // If we track shard 1, we should have the full chunk
                                 // and thus have every receipt proof.
-                                assert_eq!(partial_chunk.receipts().len(), 3);
+                                assert_eq!(partial_chunk.prev_outgoing_receipts().len(), 3);
                             } else {
                                 // Otherwise, we should only have the receipt proof for the
                                 // shard we care about.
-                                assert_eq!(partial_chunk.receipts().len(), 1);
-                                assert_eq!(partial_chunk.receipts()[0].1.to_shard_id, shard);
+                                assert_eq!(partial_chunk.prev_outgoing_receipts().len(), 1);
+                                assert_eq!(
+                                    partial_chunk.prev_outgoing_receipts()[0].1.to_shard_id,
+                                    shard
+                                );
                             }
                         }
                     }

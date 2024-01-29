@@ -128,10 +128,16 @@ pub fn make_partial_encoded_chunk_from_owned_parts_and_needed_receipts<'a>(
     // Make sure the receipts are in a deterministic order.
     receipts.sort();
     match header.clone() {
-        ShardChunkHeader::V1(header) => {
-            PartialEncodedChunk::V1(PartialEncodedChunkV1 { header, parts, receipts })
-        }
-        header => PartialEncodedChunk::V2(PartialEncodedChunkV2 { header, parts, receipts }),
+        ShardChunkHeader::V1(header) => PartialEncodedChunk::V1(PartialEncodedChunkV1 {
+            header,
+            parts,
+            prev_outgoing_receipts: receipts,
+        }),
+        header => PartialEncodedChunk::V2(PartialEncodedChunkV2 {
+            header,
+            parts,
+            prev_outgoing_receipts: receipts,
+        }),
     }
 }
 
@@ -212,13 +218,13 @@ fn create_partial_chunk(
                 PartialEncodedChunkPart { part_ord, part, merkle_proof }
             })
             .collect(),
-        receipts,
+        prev_outgoing_receipts: receipts,
     };
 
     Ok(make_partial_encoded_chunk_from_owned_parts_and_needed_receipts(
         &partial_chunk.header,
         partial_chunk.parts.iter(),
-        partial_chunk.receipts.iter(),
+        partial_chunk.prev_outgoing_receipts.iter(),
         me,
         epoch_manager,
         shard_tracker,
