@@ -13,8 +13,8 @@ use near_network::types::{
 };
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::ChunkEndorsement;
-use near_primitives::chunk_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::ChunkHash;

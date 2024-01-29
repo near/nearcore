@@ -159,7 +159,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
 
         let block_producer = get_block_producer(&env, &tip, 1);
         tracing::debug!(
-            target: "chunk_validation",
+            target: "stateless_validation",
             "Producing block at height {} by {}", tip.height + 1, block_producer
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
@@ -168,7 +168,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         for i in 0..env.clients.len() {
             let validator_id = env.get_client_id(i);
             tracing::debug!(
-                target: "chunk_validation",
+                target: "stateless_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {

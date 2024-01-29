@@ -11,13 +11,13 @@ use crate::test_utils::{
 };
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::challenge::SlashedValidator;
-use near_primitives::chunk_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
-};
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use near_primitives::stateless_validation::{
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+};
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolFeature::SimpleNightshade;
@@ -2682,7 +2682,7 @@ fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChu
 fn test_verify_chunk_endorsements() {
     use near_chain_primitives::Error;
     use near_crypto::Signature;
-    use near_primitives::chunk_validation::ChunkEndorsement;
+    use near_primitives::stateless_validation::ChunkEndorsement;
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 

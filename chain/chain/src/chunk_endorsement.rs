@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
-use near_primitives::chunk_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::ChunkEndorsement;
 
 use crate::Chain;
 
