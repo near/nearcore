@@ -382,7 +382,9 @@ jobs:
       matrix:
         include:
           - type: unit
+            profraws: unit
           - type: integration
+            profraws: unit integration
     steps:
       - uses: actions/checkout@v4
         with:
@@ -400,7 +402,13 @@ jobs:
           cache: pip
       - run: pip3 install --user diff-cover
       - run: for f in coverage/profraw/binaries/*.tar.zst; do tar -x --zstd -f $f; done
-      - run: for f in coverage/profraw/${{matrix.type}}/*.tar.zst; do tar -x --zstd -C target/ -f $f; done
+      - name: Retrieve the profraws used to generate this coverage (${{matrix.profraws}})
+        run: |
+          for profile in ${{matrix.profraws}}; do
+            for f in coverage/profraw/$profile/*.tar.zst; do
+              tar -x --zstd -C target/ -f $f
+            done
+          done
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: mkdir -p coverage/lcov coverage/html
       - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
