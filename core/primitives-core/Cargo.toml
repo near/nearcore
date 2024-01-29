@@ -45,3 +45,5 @@ nightly = [
 
 nightly_protocol = [
 ]
+
+statelessnet_protocol = []
