@@ -2873,6 +2873,21 @@ impl Chain {
         Ok(())
     }
 
+    pub fn transaction_validity_check<'a>(
+        &'a self,
+        prev_block_header: BlockHeader,
+    ) -> impl FnMut(&SignedTransaction) -> bool + 'a {
+        move |tx: &SignedTransaction| -> bool {
+            self.chain_store()
+                .check_transaction_validity_period(
+                    &prev_block_header,
+                    &tx.transaction.block_hash,
+                    self.transaction_validity_period,
+                )
+                .is_ok()
+        }
+    }
+
     /// For given pair of block headers and shard id, return information about
     /// block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
