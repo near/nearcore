@@ -10,7 +10,7 @@ use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
 
 use crate::metrics;
-use crate::stateless_validation::endrosement_tracker::EndorsementTracker;
+use crate::stateless_validation::endorsement_tracker::EndorsementTracker;
 
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;

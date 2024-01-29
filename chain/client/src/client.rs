@@ -6,7 +6,7 @@ use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
-use crate::stateless_validation::endrosement_tracker::EndorsementTracker;
+use crate::stateless_validation::endorsement_tracker::EndorsementTracker;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
