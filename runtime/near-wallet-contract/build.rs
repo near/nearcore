@@ -5,12 +5,10 @@ use anyhow::{anyhow, Context, Ok, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[allow(unreachable_code)]
 fn main() -> Result<()> {
-    // TODO(eth-implicit) Remove the `build_wallet_contract` flag once we have a proper way
-    // to generate the Wallet Contract WASM file.
-    if cfg!(not(feature = "nightly")) || cfg!(not(feature = "build_wallet_contract")) {
-        return Ok(());
-    }
+    // TODO(eth-implicit) Remove this once we have a proper way to generate the Wallet Contract WASM file.
+    return Ok(());
     build_contract("./wallet-contract", &[], "wallet_contract")
 }
 
