@@ -42,8 +42,10 @@ pub struct BlockBodyV2 {
     // If the chunk_validator did not endorse the chunk, the signature is None.
     // For cases of missing chunk, we include the chunk endorsements from the previous
     // block just like we do for chunks.
-    pub chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
+    pub chunk_endorsements: Vec<ChunkEndorsementSignatures>,
 }
+
+pub type ChunkEndorsementSignatures = Vec<Option<Box<Signature>>>;
 
 // For now, we only have one version of block body.
 // Eventually with ChunkValidation, we would include ChunkEndorsement in BlockBodyV2
@@ -60,7 +62,7 @@ impl BlockBody {
         challenges: Challenges,
         vrf_value: Value,
         vrf_proof: Proof,
-        chunk_endorsements: Vec<Vec<Option<Box<Signature>>>>,
+        chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
         if !checked_feature!("stable", ChunkValidation, protocol_version) {
             BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
@@ -108,7 +110,7 @@ impl BlockBody {
     }
 
     #[inline]
-    pub fn chunk_endorsements(&self) -> &[Vec<Option<Box<Signature>>>] {
+    pub fn chunk_endorsements(&self) -> &[ChunkEndorsementSignatures] {
         match self {
             BlockBody::V1(_) => &[],
             BlockBody::V2(body) => &body.chunk_endorsements,

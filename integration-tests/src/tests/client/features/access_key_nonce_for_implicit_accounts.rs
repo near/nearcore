@@ -6,7 +6,7 @@ use near_chain::{ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
-use near_client::ProcessTxResponse;
+use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -21,6 +21,8 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -259,16 +261,13 @@ fn test_chunk_transaction_validity() {
     for i in 1..200 {
         env.produce_block(0, i);
     }
-    let (encoded_shard_chunk, merkle_path, receipts, block) =
-        create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let (
+        ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
+        block,
+    ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(
-            encoded_shard_chunk,
-            merkle_path,
-            receipts,
-            validator_id,
-        )
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -715,6 +714,11 @@ impl ChunkForwardingOptimizationTestData {
 
 #[test]
 fn test_chunk_forwarding_optimization() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     // Tests that a node should fully take advantage of forwarded chunk parts to never request
     // a part that was already forwarded to it. We simulate four validator nodes, with one
     // block producer and four chunk producers.

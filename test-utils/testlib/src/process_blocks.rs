@@ -11,6 +11,7 @@ pub fn set_no_chunk_in_block(block: &mut Block, prev_block: &Block) {
         }
     }
     block.set_chunks(chunk_headers.clone());
+    block.set_chunk_endorsements(vec![vec![]; chunk_headers.len()]);
     let block_body_hash = block.compute_block_body_hash();
     match block.mut_header() {
         BlockHeader::BlockHeaderV1(header) => {

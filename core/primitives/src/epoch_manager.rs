@@ -522,7 +522,7 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesAssignment};
+    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -1090,12 +1090,13 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
+        pub fn sample_chunk_validators(
+            &self,
+            height: BlockHeight,
+        ) -> ChunkValidatorStakeAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
-                Self::V1(_) => Default::default(),
-                Self::V2(_) => Default::default(),
-                Self::V3(_) => Default::default(),
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
                 Self::V4(v4) => {
                     let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                     v4.validator_mandates.sample(&mut rng)

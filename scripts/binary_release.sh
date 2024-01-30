@@ -13,6 +13,13 @@ case "$release" in
 esac
 
 BRANCH=$(git branch --show-current)
+
+# in case of Release triggered run, branch is empty
+if [ -z "$BRANCH" ]; then
+  REF=$(git describe --tags | head -n1)
+  BRANCH=$(git branch -r --contains=$REF | head -n1 | cut -c3- | cut -d / -f 2)
+fi
+
 COMMIT=$(git rev-parse HEAD)
 
 os=$(uname)

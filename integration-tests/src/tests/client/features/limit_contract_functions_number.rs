@@ -9,6 +9,8 @@ use near_primitives::errors::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
+use near_primitives_core::checked_feature;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -75,6 +77,11 @@ fn verify_contract_limits_upgrade(
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 #[test]
 fn test_function_limit_change() {
+    // TODO(#10506): Fix test to handle stateless validation
+    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+        return;
+    }
+
     verify_contract_limits_upgrade(
         ProtocolFeature::LimitContractFunctionsNumber,
         100_000,

@@ -1,7 +1,8 @@
 use super::ValidatorSchedule;
 use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
+    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PreparedTransactions,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -10,10 +11,9 @@ use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_pool::types::PoolIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkValidatorAssignments};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -26,13 +26,16 @@ use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
+use near_primitives::stateless_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+};
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Gas, Nonce, NumShards,
+    AccountId, ApprovalStake, Balance, BlockHeight, EpochHeight, EpochId, Nonce, NumShards,
     ShardId, StateChangesForResharding, StateRoot, StateRootNode, ValidatorInfoIdentifier,
 };
 use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
@@ -708,11 +711,17 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn get_chunk_validator_assignments(
         &self,
-        _epoch_id: &EpochId,
+        epoch_id: &EpochId,
         _shard_id: ShardId,
         _height: BlockHeight,
     ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
-        Ok(Arc::new(Default::default()))
+        let chunk_validators = self
+            .get_block_producers(self.get_valset_for_epoch(epoch_id)?)
+            .into_iter()
+            .cloned()
+            .map(|validator| validator.account_and_stake())
+            .collect();
+        Ok(Arc::new(ChunkValidatorAssignments::new(chunk_validators)))
     }
 
     fn get_validator_by_account_id(
@@ -918,6 +927,13 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_chunk_state_witness_signature(
+        &self,
+        _state_witness: &ChunkStateWitness,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1030,22 +1046,18 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _gas_price: Balance,
-        _gas_limit: Gas,
-        _epoch_id: &EpochId,
-        _shard_id: ShardId,
-        _state_root: StateRoot,
-        _next_block_height: BlockHeight,
-        transactions: &mut dyn PoolIterator,
+        _storage: RuntimeStorageConfig,
+        _chunk: PrepareTransactionsChunkContext,
+        _prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         _chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        _current_protocol_version: ProtocolVersion,
         _time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let mut res = vec![];
-        while let Some(iter) = transactions.next() {
+        while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions { transactions: res, limited_by: None })
+        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
     }
 
     fn apply_chunk(

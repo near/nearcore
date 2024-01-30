@@ -5,7 +5,6 @@ mod account_id_in_function_call_permission;
 mod adversarial_behaviors;
 mod cap_max_gas_price;
 mod chunk_nodes_cache;
-mod chunk_validation;
 mod delegate_action;
 #[cfg(feature = "protocol_feature_fix_contract_loading_cost")]
 mod fix_contract_loading_cost;
@@ -19,5 +18,6 @@ mod lower_storage_key_limit;
 mod nearvm;
 mod restore_receipts_after_fix_apply_chunks;
 mod restrict_tla;
+mod stateless_validation;
 mod wallet_contract;
 mod zero_balance_account;

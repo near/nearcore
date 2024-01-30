@@ -998,6 +998,7 @@ mod tests {
                         .unwrap_or_else(|| {
                             panic!("Key {} is in truth but not in memtrie", hex::encode(key))
                         })
+                        .to_flat_value()
                         .to_value_ref();
                     let disk_value_ref = disk_result
                         .unwrap_or_else(|| {

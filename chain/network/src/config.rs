@@ -289,6 +289,7 @@ impl NetworkConfig {
             },
             snapshot_hosts: snapshot_hosts::Config {
                 snapshot_hosts_cache_size: cfg.snapshot_hosts_cache_size,
+                part_selection_cache_batch_size: 10,
             },
             whitelist_nodes: if cfg.whitelist_nodes.is_empty() {
                 vec![]
@@ -372,7 +373,10 @@ impl NetworkConfig {
                 peer_expiration_duration: time::Duration::seconds(60 * 60),
                 connect_only_to_boot_nodes: false,
             },
-            snapshot_hosts: snapshot_hosts::Config { snapshot_hosts_cache_size: 1000 },
+            snapshot_hosts: snapshot_hosts::Config {
+                snapshot_hosts_cache_size: 1000,
+                part_selection_cache_batch_size: 10,
+            },
             whitelist_nodes: vec![],
             handshake_timeout: time::Duration::seconds(5),
             connect_to_reliable_peers_on_startup: true,

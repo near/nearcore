@@ -6,8 +6,8 @@ use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource, Tip,
+    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use near_chain::Error;
 use near_chain_configs::{
@@ -16,7 +16,7 @@ use near_chain_configs::{
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
-use near_pool::types::PoolIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -43,7 +43,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
+    StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::precompile_contract;
@@ -708,30 +708,51 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn prepare_transactions(
         &self,
-        gas_price: Balance,
-        gas_limit: Gas,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        state_root: StateRoot,
-        next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        storage_config: RuntimeStorageConfig,
+        chunk: PrepareTransactionsChunkContext,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
-        let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
+        let PrepareTransactionsChunkContext { shard_id, gas_limit } = chunk;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
+        // invalid transactions to be included.
+        let next_block_height = prev_block.height + 1;
+
+        let mut trie = match storage_config.source {
+            StorageDataSource::Db => {
+                self.tries.get_trie_for_shard(shard_uid, storage_config.state_root)
+            }
+            StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
+                storage,
+                storage_config.state_root,
+                storage_config.use_flat_storage,
+            ),
+        };
+        if storage_config.record_storage {
+            trie = trie.recording_reads();
+        }
+        let mut state_update = TrieUpdate::new(trie);
 
         // Total amount of gas burnt for converting transactions towards receipts.
         let mut total_gas_burnt = 0;
         let mut total_size = 0u64;
         // TODO: Update gas limit for transactions
         let transactions_gas_limit = gas_limit / 2;
-        let mut result = PreparedTransactions { transactions: Vec::new(), limited_by: None };
+        let mut result = PreparedTransactions {
+            transactions: Vec::new(),
+            limited_by: None,
+            storage_proof: None,
+        };
         let mut num_checked_transactions = 0;
 
-        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         // To avoid limiting the throughput of the network, we want to include enough receipts to
         // saturate the capacity of the chunk even in case when all of these receipts end up using
@@ -789,7 +810,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 }
             }
 
-            if let Some(iter) = pool_iterator.next() {
+            if let Some(iter) = transaction_groups.next() {
                 while let Some(tx) = iter.next() {
                     num_checked_transactions += 1;
                     // Verifying the transaction is on the same chain and hasn't expired yet.
@@ -802,11 +823,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     match verify_and_charge_transaction(
                         runtime_config,
                         &mut state_update,
-                        gas_price,
+                        prev_block.next_gas_price,
                         &tx,
                         false,
                         Some(next_block_height),
-                        current_protocol_version,
+                        protocol_version,
                     ) {
                         Ok(verification_result) => {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");
@@ -835,6 +856,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         metrics::PREPARE_TX_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(total_size as f64);
+        result.storage_proof = state_update.trie.recorded_storage().map(|s| s.nodes);
         Ok(result)
     }
 
@@ -868,18 +890,6 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.state_root,
                 storage_config.use_flat_storage,
             )?,
-            StorageDataSource::DbTrieOnly => {
-                // If there is no flat storage on disk, use trie but simulate costs with enabled
-                // flat storage by not charging gas for trie nodes.
-                let mut trie = self.get_trie_for_shard(
-                    shard_id,
-                    &block.prev_block_hash,
-                    storage_config.state_root,
-                    false,
-                )?;
-                trie.dont_charge_gas_for_trie_node_access();
-                trie
-            }
             StorageDataSource::Recorded(storage) => Trie::from_recorded_storage(
                 storage,
                 storage_config.state_root,

@@ -6,11 +6,11 @@ use crate::types::{NetworkInfo, ReasonForBan, StateResponseInfoV2};
 use near_async::messaging;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunkPart};
 use near_primitives::state_sync::{ShardStateSyncResponse, ShardStateSyncResponseV2};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -122,7 +122,7 @@ impl client::Client for Fake {
         Ok(accounts.into_iter().map(|a| a.0).collect())
     }
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, _peer_id: PeerId) {
         self.event_sink.push(Event::ChunkStateWitness(witness));
     }
 

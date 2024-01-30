@@ -4,9 +4,9 @@ use crate::types::{NetworkInfo, ReasonForBan};
 
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -64,7 +64,7 @@ pub trait Client: Send + Sync + 'static {
         accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan>;
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness);
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId);
 
     async fn chunk_endorsement(&self, endorsement: ChunkEndorsement);
 }
@@ -135,7 +135,7 @@ impl Client for Noop {
         Ok(vec![])
     }
 
-    async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
+    async fn chunk_state_witness(&self, _witness: ChunkStateWitness, _peer_id: PeerId) {}
 
     async fn chunk_endorsement(&self, _endorsement: ChunkEndorsement) {}
 }

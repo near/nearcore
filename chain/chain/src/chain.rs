@@ -637,13 +637,13 @@ impl Chain {
     }
 
     fn maybe_mark_block_invalid(&mut self, block_hash: CryptoHash, error: &Error) {
-        metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
         // We only mark the block as invalid if the block has bad data (not for other errors that would
         // not be the fault of the block itself), except when the block has a bad signature which means
         // the block might not have been what the block producer originally produced. Either way, it's
         // OK if we miss some cases here because this is just an optimization to avoid reprocessing
         // known invalid blocks so the network recovers faster in case of any issues.
         if error.is_bad_data() && !matches!(error, Error::InvalidSignature) {
+            metrics::NUM_INVALID_BLOCKS.with_label_values(&[error.prometheus_label_value()]).inc();
             self.invalid_blocks.put(block_hash, ());
         }
     }
@@ -1027,15 +1027,6 @@ impl Chain {
                 tracing::warn!("Invalid block body hash for block: {:?}", block.hash());
                 return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
             }
-        }
-
-        // Check that block has chunk endorsements.
-        if checked_feature!("stable", ChunkValidation, epoch_protocol_version) {
-            // TODO(shreyan): Enable this in next PR once we start adding chunk endorsements.
-            // if block.chunk_endorsements().is_empty() {
-            //     tracing::warn!("Block has no chunk endorsements: {:?}", block.hash());
-            //     return Ok(VerifyBlockHashAndSignatureResult::Incorrect);
-            // }
         }
 
         // Verify the signature. Since the signature is signed on the hash of block header, this check
@@ -1887,7 +1878,7 @@ impl Chain {
     /// Preprocess a block before applying chunks, verify that we have the necessary information
     /// to process the block an the block is valid.
     /// Note that this function does NOT introduce any changes to chain state.
-    pub(crate) fn preprocess_block(
+    fn preprocess_block(
         &self,
         me: &Option<AccountId>,
         block: &MaybeValidated<Block>,
@@ -2022,6 +2013,10 @@ impl Chain {
         let prev_block = self.get_block(&prev_hash)?;
 
         self.validate_chunk_headers(&block, &prev_block)?;
+
+        if checked_feature!("stable", ChunkValidation, protocol_version) {
+            self.validate_chunk_endorsements_in_block(&block)?;
+        }
 
         self.ping_missing_chunks(me, prev_hash, block)?;
         let incoming_receipts = self.collect_incoming_receipts_from_block(me, block)?;
@@ -2878,6 +2873,21 @@ impl Chain {
         Ok(())
     }
 
+    pub fn transaction_validity_check<'a>(
+        &'a self,
+        prev_block_header: BlockHeader,
+    ) -> impl FnMut(&SignedTransaction) -> bool + 'a {
+        move |tx: &SignedTransaction| -> bool {
+            self.chain_store()
+                .check_transaction_validity_period(
+                    &prev_block_header,
+                    &tx.transaction.block_hash,
+                    self.transaction_validity_period,
+                )
+                .is_ok()
+        }
+    }
+
     /// For given pair of block headers and shard id, return information about
     /// block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
@@ -3221,11 +3231,14 @@ impl Chain {
     /// returning true only if node produces state witness only for the next
     /// chunk. However, node can't determine this if next validators missed
     /// chunks.
-    fn should_produce_state_witness_for_this_or_next_epoch(
+    pub fn should_produce_state_witness_for_this_or_next_epoch(
         &self,
         me: &Option<AccountId>,
         block_header: &BlockHeader,
     ) -> Result<bool, Error> {
+        if cfg!(feature = "shadow_chunk_validation") {
+            return Ok(true);
+        }
         let epoch_id = block_header.epoch_id();
         // Use epoch manager because block is not in DB yet.
         let next_epoch_id =
@@ -3485,13 +3498,13 @@ impl Chain {
         Ok(Some((
             shard_id,
             Box::new(move |parent_span| -> Result<ShardUpdateResult, Error> {
-                Ok(ShardUpdateResult::Stateful(process_shard_update(
+                Ok(process_shard_update(
                     parent_span,
                     runtime.as_ref(),
                     epoch_manager.as_ref(),
                     shard_update_reason,
                     shard_context,
-                )?))
+                )?)
             }),
         )))
     }
@@ -4132,16 +4145,15 @@ impl Chain {
         Ok(headers)
     }
 
-    /// Returns a vector of chunk headers, each of which corresponds to the previous chunk of
-    /// a chunk in the block after `prev_block`
+    /// Returns a vector of chunk headers, each of which corresponds to the chunk in the `prev_block`
     /// This function is important when the block after `prev_block` has different number of chunks
-    /// from `prev_block`.
+    /// from `prev_block` in cases of resharding.
     /// In block production and processing, often we need to get the previous chunks of chunks
     /// in the current block, this function provides a way to do so while handling sharding changes
     /// correctly.
     /// For example, if `prev_block` has two shards 0, 1 and the block after `prev_block` will have
     /// 4 shards 0, 1, 2, 3, 0 and 1 split from shard 0 and 2 and 3 split from shard 1.
-    /// `get_prev_chunks(runtime_adapter, prev_block)` will return
+    /// `get_prev_chunk_headers(epoch_manager, prev_block)` will return
     /// `[prev_block.chunks()[0], prev_block.chunks()[0], prev_block.chunks()[1], prev_block.chunks()[1]]`
     pub fn get_prev_chunk_headers(
         epoch_manager: &dyn EpochManagerAdapter,

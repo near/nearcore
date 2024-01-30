@@ -525,7 +525,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
 
-        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
+        tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {

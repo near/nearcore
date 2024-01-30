@@ -74,6 +74,11 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
+
+statelessnet_protocol = [
+  "near-primitives-core/statelessnet_protocol",
+]
+
 new_epoch_sync = []
 
 

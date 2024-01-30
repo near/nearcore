@@ -479,7 +479,7 @@ impl<'a> SerializeStructVariant for EntitySerializerStruct<'a> {
 /// that can be easily displayed by the Entity Debug UI.
 pub fn serialize_entity<T>(value: &T) -> EntityDataValue
 where
-    T: Serialize,
+    T: Serialize + ?Sized,
 {
     let mut data = EntitySerializerData::new();
     value.serialize(data.serializer(String::new())).unwrap();

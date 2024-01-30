@@ -88,6 +88,7 @@ fn cold_store_copy(
     cold_db: &Arc<ColdDB>,
     genesis_height: BlockHeight,
     epoch_manager: &EpochManagerHandle,
+    num_threads: usize,
 ) -> anyhow::Result<ColdStoreCopyResult, ColdStoreError> {
     // If COLD_HEAD is not set for hot storage we default it to genesis_height.
     let cold_head = cold_store.get_ser::<Tip>(DBCol::BlockMisc, HEAD_KEY)?;
@@ -123,7 +124,7 @@ fn cold_store_copy(
     let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
 
     let mut next_height = cold_head_height + 1;
-    while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height)? {
+    while !update_cold_db(cold_db, hot_store, &shard_layout, &next_height, num_threads)? {
         next_height += 1;
         if next_height > hot_final_head_height {
             return Err(ColdStoreError::SkippedBlocksBetweenColdHeadAndNextHeightError {
@@ -339,8 +340,14 @@ fn cold_store_loop(
         }
 
         let instant = std::time::Instant::now();
-        let result =
-            cold_store_copy(&hot_store, &cold_store, &cold_db, genesis_height, epoch_manager);
+        let result = cold_store_copy(
+            &hot_store,
+            &cold_store,
+            &cold_db,
+            genesis_height,
+            epoch_manager,
+            split_storage_config.num_cold_store_read_threads,
+        );
         let duration = instant.elapsed();
 
         let result_string = cold_store_copy_result_to_string(&result);

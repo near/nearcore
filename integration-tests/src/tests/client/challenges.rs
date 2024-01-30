@@ -4,7 +4,7 @@ use near_chain::{Block, ChainGenesis, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::ShardsManager;
 use near_client::test_utils::{create_chunk, create_chunk_with_transactions, TestEnv};
-use near_client::{Client, ProcessTxResponse};
+use near_client::{Client, ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::types::NetworkRequests;
 use near_primitives::challenge::{
@@ -12,11 +12,11 @@ use near_primitives::challenge::{
     TrieValue,
 };
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{MerklePath, PartialMerkleTree};
+use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::Ratio;
-use near_primitives::receipt::Receipt;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -103,7 +103,7 @@ fn test_verify_block_double_sign_challenge() {
         2,
         genesis.header().block_ordinal() + 1,
         genesis.chunks().iter().cloned().collect(),
-        vec![],
+        vec![vec![]; genesis.chunks().len()],
         b1.header().epoch_id().clone(),
         b1.header().next_epoch_id().clone(),
         None,
@@ -185,9 +185,7 @@ fn test_verify_block_double_sign_challenge() {
     assert!(seen_challenge);
 }
 
-fn create_invalid_proofs_chunk(
-    client: &mut Client,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+fn create_invalid_proofs_chunk(client: &mut Client) -> (ProduceChunkResult, Block) {
     create_chunk(
         client,
         None,
@@ -199,7 +197,8 @@ fn create_invalid_proofs_chunk(
 fn test_verify_chunk_invalid_proofs_challenge() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
-    let (chunk, _merkle_paths, _receipts, block) = create_invalid_proofs_chunk(&mut env.clients[0]);
+    let (ProduceChunkResult { chunk, .. }, block) =
+        create_invalid_proofs_chunk(&mut env.clients[0]);
 
     let shard_id = chunk.shard_id();
     let challenge_result =
@@ -211,7 +210,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
-    let (encoded_chunk, _merkle_paths, _receipts, block) =
+    let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
     let chunk =
         encoded_chunk.decode_chunk(env.clients[0].chain.epoch_manager.num_data_parts()).unwrap();
@@ -227,7 +226,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
     let mut env = TestEnv::builder(ChainGenesis::test()).build();
     env.produce_block(0, 1);
     // Valid chunk
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk(&mut env.clients[0], None, None);
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk(&mut env.clients[0], None, None);
 
     let shard_id = chunk.shard_id();
     let challenge_result =
@@ -243,7 +242,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
@@ -279,7 +278,7 @@ fn test_verify_chunk_proofs_challenge_transaction_order() {
     let genesis_hash = *env.clients[0].chain.genesis().hash();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
 
-    let (chunk, _merkle_paths, _receipts, block) = create_chunk_with_transactions(
+    let (ProduceChunkResult { chunk, .. }, block) = create_chunk_with_transactions(
         &mut env.clients[0],
         vec![
             SignedTransaction::send_money(
@@ -410,6 +409,10 @@ fn test_verify_chunk_invalid_state_challenge() {
         client.chain.mut_chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
     block_merkle_tree.insert(*last_block.hash());
+
+    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let endorsement =
+        ChunkEndorsement::new(invalid_chunk.cloned_header().chunk_hash(), signer.as_ref());
     let block = Block::produce(
         PROTOCOL_VERSION,
         PROTOCOL_VERSION,
@@ -417,7 +420,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         last_block.header().height() + 1,
         last_block.header().block_ordinal() + 1,
         vec![invalid_chunk.cloned_header()],
-        vec![],
+        vec![vec![Some(Box::new(endorsement.signature))]],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,

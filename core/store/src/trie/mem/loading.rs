@@ -184,7 +184,6 @@ mod tests {
     };
     use crate::trie::mem::loading::load_trie_from_flat_state;
     use crate::trie::mem::lookup::memtrie_lookup;
-    use crate::trie::OptimizedValueRef;
     use crate::{DBCol, KeyLookupMode, NibbleSlice, ShardTries, Store, Trie, TrieUpdate};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
@@ -235,7 +234,7 @@ mod tests {
         for key in keys.iter().chain([b"not in trie".to_vec()].iter()) {
             let mut nodes_accessed = Vec::new();
             let actual_value_ref = memtrie_lookup(root, key, Some(&mut nodes_accessed))
-                .map(OptimizedValueRef::from_flat_value);
+                .map(|v| v.to_optimized_value_ref());
             let expected_value_ref =
                 trie.get_optimized_ref(key, KeyLookupMode::FlatStorage).unwrap();
             assert_eq!(actual_value_ref, expected_value_ref, "{:?}", NibbleSlice::new(key));
@@ -465,23 +464,28 @@ mod tests {
         let mem_tries = load_trie_from_flat_state_and_delta(&store, shard_uid).unwrap();
 
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None),
+            memtrie_lookup(mem_tries.get_root(&state_root_0).unwrap(), &test_key.to_vec(), None)
+                .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val0))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_1).unwrap(), &test_key.to_vec(), None),
+            memtrie_lookup(mem_tries.get_root(&state_root_1).unwrap(), &test_key.to_vec(), None)
+                .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val1))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_2).unwrap(), &test_key.to_vec(), None),
+            memtrie_lookup(mem_tries.get_root(&state_root_2).unwrap(), &test_key.to_vec(), None)
+                .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val2))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_3).unwrap(), &test_key.to_vec(), None),
+            memtrie_lookup(mem_tries.get_root(&state_root_3).unwrap(), &test_key.to_vec(), None)
+                .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val3))
         );
         assert_eq!(
-            memtrie_lookup(mem_tries.get_root(&state_root_4).unwrap(), &test_key.to_vec(), None),
+            memtrie_lookup(mem_tries.get_root(&state_root_4).unwrap(), &test_key.to_vec(), None)
+                .map(|v| v.to_flat_value()),
             Some(FlatStateValue::inlined(&test_val4))
         );
     }
