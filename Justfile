@@ -92,13 +92,30 @@ codecov RULE:
     # Note: macos seems to not support `source <()` as a way to set environment variables, but
     # this variant seems to work on both linux and macos.
     # TODO: remove the RUSTFLAGS hack, see also https://github.com/rust-lang/cargo/issues/13040
-    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS > env
+    cargo llvm-cov show-env --export-prefix | grep -v RUSTFLAGS= > env
     source ./env
     export RUSTC_WORKSPACE_WRAPPER="{{ absolute_path("scripts/rustc-coverage-wrapper.sh") }}"
     {{ just_executable() }} {{ RULE }}
-    cargo llvm-cov report --profile dev-release --codecov --output-path codecov.json
-    # See https://github.com/taiki-e/cargo-llvm-cov/issues/292
-    find target -name '*.profraw' -delete
+    mkdir -p coverage/codecov
+    cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/new.json
+
+# generate a codecov report for RULE, CI version
+codecov-ci RULE:
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    {{ just_executable() }} codecov "{{ RULE }}"
+    pushd target
+    tar -c --zstd -f ../coverage/profraw/new.tar.zst *.profraw
+    popd
+    rm -rf target/*.profraw
+
+# generate a tarball with all the binaries for coverage CI
+tar-bins-for-coverage-ci:
+    #!/usr/bin/env bash
+    find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \; || true
+    find target/dev-release/ -not -executable -delete || true
+    find target/dev-release/ -name 'build*script*build*' -delete || true
+    tar -c --zstd -f coverage/profraw/binaries/new.tar.zst target/dev-release/
 
 # style checks from python scripts
 python-style-checks:
