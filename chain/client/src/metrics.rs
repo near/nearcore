@@ -563,6 +563,15 @@ pub(crate) static SHADOW_CHUNK_VALIDATION_FAILED_TOTAL: Lazy<IntCounter> = Lazy:
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_ORPHAN: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_state_witness_orphan",
+        "Orphan chunk state witnesses - on receiving which previous block was not found in chain",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_validation_time",
