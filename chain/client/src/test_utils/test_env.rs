@@ -39,7 +39,7 @@ use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
 
-const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(30);
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
