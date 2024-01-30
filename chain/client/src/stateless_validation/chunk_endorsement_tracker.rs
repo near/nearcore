@@ -22,7 +22,7 @@ pub struct ChunkEndorsementTracker {
     /// We store the validated chunk endorsements received from chunk validators
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
     /// Chunk endorsements would later be used as a part of block production.
-    chunk_endorsements: Arc<SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>>,
+    pub chunk_endorsements: Arc<SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>>,
 }
 
 impl Client {
@@ -46,7 +46,7 @@ impl ChunkEndorsementTracker {
     /// Function to process an incoming chunk endorsement from chunk validators.
     /// We first verify the chunk endorsement and then store it in a cache.
     /// We would later include the endorsements in the block production.
-    pub fn process_chunk_endorsement(
+    fn process_chunk_endorsement(
         &self,
         chunk_header: ShardChunkHeader,
         endorsement: ChunkEndorsement,
@@ -106,7 +106,7 @@ impl ChunkEndorsementTracker {
         // We can safely rely on the the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
-        let Some(chunk_endorsements) = self.chunk_endorsements.peek(&chunk_header.chunk_hash())
+        let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_enforsements found in our cache.
             return Ok(None);
