@@ -1,5 +1,8 @@
+use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::{metrics, Client};
 use itertools::Itertools;
 use near_async::messaging::{CanSend, Sender};
+use near_cache::SyncLruCache;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -25,13 +28,11 @@ use near_primitives::stateless_validation::{
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
-use near_primitives::types::ShardId;
+use near_primitives::types::{AccountId, ShardId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use crate::{metrics, Client};
 
 // After validating a chunk state witness, we ideally need to send the chunk endorsement
 // to just the next block producer at height h. However, it's possible that blocks at height
@@ -71,6 +72,7 @@ impl ChunkValidator {
         state_witness: ChunkStateWitness,
         chain: &Chain,
         peer_id: PeerId,
+        chunk_endorsement_tracker: &ChunkEndorsementTracker,
     ) -> Result<(), Error> {
         if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
             return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
@@ -106,6 +108,7 @@ impl ChunkValidator {
         let signer = my_signer.clone();
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
+        let my_chunk_endorsements = chunk_endorsement_tracker.chunk_endorsements.clone();
         rayon::spawn(move || {
             match validate_chunk_state_witness(
                 state_witness_inner,
@@ -119,6 +122,7 @@ impl ChunkValidator {
                         epoch_manager.as_ref(),
                         signer.as_ref(),
                         &network_sender,
+                        my_chunk_endorsements.as_ref(),
                     );
                 }
                 Err(err) => {
@@ -520,11 +524,12 @@ fn apply_result_to_chunk_extra(
     )
 }
 
-fn send_chunk_endorsement_to_block_producers(
+pub fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
     signer: &dyn ValidatorSigner,
     network_sender: &Sender<PeerManagerMessageRequest>,
+    my_chunk_endorsements: &SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
 ) {
     let epoch_id =
         epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash()).unwrap();
@@ -537,18 +542,28 @@ fn send_chunk_endorsement_to_block_producers(
         .collect_vec();
     assert!(!block_producers.is_empty());
 
+    let chunk_hash = chunk_header.chunk_hash();
     tracing::debug!(
         target: "stateless_validation",
-        chunk_hash=?chunk_header.chunk_hash(),
+        chunk_hash=?chunk_hash,
         ?block_producers,
         "Chunk validated successfully, sending endorsement",
     );
 
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
-        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
-        ));
+        if signer.validator_id() == &block_producer {
+            // Add endorsement to the cache of our chunk endorsements
+            // immediately, because network won't handle message to ourselves.
+            let mut guard = my_chunk_endorsements.lock();
+            guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
+            let chunk_endorsements = guard.get_mut(&chunk_hash).unwrap();
+            chunk_endorsements.insert(block_producer.clone(), endorsement.clone());
+        } else {
+            network_sender.send(PeerManagerMessageRequest::NetworkRequests(
+                NetworkRequests::ChunkEndorsement(block_producer, endorsement.clone()),
+            ));
+        }
     }
 }
 
@@ -580,14 +595,19 @@ impl Client {
                 self.epoch_manager.as_ref(),
                 signer.as_ref(),
                 &self.chunk_validator.network_sender,
+                self.chunk_endorsement_tracker.chunk_endorsements.as_ref(),
             );
             return Ok(());
         }
 
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
-        let result =
-            self.chunk_validator.start_validating_chunk(witness, &self.chain, peer_id.clone());
+        let result = self.chunk_validator.start_validating_chunk(
+            witness,
+            &self.chain,
+            peer_id.clone(),
+            &self.chunk_endorsement_tracker,
+        );
         if let Err(Error::InvalidChunkStateWitness(_)) = &result {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BanPeer {

@@ -1,4 +1,4 @@
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, IntoSender};
 
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
@@ -8,12 +8,12 @@ use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
-    StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner, StoredChunkStateTransitionData,
 };
 use near_primitives::types::EpochId;
 use std::collections::HashMap;
 
+use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
 use crate::Client;
 
 impl Client {
@@ -51,15 +51,19 @@ impl Client {
         // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
         // chunk endorsement related network messages.
         if let Some(my_signer) = self.validator_signer.clone() {
-            let block_producer =
-                self.epoch_manager.get_block_producer(&epoch_id, chunk_header.height_created())?;
-            if my_signer.validator_id() == &block_producer {
-                // Send a copy of the chunk endorsement to ourselves.
-                // Mainly useful in tests where we don't have a good way to handle network messages and there's
-                // only a single client.
-                let endorsement =
-                    ChunkEndorsement::new(chunk_header.chunk_hash(), my_signer.as_ref());
-                self.process_chunk_endorsement(endorsement)?;
+            let validator_id = my_signer.validator_id();
+            if chunk_validators.contains(validator_id) {
+                // Endorse the chunk immediately, bypassing sending state witness
+                // to ourselves, because network can't send messages to ourselves.
+                // Also useful in tests where we don't have a good way to handle
+                // network messages and there's only a single client.
+                send_chunk_endorsement_to_block_producers(
+                    &chunk_header,
+                    self.epoch_manager.as_ref(),
+                    my_signer.as_ref(),
+                    &self.network_adapter.clone().into_sender(),
+                    self.chunk_endorsement_tracker.chunk_endorsements.as_ref(),
+                );
             }
         };
 

@@ -1,3 +1,4 @@
+use near_cache::SyncLruCache;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -21,7 +22,7 @@ pub struct ChunkEndorsementTracker {
     /// We store the validated chunk endorsements received from chunk validators
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
     /// Chunk endorsements would later be used as a part of block production.
-    chunk_endorsements: lru::LruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
+    pub chunk_endorsements: Arc<SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>>,
 }
 
 impl Client {
@@ -38,7 +39,7 @@ impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager,
-            chunk_endorsements: lru::LruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
+            chunk_endorsements: Arc::new(SyncLruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE)),
         }
     }
 
@@ -46,7 +47,7 @@ impl ChunkEndorsementTracker {
     /// We first verify the chunk endorsement and then store it in a cache.
     /// We would later include the endorsements in the block production.
     fn process_chunk_endorsement(
-        &mut self,
+        &self,
         chunk_header: ShardChunkHeader,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
@@ -75,8 +76,9 @@ impl ChunkEndorsementTracker {
         // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
         // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
         tracing::debug!(target: "stateless_validation", ?endorsement, "Received and saved chunk endorsement.");
-        self.chunk_endorsements.get_or_insert(chunk_hash.clone(), || HashMap::new());
-        let chunk_endorsements = self.chunk_endorsements.get_mut(chunk_hash).unwrap();
+        let mut guard = self.chunk_endorsements.as_ref().lock();
+        guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
+        let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
         chunk_endorsements.insert(account_id.clone(), endorsement);
 
         Ok(())
@@ -104,7 +106,7 @@ impl ChunkEndorsementTracker {
         // We can safely rely on the the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
-        let Some(chunk_endorsements) = self.chunk_endorsements.peek(&chunk_header.chunk_hash())
+        let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_enforsements found in our cache.
             return Ok(None);
