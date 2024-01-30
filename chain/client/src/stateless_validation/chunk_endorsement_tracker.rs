@@ -7,7 +7,7 @@ use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::{ChunkEndorsement, EndorsementStats};
 use near_primitives::types::AccountId;
 
 use crate::Client;
@@ -117,11 +117,11 @@ impl ChunkEndorsementTracker {
             chunk_header.shard_id(),
             chunk_header.height_created(),
         )?;
+        let endorsement_stats = chunk_validator_assignments
+            .compute_endorsement_stats(&chunk_endorsements.keys().collect());
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
-        if !chunk_validator_assignments
-            .does_chunk_have_enough_stake(chunk_endorsements.keys().collect())
-        {
+        if !endorsement_stats.has_enough_stake() {
             return Ok(None);
         }
 
