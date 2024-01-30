@@ -37,9 +37,9 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
-    StorageError, Trie, TrieChanges, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_received_data, has_received_data,
+    remove_postponed_receipt, set, set_account, set_delayed_receipt, set_postponed_receipt,
+    set_received_data, PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
@@ -967,7 +967,7 @@ impl Runtime {
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get_received_data(state_update, account_id, *data_id)?.is_none() {
+                    if !has_received_data(state_update, account_id, *data_id)? {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.

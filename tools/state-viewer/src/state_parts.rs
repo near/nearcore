@@ -370,14 +370,10 @@ async fn load_state_parts(
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let location = external_storage_location(
-            chain_id,
-            &epoch_id,
-            epoch_height,
-            shard_id,
-            &StateFileType::StatePart { part_id, num_parts },
-        );
-        let part = external.get_part(shard_id, &location).await.unwrap();
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+        let part = external.get_file(shard_id, &location, &file_type).await.unwrap();
 
         match action {
             LoadAction::Apply => {

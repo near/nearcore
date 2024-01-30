@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StateFileType {
     StatePart { part_id: u64, num_parts: u64 },
     StateHeader,
@@ -16,13 +16,21 @@ pub enum StateFileType {
 impl ToString for StateFileType {
     fn to_string(&self) -> String {
         match self {
-            StateFileType::StatePart { .. } => String::from("part"),
-            StateFileType::StateHeader => String::from("header"),
+            StateFileType::StatePart { .. } => StateFileType::part_str(),
+            StateFileType::StateHeader => StateFileType::header_str(),
         }
     }
 }
 
 impl StateFileType {
+    pub fn part_str() -> String {
+        String::from("part")
+    }
+
+    pub fn header_str() -> String {
+        String::from("header")
+    }
+
     pub fn filename(&self) -> String {
         match self {
             StateFileType::StatePart { part_id, num_parts } => {
@@ -56,13 +64,14 @@ const GCS_ENCODE_SET: &percent_encoding::AsciiSet =
     &percent_encoding::NON_ALPHANUMERIC.remove(b'-').remove(b'.').remove(b'_');
 
 impl ExternalConnection {
-    pub async fn get_part(
+    pub async fn get_file(
         &self,
         shard_id: ShardId,
         location: &str,
+        file_type: &StateFileType,
     ) -> Result<Vec<u8>, anyhow::Error> {
         let _timer = metrics::STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY
-            .with_label_values(&[&shard_id.to_string()])
+            .with_label_values(&[&shard_id.to_string(), &file_type.to_string()])
             .start_timer();
         match self {
             ExternalConnection::S3 { bucket } => {
@@ -414,7 +423,7 @@ mod test {
         // Directory resembles real usecase.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
-        let file_type = StateFileType::StatePart { part_id: 1, num_parts: 1 };
+        let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
         let files = rt.block_on(async { connection.list_objects(0, &dir).await.unwrap() });
@@ -423,7 +432,7 @@ mod test {
 
         // Uploading the file.
         rt.block_on(async {
-            connection.put_file(file_type, &data, 0, &full_filename).await.unwrap()
+            connection.put_file(file_type.clone(), &data, 0, &full_filename).await.unwrap()
         });
 
         // After uploading we should see filename in the list of files.
@@ -432,15 +441,16 @@ mod test {
         assert_eq!(files.into_iter().filter(|x| *x == filename).collect::<Vec<String>>().len(), 1);
 
         // And the data should match generates data.
-        let download_data =
-            rt.block_on(async { connection.get_part(0, &full_filename).await.unwrap() });
+        let download_data = rt
+            .block_on(async { connection.get_file(0, &full_filename, &file_type).await.unwrap() });
         assert_eq!(download_data, data);
 
         // Also try to download some data at nonexistent location and expect to fail.
         let filename = random_string(8);
         let full_filename = format!("{}/{}", dir, filename);
 
-        let download_data = rt.block_on(async { connection.get_part(0, &full_filename).await });
+        let download_data =
+            rt.block_on(async { connection.get_file(0, &full_filename, &file_type).await });
         assert!(download_data.is_err(), "{:?}", download_data);
     }
 }

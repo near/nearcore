@@ -1265,7 +1265,7 @@ impl Chain {
             }
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;
                 receipt_proofs_by_shard_id

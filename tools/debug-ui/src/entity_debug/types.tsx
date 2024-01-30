@@ -32,10 +32,12 @@ export type EntityType =
     | 'ShardId'
     | 'ShardLayout'
     | 'ShardUId'
+    | 'StateTransitionData'
     | 'Tip'
     | 'Transaction'
     | 'TrieNode'
-    | 'TrieRoot';
+    | 'TrieRoot'
+    | 'ValidatorAssignmentsAtHeight';
 
 /// Interface for a concrete entity key.
 export interface EntityKey {
@@ -136,6 +138,7 @@ export type EntityQuery = {
     ShardIdByAccountId?: { account_id: string };
     ShardLayoutByEpochId?: { epoch_id: string };
     ShardUIdByShardId?: { shard_id: number; epoch_id: string };
+    StateTransitionData?: { block_hash: string };
     TipAtFinalHead?: null;
     TipAtHead?: null;
     TipAtHeaderHead?: null;
@@ -143,6 +146,7 @@ export type EntityQuery = {
     TrieNode?: { trie_path: string };
     TrieRootByChunkHash?: { chunk_hash: string };
     TrieRootByStateRoot?: { state_root: string; shard_uid: string };
+    ValidatorAssignmentsAtHeight?: { block_height: number; epoch_id: string };
 };
 
 export type EntityQueryType = keyof EntityQuery;
@@ -170,6 +174,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'ShardIdByAccountId',
     'ShardLayoutByEpochId',
     'ShardUIdByShardId',
+    'StateTransitionData',
     'TipAtFinalHead',
     'TipAtHead',
     'TipAtHeaderHead',
@@ -177,6 +182,7 @@ export const entityQueryTypes: EntityQueryType[] = [
     'TrieNode',
     'TrieRootByChunkHash',
     'TrieRootByStateRoot',
+    'ValidatorAssignmentsAtHeight',
 ];
 
 /// See entityQueryKeyTypes.
@@ -231,6 +237,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     ShardIdByAccountId: [queryKey('account_id'), implicitQueryKey('epoch_id')],
     ShardLayoutByEpochId: [queryKey('epoch_id')],
     ShardUIdByShardId: [queryKey('shard_id'), implicitQueryKey('epoch_id')],
+    StateTransitionData: [queryKey('block_hash')],
     TipAtFinalHead: [],
     TipAtHead: [],
     TipAtHeaderHead: [],
@@ -238,6 +245,7 @@ export const entityQueryKeyTypes: Record<EntityQueryType, EntityQueryKeySpec[]> 
     TrieNode: [queryKey('trie_path')],
     TrieRootByChunkHash: [queryKey('chunk_hash')],
     TrieRootByStateRoot: [queryKey('state_root'), implicitQueryKey('shard_uid')],
+    ValidatorAssignmentsAtHeight: [queryKey('block_height'), implicitQueryKey('epoch_id')],
 };
 
 /// Specifies the expected output entity type for each query.
@@ -260,6 +268,7 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     ShardIdByAccountId: 'ShardId',
     ShardLayoutByEpochId: 'ShardLayout',
     ShardUIdByShardId: 'ShardUId',
+    StateTransitionData: 'StateTransitionData',
     TipAtFinalHead: 'Tip',
     TipAtHead: 'Tip',
     TipAtHeaderHead: 'Tip',
@@ -267,4 +276,5 @@ export const entityQueryOutputType: Record<EntityQueryType, EntityType> = {
     TrieNode: 'TrieNode',
     TrieRootByChunkHash: 'TrieRoot',
     TrieRootByStateRoot: 'TrieRoot',
+    ValidatorAssignmentsAtHeight: 'ValidatorAssignmentsAtHeight',
 };

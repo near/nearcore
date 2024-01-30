@@ -240,7 +240,7 @@ fn encoded_chunk_to_partial_encoded_chunk(
                 PartialEncodedChunkPart { part_ord, part, merkle_proof }
             })
             .collect(),
-        receipts: receipt_proofs,
+        prev_outgoing_receipts: receipt_proofs,
     });
     partial_chunk
 }

@@ -423,7 +423,7 @@ impl Handler<WithSpanContext<BlockResponse>> for ClientActor {
     fn handle(&mut self, msg: WithSpanContext<BlockResponse>, ctx: &mut Context<Self>) {
         self.wrap(msg, ctx, "BlockResponse", |this: &mut Self, msg|{
             let BlockResponse{ block, peer_id, was_requested } = msg;
-            info!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
+            debug!(target: "client", block_height = block.header().height(), block_hash = ?block.header().hash(), "BlockResponse");
             let blocks_at_height = this
                 .client
                 .chain
@@ -1065,7 +1065,7 @@ impl ClientActor {
             if me == next_block_producer_account {
                 self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                     &head.last_block_hash,
-                    &mut self.client.chunk_validator,
+                    &mut self.client.chunk_endorsement_tracker,
                 )?;
                 let num_chunks = self
                     .client

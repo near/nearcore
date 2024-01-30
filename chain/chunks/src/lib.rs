@@ -930,7 +930,7 @@ impl ShardsManager {
                 response.parts.push(part.clone());
             }
         }
-        for receipt in partial_chunk.receipts() {
+        for receipt in partial_chunk.prev_outgoing_receipts() {
             if tracking_shards.contains(&receipt.1.to_shard_id) {
                 response.receipts.push(receipt.clone());
             }
@@ -1241,7 +1241,7 @@ impl ShardsManager {
         let partial_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header,
             parts: forward.parts,
-            receipts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
         });
         self.process_partial_encoded_chunk(MaybeValidated::from_validated(partial_chunk))?;
         Ok(())
@@ -1358,7 +1358,7 @@ impl ShardsManager {
             self.encoded_chunks.merge_in_partial_encoded_chunk(&PartialEncodedChunkV2 {
                 header: header.clone(),
                 parts: parts.into_values().collect(),
-                receipts: vec![],
+                prev_outgoing_receipts: vec![],
             });
             return true;
         }
@@ -1464,7 +1464,7 @@ impl ShardsManager {
         }
 
         // 1.e Checking receipts validity
-        for proof in partial_encoded_chunk.receipts.iter() {
+        for proof in partial_encoded_chunk.prev_outgoing_receipts.iter() {
             // TODO: only validate receipts we care about
             // https://github.com/near/nearcore/issues/5885
             // we can't simply use prev_block_hash to check if the node tracks this shard or not
@@ -2466,7 +2466,7 @@ mod test {
         let partial_encoded_chunk = PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: fixture.mock_chunk_header.clone(),
             parts: other_parts,
-            receipts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
         });
         // The validator receives a chunk header with the rest of the parts it needed
         let result = shards_manager

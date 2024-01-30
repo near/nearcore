@@ -5,10 +5,10 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
-use crate::chunk_validation::{ChunkEndorsementInner, ChunkStateWitnessInner};
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
+use crate::stateless_validation::{ChunkEndorsementInner, ChunkStateWitnessInner};
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 

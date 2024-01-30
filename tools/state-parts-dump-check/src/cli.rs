@@ -573,7 +573,7 @@ async fn process_part_with_3_retries(
         let chain_id = chain_id.clone();
         let epoch_id = epoch_id.clone();
         let external = external.clone();
-        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_part().await somehow waits forever
+        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_file().await somehow waits forever
         // this is set to a long duration because the timer for each task, i.e. process_part, starts when the task is started, i.e. tokio::spawn is called,
         // and counts actual time instead of CPU time.
         // The bottom line is this timeout * MAX_RETRIES > time it takes for all parts to be processed, which is typically < 30 mins on monitoring nodes
@@ -627,14 +627,10 @@ async fn process_part(
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
-    let location = external_storage_location(
-        &chain_id,
-        &epoch_id,
-        epoch_height,
-        shard_id,
-        &StateFileType::StatePart { part_id, num_parts },
-    );
-    let part = external.get_part(shard_id, &location).await?;
+    let file_type = StateFileType::StatePart { part_id, num_parts };
+    let location =
+        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+    let part = external.get_file(shard_id, &location, &file_type).await?;
     let is_part_valid = validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
     if is_part_valid {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
