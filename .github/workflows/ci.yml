@@ -29,18 +29,23 @@ jobs:
             os: ubuntu-22.04-16core
             type: stable
             runs_integ_tests: true
+            upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
             cache_id: linux
             os: ubuntu-22.04-16core
             type: nightly
             runs_integ_tests: true
+            upload_profraws: true
           - name: MacOS
             id: macos
             cache_id: macos
             os: macos-latest-xlarge
             type: stable
             runs_integ_tests: false
+            # TODO: Currently only computing linux coverage, because the MacOS runners
+            # have files at a different path and thus comes out duplicated.
+            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -72,13 +77,12 @@ jobs:
         if: matrix.runs_integ_tests
 
       # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
-      - run: find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \; || true
-      - run: find target/dev-release/ -not -executable -delete || true
-      - run: find target/dev-release/ -name 'build*script*build*' -delete || true
-      - run: tar -c --zstd -f coverage/profraw/binaries/${{matrix.id}}.tar.zst target/dev-release/
+      - run: just tar-bins-for-coverage-ci
+      - run: mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
+        if: matrix.upload_profraws
         with:
           name: coverage-profraw
           path: coverage/profraw

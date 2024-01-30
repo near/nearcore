@@ -109,6 +109,14 @@ codecov-ci RULE:
     popd
     rm -rf target/*.profraw
 
+# generate a tarball with all the binaries for coverage CI
+tar-bins-for-coverage-ci:
+    #!/usr/bin/env bash
+    find target/dev-release/ \( -name incremental -or -name .fingerprint -or -name out \) -exec rm -rf '{}' \; || true
+    find target/dev-release/ -not -executable -delete || true
+    find target/dev-release/ -name 'build*script*build*' -delete || true
+    tar -c --zstd -f coverage/profraw/binaries/new.tar.zst target/dev-release/
+
 # style checks from python scripts
 python-style-checks:
     python3 scripts/check_nightly.py
