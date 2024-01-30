@@ -1399,6 +1399,7 @@ impl Trie {
                     self.lookup_from_state_column(NibbleSlice::new(key), false)?;
                 debug_assert_eq!(&value_ref_from_trie.is_some(), &value);
             }
+            return Ok(value);
         }
 
         Ok(self
@@ -1595,7 +1596,8 @@ mod tests {
     use rand::Rng;
 
     use crate::test_utils::{
-        create_test_store, gen_changes, simplify_changes, test_populate_trie, TestTriesBuilder,
+        create_test_store, gen_changes, simplify_changes, test_populate_flat_storage,
+        test_populate_trie, TestTriesBuilder,
     };
     use crate::{DBCol, MissingTrieValueContext};
 
@@ -1779,6 +1781,7 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50], Some(vec![1])),
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
+        test_populate_flat_storage(&tries, sid, &bid, &bid, &initial);
         let root = test_populate_trie(&tries, &Trie::EMPTY_ROOT, sid, initial);
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
@@ -1791,6 +1794,7 @@ mod tests {
             .contains_key_mode(&[99, 44, 100, 58, 58, 48], KeyLookupMode::FlatStorage)
             .unwrap());
         let changes = vec![(vec![99, 44, 100, 58, 58, 49], None)];
+        test_populate_flat_storage(&tries, sid, &bid, &bid, &changes);
         let root = test_populate_trie(&tries, &root, sid, changes);
         let trie = tries.get_trie_with_block_hash_for_shard(sid, root, &bid, false);
         assert!(trie.has_flat_storage_chunk_view());
