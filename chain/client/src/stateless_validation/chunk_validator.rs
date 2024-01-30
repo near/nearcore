@@ -544,7 +544,7 @@ pub fn send_chunk_endorsement_to_block_producers(
 
     let chunk_hash = chunk_header.chunk_hash();
     tracing::debug!(
-        target: "chunk_validation",
+        target: "stateless_validation",
         chunk_hash=?chunk_hash,
         ?block_producers,
         "Chunk validated successfully, sending endorsement",
