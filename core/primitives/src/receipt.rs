@@ -1,7 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance, ShardId};
+use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
@@ -233,6 +233,15 @@ impl YieldedPromiseIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
     }
+}
+
+/// Entries in the queue of yielded promises.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromise {
+    /// `data_id` identifying some yielded action receipt's awaited input data
+    pub data_id: CryptoHash,
+    /// the block height before which the data must be submitted
+    pub expires_at: BlockHeight,
 }
 
 /// Map of shard to list of receipts to send to it.

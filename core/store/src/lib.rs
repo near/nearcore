@@ -22,7 +22,9 @@ use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
+use near_primitives::receipt::{
+    DelayedReceiptIndices, Receipt, ReceivedData, YieldedPromise, YieldedPromiseIndices,
+};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, StateRoot};
@@ -756,6 +758,29 @@ pub fn set_delayed_receipt(
         .next_available_index
         .checked_add(1)
         .expect("Next available index for delayed receipt exceeded the integer limit");
+}
+
+pub fn get_yielded_promise_indices(
+    trie: &dyn TrieAccess,
+) -> Result<YieldedPromiseIndices, StorageError> {
+    Ok(get(trie, &TrieKey::YieldedPromiseIndices)?.unwrap_or_default())
+}
+
+// Appends to the yielded promises queue in the state.
+pub fn set_yielded_promise(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &mut DelayedReceiptIndices,
+    yielded_promise: &YieldedPromise,
+) {
+    set(
+        state_update,
+        TrieKey::YieldedPromise { index: yielded_promise_indices.next_available_index },
+        yielded_promise,
+    );
+    yielded_promise_indices.next_available_index = yielded_promise_indices
+        .next_available_index
+        .checked_add(1)
+        .expect("Next available index for yielded promise exceeded the integer limit");
 }
 
 pub fn set_access_key(

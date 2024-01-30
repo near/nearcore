@@ -789,6 +789,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             / (runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_write_value_byte)
                 + runtime_config.wasm_config.ext_costs.gas_cost(ExtCosts::storage_read_value_byte));
 
+        // TODO: consider adding a limit on the number of yielded promises produced
+
         // Add new transactions to the result until some limit is hit or the transactions run out.
         loop {
             if total_gas_burnt >= transactions_gas_limit {
