@@ -703,7 +703,7 @@ impl ChunkForwardingOptimizationTestData {
                             PeerManagerMessageRequest::NetworkRequests(ignored_request)
                         })
                     }
-                    _ => None,
+                    _ => Some(request),
                 });
             }
             if !any_message_processed {
