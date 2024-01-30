@@ -122,7 +122,7 @@ enum StateSyncInner {
     },
     /// Requests the state header from peers but gets the state parts from an
     /// external storage.
-    PartsFromExternal {
+    External {
         /// Chain ID.
         chain_id: String,
         /// This semaphore imposes a restriction on the maximum number of simultaneous downloads
@@ -196,7 +196,7 @@ impl StateSync {
                 } else {
                     *num_concurrent_requests
                 } as usize;
-                StateSyncInner::PartsFromExternal {
+                StateSyncInner::External {
                     chain_id: chain_id.to_string(),
                     semaphore: Arc::new(tokio::sync::Semaphore::new(num_permits)),
                     external,
@@ -498,7 +498,7 @@ impl StateSync {
                     }
                 }
             }
-            StateSyncInner::PartsFromExternal { .. } => {
+            StateSyncInner::External { .. } => {
                 // Do nothing.
             }
         }
@@ -523,7 +523,7 @@ impl StateSync {
                     })
                     .collect::<Vec<_>>()
             }
-            StateSyncInner::PartsFromExternal { .. } => peers,
+            StateSyncInner::External { .. } => peers,
         };
         Ok(res)
     }
@@ -550,7 +550,7 @@ impl StateSync {
                 }
             }
             // We do not need to select a target for external storage.
-            StateSyncInner::PartsFromExternal { .. } => {}
+            StateSyncInner::External { .. } => {}
         }
 
         // Downloading strategy starts here
@@ -619,7 +619,7 @@ impl StateSync {
                         }),
                 );
             }
-            StateSyncInner::PartsFromExternal { chain_id, external, .. } => {
+            StateSyncInner::External { chain_id, external, .. } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
                 let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
@@ -686,7 +686,7 @@ impl StateSync {
                     );
                 }
             }
-            StateSyncInner::PartsFromExternal { chain_id, semaphore, external } => {
+            StateSyncInner::External { chain_id, semaphore, external } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
                 let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
