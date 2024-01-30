@@ -73,6 +73,10 @@ where
     pub fn get(&self, key: &K) -> Option<V> {
         self.inner.lock().unwrap().get(key).cloned()
     }
+
+    pub fn lock(&self) -> std::sync::MutexGuard<LruCache<K, V>> {
+        self.inner.lock().unwrap()
+    }
 }
 
 #[cfg(test)]
