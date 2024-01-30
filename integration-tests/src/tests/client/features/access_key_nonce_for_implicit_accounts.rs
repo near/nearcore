@@ -767,6 +767,7 @@ fn test_chunk_forwarding_optimization() {
         test.process_network_messages();
         test.env.process_shards_manager_responses(0);
 
+        // Propagating state witnesses and chunk endorsements is required for block production
         let output = test.env.propagate_chunk_state_witnesses();
         test.env.wait_to_propagate_chunk_endorsements(output.chunk_hash_to_account_ids);
     }
