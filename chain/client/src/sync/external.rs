@@ -16,13 +16,21 @@ pub enum StateFileType {
 impl ToString for StateFileType {
     fn to_string(&self) -> String {
         match self {
-            StateFileType::StatePart { .. } => String::from("part"),
-            StateFileType::StateHeader => String::from("header"),
+            StateFileType::StatePart { .. } => StateFileType::part_str(),
+            StateFileType::StateHeader => StateFileType::header_str(),
         }
     }
 }
 
 impl StateFileType {
+    pub fn part_str() -> String {
+        String::from("part")
+    }
+
+    pub fn header_str() -> String {
+        String::from("header")
+    }
+
     pub fn filename(&self) -> String {
         match self {
             StateFileType::StatePart { part_id, num_parts } => {
@@ -415,7 +423,7 @@ mod test {
         // Directory resembles real usecase.
         let dir = "test_folder/chain_id=test/epoch_height=1/epoch_id=test/shard_id=0".to_string();
         let full_filename = format!("{}/{}", dir, filename);
-        let file_type = StateFileType::StatePart { part_id: 1, num_parts: 1 };
+        let file_type = StateFileType::StatePart { part_id: 0, num_parts: 1 };
 
         // Before uploading we shouldn't see filename in the list of files.
         let files = rt.block_on(async { connection.list_objects(0, &dir).await.unwrap() });
