@@ -55,6 +55,8 @@ impl ShardTries {
                     }
                     None => {}
                 },
+                TrieKey::YieldedPromiseIndices => {}
+                TrieKey::YieldedPromise { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }

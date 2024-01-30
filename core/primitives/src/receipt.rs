@@ -220,5 +220,20 @@ impl DelayedReceiptIndices {
     }
 }
 
+/// Stores indices for a persistent queue for yielded promises.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromiseIndices {
+    // First inclusive index in the queue.
+    pub first_index: u64,
+    // Exclusive end index of the queue
+    pub next_available_index: u64,
+}
+
+impl YieldedPromiseIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
+}
+
 /// Map of shard to list of receipts to send to it.
 pub type ReceiptResult = HashMap<ShardId, Vec<Receipt>>;
