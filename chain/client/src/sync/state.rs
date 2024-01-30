@@ -613,7 +613,7 @@ impl StateSync {
                         }),
                 );
             }
-            StateSyncInner::PartsFromExternal { chain_id, semaphore, external } => {
+            StateSyncInner::PartsFromExternal { chain_id, external, .. } => {
                 let sync_block_header = chain.get_block_header(&sync_hash).unwrap();
                 let epoch_id = sync_block_header.epoch_id();
                 let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
@@ -625,7 +625,6 @@ impl StateSync {
                     epoch_id,
                     epoch_height,
                     &chain_id.clone(),
-                    semaphore.clone(),
                     external.clone(),
                     state_parts_arbiter_handle,
                     self.state_parts_mpsc_tx.clone(),
@@ -1097,6 +1096,8 @@ fn parts_to_fetch(
         .map(|(part_id, download)| (part_id as u64, download))
 }
 
+
+
 /// Starts an asynchronous network request to external storage to fetch the given header.
 fn request_header_from_external_storage(
     download: &mut DownloadStatus,
@@ -1105,7 +1106,6 @@ fn request_header_from_external_storage(
     epoch_id: &EpochId,
     epoch_height: EpochHeight,
     chain_id: &str,
-    semaphore: Arc<Semaphore>,
     external: ExternalConnection,
     state_parts_arbiter_handle: &ArbiterHandle,
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
@@ -1124,49 +1124,38 @@ fn request_header_from_external_storage(
         shard_id,
         &StateFileType::StateHeader,
     );
-    match semaphore.try_acquire_owned() {
-        Ok(permit) => {
-            if state_parts_arbiter_handle.spawn({
-                async move {
-                    let result = external.get_file(shard_id, &location, &StateFileType::StateHeader).await;
-                    let result = result
-                    .map_err(|err| err.to_string())
-                    .and_then(|data| {
-                        info!(target: "sync", ?shard_id, "downloaded state header");
-                        let header_length = data.len() as u64;
-                        ShardStateSyncResponseHeader::try_from_slice(&data)
-                        .map(|header| StateSyncFileDownloadResult::StateHeader { header_length , header })
-                        .map_err(|_| {
-                            tracing::info!(target: "sync", %shard_id, %sync_hash, "Could not parse downloaded header.");
-                            format!("Could not parse state sync header for shard {shard_id:?}")
-                        })
-                    });
+    if state_parts_arbiter_handle.spawn({
+        async move {
+            let result = external
+            .get_file(shard_id, &location, &StateFileType::StateHeader)
+            .await
+            .map_err(|err| err.to_string())
+            .and_then(|data| {
+                info!(target: "sync", ?shard_id, "downloaded state header");
+                let header_length = data.len() as u64;
+                ShardStateSyncResponseHeader::try_from_slice(&data)
+                .map(|header| StateSyncFileDownloadResult::StateHeader { header_length , header })
+                .map_err(|_| {
+                    tracing::info!(target: "sync", %shard_id, %sync_hash, "Could not parse downloaded header.");
+                    format!("Could not parse state sync header for shard {shard_id:?}")
+                })
+            });
 
-                    match state_parts_mpsc_tx.send(StateSyncGetFileResult {
-                        sync_hash,
-                        shard_id,
-                        part_id: None,
-                        result,
-                    }) {
-                        Ok(_) => tracing::debug!(target: "sync", %shard_id, "Download header response sent to processing thread."),
-                        Err(err) => {
-                            tracing::error!(target: "sync", ?err, %shard_id, "Unable to send header download response to processing thread.");
-                        },
-                    }
-                    drop(permit)
-                }
-            }) == false
-            {
-                tracing::error!(target: "sync", %shard_id, "Unable to spawn download. state_parts_arbiter has died.");
+            match state_parts_mpsc_tx.send(StateSyncGetFileResult {
+                sync_hash,
+                shard_id,
+                part_id: None,
+                result,
+            }) {
+                Ok(_) => tracing::debug!(target: "sync", %shard_id, "Download header response sent to processing thread."),
+                Err(err) => {
+                    tracing::error!(target: "sync", ?err, %shard_id, "Unable to send header download response to processing thread.");
+                },
             }
         }
-        Err(TryAcquireError::NoPermits) => {
-            download.run_me.store(true, Ordering::SeqCst);
-        }
-        Err(TryAcquireError::Closed) => {
-            download.run_me.store(true, Ordering::SeqCst);
-            tracing::warn!(target: "sync", %shard_id, "Failed to schedule download. Semaphore closed.");
-        }
+    }) == false
+    {
+        tracing::error!(target: "sync", %shard_id, "Unable to spawn download. state_parts_arbiter has died.");
     }
 }
 
