@@ -524,7 +524,7 @@ fn apply_result_to_chunk_extra(
     )
 }
 
-fn send_chunk_endorsement_to_block_producers(
+pub fn send_chunk_endorsement_to_block_producers(
     chunk_header: &ShardChunkHeader,
     epoch_manager: &dyn EpochManagerAdapter,
     signer: &dyn ValidatorSigner,
