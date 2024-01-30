@@ -2044,7 +2044,6 @@ impl<'a> VMLogic<'a> {
         arguments_len: u64,
         arguments_ptr: u64,
         gas: Gas,
-        _yield_num_blocks: u64,
         register_id: u64,
     ) -> Result<u64> {
         self.gas_counter.pay_base(base)?;
