@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, YieldedPromise};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -27,8 +27,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
-    StorageError, TrieUpdate,
+    get_access_key, get_code, get_yielded_promise_indices, remove_access_key, remove_account,
+    set_access_key, set_code, set_yielded_promise, StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -311,10 +311,28 @@ pub(crate) fn action_function_call(
             |(data_id, data)| Receipt {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
                 receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
             },
         ));
+
+        // Enqueue timeouts for yield data ids
+        let mut yielded_promise_indices =
+            get_yielded_promise_indices(state_update).unwrap_or_default();
+
+        for yielded_data_id in receipt_manager.yielded_data_ids.iter() {
+            set_yielded_promise(
+                state_update,
+                &mut yielded_promise_indices,
+                &YieldedPromise {
+                    data_id: yielded_data_id.clone(),
+                    expires_at: apply_state.block_height + 100, // TODO: properly configure this
+                                                                // constant somewhere
+                },
+            );
+        }
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);

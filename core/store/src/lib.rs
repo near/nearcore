@@ -769,7 +769,7 @@ pub fn get_yielded_promise_indices(
 // Appends to the yielded promises queue in the state.
 pub fn set_yielded_promise(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &mut DelayedReceiptIndices,
+    yielded_promise_indices: &mut YieldedPromiseIndices,
     yielded_promise: &YieldedPromise,
 ) {
     set(
