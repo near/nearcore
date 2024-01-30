@@ -239,6 +239,10 @@ impl ChunkValidatorAssignments {
         self.assignments.iter().map(|(id, _)| id.clone()).collect()
     }
 
+    pub fn assignments(&self) -> &Vec<(AccountId, Balance)> {
+        &self.assignments
+    }
+
     /// Returns true if the chunk has enough stake to be considered valid.
     /// We require that at least 2/3 of the total stake of the chunk is endorsed by chunk_validators.
     pub fn does_chunk_have_enough_stake(

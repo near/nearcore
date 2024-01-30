@@ -80,6 +80,18 @@ impl TrieUpdate {
         Ok(result)
     }
 
+    pub fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
+        let key = key.to_vec();
+        if self.prospective.contains_key(&key) {
+            return Ok(true);
+        } else if let Some(changes_with_trie_key) = self.committed.get(&key) {
+            if let Some(RawStateChange { data, .. }) = changes_with_trie_key.changes.last() {
+                return Ok(data.is_some());
+            }
+        }
+        self.trie.contains_key(&key)
+    }
+
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
@@ -162,6 +174,10 @@ impl TrieUpdate {
 impl crate::TrieAccess for TrieUpdate {
     fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
         TrieUpdate::get(self, key)
+    }
+
+    fn contains_key(&self, key: &TrieKey) -> Result<bool, StorageError> {
+        TrieUpdate::contains_key(&self, key)
     }
 }
 
