@@ -17,6 +17,7 @@ use crate::config::safe_add_gas;
 type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
+type YieldedDataIds = Vec<CryptoHash>;
 type ExternalDataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +37,7 @@ pub struct ReceiptMetadata {
 #[derive(Default, Clone, PartialEq)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
+    pub(super) yielded_data_ids: YieldedDataIds,
     pub(super) external_data_receipts: ExternalDataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
@@ -102,7 +104,6 @@ impl ReceiptManager {
         let new_receipt =
             ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        println!("Created a receipt with index={}", new_receipt_index);
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
     }
@@ -125,8 +126,8 @@ impl ReceiptManager {
             actions: vec![],
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        println!("Created a receipt with index={}", new_receipt_index);
         self.action_receipts.push((receiver_id, new_receipt));
+        self.yielded_data_ids.push(input_data_id);
         Ok(new_receipt_index)
     }
 
@@ -397,7 +398,12 @@ impl ReceiptManager {
     ///
     /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
     pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
-        let ReceiptManager { action_receipts, external_data_receipts: _, gas_weights } = self;
+        let ReceiptManager {
+            action_receipts,
+            yielded_data_ids: _,
+            external_data_receipts: _,
+            gas_weights,
+        } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
             return Ok(0);
