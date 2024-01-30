@@ -393,7 +393,11 @@ impl StateSync {
                         if shard_sync_download.status != ShardSyncStatus::StateDownloadHeader {
                             continue;
                         }
-                        if shard_sync_download.downloads[0].done {
+                        if shard_sync_download
+                            .get_header_download_mut()
+                            .and_then(|d| Some(d.done))
+                            .unwrap_or(false)
+                        {
                             continue;
                         }
                         chain
@@ -545,6 +549,7 @@ impl StateSync {
                     return Ok(());
                 }
             }
+            // We do not need to select a target for external storage.
             StateSyncInner::PartsFromExternal { .. } => {}
         }
 
@@ -577,7 +582,7 @@ impl StateSync {
         Ok(())
     }
 
-    /// Makes a StateRequestHeader header to one of the peers.
+    /// Makes a StateRequestHeader header to one of the peers or downloads the header from external storage.
     fn request_shard_header(
         &mut self,
         chain: &Chain,
@@ -587,15 +592,16 @@ impl StateSync {
         new_shard_sync_download: &mut ShardSyncDownload,
         state_parts_arbiter_handle: &ArbiterHandle,
     ) {
+        let header_download = new_shard_sync_download.get_header_download_mut().unwrap();
         match &mut self.inner {
             StateSyncInner::Peers { .. } => {
                 let peer_id = possible_targets.choose(&mut thread_rng()).cloned().unwrap();
                 tracing::debug!(target: "sync", ?peer_id, shard_id, ?sync_hash, ?possible_targets, "request_shard_header");
-                assert!(new_shard_sync_download.downloads[0].run_me.load(Ordering::SeqCst));
-                new_shard_sync_download.downloads[0].run_me.store(false, Ordering::SeqCst);
-                new_shard_sync_download.downloads[0].state_requests_count += 1;
-                new_shard_sync_download.downloads[0].last_target = Some(peer_id.clone());
-                let run_me = new_shard_sync_download.downloads[0].run_me.clone();
+                assert!(header_download.run_me.load(Ordering::SeqCst));
+                header_download.run_me.store(false, Ordering::SeqCst);
+                header_download.state_requests_count += 1;
+                header_download.last_target = Some(peer_id.clone());
+                let run_me = header_download.run_me.clone();
                 near_performance_metrics::actix::spawn(
                     std::any::type_name::<Self>(),
                     self.network_adapter
@@ -619,7 +625,7 @@ impl StateSync {
                 let epoch_info = chain.epoch_manager.get_epoch_info(epoch_id).unwrap();
                 let epoch_height = epoch_info.epoch_height();
                 request_header_from_external_storage(
-                    &mut new_shard_sync_download.downloads[0],
+                    header_download,
                     shard_id,
                     sync_hash,
                     epoch_id,
@@ -787,24 +793,25 @@ impl StateSync {
         }
         match shard_sync_download.status {
             ShardSyncStatus::StateDownloadHeader => {
+                let header_download = shard_sync_download.get_header_download_mut().unwrap();
                 if let Some(header) = state_response.take_header() {
-                    if !shard_sync_download.downloads[0].done {
+                    if !header_download.done {
                         match chain.set_state_header(shard_id, hash, header) {
                             Ok(()) => {
-                                shard_sync_download.downloads[0].done = true;
+                                header_download.done = true;
                             }
                             Err(err) => {
                                 tracing::error!(target: "sync", %shard_id, %hash, ?err, "State sync set_state_header error");
-                                shard_sync_download.downloads[0].error = true;
+                                header_download.error = true;
                             }
                         }
                     }
                 } else {
                     // No header found.
                     // It may happen because requested node couldn't build state response.
-                    if !shard_sync_download.downloads[0].done {
+                    if !header_download.done {
                         tracing::info!(target: "sync", %shard_id, %hash, "state_response doesn't have header, should be re-requested");
-                        shard_sync_download.downloads[0].error = true;
+                        header_download.error = true;
                     }
                 }
             }
