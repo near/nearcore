@@ -247,7 +247,7 @@ impl ChunkValidatorAssignments {
     /// We require that at least 2/3 of the total stake of the chunk is endorsed by chunk_validators.
     pub fn does_chunk_have_enough_stake(
         &self,
-        endorsed_chunk_validators: &HashSet<AccountId>,
+        endorsed_chunk_validators: HashSet<&AccountId>,
     ) -> bool {
         let mut total_stake = 0;
         let mut endorsed_stake = 0;

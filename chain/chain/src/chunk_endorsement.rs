@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
-use near_primitives::chunk_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::ChunkEndorsement;
 
 use crate::Chain;
 
@@ -68,12 +68,12 @@ impl Chain {
             // Signature can be either None, or Some(signature).
             // We calculate the stake of the chunk_validators for who we have the signature present.
             let mut endorsed_chunk_validators = HashSet::new();
-            for (account_id, signature) in ordered_chunk_validators.into_iter().zip(signatures) {
+            for (account_id, signature) in ordered_chunk_validators.iter().zip(signatures) {
                 let Some(signature) = signature else { continue };
                 let (validator, _) = self.epoch_manager.get_validator_by_account_id(
                     &epoch_id,
                     block.header().prev_hash(),
-                    &account_id,
+                    account_id,
                 )?;
 
                 // Block should not be produced with an invalid signature.
@@ -95,7 +95,7 @@ impl Chain {
                 endorsed_chunk_validators.insert(account_id);
             }
 
-            if !chunk_validator_assignments.does_chunk_have_enough_stake(&endorsed_chunk_validators)
+            if !chunk_validator_assignments.does_chunk_have_enough_stake(endorsed_chunk_validators)
             {
                 tracing::error!(target: "chain", "Chunk does not have enough stake to be endorsed");
                 return Err(Error::InvalidChunkEndorsement);

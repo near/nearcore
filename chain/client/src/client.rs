@@ -3,9 +3,10 @@
 
 use crate::adapter::ProcessTxResponse;
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::chunk_validation::ChunkValidator;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -187,6 +188,8 @@ pub struct Client {
     /// Tracks current chunks that are ready to be included in block
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
+    /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
+    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
 }
 
 impl Client {
@@ -344,6 +347,7 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
         );
+        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(epoch_manager.clone());
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -382,6 +386,7 @@ impl Client {
             last_time_sync_block_requested: None,
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
+            chunk_endorsement_tracker,
         })
     }
 
@@ -534,7 +539,7 @@ impl Client {
 
         self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
             &head.last_block_hash,
-            &mut self.chunk_validator,
+            &mut self.chunk_endorsement_tracker,
         )?;
 
         self.produce_block_on(height, head.last_block_hash)
