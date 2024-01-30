@@ -1,6 +1,8 @@
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use crate::checked_feature;
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
-use crate::types::{Balance, Nonce, StorageUsage};
+use crate::types::{Balance, Nonce, ProtocolVersion, StorageUsage};
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use near_account_id as id;
 use std::io;
@@ -80,9 +82,20 @@ impl Account {
         nonrefundable: Balance,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
+        #[cfg_attr(not(feature = "protocol_feature_nonrefundable_transfer_nep491"), allow(unused))]
+        protocol_version: ProtocolVersion,
     ) -> Self {
-        let version = AccountVersion::default();
-        if version == AccountVersion::V1 {
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let account_version = AccountVersion::V1;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let account_version = if checked_feature!("stable", NonRefundableBalance, protocol_version)
+        {
+            AccountVersion::V2
+        } else {
+            AccountVersion::V1
+        };
+        if account_version == AccountVersion::V1 {
             assert_eq!(nonrefundable, 0);
         }
         Account {
@@ -92,7 +105,7 @@ impl Account {
             nonrefundable,
             code_hash,
             storage_usage,
-            version,
+            version: account_version,
         }
     }
 

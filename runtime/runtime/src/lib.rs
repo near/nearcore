@@ -378,6 +378,7 @@ impl Runtime {
                     &receipt.receiver_id,
                     &receipt.predecessor_id,
                     &mut result,
+                    apply_state.current_protocol_version,
                 );
             }
             Action::DeployContract(deploy_contract) => {

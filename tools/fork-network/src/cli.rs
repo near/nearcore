@@ -752,6 +752,7 @@ impl ForkNetworkCommand {
                     0,
                     CryptoHash::default(),
                     storage_bytes,
+                    PROTOCOL_VERSION,
                 ),
             )?;
             storage_mutator.set_access_key(

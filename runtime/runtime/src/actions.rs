@@ -426,6 +426,7 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
+    protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
@@ -461,6 +462,7 @@ pub(crate) fn action_create_account(
         0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account,
+        protocol_version,
     ));
 }
 
@@ -508,6 +510,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
+                current_protocol_version,
             ));
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
@@ -531,6 +534,7 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     nonrefundable_balance,
                     *magic_bytes.hash(),
                     storage_usage,
+                    current_protocol_version,
                 ));
                 set_code(state_update, account_id.clone(), &magic_bytes);
 
@@ -1084,6 +1088,7 @@ mod tests {
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1107,6 +1112,7 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
+            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());
@@ -1192,7 +1198,8 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new(100, 0, 0, *code_hash, storage_usage));
+        let mut account =
+            Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
@@ -1330,7 +1337,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, 0, CryptoHash::default(), 100);
+        let account = Account::new(100, 0, 0, CryptoHash::default(), 100, PROTOCOL_VERSION);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 

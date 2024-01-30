@@ -755,7 +755,7 @@ fn add_account_with_key(
 ) {
     records.push(StateRecord::Account {
         account_id: account_id.clone(),
-        account: Account::new(amount, staked, 0, code_hash, 0),
+        account: Account::new(amount, staked, 0, code_hash, 0, PROTOCOL_VERSION),
     });
     records.push(StateRecord::AccessKey {
         account_id,

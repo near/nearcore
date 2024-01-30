@@ -10,6 +10,7 @@ use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::{hash_map, HashMap};
@@ -73,8 +74,14 @@ impl AccountRecords {
         num_bytes_account: u64,
     ) {
         assert!(self.account.is_none());
-        let account =
-            Account::new(amount, locked, nonrefundable, CryptoHash::default(), num_bytes_account);
+        let account = Account::new(
+            amount,
+            locked,
+            nonrefundable,
+            CryptoHash::default(),
+            num_bytes_account,
+            PROTOCOL_VERSION,
+        );
         self.account = Some(account);
     }
 
@@ -473,6 +480,7 @@ mod test {
                         nonrefundable_balance,
                         CryptoHash::default(),
                         *storage_usage,
+                        PROTOCOL_VERSION,
                     );
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }

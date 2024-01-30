@@ -43,6 +43,7 @@ use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -126,7 +127,14 @@ impl From<&AccountView> for Account {
         let nonrefundable = view.nonrefundable;
         #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
         let nonrefundable = 0;
-        Account::new(view.amount, view.locked, nonrefundable, view.code_hash, view.storage_usage)
+        Account::new(
+            view.amount,
+            view.locked,
+            nonrefundable,
+            view.code_hash,
+            view.storage_usage,
+            PROTOCOL_VERSION,
+        )
     }
 }
 

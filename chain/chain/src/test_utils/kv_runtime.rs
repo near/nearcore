@@ -1248,6 +1248,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                         0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

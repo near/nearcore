@@ -103,6 +103,8 @@ pub fn total_send_fees(
                 )
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            // TODO(nonrefundable) Before stabilizing, consider using separate gas cost parameters
+            // for non-refundable and regular transfers.
             NonrefundableStorageTransfer(_) => {
                 // Account for implicit account creation
                 transfer_send_fee(

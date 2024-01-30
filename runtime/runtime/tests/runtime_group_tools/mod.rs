@@ -226,6 +226,7 @@ impl RuntimeGroup {
                         0,
                         code_hash,
                         0,
+                        PROTOCOL_VERSION,
                     ),
                 });
                 state_records.push(StateRecord::AccessKey {
