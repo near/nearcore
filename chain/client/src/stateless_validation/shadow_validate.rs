@@ -11,6 +11,8 @@ use crate::stateless_validation::chunk_validator::{
 use crate::{metrics, Client};
 
 impl Client {
+    // Temporary feature to make node produce state witness for every chunk in every processed block
+    // and then self-validate it.
     pub(crate) fn shadow_validate_block_chunks(&mut self, block: &Block) -> Result<(), Error> {
         if !cfg!(feature = "shadow_chunk_validation") {
             return Ok(());

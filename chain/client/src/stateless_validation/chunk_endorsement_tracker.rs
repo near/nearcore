@@ -13,9 +13,10 @@ use crate::Client;
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
-const NUM_CHUNK_ENDORSEMENTS_CACHE_COUNT: usize = 100;
+const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
 
-pub struct EndorsementTracker {
+/// Module to track chunk endorsements received from chunk validators.
+pub struct ChunkEndorsementTracker {
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     /// We store the validated chunk endorsements received from chunk validators
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
@@ -33,11 +34,11 @@ impl Client {
     }
 }
 
-impl EndorsementTracker {
+impl ChunkEndorsementTracker {
     pub fn new(epoch_manager: Arc<dyn EpochManagerAdapter>) -> Self {
         Self {
             epoch_manager,
-            chunk_endorsements: lru::LruCache::new(NUM_CHUNK_ENDORSEMENTS_CACHE_COUNT),
+            chunk_endorsements: lru::LruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
         }
     }
 
@@ -109,8 +110,6 @@ impl EndorsementTracker {
             return Ok(None);
         };
 
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
             &epoch_id,
             chunk_header.shard_id(),
@@ -119,7 +118,7 @@ impl EndorsementTracker {
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !chunk_validator_assignments
-            .does_chunk_have_enough_stake(&chunk_endorsements.keys().cloned().collect())
+            .does_chunk_have_enough_stake(chunk_endorsements.keys().collect())
         {
             return Ok(None);
         }
