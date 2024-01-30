@@ -1096,7 +1096,27 @@ fn parts_to_fetch(
         .map(|(part_id, download)| (part_id as u64, download))
 }
 
-
+async fn download_header_from_external_storage(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    location: String,
+    external: ExternalConnection,
+) -> Result<StateSyncFileDownloadResult, std::string::String> {
+    external
+    .get_file(shard_id, &location, &StateFileType::StateHeader)
+    .await
+    .map_err(|err| err.to_string())
+    .and_then(|data| {
+        info!(target: "sync", ?shard_id, "downloaded state header");
+        let header_length = data.len() as u64;
+        ShardStateSyncResponseHeader::try_from_slice(&data)
+        .map(|header| StateSyncFileDownloadResult::StateHeader { header_length , header })
+        .map_err(|_| {
+            tracing::info!(target: "sync", %shard_id, %sync_hash, "Could not parse downloaded header.");
+            format!("Could not parse state sync header for shard {shard_id:?}")
+        })
+    })
+}
 
 /// Starts an asynchronous network request to external storage to fetch the given header.
 fn request_header_from_external_storage(
@@ -1126,21 +1146,7 @@ fn request_header_from_external_storage(
     );
     if state_parts_arbiter_handle.spawn({
         async move {
-            let result = external
-            .get_file(shard_id, &location, &StateFileType::StateHeader)
-            .await
-            .map_err(|err| err.to_string())
-            .and_then(|data| {
-                info!(target: "sync", ?shard_id, "downloaded state header");
-                let header_length = data.len() as u64;
-                ShardStateSyncResponseHeader::try_from_slice(&data)
-                .map(|header| StateSyncFileDownloadResult::StateHeader { header_length , header })
-                .map_err(|_| {
-                    tracing::info!(target: "sync", %shard_id, %sync_hash, "Could not parse downloaded header.");
-                    format!("Could not parse state sync header for shard {shard_id:?}")
-                })
-            });
-
+            let result = download_header_from_external_storage(shard_id, sync_hash, location, external).await;
             match state_parts_mpsc_tx.send(StateSyncGetFileResult {
                 sync_hash,
                 shard_id,
@@ -1159,6 +1165,37 @@ fn request_header_from_external_storage(
     }
 }
 
+async fn download_and_store_part_from_external_storage(
+    part_id: PartId,
+    file_type: &StateFileType,
+    location: String,
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    state_root: StateRoot,
+    external: ExternalConnection,
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+) -> Result<StateSyncFileDownloadResult, String> {
+    external
+    .get_file(shard_id, &location, file_type)
+    .await
+    .map_err(|err| err.to_string())
+    .and_then(|data|  {
+        info!(target: "sync", ?shard_id, ?part_id, "downloaded state part");
+        if runtime_adapter.validate_state_part(&state_root, part_id, &data) {
+            let mut store_update = runtime_adapter.store().store_update();
+            borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))
+            .and_then(|key| {
+                store_update.set(DBCol::StateParts, &key, &data);
+                store_update.commit()
+            })
+            .map_err(|err| format!("Failed to store a state part. err={err:?}, state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id:?}"))
+            .map(|_| data.len() as u64)
+            .map(|part_length| StateSyncFileDownloadResult::StatePart { part_length })
+        } else {
+            Err(format!("validate_state_part failed. state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id}"))
+        }
+    })
+}
 /// Starts an asynchronous network request to external storage to fetch the given state part.
 fn request_part_from_external_storage(
     part_id: u64,
@@ -1195,27 +1232,19 @@ fn request_part_from_external_storage(
         Ok(permit) => {
             if state_parts_arbiter_handle.spawn({
                 async move {
-                    let result = external.get_file(shard_id, &location, &StateFileType::StatePart { part_id, num_parts }).await;
+                    let file_type = StateFileType::StatePart { part_id, num_parts };
                     let part_id = PartId{ idx: part_id, total: num_parts };
-                    let result = match result {
-                        Ok(data) => {
-                            info!(target: "sync", ?shard_id, ?part_id, "downloaded state part");
-                            if runtime_adapter.validate_state_part(&state_root, part_id, &data) {
-                                let mut store_update = runtime_adapter.store().store_update();
-                                borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id.idx))
-                                .and_then(|key| {
-                                    store_update.set(DBCol::StateParts, &key, &data);
-                                    store_update.commit()
-                                })
-                                .map_err(|err| format!("Failed to store a state part. err={err:?}, state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id:?}"))
-                                .map(|_| data.len() as u64)
-                                .map(|part_length| StateSyncFileDownloadResult::StatePart { part_length })
-                            } else {
-                                Err(format!("validate_state_part failed. state_root={state_root:?}, part_id={part_id:?}, shard_id={shard_id}"))
-                            }
-                        },
-                        Err(err) => Err(err.to_string()),
-                    };
+                    let result = download_and_store_part_from_external_storage(
+                        part_id,
+                        &file_type,
+                        location,
+                        shard_id,
+                        sync_hash,
+                        state_root,
+                        external,
+                        runtime_adapter)
+                        .await;
+
                     match state_parts_mpsc_tx.send(StateSyncGetFileResult {
                         sync_hash,
                         shard_id,
