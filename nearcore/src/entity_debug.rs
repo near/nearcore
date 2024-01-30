@@ -11,11 +11,11 @@ use near_jsonrpc_primitives::types::entity_debug::{
 };
 use near_primitives::block::Tip;
 use near_primitives::challenge::{PartialState, TrieValue};
-use near_primitives::chunk_validation::StoredChunkStateTransitionData;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::ShardChunk;
 use near_primitives::state::FlatStateValue;
+use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_primitives::transaction::{ExecutionOutcomeWithProof, SignedTransaction};
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{get_block_shard_id, get_outcome_id_block_hash};
