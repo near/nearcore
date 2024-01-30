@@ -574,13 +574,18 @@ impl Client {
         &mut self,
         witness: ChunkStateWitness,
         peer_id: PeerId,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<ChunkStateWitness>, Error> {
         // TODO(#10502): Handle production of state witness for first chunk after genesis.
         // Properly handle case for chunk right after genesis.
         // Context: We are currently unable to handle production of the state witness for the
         // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
-        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_block = match self.chain.get_block(prev_block_hash) {
+            Ok(block) => block,
+            Err(_) => {
+                return Ok(Some(witness));
+            }
+        };
         let prev_chunk_header = Chain::get_prev_chunk_header(
             self.epoch_manager.as_ref(),
             &prev_block,
@@ -597,7 +602,7 @@ impl Client {
                 &self.chunk_validator.network_sender,
                 self.chunk_endorsement_tracker.chunk_endorsements.as_ref(),
             );
-            return Ok(());
+            return Ok(None);
         }
 
         // TODO(#10265): If the previous block does not exist, we should
@@ -616,6 +621,6 @@ impl Client {
                 },
             ));
         }
-        result
+        result.map(|_| None)
     }
 }
