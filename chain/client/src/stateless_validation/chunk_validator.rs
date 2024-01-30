@@ -553,6 +553,8 @@ pub fn send_chunk_endorsement_to_block_producers(
     let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), signer);
     for block_producer in block_producers {
         if signer.validator_id() == &block_producer {
+            // Add endorsement to the cache of our chunk endorsements
+            // immediately, because network won't handle message to ourselves.
             let mut guard = my_chunk_endorsements.lock();
             guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
             let chunk_endorsements = guard.get_mut(&chunk_hash).unwrap();

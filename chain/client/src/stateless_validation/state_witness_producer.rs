@@ -53,7 +53,7 @@ impl Client {
         if let Some(my_signer) = self.validator_signer.clone() {
             let validator_id = my_signer.validator_id();
             if chunk_validators.contains(validator_id) {
-                // Endorse the chunk automatically, bypassing sending state witness
+                // Endorse the chunk immediately, bypassing sending state witness
                 // to ourselves, because network can't send messages to ourselves.
                 // Also useful in tests where we don't have a good way to handle
                 // network messages and there's only a single client.
