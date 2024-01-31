@@ -49,11 +49,7 @@ impl Client {
         )?;
 
         if let Some(my_signer) = self.validator_signer.clone() {
-            // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
-            chunk_validators.retain(|validator| {
-                if validator != my_signer.validator_id() {
-                    return true;
-                }
+            if chunk_validators.contains(my_signer.validator_id()) {
                 // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
                 send_chunk_endorsement_to_block_producers(
                     &chunk_header,
@@ -62,8 +58,9 @@ impl Client {
                     &self.network_adapter.clone().into_sender(),
                     self.chunk_endorsement_tracker.as_ref(),
                 );
-                false
-            });
+            }
+            // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
+            chunk_validators.retain(|validator| validator != my_signer.validator_id());
         };
 
         tracing::debug!(
