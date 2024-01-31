@@ -1065,7 +1065,7 @@ impl ClientActor {
             if me == next_block_producer_account {
                 self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                     &head.last_block_hash,
-                    &mut self.client.chunk_endorsement_tracker,
+                    self.client.chunk_endorsement_tracker.as_ref(),
                 )?;
                 let num_chunks = self
                     .client

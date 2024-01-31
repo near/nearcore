@@ -2407,7 +2407,7 @@ fn test_validate_chunk_extra() {
         .chunk_inclusion_tracker
         .prepare_chunk_headers_ready_for_inclusion(
             block1.hash(),
-            &mut client.chunk_endorsement_tracker,
+            client.chunk_endorsement_tracker.as_ref(),
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();
