@@ -28,7 +28,8 @@ use near_primitives::version::{
 use near_primitives_core::account::id::AccountType;
 use near_store::{
     get_access_key, get_code, get_yielded_promise_indices, remove_access_key, remove_account,
-    set_access_key, set_code, set_yielded_promise, StorageError, TrieUpdate,
+    set_access_key, set_code, set_yielded_promise, set_yielded_promise_indices, StorageError,
+    TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -321,17 +322,23 @@ pub(crate) fn action_function_call(
         // Enqueue timeouts for yield data ids
         let mut yielded_promise_indices =
             get_yielded_promise_indices(state_update).unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
 
-        for yielded_data_id in receipt_manager.yielded_data_ids.iter() {
+        for (account_id, yielded_data_id) in receipt_manager.yielded_data_ids.iter() {
             set_yielded_promise(
                 state_update,
                 &mut yielded_promise_indices,
                 &YieldedPromise {
+                    account_id: account_id.clone(),
                     data_id: yielded_data_id.clone(),
-                    expires_at: apply_state.block_height + 100, // TODO: properly configure this
-                                                                // constant somewhere
+                    expires_at: apply_state.block_height + 30, // TODO: properly configure this
+                                                               // constant somewhere
                 },
             );
+        }
+
+        if yielded_promise_indices != initial_yielded_promise_indices {
+            set_yielded_promise_indices(state_update, &yielded_promise_indices);
         }
 
         account.set_amount(outcome.balance);

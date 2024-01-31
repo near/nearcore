@@ -236,11 +236,13 @@ impl YieldedPromiseIndices {
 }
 
 /// Entries in the queue of yielded promises.
-#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
 pub struct YieldedPromise {
-    /// `data_id` identifying some yielded action receipt's awaited input data
+    /// The account on which the yielded promise was created
+    pub account_id: AccountId,
+    /// The `data_id` used to identify the awaited input data
     pub data_id: CryptoHash,
-    /// the block height before which the data must be submitted
+    /// The block height before which the data must be submitted
     pub expires_at: BlockHeight,
 }
 

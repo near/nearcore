@@ -17,7 +17,7 @@ use crate::config::safe_add_gas;
 type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
-type YieldedDataIds = Vec<CryptoHash>;
+type YieldedDataIds = Vec<(AccountId, CryptoHash)>;
 type ExternalDataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -126,8 +126,8 @@ impl ReceiptManager {
             actions: vec![],
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        self.action_receipts.push((receiver_id, new_receipt));
-        self.yielded_data_ids.push(input_data_id);
+        self.action_receipts.push((receiver_id.clone(), new_receipt));
+        self.yielded_data_ids.push((receiver_id, input_data_id));
         Ok(new_receipt_index)
     }
 

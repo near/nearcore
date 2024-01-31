@@ -783,6 +783,13 @@ pub fn set_yielded_promise(
         .expect("Next available index for yielded promise exceeded the integer limit");
 }
 
+pub fn set_yielded_promise_indices(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &YieldedPromiseIndices,
+) {
+    set(state_update, TrieKey::YieldedPromiseIndices, yielded_promise_indices);
+}
+
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
