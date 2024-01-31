@@ -534,6 +534,7 @@ pub mod epoch_info {
     use smart_default::SmartDefault;
     use std::collections::{BTreeMap, HashMap};
 
+    use crate::errors::EpochError;
     use crate::types::validator_stake::ValidatorStakeV1;
     use crate::{epoch_manager::RngSeed, rand::WeightedIndex};
     use near_primitives_core::{
@@ -1059,33 +1060,65 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
+        pub fn sample_chunk_producer(
+            &self,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> Result<ValidatorId, EpochError> {
             match &self {
                 Self::V1(v1) => {
                     let cp_settlement = &v1.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_id = shard_id as usize;
+                    let shard_cps = cp_settlement.get(shard_id);
+                    let shard_cps = shard_cps
+                        .ok_or(EpochError::new_sharding_error(shard_id, v1.epoch_height))?;
+                    let sample = (height as u64 % (shard_cps.len() as u64)) as usize;
+                    let cp = shard_cps.get(sample);
+                    cp.ok_or(EpochError::new_sampling_error(sample, shard_id, v1.epoch_height))
+                        .copied()
                 }
                 Self::V2(v2) => {
                     let cp_settlement = &v2.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_id = shard_id as usize;
+                    let shard_cps = cp_settlement.get(shard_id);
+                    let shard_cps = shard_cps
+                        .ok_or(EpochError::new_sharding_error(shard_id, v2.epoch_height))?;
+                    let sample = (height as u64 % (shard_cps.len() as u64)) as usize;
+                    let cp = shard_cps.get(sample);
+                    cp.ok_or(EpochError::new_sampling_error(sample, shard_id, v2.epoch_height))
+                        .copied()
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
-                    v3.chunk_producers_settlement[shard_id][sample]
+                    let sampler = v3.chunk_producers_sampler.get(shard_id);
+                    let sampler =
+                        sampler.ok_or(EpochError::new_sharding_error(shard_id, v3.epoch_height))?;
+                    let sample = sampler.sample(seed);
+                    let settlement = v3.chunk_producers_settlement.get(shard_id);
+                    let settlement = settlement
+                        .ok_or(EpochError::new_sharding_error(shard_id, v3.epoch_height))?;
+                    let cp = settlement.get(sample);
+                    cp.ok_or(EpochError::new_sampling_error(sample, shard_id, v3.epoch_height))
+                        .copied()
                 }
                 Self::V4(v4) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v4.chunk_producers_sampler[shard_id].sample(seed);
-                    v4.chunk_producers_settlement[shard_id][sample]
+                    let sampler = v4.chunk_producers_sampler.get(shard_id);
+                    let sampler =
+                        sampler.ok_or(EpochError::new_sharding_error(shard_id, v4.epoch_height))?;
+                    let sample = sampler.sample(seed);
+                    let settlement = v4.chunk_producers_settlement.get(shard_id);
+                    let settlement = settlement
+                        .ok_or(EpochError::new_sharding_error(shard_id, v4.epoch_height))?;
+                    let cp = settlement.get(sample);
+                    cp.ok_or(EpochError::new_sampling_error(sample, shard_id, v4.epoch_height))
+                        .copied()
                 }
             }
         }

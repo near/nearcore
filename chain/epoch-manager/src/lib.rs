@@ -1013,7 +1013,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
+        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id)?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1540,7 +1540,7 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> ValidatorId {
+    ) -> Result<ValidatorId, EpochError> {
         epoch_info.sample_chunk_producer(height, shard_id)
     }
 
@@ -1851,7 +1851,7 @@ impl EpochManager {
             let prev_epoch = prev_info.epoch_id().clone();
 
             let block_info = self.get_block_info(&cur_hash)?;
-            aggregator.update_tail(&block_info, &epoch_info, prev_height);
+            aggregator.update_tail(&block_info, &epoch_info, prev_height)?;
 
             if prev_hash == self.epoch_info_aggregator.last_block_hash {
                 // We’ve reached sync point of the old aggregator.  If old

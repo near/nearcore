@@ -861,6 +861,18 @@ pub enum EpochError {
     ChunkValidatorSelectionError(String),
 }
 
+impl EpochError {
+    pub fn new_sharding_error(shard_id: usize, epoch_height: u64) -> Self {
+        EpochError::ShardingError(format!("{shard_id} is out of bound for epoch {epoch_height}"))
+    }
+
+    pub fn new_sampling_error(sample: usize, shard_id: usize, epoch_height: u64) -> Self {
+        EpochError::ShardingError(format!(
+            "Sample {sample} is out of bound for shard {shard_id} in epoch {epoch_height}"
+        ))
+    }
+}
+
 impl std::error::Error for EpochError {}
 
 impl Display for EpochError {
