@@ -95,7 +95,7 @@ fn display_block_and_chunk_producers(
         let bp = epoch_info.get_validator(bp).account_id().clone();
         let cps: Vec<AccountId> = (0..num_shards)
             .map(|shard_id| {
-                let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                let cp = epoch_info.sample_chunk_producer(block_height, shard_id).unwrap();
                 let cp = epoch_info.get_validator(cp).account_id().clone();
                 cp
             })
@@ -259,7 +259,8 @@ fn display_validator_info(
                     .clone()
                     .map(|shard_id| (block_height, shard_id))
                     .filter(|&(block_height, shard_id)| {
-                        epoch_info.sample_chunk_producer(block_height, shard_id) == *validator_id
+                        epoch_info.sample_chunk_producer(block_height, shard_id).unwrap()
+                            == *validator_id
                     })
                     .collect::<Vec<(BlockHeight, ShardId)>>()
             })

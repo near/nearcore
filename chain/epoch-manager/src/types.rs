@@ -6,6 +6,7 @@ use near_primitives::block_header::BlockHeader;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
+use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -105,7 +106,7 @@ impl EpochInfoAggregator {
         block_info: &BlockInfo,
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
-    ) {
+    ) -> Result<(), EpochError> {
         // Step 1: update block tracer
         let block_info_height = block_info.height();
         for height in prev_block_height + 1..=block_info_height {
@@ -133,7 +134,7 @@ impl EpochInfoAggregator {
                 epoch_info,
                 prev_block_height + 1,
                 i as ShardId,
-            );
+            )?;
             let tracker = self.shard_tracker.entry(i as ShardId).or_insert_with(HashMap::new);
             tracker
                 .entry(chunk_validator_id)
@@ -157,6 +158,8 @@ impl EpochInfoAggregator {
         for proposal in block_info.proposals_iter() {
             self.all_proposals.entry(proposal.account_id().clone()).or_insert(proposal);
         }
+
+        Ok(())
     }
 
     /// Merges information from `other` aggregator into `self`.

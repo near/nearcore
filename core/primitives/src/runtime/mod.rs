@@ -1,5 +1,4 @@
 pub use near_primitives_core::runtime::fees;
-pub use near_primitives_core::runtime::*;
 
 pub mod apply_state;
 pub mod config;

@@ -279,11 +279,11 @@ impl ViewClientActor {
             let bp = epoch_info.get_validator(bp).account_id().clone();
             let cps: Vec<AccountId> = (0..num_shards)
                 .map(|shard_id| {
-                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id)?;
                     let cp = epoch_info.get_validator(cp).account_id().clone();
-                    cp
+                    Ok(cp)
                 })
-                .collect();
+                .collect::<Result<Vec<AccountId>, near_chain::Error>>()?;
             if account_id != bp && !cps.iter().any(|a| *a == account_id) {
                 if let Some(start) = start_block_of_window {
                     if block_height == last_block_of_epoch {

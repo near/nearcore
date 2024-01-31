@@ -527,7 +527,6 @@ where
     }
 }
 
-
 impl ColdMigrationStore for Store {
     fn iter_prefix_with_callback_for_cold(
         &self,
