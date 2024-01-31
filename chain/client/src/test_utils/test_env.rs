@@ -328,12 +328,21 @@ impl TestEnv {
     /// Panics if it doesn't happen.
     /// `chunk_hash_to_account_ids` maps hashes to the set of account ids that are expected to endorse the chunk.
     /// Note that we need to wait here as the chunk state witness is processed asynchronously.
+    /// Block producers don't send endorsements to themselves, so we don't wait for endorsements
+    /// sent by `excluded_block_producer`.
     pub fn wait_to_propagate_chunk_endorsements(
         &mut self,
         mut chunk_hash_to_account_ids: HashMap<ChunkHash, HashSet<AccountId>>,
+        excluded_block_producer: &AccountId,
     ) {
         let network_adapters = self.network_adapters.clone();
         let timer = Instant::now();
+
+        // Remove the account_id of excluded_block_producer, block producers don't send endorsements to themselves
+        for account_ids in chunk_hash_to_account_ids.values_mut() {
+            account_ids.remove(excluded_block_producer);
+        }
+
         loop {
             for network_adapter in &network_adapters {
                 network_adapter.handle_filtered(|request| match request {

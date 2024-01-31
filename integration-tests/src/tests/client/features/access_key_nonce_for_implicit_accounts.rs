@@ -21,8 +21,6 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
-use near_primitives_core::checked_feature;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -603,7 +601,11 @@ impl ChunkForwardingOptimizationTestData {
         }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { ref target, ref request, .. } => {
                 for part_ord in &request.part_ords {
@@ -633,6 +635,7 @@ impl ChunkForwardingOptimizationTestData {
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 debug!(
@@ -659,6 +662,7 @@ impl ChunkForwardingOptimizationTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
@@ -680,12 +684,9 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            NetworkRequests::ChunkStateWitness(_, _) => {}
-            NetworkRequests::ChunkEndorsement(_, _) => {}
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
@@ -693,17 +694,17 @@ impl ChunkForwardingOptimizationTestData {
         loop {
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                // Arc Clone is needed to appease the borrow checker (double &mut borrow in handle_filtered)
+                let network_adapter = self.env.network_adapters[i].clone();
+
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             if !any_message_processed {
                 break;
@@ -714,11 +715,6 @@ impl ChunkForwardingOptimizationTestData {
 
 #[test]
 fn test_chunk_forwarding_optimization() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        return;
-    }
-
     // Tests that a node should fully take advantage of forwarded chunk parts to never request
     // a part that was already forwarded to it. We simulate four validator nodes, with one
     // block producer and four chunk producers.
@@ -731,9 +727,6 @@ fn test_chunk_forwarding_optimization() {
             break;
         }
         debug!(target: "test", "======= Height {} ======", height + 1);
-        test.process_network_messages();
-        test.env.process_shards_manager_responses(0);
-
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -770,6 +763,18 @@ fn test_chunk_forwarding_optimization() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, block.header().height());
         }
+
+        test.process_network_messages();
+        test.env.process_shards_manager_responses(0);
+
+        // Propagating state witnesses and chunk endorsements is required for block production
+        let output = test.env.propagate_chunk_state_witnesses();
+        let next_block_producer =
+            test.env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
+        test.env.wait_to_propagate_chunk_endorsements(
+            output.chunk_hash_to_account_ids,
+            &next_block_producer,
+        );
     }
 
     // With very high probability we should've encountered some cases where forwarded parts
