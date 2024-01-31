@@ -33,7 +33,7 @@ impl Client {
         }
 
         let chunk_header = chunk.cloned_header();
-        let chunk_validators = self
+        let mut chunk_validators = self
             .epoch_manager
             .get_chunk_validator_assignments(
                 epoch_id,
@@ -48,23 +48,19 @@ impl Client {
             transactions_storage_proof,
         )?;
 
-        // TODO(#10508): Remove this block once we have better ways to handle chunk state witness and
-        // chunk endorsement related network messages.
         if let Some(my_signer) = self.validator_signer.clone() {
-            let validator_id = my_signer.validator_id();
-            if chunk_validators.contains(validator_id) {
-                // Endorse the chunk immediately, bypassing sending state witness
-                // to ourselves, because network can't send messages to ourselves.
-                // Also useful in tests where we don't have a good way to handle
-                // network messages and there's only a single client.
+            if chunk_validators.contains(my_signer.validator_id()) {
+                // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
                 send_chunk_endorsement_to_block_producers(
                     &chunk_header,
                     self.epoch_manager.as_ref(),
                     my_signer.as_ref(),
                     &self.network_adapter.clone().into_sender(),
-                    self.chunk_endorsement_tracker.chunk_endorsements.as_ref(),
+                    self.chunk_endorsement_tracker.as_ref(),
                 );
             }
+            // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
+            chunk_validators.retain(|validator| validator != my_signer.validator_id());
         };
 
         tracing::debug!(
