@@ -160,8 +160,9 @@ if __name__ == '__main__':
     print("Good validators: ", good_validators)
     print("Bad validators: ", bad_validators)
     TOTAL_STAKE = 1000000
-    bad_validator_stake = int(TOTAL_STAKE * args.bad_stake /
-                              (100 * len(bad_validators))) if len(bad_validators) > 0 else 0
+    bad_validator_stake = int(
+        TOTAL_STAKE * args.bad_stake /
+        (100 * len(bad_validators))) if len(bad_validators) > 0 else 0
     good_validator_stake = int(TOTAL_STAKE * (100 - args.bad_stake) /
                                (100 * len(good_validators)))
 
@@ -198,4 +199,3 @@ if __name__ == '__main__':
         mocknet.update_existing_config_file(all_nodes, override_config)
     mocknet.start_nodes(all_nodes)
     mocknet.wait_all_nodes_up(all_nodes)
-

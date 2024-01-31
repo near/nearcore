@@ -873,7 +873,6 @@ def create_and_upload_genesis_file_from_empty_genesis(
             }
         })
 
-
     load_testing_account = 'loadtester'
     logger.info(f'Adding load testing account {load_testing_account}')
     records.append({
