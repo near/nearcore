@@ -12,7 +12,6 @@ use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
 use near_primitives_core::account::{AccessKey, Account};
-use near_primitives_core::checked_feature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -26,11 +25,6 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[test]
 fn test_in_memory_trie_node_consistency() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        return;
-    }
-
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
     let validator_stake = 1000000 * ONE_NEAR;
@@ -309,6 +303,8 @@ fn run_chain_for_some_blocks_while_sending_money_around(
 
         let cur_block_producer = get_block_producer(&env, &tip, 1);
         let next_block_producer = get_block_producer(&env, &tip, 2);
+        let next_next_block_producer = get_block_producer(&env, &tip, 3);
+        let mut no_endorsements_block_producer = &next_block_producer;
         println!("Producing block at height {} by {}", tip.height + 1, cur_block_producer);
         let block = env.client(&cur_block_producer).produce_block(tip.height + 1).unwrap().unwrap();
 
@@ -332,6 +328,8 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             skip_block = Some(
                 env.client(&next_block_producer).produce_block(tip.height + 2).unwrap().unwrap(),
             );
+
+            no_endorsements_block_producer = &next_next_block_producer;
         }
 
         // Apply height + 1 block.
@@ -345,6 +343,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
                 env.clients[i].process_block_test(block.clone().into(), Provenance::NONE).unwrap();
             assert_eq!(blocks_processed, vec![*block.hash()]);
         }
+
         // Apply skip block if one was produced.
         if let Some(skip_block) = skip_block {
             for i in 0..env.clients.len() {
@@ -369,6 +368,18 @@ fn run_chain_for_some_blocks_while_sending_money_around(
         for j in 0..env.clients.len() {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
+
+        let output = env.propagate_chunk_state_witnesses();
+        // Wait for endorsements from everyone except the `no_endorsements_block_producer`, as block producers
+        // don't send endorsements to themselves.
+        // When there is a skip block, the `no_endorsements_block_producer` is set to `next_next_block_producer`.
+        // Endorsements are sent to the next N block producers, and `cur_block_producer` is different from
+        // `next_block_producer`, so we can be sure that `cur_block_producer` will send endorsements to
+        // `next_block_producer`. It is enough to only skip waiting for endorsements from `next_next_block_producer`.
+        env.wait_to_propagate_chunk_endorsements(
+            output.chunk_hash_to_account_ids,
+            no_endorsements_block_producer,
+        );
     }
 
     for (account, balance) in balances {
