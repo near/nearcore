@@ -9,8 +9,8 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
 
-use crate::chunk_validation::ChunkValidator;
 use crate::metrics;
+use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
@@ -93,7 +93,7 @@ impl ChunkInclusionTracker {
     pub fn prepare_chunk_headers_ready_for_inclusion(
         &mut self,
         prev_block_hash: &CryptoHash,
-        chunk_validator: &mut ChunkValidator,
+        endorsement_tracker: &mut ChunkEndorsementTracker,
     ) -> Result<(), Error> {
         let Some(entry) = self.prev_block_to_chunk_hash_ready.get(prev_block_hash) else {
             return Ok(());
@@ -102,7 +102,7 @@ impl ChunkInclusionTracker {
         for chunk_hash in entry.values() {
             let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
             chunk_info.signatures =
-                chunk_validator.get_chunk_endorsement_signatures(&chunk_info.chunk_header)?;
+                endorsement_tracker.get_chunk_endorsement_signatures(&chunk_info.chunk_header)?;
         }
         Ok(())
     }

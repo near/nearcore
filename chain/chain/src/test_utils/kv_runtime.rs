@@ -14,9 +14,6 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::block_header::{Approval, ApprovalInner};
-use near_primitives::chunk_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
-};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::EpochConfig;
@@ -29,6 +26,9 @@ use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
+use near_primitives::stateless_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+};
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
     SignedTransaction, TransferAction,

@@ -3,7 +3,6 @@ use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
 use near_primitives::checked_feature;
-use near_primitives::chunk_validation::ChunkValidatorAssignments;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
 use near_primitives::epoch_manager::{
@@ -13,6 +12,7 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
@@ -1133,6 +1133,7 @@ impl EpochManager {
         match self.get_epoch_info(&EpochId(*hash)) {
             Ok(_) => Ok(true),
             Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => {
                 warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");

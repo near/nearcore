@@ -483,7 +483,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_DONE: Lazy<IntCounterVec> = Lazy::ne
     try_create_int_counter_vec(
         "near_state_sync_external_parts_done_total",
         "Number of parts retrieved from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -492,7 +492,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_FAILED: Lazy<IntCounterVec> = Lazy::
     try_create_int_counter_vec(
         "near_state_sync_external_parts_failed_total",
         "Failed retrieval attempts from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -501,7 +501,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: Lazy<HistogramVec> = 
     try_create_histogram_vec(
         "near_state_sync_external_parts_request_delay_sec",
         "Latency of state part requests to external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
         Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
@@ -512,7 +512,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED: Lazy<IntCounterVec>
         try_create_int_counter_vec(
             "near_state_sync_external_parts_size_downloaded_bytes_total",
             "Bytes downloaded from an external storage",
-            &["shard_id"],
+            &["shard_id", "type"],
         )
         .unwrap()
     });
