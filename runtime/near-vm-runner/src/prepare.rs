@@ -25,6 +25,8 @@ pub fn prepare_contract(
     kind: VMKind,
 ) -> Result<Vec<u8>, PrepareError> {
     let prepare = config.limit_config.contract_prepare_version;
+
+    let _a = 1 + 2;
     // NearVM => ContractPrepareVersion::V2
     assert!(
         (kind != VMKind::NearVm) || (prepare == crate::logic::ContractPrepareVersion::V2),
