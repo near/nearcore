@@ -229,11 +229,11 @@ pub struct EndorsementStats {
 
 impl EndorsementStats {
     pub fn has_enough_stake(&self) -> bool {
-        self.endorsed_stake > self.required_stake()
+        self.endorsed_stake >= self.required_stake()
     }
 
     pub fn required_stake(&self) -> Balance {
-        self.total_stake * 2 / 3
+        self.total_stake * 2 / 3 + 1
     }
 }
 
