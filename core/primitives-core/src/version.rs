@@ -126,9 +126,8 @@ pub enum ProtocolFeature {
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
-    /// Enables chunk validation which is introduced with stateless validation.
-    /// NEP: https://github.com/near/NEPs/pull/509
-    ChunkValidation,
+    /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
+    StatelessValidationV0,
     EthImplicitAccounts,
 }
 
@@ -178,7 +177,7 @@ impl ProtocolFeature {
             | ProtocolFeature::SimpleNightshadeV2 => 64,
 
             // StatelessNet features
-            ProtocolFeature::ChunkValidation => 80,
+            ProtocolFeature::StatelessValidationV0 => 80,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
