@@ -224,7 +224,7 @@ pub struct EndorsementStats {
     pub total_stake: Balance,
     pub endorsed_stake: Balance,
     pub total_validators_count: usize,
-    pub endorced_validators_count: usize,
+    pub endorsed_validators_count: usize,
 }
 
 impl EndorsementStats {
@@ -267,18 +267,18 @@ impl ChunkValidatorAssignments {
     ) -> EndorsementStats {
         let mut total_stake = 0;
         let mut endorsed_stake = 0;
-        let mut endorced_validators_count = 0;
+        let mut endorsed_validators_count = 0;
         for (account_id, stake) in &self.assignments {
             total_stake += stake;
             if endorsed_chunk_validators.contains(account_id) {
                 endorsed_stake += stake;
-                endorced_validators_count += 1;
+                endorsed_validators_count += 1;
             }
         }
         EndorsementStats {
             total_stake,
             endorsed_stake,
-            endorced_validators_count,
+            endorsed_validators_count,
             total_validators_count: self.assignments.len(),
         }
     }
