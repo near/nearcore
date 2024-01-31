@@ -28,8 +28,8 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     init_integration_logger();
 
-    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
         return;
     }
 

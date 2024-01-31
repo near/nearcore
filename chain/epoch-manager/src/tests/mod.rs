@@ -2686,7 +2686,7 @@ fn test_verify_chunk_endorsements() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         println!("Test not applicable without ChunkValidation enabled");
         return;
     }
@@ -2753,7 +2753,7 @@ fn test_verify_chunk_state_witness() {
     use near_primitives::test_utils::create_test_signer;
     use std::str::FromStr;
 
-    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         println!("Test not applicable without ChunkValidation enabled");
         return;
     }

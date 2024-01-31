@@ -78,7 +78,7 @@ fn verify_contract_limits_upgrade(
 #[test]
 fn test_function_limit_change() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 

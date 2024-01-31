@@ -179,7 +179,7 @@ pub fn proposals_to_epoch_info(
             .collect()
     };
 
-    let validator_mandates = if checked_feature!("stable", ChunkValidation, next_version) {
+    let validator_mandates = if checked_feature!("stable", StatelessValidationV0, next_version) {
         // TODO(#10014) determine required stake per mandate instead of reusing seat price.
         // TODO(#10014) determine `min_mandates_per_shard`
         let min_mandates_per_shard = 0;
