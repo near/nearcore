@@ -1265,7 +1265,7 @@ impl Chain {
             }
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;
                 receipt_proofs_by_shard_id
@@ -2014,7 +2014,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if checked_feature!("stable", ChunkValidation, protocol_version) {
+        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
             self.validate_chunk_endorsements_in_block(&block)?;
         }
 
@@ -2873,6 +2873,21 @@ impl Chain {
         Ok(())
     }
 
+    pub fn transaction_validity_check<'a>(
+        &'a self,
+        prev_block_header: BlockHeader,
+    ) -> impl FnMut(&SignedTransaction) -> bool + 'a {
+        move |tx: &SignedTransaction| -> bool {
+            self.chain_store()
+                .check_transaction_validity_period(
+                    &prev_block_header,
+                    &tx.transaction.block_hash,
+                    self.transaction_validity_period,
+                )
+                .is_ok()
+        }
+    }
+
     /// For given pair of block headers and shard id, return information about
     /// block necessary for processing shard update.
     pub fn get_apply_chunk_block_context(
@@ -3230,7 +3245,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", ChunkValidation, next_protocol_version) {
+        if !checked_feature!("stable", StatelessValidationV0, next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }

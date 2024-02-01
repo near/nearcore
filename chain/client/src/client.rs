@@ -3,9 +3,10 @@
 
 use crate::adapter::ProcessTxResponse;
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
-use crate::chunk_validation::ChunkValidator;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
+use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_validator::ChunkValidator;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -29,6 +30,7 @@ use near_chain::orphan::OrphanMissingChunks;
 use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::format_hash;
+use near_chain::types::PrepareTransactionsChunkContext;
 use near_chain::types::{
     ChainConfig, LatestKnown, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
     StorageDataSource,
@@ -73,8 +75,7 @@ use near_primitives::sharding::{
 };
 use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::Gas;
-use near_primitives::types::StateRoot;
+use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
 use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
@@ -187,6 +188,8 @@ pub struct Client {
     /// Tracks current chunks that are ready to be included in block
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
+    /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
+    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
 
 impl Client {
@@ -338,11 +341,14 @@ impl Client {
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
+        let chunk_endorsement_tracker =
+            Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
         let chunk_validator = ChunkValidator::new(
             validator_signer.clone(),
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
+            chunk_endorsement_tracker.clone(),
         );
         Ok(Self {
             #[cfg(feature = "test_features")]
@@ -382,6 +388,7 @@ impl Client {
             last_time_sync_block_requested: None,
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
+            chunk_endorsement_tracker,
         })
     }
 
@@ -534,7 +541,7 @@ impl Client {
 
         self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
             &head.last_block_hash,
-            &mut self.chunk_validator,
+            self.chunk_endorsement_tracker.as_ref(),
         )?;
 
         self.produce_block_on(height, head.last_block_hash)
@@ -820,13 +827,8 @@ impl Client {
             .get_chunk_extra(&prev_block_hash, &shard_uid)
             .map_err(|err| Error::ChunkProducer(format!("No chunk extra available: {}", err)))?;
 
-        let prev_block_header = self.chain.get_block_header(&prev_block_hash)?;
-        let prepared_transactions = self.prepare_transactions(
-            shard_uid,
-            chunk_extra.gas_limit(),
-            *chunk_extra.state_root(),
-            &prev_block_header,
-        )?;
+        let prepared_transactions =
+            self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
         let prepared_transactions = PreparedTransactions {
             transactions: Self::maybe_insert_invalid_transaction(
@@ -947,55 +949,35 @@ impl Client {
     fn prepare_transactions(
         &mut self,
         shard_uid: ShardUId,
-        gas_limit: Gas,
-        state_root: StateRoot,
-        prev_block_header: &BlockHeader,
+        prev_block_hash: CryptoHash,
+        chunk_extra: &ChunkExtra,
     ) -> Result<PreparedTransactions, Error> {
-        let Self { chain, sharded_tx_pool, epoch_manager, runtime_adapter: runtime, .. } = self;
-
+        let Self { chain, sharded_tx_pool, runtime_adapter: runtime, .. } = self;
         let shard_id = shard_uid.shard_id as ShardId;
-        let next_epoch_id = epoch_manager.get_epoch_id_from_prev_block(prev_block_header.hash())?;
-        let protocol_version = epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
+        let prev_block_header = chain.get_block_header(&prev_block_hash)?;
 
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
-            let transaction_validity_period = chain.transaction_validity_period;
             let me = self
                 .validator_signer
                 .as_ref()
                 .map(|validator_signer| validator_signer.validator_id().clone());
             let record_storage = chain
-                .should_produce_state_witness_for_this_or_next_epoch(&me, prev_block_header)?;
+                .should_produce_state_witness_for_this_or_next_epoch(&me, &prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
-                state_root,
+                state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
                 record_storage,
             };
             runtime.prepare_transactions(
-                prev_block_header.next_gas_price(),
-                gas_limit,
-                &next_epoch_id,
-                shard_id,
                 storage_config,
-                // while the height of the next block that includes the chunk might not be prev_height + 1,
-                // passing it will result in a more conservative check and will not accidentally allow
-                // invalid transactions to be included.
-                prev_block_header.height() + 1,
+                PrepareTransactionsChunkContext { shard_id, gas_limit: chunk_extra.gas_limit() },
+                (&prev_block_header).into(),
                 &mut iter,
-                &mut |tx: &SignedTransaction| -> bool {
-                    chain
-                        .chain_store()
-                        .check_transaction_validity_period(
-                            prev_block_header,
-                            &tx.transaction.block_hash,
-                            transaction_validity_period,
-                        )
-                        .is_ok()
-                },
-                protocol_version,
+                &mut chain.transaction_validity_check(prev_block_header),
                 self.config.produce_chunk_add_transactions_time_limit.get(),
             )?
         } else {

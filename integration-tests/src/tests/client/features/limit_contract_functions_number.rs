@@ -9,11 +9,10 @@ use near_primitives::errors::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use near_primitives_core::checked_feature;
-use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
+#[allow(dead_code)]
 fn verify_contract_limits_upgrade(
     feature: ProtocolFeature,
     function_limit: u32,
@@ -75,13 +74,10 @@ fn verify_contract_limits_upgrade(
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+// Disabled in nightly due to https://github.com/near/nearcore/issues/8590
+#[cfg(not(feature = "nightly"))]
 #[test]
 fn test_function_limit_change() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        return;
-    }
-
     verify_contract_limits_upgrade(
         ProtocolFeature::LimitContractFunctionsNumber,
         100_000,
@@ -91,6 +87,8 @@ fn test_function_limit_change() {
 }
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
+// Disabled in nightly due to https://github.com/near/nearcore/issues/8590
+#[cfg(not(feature = "nightly"))]
 #[test]
 fn test_local_limit_change() {
     verify_contract_limits_upgrade(

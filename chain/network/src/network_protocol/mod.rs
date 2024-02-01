@@ -7,8 +7,8 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
-use near_primitives::chunk_validation::ChunkEndorsement;
-use near_primitives::chunk_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::ChunkStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 

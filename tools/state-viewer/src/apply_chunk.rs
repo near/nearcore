@@ -52,7 +52,7 @@ fn get_incoming_receipts(
 
     for chunk in chunks {
         if let Ok(partial_encoded_chunk) = chain_store.get_partial_chunk(&chunk.chunk_hash()) {
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 if shard_proof.to_shard_id == shard_id {
                     receipt_proofs.push(receipt.clone());

@@ -27,7 +27,7 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 #[test]
 fn test_in_memory_trie_node_consistency() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 

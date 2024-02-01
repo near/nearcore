@@ -154,3 +154,5 @@ pytest --timeout=120 sanity/resharding_error_handling.py
 pytest --timeout=120 sanity/resharding_error_handling.py --features nightly
 pytest --timeout=120 sanity/resharding_rpc_tx.py
 pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
+pytest --timeout=120 sanity/resharding_restart.py
+pytest --timeout=120 sanity/resharding_restart.py --features nightly

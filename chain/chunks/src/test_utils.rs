@@ -206,7 +206,7 @@ impl ChunkTestFixture {
         PartialEncodedChunk::V2(PartialEncodedChunkV2 {
             header: self.mock_chunk_header.clone(),
             parts,
-            receipts: Vec::new(),
+            prev_outgoing_receipts: Vec::new(),
         })
     }
 

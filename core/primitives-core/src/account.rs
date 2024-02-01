@@ -269,11 +269,9 @@ impl BorshDeserialize for Account {
         // either a sentinel or a balance.
         let sentinel_or_amount = u128::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
-            #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("account serialization sentinel must not occur before NEP-491 landed"),
-            ));
+            if cfg!(not(feature = "protocol_feature_nonrefundable_transfer_nep491")) {
+                panic!("account serialization sentinel must not occur before NEP-491 landed");
+            }
 
             // Account v2 or newer.
             let version_byte = u8::deserialize_reader(rd)?;
@@ -577,8 +575,9 @@ mod tests {
     /// It is impossible to construct V1 account with nonrefundable amount greater than 0.
     /// So the situation in this test is theoretical.
     ///
-    /// If a V1 account had nonrefundable amount greater than zero, it would fail during Borsh serialization.
+    /// If a V1 account had nonrefundable amount greater than zero, it would panic during Borsh serialization.
     #[test]
+    #[should_panic(expected = "Trying to serialize V1 account with nonrefundable amount")]
     fn test_account_v1_borsh_serialization_invalid_data() {
         let account = Account {
             amount: 1_000_000,
@@ -588,8 +587,7 @@ mod tests {
             storage_usage: 100,
             version: AccountVersion::V1,
         };
-        let serialized_account = borsh::to_vec(&account);
-        assert!(serialized_account.is_err());
+        let _ = borsh::to_vec(&account);
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]

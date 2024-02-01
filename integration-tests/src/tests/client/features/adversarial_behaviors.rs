@@ -126,7 +126,7 @@ impl AdversarialBehaviorTestData {
 #[test]
 fn test_non_adversarial_case() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 
@@ -333,7 +333,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 
@@ -347,7 +347,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 

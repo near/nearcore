@@ -703,7 +703,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!("stable", ChunkValidation, protocol_version) {
+                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,

@@ -703,6 +703,14 @@ pub fn get_received_data(
     get(trie, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
 }
 
+pub fn has_received_data(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(&TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+}
+
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id.clone(),
