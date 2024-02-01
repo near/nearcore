@@ -8,9 +8,9 @@ use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::ChunkEndorsement;
-use near_primitives::types::AccountId;
+use near_primitives::types::{AccountId, ShardId};
 
-use crate::Client;
+use crate::{metrics, Client};
 
 // This is the number of unique chunks for which we would track the chunk endorsements.
 // Ideally, we should not be processing more than num_shards chunks at a time.
@@ -101,6 +101,11 @@ impl ChunkEndorsementTracker {
             return Ok(Some(vec![]));
         }
 
+        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
+            &epoch_id,
+            chunk_header.shard_id(),
+            chunk_header.height_created(),
+        )?;
         // Get the chunk_endorsements for the chunk from our cache.
         // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
         // We can safely rely on the the following details
@@ -109,19 +114,26 @@ impl ChunkEndorsementTracker {
         let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_enforsements found in our cache.
+            record_endorsement_metrics(
+                chunk_header.shard_id(),
+                0.0,
+                chunk_validator_assignments.assignments().len(),
+            );
             return Ok(None);
         };
 
-        let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
-            &epoch_id,
+        let endorsement_stats = chunk_validator_assignments
+            .compute_endorsement_stats(&chunk_endorsements.keys().collect());
+        record_endorsement_metrics(
             chunk_header.shard_id(),
-            chunk_header.height_created(),
-        )?;
+            endorsement_stats.endorsed_stake as f64 / endorsement_stats.total_stake as f64,
+            endorsement_stats
+                .total_validators_count
+                .saturating_sub(endorsement_stats.endorsed_validators_count),
+        );
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
-        if !chunk_validator_assignments
-            .does_chunk_have_enough_stake(chunk_endorsements.keys().collect())
-        {
+        if !endorsement_stats.has_enough_stake() {
             return Ok(None);
         }
 
@@ -139,4 +151,19 @@ impl ChunkEndorsementTracker {
 
         Ok(Some(signatures))
     }
+}
+
+fn record_endorsement_metrics(
+    shard_id: ShardId,
+    endorsed_stake_ratio: f64,
+    missing_endorsement_count: usize,
+) {
+    let shard_label = shard_id.to_string();
+    let label_values = &[shard_label.as_ref()];
+    metrics::BLOCK_PRODUCER_ENDORSED_STAKE_RATIO
+        .with_label_values(label_values)
+        .observe(endorsed_stake_ratio);
+    metrics::BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT
+        .with_label_values(label_values)
+        .observe(missing_endorsement_count as f64);
 }
