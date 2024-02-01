@@ -302,7 +302,11 @@ impl TestEnv {
                     // Process chunk state witness for each client.
                     for account_id in account_ids.iter() {
                         self.client(account_id)
-                            .process_chunk_state_witness(state_witness.clone(), PeerId::random())
+                            .process_chunk_state_witness(
+                                state_witness.clone(),
+                                PeerId::random(),
+                                None,
+                            )
                             .unwrap();
                     }
 
