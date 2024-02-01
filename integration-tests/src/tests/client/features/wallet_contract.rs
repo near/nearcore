@@ -13,10 +13,13 @@ use near_primitives::transaction::{
     TransferAction,
 };
 use near_primitives::utils::derive_eth_implicit_account_id;
-use near_primitives::views::{FinalExecutionStatus, QueryRequest, QueryResponseKind};
+use near_primitives::views::{
+    FinalExecutionStatus, QueryRequest, QueryResponse, QueryResponseKind,
+};
 use near_primitives_core::{
     account::AccessKey, checked_feature, types::BlockHeight, version::PROTOCOL_VERSION,
 };
+use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
 use nearcore::{config::GenesisExt, test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
@@ -43,6 +46,24 @@ fn check_tx_processing(
     let final_outcome = env.clients[0].chain.get_final_transaction_result(&tx_hash).unwrap();
     assert_matches!(final_outcome.status, FinalExecutionStatus::SuccessValue(_));
     next_height
+}
+
+fn view_request(env: &TestEnv, request: QueryRequest) -> QueryResponse {
+    let head = env.clients[0].chain.head().unwrap();
+    let head_block = env.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+    env.clients[0]
+        .runtime_adapter
+        .query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &request,
+        )
+        .unwrap()
 }
 
 /// Tests that ETH-implicit account is created correctly, with Wallet Contract hash.
@@ -80,7 +101,7 @@ fn test_eth_implicit_account_creation() {
     // Verify the ETH-implicit account has zero balance and appropriate code hash.
     // Check that the account storage fits within zero balance account limit.
     let request = QueryRequest::ViewAccount { account_id: eth_implicit_account_id.clone() };
-    match env.query_view(request).unwrap().kind {
+    match view_request(&env, request).kind {
         QueryResponseKind::ViewAccount(view) => {
             assert_eq!(view.amount, 0);
             assert_eq!(view.code_hash, *magic_bytes.hash());
@@ -91,7 +112,7 @@ fn test_eth_implicit_account_creation() {
 
     // Verify that contract code deployed to the ETH-implicit account is near[wallet contract hash].
     let request = QueryRequest::ViewCode { account_id: eth_implicit_account_id };
-    match env.query_view(request).unwrap().kind {
+    match view_request(&env, request).kind {
         QueryResponseKind::ViewCode(view) => {
             let contract_code = ContractCode::new(view.code, None);
             assert_eq!(contract_code.hash(), magic_bytes.hash());

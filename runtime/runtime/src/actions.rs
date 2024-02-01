@@ -412,7 +412,7 @@ pub(crate) fn action_nonrefundable_storage_transfer(
 ) -> Result<(), StorageError> {
     account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState(
-            "Non-refundable account balance integer overflow".to_string(),
+            "non-refundable account balance integer overflow".to_string(),
         )
     })?);
     Ok(())

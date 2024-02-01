@@ -76,6 +76,8 @@ impl Account {
     /// differentiate AccountVersion V1 from newer versions.
     const SERIALIZATION_SENTINEL: u128 = u128::MAX;
 
+    // TODO(nonrefundable) Consider using consider some additional newtypes
+    // or a different way to write down constructor (e.g. builder pattern.)
     pub fn new(
         amount: Balance,
         locked: Balance,
@@ -180,10 +182,6 @@ impl Account {
 /// These accounts are serialized in merklized state.
 /// We keep old accounts in the old format to avoid migration of the MPT.
 #[derive(BorshSerialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Debug, Clone)]
-#[cfg_attr(
-    not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
-    derive(BorshDeserialize)
-)]
 struct LegacyAccount {
     amount: Balance,
     locked: Balance,
@@ -233,14 +231,14 @@ impl<'de> serde::Deserialize<'de> for Account {
                 let version = match account_data.version {
                     Some(version) => version,
                     None => {
-                        return Err(serde::de::Error::custom("Missing `version` field"));
+                        return Err(serde::de::Error::custom("missing `version` field"));
                     }
                 };
 
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 if version < AccountVersion::V2 && nonrefundable > 0 {
                     return Err(serde::de::Error::custom(
-                        "Non-refundable positive amount exists for account version older than V2",
+                        "non-refundable positive amount exists for account version older than V2",
                     ));
                 }
 
@@ -271,13 +269,19 @@ impl BorshDeserialize for Account {
         // either a sentinel or a balance.
         let sentinel_or_amount = u128::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
+            #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("account serialization sentinel must not occur before NEP-491 landed"),
+            ));
+
             // Account v2 or newer.
             let version_byte = u8::deserialize_reader(rd)?;
             let version = AccountVersion::try_from(version_byte).map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!(
-                        "Error deserializing account: invalid account version {}",
+                        "error deserializing account: invalid account version {}",
                         version_byte
                     ),
                 )
@@ -286,7 +290,7 @@ impl BorshDeserialize for Account {
             if version < AccountVersion::V2 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Expected account version 2 or higher, got {:?}", version),
+                    format!("expected account version 2 or higher, got {:?}", version),
                 ));
             }
             let account = AccountV2::deserialize_reader(rd)?;
@@ -341,10 +345,7 @@ impl BorshSerialize for Account {
                 // of unique binary representation.
                 AccountVersion::V1 => {
                     if self.nonrefundable > 0 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Trying to serialize V1 account with nonrefundable amount"),
-                        ));
+                        panic!("Trying to serialize V1 account with nonrefundable amount");
                     }
                     legacy_account.serialize(writer)
                 }

@@ -197,7 +197,7 @@ fn exec_transfers(
         return tx_result;
     }
 
-    let gas_cost = outcome.gas_cost();
+    let gas_cost = outcome.tokens_burnt();
     assert_eq!(
         sender_pre_balance
             - config.transfers.regular_amount
