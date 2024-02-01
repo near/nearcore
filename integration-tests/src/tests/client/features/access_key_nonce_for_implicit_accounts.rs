@@ -768,13 +768,7 @@ fn test_chunk_forwarding_optimization() {
         test.env.process_shards_manager_responses(0);
 
         // Propagating state witnesses and chunk endorsements is required for block production
-        let output = test.env.propagate_chunk_state_witnesses();
-        let next_block_producer =
-            test.env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
-        test.env.wait_to_propagate_chunk_endorsements(
-            output.chunk_hash_to_account_ids,
-            &next_block_producer,
-        );
+        test.env.propagate_chunk_state_witnesses_and_endorsements();
     }
 
     // With very high probability we should've encountered some cases where forwarded parts
