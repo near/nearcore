@@ -702,7 +702,6 @@ impl StateSync {
         )?;
 
         if all_done {
-            chain.process_snapshot_after_resharding()?;
             Ok(StateSyncResult::Completed)
         } else {
             Ok(StateSyncResult::InProgress)
