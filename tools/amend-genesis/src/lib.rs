@@ -342,25 +342,25 @@ pub fn amend_genesis(
     }
 
     genesis.config.total_supply = total_supply;
-    // TODO: give an option to set this
-    genesis.config.num_block_producer_seats = validators.len() as NumSeats;
+    if let Some(n) = genesis_changes.num_seats {
+        genesis.config.num_block_producer_seats = n;
+    } else {
+        genesis.config.num_block_producer_seats = validators.len() as NumSeats;
+    }
     // here we have already checked that there are no duplicate validators in wanted_records()
     genesis.config.validators = validators;
     if let Some(chain_id) = &genesis_changes.chain_id {
         genesis.config.chain_id = chain_id.clone();
     }
-    if let Some(n) = genesis_changes.num_seats {
-        genesis.config.num_block_producer_seats = n;
-    }
     if let Some(shard_layout) = shard_layout {
-        genesis.config.avg_hidden_validator_seats_per_shard =
-            shard_layout.shard_ids().into_iter().map(|_| 0).collect();
-        genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
-            shard_layout.shard_ids().count() as NumShards,
-            genesis.config.num_block_producer_seats,
-        );
         genesis.config.shard_layout = shard_layout;
     }
+    genesis.config.avg_hidden_validator_seats_per_shard =
+        genesis.config.shard_layout.shard_ids().into_iter().map(|_| 0).collect();
+    genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
+        genesis.config.shard_layout.shard_ids().count() as NumShards,
+        genesis.config.num_block_producer_seats,
+    );
     if let Some(v) = genesis_changes.protocol_version {
         genesis.config.protocol_version = v;
     }
