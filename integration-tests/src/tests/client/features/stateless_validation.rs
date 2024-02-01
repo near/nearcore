@@ -1,3 +1,5 @@
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
@@ -14,7 +16,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountInfo, EpochId};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
@@ -249,4 +251,68 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     let height = head.height + height_offset;
     let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
     block_producer
+}
+
+#[test]
+fn test_protocol_upgrade_81() {
+    init_integration_logger();
+
+    if !checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, PROTOCOL_VERSION) {
+        println!("Test not applicable without LowerValidatorKickoutPercentForDebugging enabled");
+        return;
+    }
+    for is_statelessnet in [true, false] {
+        let validator_stake = 1000000 * ONE_NEAR;
+        let num_accounts = 9;
+        let accounts = (0..num_accounts)
+            .map(|i| format!("account{}", i).parse().unwrap())
+            .collect::<Vec<AccountId>>();
+        let num_validators = 8;
+        // Split accounts into 4 shards, so that each shard will store two
+        // validator accounts.
+        let shard_layout = ShardLayout::v1(
+            vec!["account2", "account4", "account6"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            None,
+            1,
+        );
+        let num_shards = shard_layout.shard_ids().count();
+        let genesis_config = GenesisConfig {
+            protocol_version: PROTOCOL_VERSION,
+            chain_id: if is_statelessnet {
+                "statelessnet".to_string()
+            } else {
+                "mocknet".to_string()
+            },
+            shard_layout,
+            validators: accounts
+                .iter()
+                .take(num_validators)
+                .map(|account_id| AccountInfo {
+                    account_id: account_id.clone(),
+                    public_key: create_test_signer(account_id.as_str()).public_key(),
+                    amount: validator_stake,
+                })
+                .collect(),
+            // The genesis requires this, so set it to something arbitrary.
+            protocol_treasury_account: accounts[num_validators].clone(),
+            num_block_producer_seats: num_validators as NumSeats,
+            minimum_validators_per_shard: num_validators as NumSeats,
+            num_block_producer_seats_per_shard: vec![8; num_shards],
+            block_producer_kickout_threshold: 90,
+            chunk_producer_kickout_threshold: 90,
+            ..Default::default()
+        };
+        let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+        let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
+        if is_statelessnet {
+            assert_eq!(config.block_producer_kickout_threshold, 50);
+            assert_eq!(config.chunk_producer_kickout_threshold, 50);
+        } else {
+            assert_eq!(config.block_producer_kickout_threshold, 90);
+            assert_eq!(config.chunk_producer_kickout_threshold, 90);
+        }
+    }
 }
