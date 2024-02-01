@@ -796,7 +796,7 @@ def create_and_upload_genesis_file_from_empty_genesis(
     RPC_BALANCE = (10**1) * ONE_NEAR
     TREASURY_ACCOUNT = 'test.near'
     TREASURY_BALANCE = (10**7) * ONE_NEAR
-    LOAD_TESTER_BALANCE = (10**4) * ONE_NEAR
+    LOAD_TESTER_BALANCE = (10**8) * ONE_NEAR
 
     SKYWARD_CONTRACT_BALANCE = (10**6) * ONE_NEAR
     TOKEN1_BALANCE = (10**6) * ONE_NEAR
@@ -872,33 +872,31 @@ def create_and_upload_genesis_file_from_empty_genesis(
                 }
             }
         })
-        for i in range(NUM_ACCOUNTS):
-            load_testing_account = load_testing_account_id(
-                validator.account_id, i)
-            logger.info(f'Adding load testing account {load_testing_account}')
-            records.append({
-                'Account': {
-                    'account_id': load_testing_account,
-                    'account': {
-                        'amount': str(LOAD_TESTER_BALANCE),
-                        'locked': str(0),
-                        'code_hash': '11111111111111111111111111111111',
-                        'storage_usage': 0,
-                        'version': 'V1'
-                    }
-                }
-            })
-            records.append({
-                'AccessKey': {
-                    'account_id': load_testing_account,
-                    'public_key': PUBLIC_KEY,
-                    'access_key': {
-                        'nonce': 0,
-                        'permission': 'FullAccess'
-                    }
-                }
-            })
 
+    load_testing_account = 'loadtester'
+    logger.info(f'Adding load testing account {load_testing_account}')
+    records.append({
+        'Account': {
+            'account_id': load_testing_account,
+            'account': {
+                'amount': str(LOAD_TESTER_BALANCE),
+                'locked': str(0),
+                'code_hash': '11111111111111111111111111111111',
+                'storage_usage': 0,
+                'version': 'V1'
+            }
+        }
+    })
+    records.append({
+        'AccessKey': {
+            'account_id': load_testing_account,
+            'public_key': PUBLIC_KEY,
+            'access_key': {
+                'nonce': 0,
+                'permission': 'FullAccess'
+            }
+        }
+    })
     genesis_config['validators'] = []
     seats = compute_seats(stakes, num_seats)
     seats_taken = 0

@@ -8,6 +8,7 @@ use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
+use near_primitives::sharding::ShardChunkHeader;
 use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
 use num_rational::Rational32;
@@ -335,6 +336,32 @@ pub enum PrepareTransactionsLimit {
     ReceiptCount,
 }
 
+pub struct PrepareTransactionsBlockContext {
+    pub next_gas_price: Balance,
+    pub height: BlockHeight,
+    pub block_hash: CryptoHash,
+}
+
+impl From<&BlockHeader> for PrepareTransactionsBlockContext {
+    fn from(header: &BlockHeader) -> Self {
+        Self {
+            next_gas_price: header.next_gas_price(),
+            height: header.height(),
+            block_hash: *header.hash(),
+        }
+    }
+}
+pub struct PrepareTransactionsChunkContext {
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+}
+
+impl From<&ShardChunkHeader> for PrepareTransactionsChunkContext {
+    fn from(header: &ShardChunkHeader) -> Self {
+        Self { shard_id: header.shard_id(), gas_limit: header.gas_limit() }
+    }
+}
+
 /// Bridge between the chain and the runtime.
 /// Main function is to update state given transactions.
 /// Additionally handles validators.
@@ -392,15 +419,11 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        gas_price: Balance,
-        gas_limit: Gas,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
         storage: RuntimeStorageConfig,
-        next_block_height: BlockHeight,
+        chunk: PrepareTransactionsChunkContext,
+        prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error>;
 

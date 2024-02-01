@@ -28,8 +28,8 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     init_integration_logger();
 
-    if !checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
-        println!("Test not applicable without ChunkValidation enabled");
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
         return;
     }
 
@@ -159,7 +159,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
 
         let block_producer = get_block_producer(&env, &tip, 1);
         tracing::debug!(
-            target: "chunk_validation",
+            target: "stateless_validation",
             "Producing block at height {} by {}", tip.height + 1, block_producer
         );
         let block = env.client(&block_producer).produce_block(tip.height + 1).unwrap().unwrap();
@@ -168,7 +168,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         for i in 0..env.clients.len() {
             let validator_id = env.get_client_id(i);
             tracing::debug!(
-                target: "chunk_validation",
+                target: "stateless_validation",
                 "Applying block at height {} at {}", block.header().height(), validator_id
             );
             let blocks_processed = if rng.gen_bool(prob_missing_chunk) {
@@ -189,8 +189,14 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         // First propagate chunk state witnesses, then chunk endorsements.
         // Note that validation of chunk state witness is done asynchonously
         // which is why it's important to pass the expected set of chunk endorsements to wait for.
+        // We don't wait for endorsements from the next block producer, as block producers don't
+        // send endorsements to themselves.
         let output = env.propagate_chunk_state_witnesses();
-        env.wait_to_propagate_chunk_endorsements(output.chunk_hash_to_account_ids);
+        let next_block_producer = get_block_producer(&env, &tip, 2);
+        env.wait_to_propagate_chunk_endorsements(
+            output.chunk_hash_to_account_ids,
+            &next_block_producer,
+        );
 
         found_differing_post_state_root_due_to_state_transitions |=
             output.found_differing_post_state_root_due_to_state_transitions;

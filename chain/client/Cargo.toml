@@ -43,6 +43,7 @@ tracing.workspace = true
 yansi.workspace = true
 
 near-async.workspace = true
+near-cache.workspace = true
 near-chain-configs.workspace = true
 near-chain-primitives.workspace = true
 near-chain.workspace = true

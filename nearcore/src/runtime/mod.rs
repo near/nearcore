@@ -6,8 +6,8 @@ use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
 use near_chain::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
-    PrepareTransactionsLimit, PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource, Tip,
+    PrepareTransactionsBlockContext, PrepareTransactionsChunkContext, PrepareTransactionsLimit,
+    PreparedTransactions, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource, Tip,
 };
 use near_chain::Error;
 use near_chain_configs::{
@@ -708,19 +708,22 @@ impl RuntimeAdapter for NightshadeRuntime {
 
     fn prepare_transactions(
         &self,
-        gas_price: Balance,
-        gas_limit: Gas,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
         storage_config: RuntimeStorageConfig,
-        next_block_height: BlockHeight,
+        chunk: PrepareTransactionsChunkContext,
+        prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
     ) -> Result<PreparedTransactions, Error> {
         let start_time = std::time::Instant::now();
-        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, epoch_id)?;
+        let PrepareTransactionsChunkContext { shard_id, gas_limit } = chunk;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&prev_block.block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let shard_uid = self.get_shard_uid_from_epoch_id(shard_id, &epoch_id)?;
+        // While the height of the next block that includes the chunk might not be prev_height + 1,
+        // using it will result in a more conservative check and will not accidentally allow
+        // invalid transactions to be included.
+        let next_block_height = prev_block.height + 1;
 
         let mut trie = match storage_config.source {
             StorageDataSource::Db => {
@@ -749,7 +752,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         };
         let mut num_checked_transactions = 0;
 
-        let runtime_config = self.runtime_config_store.get_config(current_protocol_version);
+        let runtime_config = self.runtime_config_store.get_config(protocol_version);
 
         // To avoid limiting the throughput of the network, we want to include enough receipts to
         // saturate the capacity of the chunk even in case when all of these receipts end up using
@@ -820,11 +823,11 @@ impl RuntimeAdapter for NightshadeRuntime {
                     match verify_and_charge_transaction(
                         runtime_config,
                         &mut state_update,
-                        gas_price,
+                        prev_block.next_gas_price,
                         &tx,
                         false,
                         Some(next_block_height),
-                        current_protocol_version,
+                        protocol_version,
                     ) {
                         Ok(verification_result) => {
                             tracing::trace!(target: "runtime", tx=?tx.get_hash(), "including transaction that passed validation");

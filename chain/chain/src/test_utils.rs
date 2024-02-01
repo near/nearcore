@@ -307,7 +307,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                             chunk_producer,
                             partial_chunk.parts().iter().map(|x| x.part_ord).collect::<Vec<_>>(),
                             partial_chunk
-                                .receipts()
+                                .prev_outgoing_receipts()
                                 .iter()
                                 .map(|x| format!("{} => {}", x.0.len(), x.1.to_shard_id))
                                 .collect::<Vec<_>>(),

@@ -1,4 +1,5 @@
 use crate::trie::mem::arena::{ArenaSlice, ArenaSliceMut};
+use crate::trie::OptimizedValueRef;
 
 use super::encoding::BorshFixedSize;
 use super::FlexibleDataHeader;
@@ -100,6 +101,10 @@ impl<'a> ValueView<'a> {
             }
             Self::Inlined(data) => FlatStateValue::Inlined(data.raw_slice().to_vec()),
         }
+    }
+
+    pub(crate) fn to_optimized_value_ref(&self) -> OptimizedValueRef {
+        OptimizedValueRef::from_flat_value(self.to_flat_value())
     }
 
     pub fn len(&self) -> usize {

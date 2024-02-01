@@ -19,12 +19,12 @@ use near_o11y::testonly::TracingCapture;
 use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
-use near_primitives::chunk_validation::ChunkStateWitness;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
@@ -328,12 +328,21 @@ impl TestEnv {
     /// Panics if it doesn't happen.
     /// `chunk_hash_to_account_ids` maps hashes to the set of account ids that are expected to endorse the chunk.
     /// Note that we need to wait here as the chunk state witness is processed asynchronously.
+    /// Block producers don't send endorsements to themselves, so we don't wait for endorsements
+    /// sent by `excluded_block_producer`.
     pub fn wait_to_propagate_chunk_endorsements(
         &mut self,
         mut chunk_hash_to_account_ids: HashMap<ChunkHash, HashSet<AccountId>>,
+        excluded_block_producer: &AccountId,
     ) {
         let network_adapters = self.network_adapters.clone();
         let timer = Instant::now();
+
+        // Remove the account_id of excluded_block_producer, block producers don't send endorsements to themselves
+        for account_ids in chunk_hash_to_account_ids.values_mut() {
+            account_ids.remove(excluded_block_producer);
+        }
+
         loop {
             for network_adapter in &network_adapters {
                 network_adapter.handle_filtered(|request| match request {

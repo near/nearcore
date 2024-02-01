@@ -3568,6 +3568,7 @@ dependencies = [
  "lru",
  "near-actix-test-utils",
  "near-async",
+ "near-cache",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
