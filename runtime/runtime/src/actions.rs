@@ -1011,6 +1011,7 @@ pub(crate) fn check_account_existence(
                 );
             }
         }
+        // TODO(nonrefundable) Merge with arm above on stabilization.
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         Action::NonrefundableStorageTransfer(_) => {
             if account.is_none() {

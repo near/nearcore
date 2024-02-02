@@ -270,7 +270,10 @@ impl BorshDeserialize for Account {
         let sentinel_or_amount = u128::deserialize_reader(rd)?;
         if sentinel_or_amount == Account::SERIALIZATION_SENTINEL {
             if cfg!(not(feature = "protocol_feature_nonrefundable_transfer_nep491")) {
-                panic!("account serialization sentinel must not occur before NEP-491 landed");
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("account serialization sentinel not allowed for AccountV1"),
+                ));
             }
 
             // Account v2 or newer.
