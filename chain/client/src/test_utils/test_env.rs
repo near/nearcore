@@ -342,7 +342,6 @@ impl TestEnv {
                     account_id,
                     endorsement,
                 )) => {
-                    // Remove endorsement.account_id on receiving endorsement.
                     self.client(&account_id).process_chunk_endorsement(endorsement).unwrap();
 
                     None
