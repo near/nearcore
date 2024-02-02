@@ -41,7 +41,6 @@ debug: neard-debug
 	cargo build -p genesis-populate
 	$(MAKE) sandbox
 
-
 perf-release: NEAR_RELEASE_BUILD=release
 perf-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats
@@ -89,6 +88,10 @@ sandbox-release: neard-sandbox-release
 
 neard-sandbox-release:
 	cargo build -p neard --features sandbox --release
+
+statelessnet-release: NEAR_RELEASE_BUILD=release
+statelessnet-release:
+	cargo build -p neard --release --features statelessnet_protocol
 
 
 .PHONY: docker-nearcore docker-nearcore-nightly release neard debug
