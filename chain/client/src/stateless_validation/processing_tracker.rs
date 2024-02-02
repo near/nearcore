@@ -42,7 +42,7 @@ pub struct ProcessingDoneWaiter(Arc<OnceCell<()>>);
 impl ProcessingDoneWaiter {
     /// Wait until the processing is finished.
     pub fn wait(self) {
-        let _wait_res: &() = self.0.wait();
+        self.0.wait();
     }
 }
 
