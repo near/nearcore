@@ -62,13 +62,18 @@ impl AdversarialBehaviorTestData {
         AdversarialBehaviorTestData { num_validators, env }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { .. } => {
                 self.env.process_partial_encoded_chunk_request(
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.env.shards_manager(&account_id).send(
@@ -76,24 +81,15 @@ impl AdversarialBehaviorTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            NetworkRequests::Challenge(_) => {
-                // challenges not enabled.
-            }
-            NetworkRequests::ChunkStateWitness(_, _) => {
-                // TODO(#10265).
-            }
-            NetworkRequests::ChunkEndorsement(_, _) => {
-                // TODO(#10265).
-            }
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
@@ -101,17 +97,15 @@ impl AdversarialBehaviorTestData {
         loop {
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                let network_adapter = self.env.network_adapters[i].clone();
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             for i in 0..self.env.clients.len() {
                 any_message_processed |= self.env.process_shards_manager_responses(i);
