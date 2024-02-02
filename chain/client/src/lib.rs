@@ -11,7 +11,7 @@ pub use near_client_primitives::types::{
 pub use crate::adapter::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
-pub use crate::client::Client;
+pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
@@ -22,13 +22,14 @@ pub use near_client_primitives::debug::DebugStatus;
 
 pub mod adapter;
 pub mod adversarial;
-mod chunk_validation;
+mod chunk_inclusion_tracker;
 mod client;
 mod client_actor;
 mod config_updater;
 pub mod debug;
 mod info;
 mod metrics;
+mod stateless_validation;
 pub mod sync;
 mod sync_jobs_actor;
 pub mod test_utils;

@@ -344,7 +344,8 @@ pub(super) struct InitCmd {
 fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
         && !cfg!(feature = "nightly")
-        && !cfg!(feature = "nightly_protocol");
+        && !cfg!(feature = "nightly_protocol")
+        && !cfg!(feature = "statelessnet_protocol");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {

@@ -11,7 +11,23 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 
-pub use near_vm_runner::logic::DataReceiver;
+/// The outgoing (egress) data which will be transformed
+/// to a `DataReceipt` to be sent to a `receipt.receiver`
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct DataReceiver {
+    pub data_id: CryptoHash,
+    pub receiver_id: AccountId,
+}
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.

@@ -31,11 +31,11 @@ nightly_protocol = [
   "node-runtime/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
 ]
 default = []

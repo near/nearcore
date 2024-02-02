@@ -38,7 +38,6 @@ nightly_protocol = [
   "nearcore/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-epoch-manager/nightly",
@@ -46,4 +45,5 @@ nightly = [
   "near-store/nightly",
   "near-vm-runner/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
 ]

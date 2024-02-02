@@ -7,11 +7,11 @@ use near_network::types::{
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
@@ -138,7 +138,11 @@ pub enum ProcessTxResponse {
 
 #[derive(actix::Message, Debug, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
+pub struct ChunkStateWitnessMessage {
+    pub witness: ChunkStateWitness,
+    pub peer_id: PeerId,
+    pub attempts_remaining: usize,
+}
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
@@ -343,8 +347,15 @@ impl near_network::client::Client for Adapter {
         }
     }
 
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness) {
-        match self.client_addr.send(ChunkStateWitnessMessage(witness).with_span_context()).await {
+    async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId) {
+        match self
+            .client_addr
+            .send(
+                ChunkStateWitnessMessage { witness, peer_id, attempts_remaining: 5 }
+                    .with_span_context(),
+            )
+            .await
+        {
             Ok(()) => {}
             Err(err) => tracing::error!("mailbox error: {err}"),
         }

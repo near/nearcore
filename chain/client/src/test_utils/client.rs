@@ -5,6 +5,7 @@
 use std::mem::swap;
 use std::sync::{Arc, RwLock};
 
+use crate::client::ProduceChunkResult;
 use crate::Client;
 use actix_rt::{Arbiter, System};
 use itertools::Itertools;
@@ -16,9 +17,9 @@ use near_client_primitives::types::Error;
 use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::merkle::{merklize, MerklePath, PartialMerkleTree};
-use near_primitives::receipt::Receipt;
+use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::MaybeValidated;
@@ -87,7 +88,7 @@ fn create_chunk_on_height_for_shard(
     client: &mut Client,
     next_height: BlockHeight,
     shard_id: ShardId,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+) -> ProduceChunkResult {
     let last_block_hash = client.chain.head().unwrap().last_block_hash;
     let last_block = client.chain.get_block(&last_block_hash).unwrap();
     client
@@ -103,17 +104,14 @@ fn create_chunk_on_height_for_shard(
         .unwrap()
 }
 
-pub fn create_chunk_on_height(
-    client: &mut Client,
-    next_height: BlockHeight,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>) {
+pub fn create_chunk_on_height(client: &mut Client, next_height: BlockHeight) -> ProduceChunkResult {
     create_chunk_on_height_for_shard(client, next_height, 0)
 }
 
 pub fn create_chunk_with_transactions(
     client: &mut Client,
     transactions: Vec<SignedTransaction>,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (ProduceChunkResult, Block) {
     create_chunk(client, Some(transactions), None)
 }
 
@@ -123,10 +121,15 @@ pub fn create_chunk(
     client: &mut Client,
     replace_transactions: Option<Vec<SignedTransaction>>,
     replace_tx_root: Option<CryptoHash>,
-) -> (EncodedShardChunk, Vec<MerklePath>, Vec<Receipt>, Block) {
+) -> (ProduceChunkResult, Block) {
     let last_block = client.chain.get_block_by_height(client.chain.head().unwrap().height).unwrap();
     let next_height = last_block.header().height() + 1;
-    let (mut chunk, mut merkle_paths, receipts) = client
+    let ProduceChunkResult {
+        mut chunk,
+        encoded_chunk_parts_paths: mut merkle_paths,
+        receipts,
+        transactions_storage_proof,
+    } = client
         .produce_chunk(
             *last_block.hash(),
             last_block.header().epoch_id(),
@@ -186,6 +189,9 @@ pub fn create_chunk(
     let block_merkle_tree =
         client.chain.chain_store().get_block_merkle_tree(last_block.hash()).unwrap();
     let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
+
+    let signer = client.validator_signer.as_ref().unwrap().clone();
+    let endorsement = ChunkEndorsement::new(chunk.cloned_header().chunk_hash(), signer.as_ref());
     block_merkle_tree.insert(*last_block.hash());
     let block = Block::produce(
         PROTOCOL_VERSION,
@@ -194,6 +200,7 @@ pub fn create_chunk(
         next_height,
         last_block.header().block_ordinal() + 1,
         vec![chunk.cloned_header()],
+        vec![vec![Some(Box::new(endorsement.signature))]],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,
@@ -209,7 +216,15 @@ pub fn create_chunk(
         block_merkle_tree.root(),
         None,
     );
-    (chunk, merkle_paths, receipts, block)
+    (
+        ProduceChunkResult {
+            chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            transactions_storage_proof,
+        },
+        block,
+    )
 }
 
 /// Keep running catchup until there is no more catchup work that can be done

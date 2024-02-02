@@ -147,15 +147,19 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 
 #[test]
 fn current_vm_does_not_crash_fuzzer() {
-    bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
-        let code = ContractCode::new(module.0.module.to_bytes(), None);
-        let config = test_vm_config();
-        let _result = run_fuzz(&code, config.vm_kind);
-    });
+    let config = test_vm_config();
+    if config.vm_kind.is_available() {
+        bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(
+            |module: &ArbitraryModule| {
+                let code = ContractCode::new(module.0.module.to_bytes(), None);
+                let _result = run_fuzz(&code, config.vm_kind);
+            },
+        );
+    }
 }
 
 #[test]
-#[cfg_attr(not(all(feature = "near_vm", target_arch = "x86_64")), ignore)]
+#[cfg_attr(not(all(feature = "wasmtime_vm", feature = "near_vm", target_arch = "x86_64")), ignore)]
 fn near_vm_and_wasmtime_agree_fuzzer() {
     bolero::check!().with_arbitrary::<ArbitraryModule>().for_each(|module: &ArbitraryModule| {
         let code = ContractCode::new(module.0.module.to_bytes(), None);

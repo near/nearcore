@@ -1,9 +1,9 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
-use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
 use near_client::sync::external::{
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+    create_bucket_readonly, external_storage_location, external_storage_location_directory,
+    get_num_parts_from_filename, ExternalConnection, StateFileType,
 };
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
@@ -462,10 +462,15 @@ async fn run_single_check(
         gcs_bucket.clone(),
     );
 
-    let directory_path =
-        external_storage_location_directory(&chain_id, &epoch_id, epoch_height, shard_id);
+    let directory_path = external_storage_location_directory(
+        &chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
     tracing::info!(directory_path, "the storage location for the state parts being checked:");
-    let part_file_names = external.list_state_parts(shard_id, &directory_path).await?;
+    let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     if part_file_names.is_empty() {
         return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
     }
@@ -568,7 +573,7 @@ async fn process_part_with_3_retries(
         let chain_id = chain_id.clone();
         let epoch_id = epoch_id.clone();
         let external = external.clone();
-        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_part().await somehow waits forever
+        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_file().await somehow waits forever
         // this is set to a long duration because the timer for each task, i.e. process_part, starts when the task is started, i.e. tokio::spawn is called,
         // and counts actual time instead of CPU time.
         // The bottom line is this timeout * MAX_RETRIES > time it takes for all parts to be processed, which is typically < 30 mins on monitoring nodes
@@ -622,9 +627,10 @@ async fn process_part(
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
+    let file_type = StateFileType::StatePart { part_id, num_parts };
     let location =
-        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, part_id, num_parts);
-    let part = external.get_part(shard_id, &location).await?;
+        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+    let part = external.get_file(shard_id, &location, &file_type).await?;
     let is_part_valid = validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
     if is_part_valid {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID

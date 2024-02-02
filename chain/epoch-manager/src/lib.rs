@@ -12,13 +12,13 @@ use near_primitives::epoch_manager::{
 use near_primitives::errors::EpochError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
+use near_primitives::stateless_validation::ChunkValidatorAssignments;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, ApprovalStake, Balance, BlockChunkValidatorStats, BlockHeight, EpochId,
     EpochInfoProvider, NumBlocks, NumSeats, ShardId, ValidatorId, ValidatorInfoIdentifier,
     ValidatorKickoutReason, ValidatorStats,
 };
-use near_primitives::validator_mandates::AssignmentWeight;
 use near_primitives::version::{ProtocolVersion, UPGRADABILITY_FIX_PROTOCOL_VERSION};
 use near_primitives::views::{
     CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo, ValidatorKickoutView,
@@ -142,6 +142,9 @@ pub struct EpochManager {
     epoch_info_aggregator: EpochInfoAggregator,
     /// Largest final height. Monotonically increasing.
     largest_final_height: BlockHeight,
+    /// Cache for chunk_validators
+    chunk_validators_cache:
+        SyncLruCache<(EpochId, ShardId, BlockHeight), Arc<ChunkValidatorAssignments>>,
 
     /// Counts loop iterations inside of aggregate_epoch_info_upto method.
     /// Used for tests as a bit of white-box testing.
@@ -235,6 +238,7 @@ impl EpochManager {
             epoch_validators_ordered: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_validators_ordered_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
             epoch_chunk_producers_unique: SyncLruCache::new(EPOCH_CACHE_SIZE),
+            chunk_validators_cache: SyncLruCache::new(BLOCK_CACHE_SIZE),
             epoch_info_aggregator,
             #[cfg(test)]
             epoch_info_aggregator_loop_counter: Default::default(),
@@ -917,28 +921,40 @@ impl EpochManager {
         })
     }
 
-    /// Returns the list of chunk validators for the given shard_id and height.
-    pub fn get_chunk_validators(
+    /// Returns the list of chunk_validators for the given shard_id and height and set of account ids.
+    /// Generation of chunk_validators and their order is deterministic for given shard_id and height.
+    /// We cache the generated chunk_validators.
+    pub fn get_chunk_validator_assignments(
         &self,
         epoch_id: &EpochId,
         shard_id: ShardId,
         height: BlockHeight,
-    ) -> Result<HashMap<AccountId, AssignmentWeight>, EpochError> {
+    ) -> Result<Arc<ChunkValidatorAssignments>, EpochError> {
+        let cache_key = (epoch_id.clone(), shard_id, height);
+        if let Some(chunk_validators) = self.chunk_validators_cache.get(&cache_key) {
+            return Ok(chunk_validators);
+        }
+
         let epoch_info = self.get_epoch_info(epoch_id)?;
         let chunk_validators_per_shard = epoch_info.sample_chunk_validators(height);
-        let chunk_validators =
-            chunk_validators_per_shard.get(shard_id as usize).ok_or_else(|| {
-                EpochError::ChunkValidatorSelectionError(format!(
-                    "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
-                    shard_id, height, epoch_id,
-                ))
-            })?;
-        Ok(chunk_validators
-            .iter()
-            .map(|(validator_id, seats)| {
-                (epoch_info.get_validator(*validator_id).take_account_id(), seats.clone())
-            })
-            .collect())
+        for (shard_id, chunk_validators) in chunk_validators_per_shard.into_iter().enumerate() {
+            let chunk_validators = chunk_validators
+                .into_iter()
+                .map(|(validator_id, assignment_weight)| {
+                    (epoch_info.get_validator(validator_id).take_account_id(), assignment_weight)
+                })
+                .collect();
+            let cache_key = (epoch_id.clone(), shard_id as ShardId, height);
+            self.chunk_validators_cache
+                .put(cache_key, Arc::new(ChunkValidatorAssignments::new(chunk_validators)));
+        }
+
+        self.chunk_validators_cache.get(&cache_key).ok_or_else(|| {
+            EpochError::ChunkValidatorSelectionError(format!(
+                "Invalid shard ID {} for height {}, epoch {:?} for chunk validation",
+                shard_id, height, epoch_id,
+            ))
+        })
     }
 
     /// get_heuristic_block_approvers_ordered: block producers for epoch
@@ -1117,6 +1133,7 @@ impl EpochManager {
         match self.get_epoch_info(&EpochId(*hash)) {
             Ok(_) => Ok(true),
             Err(EpochError::IOErr(msg)) => Err(EpochError::IOErr(msg)),
+            Err(EpochError::EpochOutOfBounds(_)) => Ok(false),
             Err(EpochError::MissingBlock(_)) => Ok(false),
             Err(err) => {
                 warn!(target: "epoch_manager", ?err, "Unexpected error in is_last_block_in_finished_epoch");

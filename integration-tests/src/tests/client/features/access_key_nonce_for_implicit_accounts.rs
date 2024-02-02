@@ -6,7 +6,7 @@ use near_chain::{ChainGenesis, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
-use near_client::ProcessTxResponse;
+use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
@@ -259,16 +259,13 @@ fn test_chunk_transaction_validity() {
     for i in 1..200 {
         env.produce_block(0, i);
     }
-    let (encoded_shard_chunk, merkle_path, receipts, block) =
-        create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let (
+        ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
+        block,
+    ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(
-            encoded_shard_chunk,
-            merkle_path,
-            receipts,
-            validator_id,
-        )
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -604,7 +601,11 @@ impl ChunkForwardingOptimizationTestData {
         }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { ref target, ref request, .. } => {
                 for part_ord in &request.part_ords {
@@ -634,6 +635,7 @@ impl ChunkForwardingOptimizationTestData {
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 debug!(
@@ -660,6 +662,7 @@ impl ChunkForwardingOptimizationTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
@@ -681,12 +684,9 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            NetworkRequests::ChunkStateWitness(_, _) => {}
-            NetworkRequests::ChunkEndorsement(_, _) => {}
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
@@ -694,17 +694,17 @@ impl ChunkForwardingOptimizationTestData {
         loop {
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                // Arc Clone is needed to appease the borrow checker (double &mut borrow in handle_filtered)
+                let network_adapter = self.env.network_adapters[i].clone();
+
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             if !any_message_processed {
                 break;
@@ -727,9 +727,6 @@ fn test_chunk_forwarding_optimization() {
             break;
         }
         debug!(target: "test", "======= Height {} ======", height + 1);
-        test.process_network_messages();
-        test.env.process_shards_manager_responses(0);
-
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -766,6 +763,18 @@ fn test_chunk_forwarding_optimization() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, block.header().height());
         }
+
+        test.process_network_messages();
+        test.env.process_shards_manager_responses(0);
+
+        // Propagating state witnesses and chunk endorsements is required for block production
+        let output = test.env.propagate_chunk_state_witnesses();
+        let next_block_producer =
+            test.env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
+        test.env.wait_to_propagate_chunk_endorsements(
+            output.chunk_hash_to_account_ids,
+            &next_block_producer,
+        );
     }
 
     // With very high probability we should've encountered some cases where forwarded parts

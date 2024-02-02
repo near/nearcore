@@ -134,7 +134,6 @@ fn test_storage_after_commit_of_cold_update() {
     test_cold_genesis_update(&cold_db, &env.clients[0].runtime_adapter.store()).unwrap();
 
     let state_reads = test_get_store_reads(DBCol::State);
-    let state_changes_reads = test_get_store_reads(DBCol::StateChanges);
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     for height in 1..max_height {
@@ -164,15 +163,13 @@ fn test_storage_after_commit_of_cold_update() {
         let client_store = client.runtime_adapter.store();
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(cold_db, &client_store, &shard_layout, &height).unwrap();
+        update_cold_db(cold_db, &client_store, &shard_layout, &height, 4).unwrap();
 
         last_hash = *block.hash();
     }
 
     // assert that we don't read State from db, but from TrieChanges
     assert_eq!(state_reads, test_get_store_reads(DBCol::State));
-    // assert that we don't read StateChanges from db again after iter_prefix
-    assert_eq!(state_changes_reads, test_get_store_reads(DBCol::StateChanges));
 
     // We still need to filter out one chunk
     let mut no_check_rules: Vec<Box<dyn Fn(DBCol, &Box<[u8]>, &Box<[u8]>) -> bool>> = vec![];
@@ -315,7 +312,8 @@ fn test_cold_db_copy_with_height_skips() {
         let client = &env.clients[0];
         let epoch_id = client.epoch_manager.get_epoch_id_from_prev_block(&last_hash).unwrap();
         let shard_layout = client.epoch_manager.get_shard_layout(&epoch_id).unwrap();
-        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height).unwrap();
+        update_cold_db(&cold_db, &client.runtime_adapter.store(), &shard_layout, &height, 1)
+            .unwrap();
 
         if block.is_some() {
             last_hash = *block.unwrap().hash();

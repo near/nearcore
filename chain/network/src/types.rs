@@ -18,10 +18,10 @@ use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
@@ -69,6 +69,7 @@ pub enum ReasonForBan {
     InvalidDistanceVector = 11,
     Blacklisted = 14,
     ProvidedNotEnoughHeaders = 15,
+    BadChunkStateWitness = 16,
 }
 
 /// Banning signal sent from Peer instance to PeerManager

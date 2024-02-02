@@ -379,6 +379,10 @@ fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
     Duration::from_secs(30)
 }
 
+fn default_num_cold_store_read_threads() -> usize {
+    4
+}
+
 fn default_cold_store_loop_sleep_duration() -> Duration {
     Duration::from_secs(1)
 }
@@ -395,6 +399,9 @@ pub struct SplitStorageConfig {
 
     #[serde(default = "default_cold_store_loop_sleep_duration")]
     pub cold_store_loop_sleep_duration: Duration,
+
+    #[serde(default = "default_num_cold_store_read_threads")]
+    pub num_cold_store_read_threads: usize,
 }
 
 impl Default for SplitStorageConfig {
@@ -406,6 +413,7 @@ impl Default for SplitStorageConfig {
             cold_store_initial_migration_loop_sleep_duration:
                 default_cold_store_initial_migration_loop_sleep_duration(),
             cold_store_loop_sleep_duration: default_cold_store_loop_sleep_duration(),
+            num_cold_store_read_threads: default_num_cold_store_read_threads(),
         }
     }
 }

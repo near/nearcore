@@ -128,6 +128,9 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
+
+        Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
+
         if !self.use_production_config {
             return config;
         }
@@ -141,6 +144,25 @@ impl AllEpochConfig {
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
+    }
+
+    // StatelessNet only. Lower the kickout threshold so the network is more stable while
+    // we figure out issues with block and chunk production.
+    fn config_stateless_net(
+        config: &mut EpochConfig,
+        chain_id: &str,
+        protocol_version: ProtocolVersion,
+    ) {
+        if chain_id == near_primitives_core::chains::STATELESSNET
+            && checked_feature!(
+                "stable",
+                LowerValidatorKickoutPercentForDebugging,
+                protocol_version
+            )
+        {
+            config.block_producer_kickout_threshold = 50;
+            config.chunk_producer_kickout_threshold = 50;
+        }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
@@ -522,7 +544,7 @@ pub mod epoch_info {
     use crate::epoch_manager::ValidatorWeight;
     use crate::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
     use crate::types::{BlockChunkValidatorStats, ValidatorKickoutReason};
-    use crate::validator_mandates::{ValidatorMandates, ValidatorMandatesAssignment};
+    use crate::validator_mandates::{ChunkValidatorStakeAssignment, ValidatorMandates};
     use crate::version::PROTOCOL_VERSION;
     use borsh::{BorshDeserialize, BorshSerialize};
     use near_primitives_core::hash::CryptoHash;
@@ -703,7 +725,7 @@ pub mod epoch_info {
                 let block_producers_sampler = stake_weights(&block_producers_settlement);
                 let chunk_producers_sampler =
                     chunk_producers_settlement.iter().map(|vs| stake_weights(vs)).collect();
-                if checked_feature!("stable", ChunkValidation, protocol_version) {
+                if checked_feature!("stable", StatelessValidationV0, protocol_version) {
                     Self::V4(EpochInfoV4 {
                         epoch_height,
                         validators,
@@ -1090,12 +1112,13 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_validators(&self, height: BlockHeight) -> ValidatorMandatesAssignment {
+        pub fn sample_chunk_validators(
+            &self,
+            height: BlockHeight,
+        ) -> ChunkValidatorStakeAssignment {
             // Chunk validator assignment was introduced with `V4`.
             match &self {
-                Self::V1(_) => Default::default(),
-                Self::V2(_) => Default::default(),
-                Self::V3(_) => Default::default(),
+                Self::V1(_) | Self::V2(_) | Self::V3(_) => Default::default(),
                 Self::V4(v4) => {
                     let mut rng = Self::chunk_validate_rng(&v4.rng_seed, height);
                     v4.validator_mandates.sample(&mut rng)
@@ -1139,6 +1162,8 @@ pub mod epoch_info {
         ///
         /// The returned RNG can be used to shuffle slices via [`rand::seq::SliceRandom`].
         fn chunk_validate_rng(seed: &RngSeed, height: BlockHeight) -> ChaCha20Rng {
+            // A deterministic seed is produces using the block height and the provided seed.
+            // This is important as all nodes need to agree on the set and order of chunk_validators
             let mut buffer = [0u8; 40];
             buffer[0..32].copy_from_slice(seed);
             buffer[32..40].copy_from_slice(&height.to_le_bytes());
