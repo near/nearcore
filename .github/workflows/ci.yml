@@ -55,12 +55,6 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
-      # Setup the dependency rust cache and llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
-
       # Run the tests:
       - run: mkdir -p coverage/profraw/{unit,integration,binaries}
       # - Run the unit tests, retrieving the coverage information
@@ -103,7 +97,7 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -113,10 +107,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
@@ -133,7 +123,7 @@ jobs:
 
   py_db_migration:
     name: "Database Migration"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -143,10 +133,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
@@ -177,10 +163,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
@@ -213,10 +195,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
@@ -258,10 +236,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: cargo-llvm-cov
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
       - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
@@ -281,10 +255,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: just
@@ -311,16 +281,12 @@ jobs:
 
   check_clippy:
     name: "Cargo Clippy"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: just
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: just check-cargo-clippy
 
   check_cargo_deny:
@@ -361,10 +327,6 @@ jobs:
       - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
           tool: just,cargo-udeps
-      - uses: mozilla-actions/sccache-action@1e15924c00ed1446db9e44e8f02628488e7258ec
-      - run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
-          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
       - run: just check-cargo-udeps
 
   cargo_audit:
