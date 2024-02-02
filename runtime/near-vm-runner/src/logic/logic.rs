@@ -2100,6 +2100,8 @@ impl<'a> VMLogic<'a> {
     /// # Errors
     ///
     /// * If called as view function returns `ProhibitedInView`.
+    /// * If `data_id_ptr + CryptoHash::LENGTH` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
     ///
     /// # Cost
     /// TODO

@@ -766,6 +766,13 @@ pub fn get_yielded_promise_indices(
     Ok(get(trie, &TrieKey::YieldedPromiseIndices)?.unwrap_or_default())
 }
 
+pub fn set_yielded_promise_indices(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &YieldedPromiseIndices,
+) {
+    set(state_update, TrieKey::YieldedPromiseIndices, yielded_promise_indices);
+}
+
 // Appends to the yielded promises queue in the state.
 pub fn set_yielded_promise(
     state_update: &mut TrieUpdate,
@@ -781,13 +788,6 @@ pub fn set_yielded_promise(
         .next_available_index
         .checked_add(1)
         .expect("Next available index for yielded promise exceeded the integer limit");
-}
-
-pub fn set_yielded_promise_indices(
-    state_update: &mut TrieUpdate,
-    yielded_promise_indices: &YieldedPromiseIndices,
-) {
-    set(state_update, TrieKey::YieldedPromiseIndices, yielded_promise_indices);
 }
 
 pub fn set_access_key(

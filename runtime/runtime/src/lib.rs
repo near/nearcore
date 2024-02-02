@@ -1493,12 +1493,6 @@ impl Runtime {
                     ))
                 })?;
 
-            tracing::debug!(
-                "yielded promise with data id {} expires at block height {}",
-                data_id,
-                expires_at
-            );
-
             // Yielded promise queue entries are ordered by expires_at
             if expires_at > apply_state.block_height {
                 break;
@@ -1515,11 +1509,10 @@ impl Runtime {
                 // Here we deliver a DataReceipt without any data to resolve the ActionReceipt.
                 let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
 
-                // We use the yielded ActionReceipt's receipt_id to generate a receipt id for the
-                // DataReceipt. Because the hash includes the previous and current block hashes,
-                // and the ActionReceipt in question won't be executed until a future block, there
-                // is no concern of collision with the receipts generated as a result of the
-                // ActionReceipt's execution.
+                // We use the yielded ActionReceipt's receipt_id as one of the inputs to generate
+                // an id for the DataReceipt. Because the inputs also include the previous and
+                // current block hashes, there is no concern of collision with ids of receipts
+                // which may subsequently be generated as a result of the ActionReceipt's execution.
                 let new_receipt_id = create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
                     &action_receipt_id,
