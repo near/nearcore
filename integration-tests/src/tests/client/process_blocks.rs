@@ -1256,11 +1256,6 @@ fn test_bad_orphan() {
 
 #[test]
 fn test_bad_chunk_mask() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let chain_genesis = ChainGenesis::test();
     let validators = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
