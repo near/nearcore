@@ -41,6 +41,7 @@ debug: neard-debug
 	cargo build -p genesis-populate
 	$(MAKE) sandbox
 
+
 perf-release: NEAR_RELEASE_BUILD=release
 perf-release:
 	CARGO_PROFILE_RELEASE_DEBUG=true cargo build -p neard --release --features performance_stats
