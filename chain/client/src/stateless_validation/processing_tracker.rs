@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 /// `ProcessingDoneTracker` can be used in conjuction with a `ProcessingDoneWaiter`
 /// to wait until some processing is finished. `ProcessingDoneTracker` should be
 /// kept alive as long as the processing is ongoing, then once it's dropped,
-/// the paired `ProcessingDoneWaiter` will be notified that the processing has finished.\
+/// the paired `ProcessingDoneWaiter` will be notified that the processing has finished.
 /// Does NOT implement `Clone`, if you want to clone it, wrap it in an `Arc`.
 pub struct ProcessingDoneTracker(Arc<OnceCell<()>>);
 
@@ -15,7 +15,7 @@ impl ProcessingDoneTracker {
         ProcessingDoneTracker(Arc::new(OnceCell::new()))
     }
 
-    /// Create a `ProcessingDoneWaiter` paired to this `ProcessingDoneTracker`.\
+    /// Create a `ProcessingDoneWaiter` paired to this `ProcessingDoneTracker`.
     /// When this `ProcessingDoneTracker` is dropped, the paired waiter will be notified.
     pub fn make_waiter(&self) -> ProcessingDoneWaiter {
         ProcessingDoneWaiter(self.0.clone())
@@ -33,8 +33,8 @@ impl Drop for ProcessingDoneTracker {
     }
 }
 
-/// `ProcessingDoneWaiter` is used to wait until the processing has finished.\
-/// The `wait()` method will block until the paired `ProcessingDoneTracker` is dropped.\
+/// `ProcessingDoneWaiter` is used to wait until the processing has finished.
+/// The `wait()` method will block until the paired `ProcessingDoneTracker` is dropped.
 /// A new instance of `ProcessingDoneWaiter` can be created by calling `ProcessingDoneTracker::make_waiter`.
 #[derive(Clone)]
 pub struct ProcessingDoneWaiter(Arc<OnceCell<()>>);
