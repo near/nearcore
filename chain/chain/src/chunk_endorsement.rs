@@ -95,9 +95,10 @@ impl Chain {
                 endorsed_chunk_validators.insert(account_id);
             }
 
-            if !chunk_validator_assignments.does_chunk_have_enough_stake(endorsed_chunk_validators)
-            {
-                tracing::error!(target: "chain", "Chunk does not have enough stake to be endorsed");
+            let endorsement_stats =
+                chunk_validator_assignments.compute_endorsement_stats(&endorsed_chunk_validators);
+            if !endorsement_stats.has_enough_stake() {
+                tracing::error!(target: "chain", ?endorsement_stats, "Chunk does not have enough stake to be endorsed");
                 return Err(Error::InvalidChunkEndorsement);
             }
         }

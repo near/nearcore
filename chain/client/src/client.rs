@@ -189,7 +189,7 @@ pub struct Client {
     /// Also tracks banned chunk producers and filters out chunks produced by them
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
-    pub chunk_endorsement_tracker: ChunkEndorsementTracker,
+    pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
 }
 
 impl Client {
@@ -341,13 +341,15 @@ impl Client {
             validator_signer.clone(),
             doomslug_threshold_mode,
         );
+        let chunk_endorsement_tracker =
+            Arc::new(ChunkEndorsementTracker::new(epoch_manager.clone()));
         let chunk_validator = ChunkValidator::new(
             validator_signer.clone(),
             epoch_manager.clone(),
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
+            chunk_endorsement_tracker.clone(),
         );
-        let chunk_endorsement_tracker = ChunkEndorsementTracker::new(epoch_manager.clone());
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -539,7 +541,7 @@ impl Client {
 
         self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
             &head.last_block_hash,
-            &mut self.chunk_endorsement_tracker,
+            self.chunk_endorsement_tracker.as_ref(),
         )?;
 
         self.produce_block_on(height, head.last_block_hash)

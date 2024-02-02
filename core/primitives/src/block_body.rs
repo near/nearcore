@@ -64,7 +64,7 @@ impl BlockBody {
         vrf_proof: Proof,
         chunk_endorsements: Vec<ChunkEndorsementSignatures>,
     ) -> Self {
-        if !checked_feature!("stable", ChunkValidation, protocol_version) {
+        if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
             BlockBody::V1(BlockBodyV1 { chunks, challenges, vrf_value, vrf_proof })
         } else {
             BlockBody::V2(BlockBodyV2 {

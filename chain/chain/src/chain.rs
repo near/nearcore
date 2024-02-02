@@ -1265,7 +1265,7 @@ impl Chain {
             }
             let partial_encoded_chunk =
                 self.chain_store.get_partial_chunk(&chunk_header.chunk_hash()).unwrap();
-            for receipt in partial_encoded_chunk.receipts().iter() {
+            for receipt in partial_encoded_chunk.prev_outgoing_receipts().iter() {
                 let ReceiptProof(_, shard_proof) = receipt;
                 let ShardProof { to_shard_id, .. } = shard_proof;
                 receipt_proofs_by_shard_id
@@ -2014,7 +2014,7 @@ impl Chain {
 
         self.validate_chunk_headers(&block, &prev_block)?;
 
-        if checked_feature!("stable", ChunkValidation, protocol_version) {
+        if checked_feature!("stable", StatelessValidationV0, protocol_version) {
             self.validate_chunk_endorsements_in_block(&block)?;
         }
 
@@ -2990,6 +2990,10 @@ impl Chain {
             );
         }
 
+        // Nit: it would be more elegant to only call this after resharding, not
+        // after every state sync but it doesn't hurt.
+        self.process_snapshot_after_resharding()?;
+
         Ok(())
     }
 
@@ -3245,7 +3249,7 @@ impl Chain {
             self.epoch_manager.get_next_epoch_id_from_prev_block(block_header.prev_hash())?;
         let next_protocol_version =
             self.epoch_manager.get_epoch_protocol_version(&next_epoch_id)?;
-        if !checked_feature!("stable", ChunkValidation, next_protocol_version) {
+        if !checked_feature!("stable", StatelessValidationV0, next_protocol_version) {
             // Chunk validation not enabled yet.
             return Ok(false);
         }
@@ -3532,10 +3536,10 @@ impl Chain {
         Ok(())
     }
 
-    // Similar to `process_snapshot` but only called after resharding is done.
-    // This is to speed up the snapshot removal once resharding is finished in
-    // order to minimize the storage overhead.
-    pub fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
+    // Similar to `process_snapshot` but only called after resharding and
+    // catchup is done. This is to speed up the snapshot removal once resharding
+    // is finished in order to minimize the storage overhead.
+    fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
 
         let tries = self.runtime_adapter.get_tries();

@@ -1065,7 +1065,7 @@ impl ClientActor {
             if me == next_block_producer_account {
                 self.client.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
                     &head.last_block_hash,
-                    &mut self.client.chunk_endorsement_tracker,
+                    self.client.chunk_endorsement_tracker.as_ref(),
                 )?;
                 let num_chunks = self
                     .client
@@ -2006,11 +2006,32 @@ impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
     fn handle(
         &mut self,
         msg: WithSpanContext<ChunkStateWitnessMessage>,
-        _: &mut Context<Self>,
+        ctx: &mut Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        if let Err(err) = self.client.process_chunk_state_witness(msg.witness, msg.peer_id) {
-            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
+        let peer_id = msg.peer_id.clone();
+        let attempts_remaining = msg.attempts_remaining;
+        match self.client.process_chunk_state_witness(msg.witness, msg.peer_id) {
+            Err(err) => {
+                tracing::error!(target: "client", ?err, "Error processing chunk state witness");
+            }
+            Ok(Some(witness)) => {
+                if attempts_remaining > 0 {
+                    ctx.run_later(Duration::from_millis(100), move |_, ctx| {
+                        ctx.address().do_send(
+                            ChunkStateWitnessMessage {
+                                witness,
+                                peer_id,
+                                attempts_remaining: attempts_remaining - 1,
+                            }
+                            .with_span_context(),
+                        );
+                    });
+                } else {
+                    tracing::error!(target: "client", "Failed to process chunk state witness even after 5 tries due to missing parent block");
+                }
+            }
+            Ok(None) => {}
         }
     }
 }

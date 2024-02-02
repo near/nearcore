@@ -230,7 +230,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
                             //     include the receipt. The `distant` epoch is the first one that
                             //     will get the receipt through the state sync.
                             let receipts: Vec<Receipt> = partial_encoded_chunk
-                                .receipts
+                                .prev_outgoing_receipts
                                 .iter()
                                 .map(|x| x.0.clone())
                                 .flatten()

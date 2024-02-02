@@ -456,6 +456,8 @@ impl DBCol {
             DBCol::ProcessedBlockHeights => false,
             // HeaderHashesByHeight is only needed for GC.
             DBCol::HeaderHashesByHeight => false,
+            // StateTransitionData is only needed to produce ChunkStateWitness
+            DBCol::StateTransitionData => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
@@ -483,8 +485,7 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus
-            | DBCol::StateTransitionData => false,
+            | DBCol::FlatStorageStatus => false,
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => false
         }

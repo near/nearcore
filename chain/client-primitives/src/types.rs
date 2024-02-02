@@ -186,6 +186,15 @@ impl ShardSyncDownload {
         }
         Self { downloads, status: ShardSyncStatus::StateDownloadParts }
     }
+
+    /// Get the header download status.
+    /// returns None if state sync status is not ShardSyncStatus::StateDownloadHeader
+    pub fn get_header_download_mut(&mut self) -> Option<&mut DownloadStatus> {
+        if self.status != ShardSyncStatus::StateDownloadHeader {
+            return None;
+        }
+        self.downloads.get_mut(0)
+    }
 }
 
 pub fn format_shard_sync_phase_per_shard(

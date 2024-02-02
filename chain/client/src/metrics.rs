@@ -1,8 +1,8 @@
 use near_o11y::metrics::{
-    exponential_buckets, try_create_counter, try_create_gauge, try_create_histogram,
-    try_create_histogram_vec, try_create_int_counter, try_create_int_counter_vec,
-    try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge, Histogram, HistogramVec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, linear_buckets, try_create_counter, try_create_gauge,
+    try_create_histogram, try_create_histogram_vec, try_create_int_counter,
+    try_create_int_counter_vec, try_create_int_gauge, try_create_int_gauge_vec, Counter, Gauge,
+    Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
 
@@ -483,7 +483,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_DONE: Lazy<IntCounterVec> = Lazy::ne
     try_create_int_counter_vec(
         "near_state_sync_external_parts_done_total",
         "Number of parts retrieved from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -492,7 +492,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_FAILED: Lazy<IntCounterVec> = Lazy::
     try_create_int_counter_vec(
         "near_state_sync_external_parts_failed_total",
         "Failed retrieval attempts from external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
     )
     .unwrap()
 });
@@ -501,7 +501,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_REQUEST_DELAY: Lazy<HistogramVec> = 
     try_create_histogram_vec(
         "near_state_sync_external_parts_request_delay_sec",
         "Latency of state part requests to external storage",
-        &["shard_id"],
+        &["shard_id", "type"],
         Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
     )
     .unwrap()
@@ -512,7 +512,7 @@ pub(crate) static STATE_SYNC_EXTERNAL_PARTS_SIZE_DOWNLOADED: Lazy<IntCounterVec>
         try_create_int_counter_vec(
             "near_state_sync_external_parts_size_downloaded_bytes_total",
             "Bytes downloaded from an external storage",
-            &["shard_id"],
+            &["shard_id", "type"],
         )
         .unwrap()
     });
@@ -579,6 +579,30 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new
         "Stateless validation state witness size in bytes",
         &["shard_id"],
         Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCK_PRODUCER_ENDORSED_STAKE_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_producer_endorsed_stake_ratio",
+        "Ratio (the value is between 0.0 and 1.0) of the endorsed stake for the produced block",
+        &["shard_id"],
+        Some(linear_buckets(0.0, 0.05, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_block_producer_missing_endorsement_count",
+        "Number of validators from which the block producer has not received endorsements",
+        &["shard_id"],
+        Some({
+            let mut buckets = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+            buckets.append(&mut exponential_buckets(5.0, 1.5, 10).unwrap());
+            buckets
+        }),
     )
     .unwrap()
 });

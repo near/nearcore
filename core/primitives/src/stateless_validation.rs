@@ -219,6 +219,24 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
+#[derive(Debug)]
+pub struct EndorsementStats {
+    pub total_stake: Balance,
+    pub endorsed_stake: Balance,
+    pub total_validators_count: usize,
+    pub endorsed_validators_count: usize,
+}
+
+impl EndorsementStats {
+    pub fn has_enough_stake(&self) -> bool {
+        self.endorsed_stake >= self.required_stake()
+    }
+
+    pub fn required_stake(&self) -> Balance {
+        self.total_stake * 2 / 3 + 1
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ChunkValidatorAssignments {
     assignments: Vec<(AccountId, Balance)>,
@@ -243,20 +261,25 @@ impl ChunkValidatorAssignments {
         &self.assignments
     }
 
-    /// Returns true if the chunk has enough stake to be considered valid.
-    /// We require that at least 2/3 of the total stake of the chunk is endorsed by chunk_validators.
-    pub fn does_chunk_have_enough_stake(
+    pub fn compute_endorsement_stats(
         &self,
-        endorsed_chunk_validators: HashSet<&AccountId>,
-    ) -> bool {
+        endorsed_chunk_validators: &HashSet<&AccountId>,
+    ) -> EndorsementStats {
         let mut total_stake = 0;
         let mut endorsed_stake = 0;
+        let mut endorsed_validators_count = 0;
         for (account_id, stake) in &self.assignments {
             total_stake += stake;
             if endorsed_chunk_validators.contains(account_id) {
                 endorsed_stake += stake;
+                endorsed_validators_count += 1;
             }
         }
-        endorsed_stake > total_stake * 2 / 3
+        EndorsementStats {
+            total_stake,
+            endorsed_stake,
+            endorsed_validators_count,
+            total_validators_count: self.assignments.len(),
+        }
     }
 }

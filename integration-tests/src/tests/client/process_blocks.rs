@@ -1257,7 +1257,7 @@ fn test_bad_orphan() {
 #[test]
 fn test_bad_chunk_mask() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 
@@ -2276,7 +2276,7 @@ fn test_block_height_processed_orphan() {
 #[test]
 fn test_validate_chunk_extra() {
     // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", ChunkValidation, PROTOCOL_VERSION) {
+    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
         return;
     }
 
@@ -2407,7 +2407,7 @@ fn test_validate_chunk_extra() {
         .chunk_inclusion_tracker
         .prepare_chunk_headers_ready_for_inclusion(
             block1.hash(),
-            &mut client.chunk_endorsement_tracker,
+            client.chunk_endorsement_tracker.as_ref(),
         )
         .unwrap();
     let block = client.produce_block_on(next_height + 2, *block1.hash()).unwrap().unwrap();

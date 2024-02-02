@@ -141,6 +141,7 @@ pub enum ProcessTxResponse {
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub peer_id: PeerId,
+    pub attempts_remaining: usize,
 }
 
 #[derive(actix::Message, Debug)]
@@ -349,7 +350,10 @@ impl near_network::client::Client for Adapter {
     async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId) {
         match self
             .client_addr
-            .send(ChunkStateWitnessMessage { witness, peer_id }.with_span_context())
+            .send(
+                ChunkStateWitnessMessage { witness, peer_id, attempts_remaining: 5 }
+                    .with_span_context(),
+            )
             .await
         {
             Ok(()) => {}
