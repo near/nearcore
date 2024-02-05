@@ -1378,12 +1378,13 @@ impl Client {
             .expect("Could not persist chunk");
 
         // We process chunk endorsements that were blocked by not having chunk complete.
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header).expect(
-            &format!(
-                "Could not process pending endorsements for chunk {:?}",
-                &chunk_header.chunk_hash()
-            )
-            .to_string(),
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header).unwrap_or_else(
+            |_| {
+                panic!(
+                    "Could not process pending endorsements for chunk {:?}",
+                    &chunk_header.chunk_hash()
+                )
+            },
         );
 
         // We're marking chunk as accepted.
