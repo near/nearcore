@@ -1,4 +1,5 @@
 use near_cache::SyncLruCache;
+use near_chain::ChainStoreAccess;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -35,7 +36,8 @@ impl Client {
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
         // We should not need whole chunk ready here, we only need chunk header.
-        match self.chain.get_chunk(endorsement.chunk_hash()) {
+        match
+            self.chain.chain_store().get_partial_chunk(endorsement.chunk_hash()) {
             Ok(chunk) => self
                 .chunk_endorsement_tracker
                 .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
