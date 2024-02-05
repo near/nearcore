@@ -41,6 +41,7 @@ NEAR Protocol is built to deliver usability and scalability of modern PaaS like 
 Overall, *NEAR* provides a wide range of tools for developers to easily build applications:
  - [JS Client library][js-api] to connect to NEAR Protocol from your applications.
  - [Rust][rust-sdk] and [JavaScript/TypeScript][js-sdk] SDKs to write smart contracts and stateful server-less functions.
+ - [Several essential repositories](https://github.com/near/dx) to guide you in building across Near's Open Web Platform.
  - [Numerous examples][examples-url] with links to hack on them right inside your browser.
  - [Lots of documentation][docs-url], with [Tutorials][tutorials-url] and [API docs][api-docs-url].
 
