@@ -23,6 +23,10 @@ pub struct ChunkEndorsementTracker {
     /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
     /// Chunk endorsements would later be used as a part of block production.
     chunk_endorsements: SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
+    /// We store chunk endorsements to be processed later because we did not have
+    /// chunks ready at the time we received that endorsements from validators.
+    /// This is keyed on chunk_hash and account_id of validator to avoid duplicates.
+    pending_chunk_endorsements: SyncLruCache<ChunkHash, HashMap<AccountId, ChunkEndorsement>>,
 }
 
 impl Client {
@@ -30,8 +34,18 @@ impl Client {
         &mut self,
         endorsement: ChunkEndorsement,
     ) -> Result<(), Error> {
-        let chunk_header = self.chain.get_chunk(endorsement.chunk_hash())?.cloned_header();
-        self.chunk_endorsement_tracker.process_chunk_endorsement(&chunk_header, endorsement)
+        // We should not need whole chunk ready here, we only need chunk header.
+        match self.chain.get_chunk(endorsement.chunk_hash()) {
+            Ok(chunk) => {
+                let chunk_header = &chunk.cloned_header();
+                self.chunk_endorsement_tracker
+                    .process_chunk_endorsement(endorsement, Some(chunk_header))
+            }
+            Err(_) => {
+                tracing::debug!(target: "stateless_validation", ?endorsement, "Endorsement arrived before chunk.");
+                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, None)
+            }
+        }
     }
 }
 
@@ -40,23 +54,52 @@ impl ChunkEndorsementTracker {
         Self {
             epoch_manager,
             chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
+            // We can use a different cache size if needed, it does not have to be the same as for `chunk_endorsements`.
+            pending_chunk_endorsements: SyncLruCache::new(NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE),
         }
     }
 
+    pub fn process_pending_endorsements(
+        &self,
+        chunk_header: &ShardChunkHeader,
+    ) -> Result<(), Error> {
+        let chunk_hash = &chunk_header.chunk_hash();
+        let chunk_endorsements = {
+            let mut guard = self.pending_chunk_endorsements.lock();
+            guard.pop(chunk_hash)
+        };
+        let chunk_endorsements = match chunk_endorsements {
+            Some(chunk_endorsements) => chunk_endorsements,
+            None => {
+                tracing::debug!(target: "stateless_validation", ?chunk_hash, "No pending chunk endorsements.");
+                return Ok(());
+            }
+        };
+        chunk_endorsements.values().try_for_each(|endorsement| {
+            self.process_chunk_endorsement(endorsement.clone(), Some(&chunk_header))
+        })
+    }
+
     /// Function to process an incoming chunk endorsement from chunk validators.
-    /// We first verify the chunk endorsement and then store it in a cache.
+    /// If the chunk header is available, we will verify the chunk endorsement and then store it in a cache.
+    /// Otherwise, we store the endorsement in a separate cache of endorsements to be processed when the chunk is ready.
     /// We would later include the endorsements in the block production.
     pub(crate) fn process_chunk_endorsement(
         &self,
-        chunk_header: &ShardChunkHeader,
         endorsement: ChunkEndorsement,
+        chunk_header: Option<&ShardChunkHeader>,
     ) -> Result<(), Error> {
         let chunk_hash = endorsement.chunk_hash();
         let account_id = &endorsement.account_id;
 
+        let endorsement_cache = if chunk_header.is_some() {
+            &self.chunk_endorsements
+        } else {
+            &self.pending_chunk_endorsements
+        };
+
         // If we have already processed this chunk endorsement, return early.
-        if self
-            .chunk_endorsements
+        if endorsement_cache
             .get(chunk_hash)
             .is_some_and(|existing_endorsements| existing_endorsements.get(account_id).is_some())
         {
@@ -64,9 +107,11 @@ impl ChunkEndorsementTracker {
             return Ok(());
         }
 
-        if !self.epoch_manager.verify_chunk_endorsement(chunk_header, &endorsement)? {
-            tracing::error!(target: "stateless_validation", ?endorsement, "Invalid chunk endorsement.");
-            return Err(Error::InvalidChunkEndorsement);
+        if let Some(chunk_header) = chunk_header {
+            if !self.epoch_manager.verify_chunk_endorsement(&chunk_header, &endorsement)? {
+                tracing::error!(target: "stateless_validation", ?endorsement, "Invalid chunk endorsement.");
+                return Err(Error::InvalidChunkEndorsement);
+            }
         }
 
         // If we are the current block producer, we store the chunk endorsement for each chunk which
@@ -76,7 +121,7 @@ impl ChunkEndorsementTracker {
         // Maybe add check to ensure we don't accept endorsements from chunks already included in some block?
         // Maybe add check to ensure we don't accept endorsements from chunks that have too old height_created?
         tracing::debug!(target: "stateless_validation", ?endorsement, "Received and saved chunk endorsement.");
-        let mut guard = self.chunk_endorsements.lock();
+        let mut guard = endorsement_cache.lock();
         guard.get_or_insert(chunk_hash.clone(), || HashMap::new());
         let chunk_endorsements = guard.get_mut(chunk_hash).unwrap();
         chunk_endorsements.insert(account_id.clone(), endorsement);

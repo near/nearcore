@@ -1373,8 +1373,19 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
+
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
+
+        // We process chunk endorsements that were blocked by not having chunk complete.
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header).expect(
+            &format!(
+                "Could not process pending endorsements for chunk {:?}",
+                &chunk_header.chunk_hash()
+            )
+            .to_string(),
+        );
+
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
