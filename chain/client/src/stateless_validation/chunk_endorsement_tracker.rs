@@ -41,10 +41,11 @@ impl Client {
                 self.chunk_endorsement_tracker
                     .process_chunk_endorsement(endorsement, Some(chunk_header))
             }
-            Err(_) => {
+            Err(Error::ChunkMissing(_)) => {
                 tracing::debug!(target: "stateless_validation", ?endorsement, "Endorsement arrived before chunk.");
                 self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, None)
             }
+            Err(error) => return Err(error),
         }
     }
 }
@@ -59,6 +60,8 @@ impl ChunkEndorsementTracker {
         }
     }
 
+    /// Process pending endorsements for the given chunk header.
+    /// It removes these endorsements from the `pending_chunk_endorsements` cache.
     pub fn process_pending_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
