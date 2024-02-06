@@ -242,6 +242,7 @@ imports! {
         arguments_len: u64,
         arguments_ptr: u64,
         gas: u64,
+        gas_weight: u64,
         register_id: u64
     ] -> [u64]>,
     promise_yield_resume<[

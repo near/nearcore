@@ -221,6 +221,10 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_element = 58,
     ed25519_verify_base = 59,
     ed25519_verify_byte = 60,
+    yield_create_base = 61,
+    yield_create_byte = 62,
+    yield_resume_base = 63,
+    yield_resume_byte = 64,
 }
 
 // Type of an action, used in fees logic.
