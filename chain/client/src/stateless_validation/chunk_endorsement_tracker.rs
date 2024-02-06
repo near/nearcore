@@ -36,14 +36,12 @@ impl Client {
     ) -> Result<(), Error> {
         // We should not need whole chunk ready here, we only need chunk header.
         match self.chain.get_chunk(endorsement.chunk_hash()) {
-            Ok(chunk) => {
-                let chunk_header = &chunk.cloned_header();
-                self.chunk_endorsement_tracker
-                    .process_chunk_endorsement(endorsement, Some(chunk_header))
-            }
+            Ok(chunk) => self
+                .chunk_endorsement_tracker
+                .process_chunk_endorsement(&chunk.cloned_header(), endorsement),
             Err(Error::ChunkMissing(_)) => {
                 tracing::debug!(target: "stateless_validation", ?endorsement, "Endorsement arrived before chunk.");
-                self.chunk_endorsement_tracker.process_chunk_endorsement(endorsement, None)
+                self.chunk_endorsement_tracker.add_chunk_endorsement_to_pending_cache(endorsement)
             }
             Err(error) => return Err(error),
         }
@@ -62,10 +60,7 @@ impl ChunkEndorsementTracker {
 
     /// Process pending endorsements for the given chunk header.
     /// It removes these endorsements from the `pending_chunk_endorsements` cache.
-    pub fn process_pending_endorsements(
-        &self,
-        chunk_header: &ShardChunkHeader,
-    ) -> Result<(), Error> {
+    pub fn process_pending_endorsements(&self, chunk_header: &ShardChunkHeader) {
         let chunk_hash = &chunk_header.chunk_hash();
         let chunk_endorsements = {
             let mut guard = self.pending_chunk_endorsements.lock();
@@ -74,20 +69,41 @@ impl ChunkEndorsementTracker {
         let chunk_endorsements = match chunk_endorsements {
             Some(chunk_endorsements) => chunk_endorsements,
             None => {
-                tracing::debug!(target: "stateless_validation", ?chunk_hash, "No pending chunk endorsements.");
-                return Ok(());
+                return;
             }
         };
-        chunk_endorsements.values().try_for_each(|endorsement| {
-            self.process_chunk_endorsement(endorsement.clone(), Some(&chunk_header))
-        })
+        tracing::debug!(target: "stateless_validation", ?chunk_hash, "Processing pending chunk endorsements.");
+        for endorsement in chunk_endorsements.values() {
+            let _ = self.process_chunk_endorsement(chunk_header, endorsement.clone())
+                .map_err(|error| {
+                    tracing::debug!(target: "stateless_validation", ?endorsement, "Error processing pending chunk endorsement: {:?}", error);
+                    error
+                });
+        }
+    }
+
+    /// Add the chunk endorsement to a cache of pending chunk endorsements (if not yet there).
+    pub(crate) fn add_chunk_endorsement_to_pending_cache(
+        &self,
+        endorsement: ChunkEndorsement,
+    ) -> Result<(), Error> {
+        self.process_chunk_endorsement_impl(endorsement, None)
     }
 
     /// Function to process an incoming chunk endorsement from chunk validators.
-    /// If the chunk header is available, we will verify the chunk endorsement and then store it in a cache.
-    /// Otherwise, we store the endorsement in a separate cache of endorsements to be processed when the chunk is ready.
+    /// We first verify the chunk endorsement and then store it in a cache.
     /// We would later include the endorsements in the block production.
     pub(crate) fn process_chunk_endorsement(
+        &self,
+        chunk_header: &ShardChunkHeader,
+        endorsement: ChunkEndorsement,
+    ) -> Result<(), Error> {
+        self.process_chunk_endorsement_impl(endorsement, Some(chunk_header))
+    }
+
+    /// If the chunk header is available, we will verify the chunk endorsement and then store it in a cache.
+    /// Otherwise, we store the endorsement in a separate cache of endorsements to be processed when the chunk is ready.
+    fn process_chunk_endorsement_impl(
         &self,
         endorsement: ChunkEndorsement,
         chunk_header: Option<&ShardChunkHeader>,

@@ -1374,21 +1374,11 @@ impl Client {
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
 
-        // TODO(stateless_validation) We would like a proper error handling here instead of `expect`.
+        // TODO We would like a proper error handling here instead of `expect`.
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
 
-        // We process chunk endorsements that were blocked by not having chunk complete.
-        // TODO(stateless_validation) We would like a proper error handling here instead of `panic`.
-        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header).unwrap_or_else(
-            |_| {
-                panic!(
-                    "Could not process pending endorsements for chunk {:?}",
-                    &chunk_header.chunk_hash()
-                )
-            },
-        );
-
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.

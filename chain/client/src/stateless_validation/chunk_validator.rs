@@ -568,7 +568,7 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
         if signer.validator_id() == &block_producer {
             // Unwrap here as we always expect our own endorsements to be valid
             chunk_endorsement_tracker
-                .process_chunk_endorsement(endorsement.clone(), Some(chunk_header))
+                .process_chunk_endorsement(chunk_header, endorsement.clone())
                 .unwrap();
         } else {
             network_sender.send(PeerManagerMessageRequest::NetworkRequests(
