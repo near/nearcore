@@ -85,6 +85,23 @@ fn test_evil_deep_trie() {
 }
 
 #[test]
+fn test_self_delay() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "max_self_recursion_delay",
+            vec![0; 4],
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![0, 0, 0, 61]), "{:?}", res);
+}
+
+#[test]
 fn test_evil_deep_recursion() {
     let node = setup_test_contract(near_test_contracts::rs_contract());
     for n in [100u64, 1000, 10000, 100000, 1000000] {
