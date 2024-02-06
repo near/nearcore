@@ -2025,8 +2025,8 @@ impl ShardsManager {
                 request_header,
                 prev_hash,
             } => {
-                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
-                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
                     self.request_chunk_single(&request_header, prev_hash, false);
                 }
             }

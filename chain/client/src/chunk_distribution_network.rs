@@ -22,12 +22,16 @@ pub trait ChunkDistributionClient {
     type Error;
     type Response;
 
+    /// Attempt to lookup a chunk from the chunk distribution network
+    /// given the parent block hash (`prev_block_hash`) and the `shard_id`
+    /// for that chunk.
     async fn lookup_chunk(
         &self,
-        prev_hash: CryptoHash,
+        prev_block_hash: CryptoHash,
         shard_id: ShardId,
     ) -> Result<Option<PartialEncodedChunk>, Self::Error>;
 
+    /// Publish a chunk to the chunk distribution network.
     async fn publish_chunk(
         &mut self,
         chunk: &PartialEncodedChunk,
@@ -37,16 +41,20 @@ pub trait ChunkDistributionClient {
 /// Helper struct for the Chunk Distribution Network Feature.
 #[derive(Debug, Clone)]
 pub struct ChunkDistributionNetwork {
-    pub client: reqwest::Client,
-    pub config: ChunkDistributionNetworkConfig,
+    client: reqwest::Client,
+    config: ChunkDistributionNetworkConfig,
 }
 
 impl ChunkDistributionNetwork {
-    pub fn new(config: &ClientConfig) -> Option<Self> {
+    pub fn from_config(config: &ClientConfig) -> Option<Self> {
         config
             .chunk_distribution_network
             .as_ref()
             .map(|c| Self { client: reqwest::Client::new(), config: c.clone() })
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.config.enabled
     }
 }
 
@@ -64,7 +72,7 @@ pub fn request_missing_chunks<C>(
     for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
         for chunk in missing_chunks {
             blocks_delay_tracker.mark_chunk_requested(&chunk, now);
-            request_missing_chunk(client.clone(), chunk, shards_manager_adapter, prev_hash);
+            request_missing_chunk(client.clone(), chunk, shards_manager_adapter.clone(), prev_hash);
         }
     }
 
@@ -85,41 +93,34 @@ pub fn request_missing_chunks<C>(
 fn request_missing_chunk<C>(
     client: C,
     header: ShardChunkHeader,
-    adapter: &Sender<ShardsManagerRequestFromClient>,
+    adapter: Sender<ShardsManagerRequestFromClient>,
     prev_hash: CryptoHash,
 ) where
     C: ChunkDistributionClient + 'static,
     C::Error: fmt::Debug,
 {
     let shard_id = header.shard_id();
-    let thread_local_shards_manager_adapter = adapter.clone();
     near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
         match client.lookup_chunk(prev_hash, shard_id).await {
             Ok(Some(chunk)) => {
-                thread_local_shards_manager_adapter.send(
-                    ShardsManagerRequestFromClient::ProcessOrRequestChunk {
-                        candidate_chunk: chunk,
-                        request_header: header,
-                        prev_hash,
-                    },
-                );
+                adapter.send(ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                    candidate_chunk: chunk,
+                    request_header: header,
+                    prev_hash,
+                });
             }
             Ok(None) => {
-                thread_local_shards_manager_adapter.send(
-                    ShardsManagerRequestFromClient::RequestChunks {
-                        chunks_to_request: vec![header],
-                        prev_hash,
-                    },
-                );
+                adapter.send(ShardsManagerRequestFromClient::RequestChunks {
+                    chunks_to_request: vec![header],
+                    prev_hash,
+                });
             }
             Err(err) => {
                 error!(target: "client", ?err, "Failed to find chunk via Chunk Distribution Network");
-                thread_local_shards_manager_adapter.send(
-                    ShardsManagerRequestFromClient::RequestChunks {
-                        chunks_to_request: vec![header],
-                        prev_hash,
-                    },
-                );
+                adapter.send(ShardsManagerRequestFromClient::RequestChunks {
+                    chunks_to_request: vec![header],
+                    prev_hash,
+                });
             }
         }
     });

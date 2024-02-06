@@ -2,7 +2,7 @@
 //! This client works completely synchronously and must be operated by some async actor outside.
 
 use crate::adapter::ProcessTxResponse;
-use crate::chunk_distribution_network::ChunkDistributionNetwork;
+use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
@@ -354,7 +354,7 @@ impl Client {
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
         );
-        let chunk_distribution_network = ChunkDistributionNetwork::new(&config);
+        let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -1785,11 +1785,10 @@ impl Client {
 
         let chunk_header = encoded_chunk.cloned_header();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
-            if chunk_distribution.config.enabled {
+            if chunk_distribution.enabled() {
                 let partial_chunk = partial_chunk.clone();
                 let mut thread_local_client = chunk_distribution.clone();
                 near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
-                    use crate::chunk_distribution_network::ChunkDistributionClient;
                     if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
                         error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
                     }
@@ -1820,20 +1819,17 @@ impl Client {
             ?orphans_missing_chunks)
         .entered();
         if let Some(chunk_distribution) = &self.chunk_distribution_network {
-            if chunk_distribution.config.enabled {
-                crate::chunk_distribution_network::request_missing_chunks(
+            if chunk_distribution.enabled() {
+                return crate::chunk_distribution_network::request_missing_chunks(
                     blocks_missing_chunks,
                     orphans_missing_chunks,
                     chunk_distribution.clone(),
                     &mut self.chain.blocks_delay_tracker,
                     &self.shards_manager_adapter,
-                )
-            } else {
-                self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+                );
             }
-        } else {
-            self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
         }
+        self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
     }
 
     fn p2p_request_missing_chunks(
