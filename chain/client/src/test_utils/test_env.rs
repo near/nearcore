@@ -286,7 +286,10 @@ impl TestEnv {
 
     /// Processes all state witnesses sent over the network. The function waits for the processing to finish,
     /// so chunk endorsements are available immediately after this function returns.
-    pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationOutput {
+    pub fn propagate_chunk_state_witnesses(
+        &mut self,
+        allow_errors: bool,
+    ) -> StateWitnessPropagationOutput {
         let mut output = StateWitnessPropagationOutput {
             found_differing_post_state_root_due_to_state_transitions: false,
         };
@@ -304,13 +307,15 @@ impl TestEnv {
                         let processing_done_tracker = ProcessingDoneTracker::new();
                         witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
 
-                        self.client(account_id)
-                            .process_chunk_state_witness(
+                        let processing_result =
+                            self.client(account_id).process_chunk_state_witness(
                                 state_witness.clone(),
                                 PeerId::random(),
                                 Some(processing_done_tracker),
-                            )
-                            .unwrap();
+                            );
+                        if !allow_errors {
+                            processing_result.unwrap();
+                        }
                     }
 
                     // Update output.
@@ -333,7 +338,7 @@ impl TestEnv {
         output
     }
 
-    pub fn propagate_chunk_endorsements(&mut self) {
+    pub fn propagate_chunk_endorsements(&mut self, allow_errors: bool) {
         // Clone the Vec to satisfy the borrow checker.
         let network_adapters = self.network_adapters.clone();
         for network_adapter in network_adapters {
@@ -342,7 +347,11 @@ impl TestEnv {
                     account_id,
                     endorsement,
                 )) => {
-                    self.client(&account_id).process_chunk_endorsement(endorsement).unwrap();
+                    let processing_result =
+                        self.client(&account_id).process_chunk_endorsement(endorsement);
+                    if !allow_errors {
+                        processing_result.unwrap();
+                    }
 
                     None
                 }
@@ -351,9 +360,9 @@ impl TestEnv {
         }
     }
 
-    pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self) {
-        self.propagate_chunk_state_witnesses();
-        self.propagate_chunk_endorsements();
+    pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self, allow_errors: bool) {
+        self.propagate_chunk_state_witnesses(allow_errors);
+        self.propagate_chunk_endorsements(allow_errors);
     }
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {

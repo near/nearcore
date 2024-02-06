@@ -768,7 +768,7 @@ fn test_chunk_forwarding_optimization() {
         test.env.process_shards_manager_responses(0);
 
         // Propagating state witnesses and chunk endorsements is required for block production
-        test.env.propagate_chunk_state_witnesses_and_endorsements();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     // With very high probability we should've encountered some cases where forwarded parts

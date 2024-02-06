@@ -188,8 +188,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
-        let output = env.propagate_chunk_state_witnesses();
-        env.propagate_chunk_endorsements();
+        let output = env.propagate_chunk_state_witnesses(false);
+        env.propagate_chunk_endorsements(false);
 
         found_differing_post_state_root_due_to_state_transitions |=
             output.found_differing_post_state_root_due_to_state_transitions;
