@@ -483,6 +483,7 @@ def stop_node(node):
     for pid in pids:
         m.run('bash', input=kill_proccess_script(pid))
         m.run('sudo -u ubuntu -i', input=TMUX_STOP_SCRIPT)
+    logger.info(f'Node {m.name} stopped')
 
 
 def upload_and_extract(node, src_filename, dst_filename):
@@ -507,6 +508,8 @@ def redownload_neard(nodes, binary_url):
             input='wget -O /home/ubuntu/neard {}; chmod +x /home/ubuntu/neard'.
             format(binary_url)), nodes)
 
+def upload_service_account(nodes, service_account_file):
+    pmap(lambda node: node.machine.upload(service_account_file, '/home/ubuntu/service_account.json'), nodes)
 
 # Check /home/ubuntu/neard.upgrade to see whether the amend-genesis command is
 # available. Returns the path to the neard binary or throws an exception.
@@ -916,7 +919,7 @@ def create_and_upload_genesis_file_from_empty_genesis(
         total_supply += int(account.get('locked', 0))
         total_supply += int(account.get('amount', 0))
     genesis_config['total_supply'] = str(total_supply)
-    genesis_config['protocol_version'] = 57
+    genesis_config['protocol_version'] = 81
     genesis_config['epoch_length'] = int(epoch_length)
     genesis_config['num_block_producer_seats'] = int(num_seats)
     genesis_config['protocol_reward_rate'] = [1, 10]
@@ -1074,9 +1077,9 @@ def update_existing_config_files(nodes, overrider=None):
     )
 
 
-def start_nodes(nodes, upgrade_schedule=None):
+def start_nodes(nodes, upgrade_schedule=None, env=None):
     pmap(
-        lambda node: start_node(node, upgrade_schedule=upgrade_schedule),
+        lambda node: start_node(node, upgrade_schedule=upgrade_schedule, env=env),
         nodes,
     )
 
@@ -1089,22 +1092,26 @@ def clear_data(nodes):
     pmap(lambda node: node.machine.run('rm -rf /home/ubuntu/.near/data'), nodes)
 
 
-def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
+def neard_start_script(node, upgrade_schedule=None, epoch_height=None, env=None):
     if upgrade_schedule and upgrade_schedule.get(node.instance_name,
                                                  0) <= epoch_height:
         neard_binary = '/home/ubuntu/neard.upgrade'
     else:
         neard_binary = '/home/ubuntu/neard'
+    if env is not None:
+        env_str = ' '.join([f"{k}='{v}'" for k, v in env.items()]) + ' '
+    else:
+        env_str = ''
     return '''
         sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
         tmux new -s near -d bash
         sudo rm -rf /home/ubuntu/neard.log
-        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
-    '''.format(neard_binary=shlex.quote(neard_binary))
+        tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {env_str}{neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
+    '''.format(neard_binary=shlex.quote(neard_binary), env_str=env_str)
 
 
-def start_node(node, upgrade_schedule=None):
+def start_node(node, upgrade_schedule=None, env=None):
     m = node.machine
     logger.info(f'Starting node {m.name}')
     attempt = 0
@@ -1120,6 +1127,7 @@ def start_node(node, upgrade_schedule=None):
                 node,
                 upgrade_schedule=upgrade_schedule,
                 epoch_height=0,
+                env=env,
             ),
         )
         if start_process.returncode == 0:
