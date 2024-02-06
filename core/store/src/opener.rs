@@ -39,8 +39,8 @@ pub enum StoreOpenerError {
     /// Specifically, this happens if node is running with a single database and
     /// its kind is not RPC or Archive; or it’s running with two databases and
     /// their types aren’t Hot and Cold respectively.
-    #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
-    DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
+    // #[error("{which} database kind should be {want} but got {got:?}. Did you forget to set archive on your store opener?")]
+    // DbKindMismatch { which: &'static str, got: Option<DbKind>, want: DbKind },
 
     /// Unable to create a migration snapshot because one already exists.
     #[error(
@@ -364,16 +364,20 @@ impl<'a> StoreOpener<'a> {
 
         let current_kind = store.get_db_kind()?;
         let default_kind = get_default_kind(archive, temp);
-        let err =
-            Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
+        // let err =
+        //     Err(StoreOpenerError::DbKindMismatch { which, got: current_kind, want: default_kind });
 
         // If kind is set check if it's the expected one.
         if let Some(current_kind) = current_kind {
             if !is_valid_kind_temp(current_kind, temp) {
-                return err;
+                tracing::info!(target: "db_opener", "ignoring mismatching kind temperature");
+                return Ok(());
+                // return err;
             }
             if !is_valid_kind_archive(current_kind, archive) {
-                return err;
+                tracing::info!(target: "db_opener", "ignoring mismatching kind archive");
+                return Ok(());
+                // return err;
             }
             return Ok(());
         }
@@ -386,7 +390,8 @@ impl<'a> StoreOpener<'a> {
             return Ok(());
         }
 
-        return err;
+        Ok(())
+        // return err;
     }
 
     /// Ensures that the db has the correct - most recent - version. If the

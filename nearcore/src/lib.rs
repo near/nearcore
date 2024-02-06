@@ -104,13 +104,13 @@ pub fn open_storage(home_dir: &Path, near_config: &mut NearConfig) -> anyhow::Re
         Err(err @ StoreOpenerError::HotColdVersionMismatch { .. }) => {
             Err(anyhow::anyhow!("{err}"))
         },
-        Err(StoreOpenerError::DbKindMismatch { which, got, want }) => {
-            Err(if let Some(got) = got {
-                anyhow::anyhow!("{which} database kind should be {want} but got {got}")
-            } else {
-                anyhow::anyhow!("{which} database kind should be {want} but none was set")
-            })
-        }
+        // Err(StoreOpenerError::DbKindMismatch { which, got, want }) => {
+        //     Err(if let Some(got) = got {
+        //         anyhow::anyhow!("{which} database kind should be {want} but got {got}")
+        //     } else {
+        //         anyhow::anyhow!("{which} database kind should be {want} but none was set")
+        //     })
+        // }
         Err(StoreOpenerError::SnapshotAlreadyExists(snap_path)) => {
             Err(anyhow::anyhow!(
                 "Detected an existing database migration snapshot at ‘{}’.\n\
