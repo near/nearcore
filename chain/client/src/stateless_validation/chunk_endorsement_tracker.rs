@@ -66,19 +66,14 @@ impl ChunkEndorsementTracker {
             let mut guard = self.pending_chunk_endorsements.lock();
             guard.pop(chunk_hash)
         };
-        let chunk_endorsements = match chunk_endorsements {
-            Some(chunk_endorsements) => chunk_endorsements,
-            None => {
-                return;
-            }
+        let Some(chunk_endorsements) = chunk_endorsements else {
+            return;
         };
         tracing::debug!(target: "stateless_validation", ?chunk_hash, "Processing pending chunk endorsements.");
         for endorsement in chunk_endorsements.values() {
-            let _ = self.process_chunk_endorsement(chunk_header, endorsement.clone())
-                .map_err(|error| {
-                    tracing::debug!(target: "stateless_validation", ?endorsement, "Error processing pending chunk endorsement: {:?}", error);
-                    error
-                });
+            if let Err(error) = self.process_chunk_endorsement(chunk_header, endorsement.clone()) {
+                tracing::debug!(target: "stateless_validation", ?endorsement, "Error processing pending chunk endorsement: {:?}", error);
+            }
         }
     }
 
