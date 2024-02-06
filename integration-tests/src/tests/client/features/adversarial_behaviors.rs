@@ -119,11 +119,6 @@ impl AdversarialBehaviorTestData {
 
 #[test]
 fn test_non_adversarial_case() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
@@ -180,6 +175,9 @@ fn test_non_adversarial_case() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
+
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     // Sanity check that the final chain head is what we expect
