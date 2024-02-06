@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::adapter::ProcessTxResponse;
+use crate::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use crate::Client;
 use near_async::messaging::CanSend;
 use near_chain::test_utils::ValidatorSchedule;
@@ -23,7 +26,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
@@ -38,8 +41,6 @@ use once_cell::sync::OnceCell;
 use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
-
-const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -63,9 +64,6 @@ pub struct StateWitnessPropagationOutput {
     /// Whether some propagated state witness includes two different post state
     /// roots.
     pub found_differing_post_state_root_due_to_state_transitions: bool,
-
-    /// All the account_ids that we've sent the chunk witness to.
-    pub chunk_hash_to_account_ids: HashMap<ChunkHash, HashSet<AccountId>>,
 }
 
 impl TestEnv {
@@ -286,12 +284,14 @@ impl TestEnv {
         post_state_roots.len() >= 2
     }
 
-    /// Triggers processing of all chunk state witnesses received by network.
+    /// Processes all state witnesses sent over the network. The function waits for the processing to finish,
+    /// so chunk endorsements are available immediately after this function returns.
     pub fn propagate_chunk_state_witnesses(&mut self) -> StateWitnessPropagationOutput {
         let mut output = StateWitnessPropagationOutput {
             found_differing_post_state_root_due_to_state_transitions: false,
-            chunk_hash_to_account_ids: HashMap::new(),
         };
+        let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
+
         let network_adapters = self.network_adapters.clone();
         for network_adapter in network_adapters {
             network_adapter.handle_filtered(|request| match request {
@@ -301,8 +301,15 @@ impl TestEnv {
                 )) => {
                     // Process chunk state witness for each client.
                     for account_id in account_ids.iter() {
+                        let processing_done_tracker = ProcessingDoneTracker::new();
+                        witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+
                         self.client(account_id)
-                            .process_chunk_state_witness(state_witness.clone(), PeerId::random())
+                            .process_chunk_state_witness(
+                                state_witness.clone(),
+                                PeerId::random(),
+                                Some(processing_done_tracker),
+                            )
                             .unwrap();
                     }
 
@@ -312,66 +319,41 @@ impl TestEnv {
                             &state_witness,
                         );
 
-                    output.chunk_hash_to_account_ids.insert(
-                        state_witness.inner.chunk_header.chunk_hash(),
-                        account_ids.into_iter().collect(),
-                    );
                     None
                 }
                 _ => Some(request),
             });
         }
+
+        // Wait for all state witnesses to be processed before returning.
+        for processing_done_waiter in witness_processing_done_waiters {
+            processing_done_waiter.wait();
+        }
+
         output
     }
 
-    /// Waits for `CHUNK_ENDORSEMENTS_TIMEOUT` to receive chunk endorsement for the given chunk hashes.
-    /// Panics if it doesn't happen.
-    /// `chunk_hash_to_account_ids` maps hashes to the set of account ids that are expected to endorse the chunk.
-    /// Note that we need to wait here as the chunk state witness is processed asynchronously.
-    /// Block producers don't send endorsements to themselves, so we don't wait for endorsements
-    /// sent by `excluded_block_producer`.
-    pub fn wait_to_propagate_chunk_endorsements(
-        &mut self,
-        mut chunk_hash_to_account_ids: HashMap<ChunkHash, HashSet<AccountId>>,
-        excluded_block_producer: &AccountId,
-    ) {
+    pub fn propagate_chunk_endorsements(&mut self) {
+        // Clone the Vec to satisfy the borrow checker.
         let network_adapters = self.network_adapters.clone();
-        let timer = Instant::now();
+        for network_adapter in network_adapters {
+            network_adapter.handle_filtered(|request| match request {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
+                    account_id,
+                    endorsement,
+                )) => {
+                    self.client(&account_id).process_chunk_endorsement(endorsement).unwrap();
 
-        // Remove the account_id of excluded_block_producer, block producers don't send endorsements to themselves
-        for account_ids in chunk_hash_to_account_ids.values_mut() {
-            account_ids.remove(excluded_block_producer);
+                    None
+                }
+                _ => Some(request),
+            });
         }
+    }
 
-        loop {
-            for network_adapter in &network_adapters {
-                network_adapter.handle_filtered(|request| match request {
-                    PeerManagerMessageRequest::NetworkRequests(
-                        NetworkRequests::ChunkEndorsement(account_id, endorsement),
-                    ) => {
-                        // Remove endorsement.account_id on receiving endorsement.
-                        chunk_hash_to_account_ids
-                            .get_mut(endorsement.chunk_hash())
-                            .map(|entry| entry.remove(&endorsement.account_id));
-
-                        self.client(&account_id).process_chunk_endorsement(endorsement).unwrap();
-
-                        None
-                    }
-                    _ => Some(request),
-                });
-            }
-
-            // Check if we received all endorsements.
-            chunk_hash_to_account_ids.retain(|_, v| !v.is_empty());
-            if chunk_hash_to_account_ids.is_empty() {
-                return;
-            }
-            if timer.elapsed() > CHUNK_ENDORSEMENTS_TIMEOUT {
-                panic!("Missing chunk endorsements: {:?}", chunk_hash_to_account_ids);
-            }
-            std::thread::sleep(Duration::from_micros(100));
-        }
+    pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self) {
+        self.propagate_chunk_state_witnesses();
+        self.propagate_chunk_endorsements();
     }
 
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {

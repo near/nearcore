@@ -188,17 +188,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
-        // First propagate chunk state witnesses, then chunk endorsements.
-        // Note that validation of chunk state witness is done asynchonously
-        // which is why it's important to pass the expected set of chunk endorsements to wait for.
-        // We don't wait for endorsements from the next block producer, as block producers don't
-        // send endorsements to themselves.
         let output = env.propagate_chunk_state_witnesses();
-        let next_block_producer = get_block_producer(&env, &tip, 2);
-        env.wait_to_propagate_chunk_endorsements(
-            output.chunk_hash_to_account_ids,
-            &next_block_producer,
-        );
+        env.propagate_chunk_endorsements();
 
         found_differing_post_state_root_due_to_state_transitions |=
             output.found_differing_post_state_root_due_to_state_transitions;

@@ -1,3 +1,4 @@
+use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
@@ -74,11 +75,14 @@ impl ChunkValidator {
     /// Performs the chunk validation logic. When done, it will send the chunk
     /// endorsement message to the block producer. The actual validation logic
     /// happens in a separate thread.
+    /// The chunk is validated asynchronously, if you want to wait for the processing to finish
+    /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn start_validating_chunk(
         &self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
         peer_id: PeerId,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
             return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
@@ -116,6 +120,9 @@ impl ChunkValidator {
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         rayon::spawn(move || {
+            // processing_done_tracker must survive until the processing is finished.
+            let _processing_done_tracker_capture = processing_done_tracker;
+
             match validate_chunk_state_witness(
                 state_witness_inner,
                 pre_validation_result,
@@ -574,10 +581,13 @@ pub(crate) fn send_chunk_endorsement_to_block_producers(
 impl Client {
     /// Responds to a network request to verify a `ChunkStateWitness`, which is
     /// sent by chunk producers after they produce a chunk.
+    /// State witness is processed asynchronously, if you want to wait for the processing to finish
+    /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
         witness: ChunkStateWitness,
         peer_id: PeerId,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<Option<ChunkStateWitness>, Error> {
         // TODO(#10502): Handle production of state witness for first chunk after genesis.
         // Properly handle case for chunk right after genesis.
@@ -611,8 +621,12 @@ impl Client {
 
         // TODO(#10265): If the previous block does not exist, we should
         // queue this (similar to orphans) to retry later.
-        let result =
-            self.chunk_validator.start_validating_chunk(witness, &self.chain, peer_id.clone());
+        let result = self.chunk_validator.start_validating_chunk(
+            witness,
+            &self.chain,
+            peer_id.clone(),
+            processing_done_tracker,
+        );
         if let Err(Error::InvalidChunkStateWitness(_)) = &result {
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::BanPeer {

@@ -2011,7 +2011,7 @@ impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
         let peer_id = msg.peer_id.clone();
         let attempts_remaining = msg.attempts_remaining;
-        match self.client.process_chunk_state_witness(msg.witness, msg.peer_id) {
+        match self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
             Err(err) => {
                 tracing::error!(target: "client", ?err, "Error processing chunk state witness");
             }
