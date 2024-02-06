@@ -1175,6 +1175,14 @@ pub mod epoch_info {
             let seed = hash(&buffer);
             SeedableRng::from_seed(seed.0)
         }
+
+        pub fn shard_assignment_shuffling_rng(seed: &RngSeed) -> ChaCha20Rng {
+            let mut buffer = [0u8; 62];
+            buffer[0..32].copy_from_slice(seed);
+            buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
+            let seed = hash(&buffer);
+            SeedableRng::from_seed(seed.0)
+        }
     }
 
     #[derive(BorshSerialize, BorshDeserialize)]

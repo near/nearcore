@@ -126,7 +126,7 @@ export type SyncStatusView =
       }
     | 'StateSyncDone'
     | {
-          BodySync: {
+          BlockSync: {
               start_height: number;
               current_height: number;
               highest_height: number;
@@ -299,13 +299,13 @@ export interface EdgeView {
     peer0: string;
     peer1: string;
     nonce: number;
-};
+}
 
 export interface LabeledEdgeView {
     peer0: number;
     peer1: number;
     nonce: number;
-};
+}
 
 export interface EdgeCacheView {
     peer_labels: { [peer_id: string]: number };
@@ -321,7 +321,7 @@ export interface RoutingTableView {
     edge_cache: EdgeCacheView;
     local_edges: { [peer_id: string]: EdgeView };
     peer_distances: { [peer_id: string]: PeerRoutesView };
-    my_distances: { [peer_id: string]:  number };
+    my_distances: { [peer_id: string]: number };
 }
 
 export interface RoutingTableResponse {
@@ -331,14 +331,14 @@ export interface RoutingTableResponse {
 }
 
 export interface SnapshotHostInfoView {
-    peer_id: string,
-    sync_hash: string,
-    epoch_height: number,
-    shards: number[],
+    peer_id: string;
+    sync_hash: string;
+    epoch_height: number;
+    shards: number[];
 }
 
 export interface SnapshotHostsView {
-    hosts: SnapshotHostInfoView[],
+    hosts: SnapshotHostInfoView[];
 }
 
 export interface SnapshotHostsResponse {
@@ -451,16 +451,12 @@ export async function fetchRecentOutboundConnections(
     return await response.json();
 }
 
-export async function fetchRoutingTable(
-    addr: string
-): Promise<RoutingTableResponse> {
+export async function fetchRoutingTable(addr: string): Promise<RoutingTableResponse> {
     const response = await fetch(`http://${addr}/debug/api/network_routes`);
     return await response.json();
 }
 
-export async function fetchSnapshotHosts(
-    addr: string
-): Promise<SnapshotHostsResponse> {
+export async function fetchSnapshotHosts(addr: string): Promise<SnapshotHostsResponse> {
     const response = await fetch(`http://${addr}/debug/api/snapshot_hosts`);
     return await response.json();
 }

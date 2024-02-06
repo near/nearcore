@@ -9,6 +9,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
+use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
@@ -149,6 +150,8 @@ pub fn proposals_to_epoch_info(
                 }
             }
         }
+        chunk_producers_settlement
+            .shuffle(&mut EpochInfo::shard_assignment_shuffling_rng(&rng_seed));
         chunk_producers_settlement
     } else {
         if chunk_producers.is_empty() {
