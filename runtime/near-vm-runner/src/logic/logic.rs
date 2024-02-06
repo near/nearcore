@@ -2078,8 +2078,8 @@ impl<'a> VMLogic<'a> {
         // longer.
         self.gas_counter.prepay_gas(gas)?;
 
-        /// Here we are creating a receipt with a single data dependency which will then be
-        /// resolved by the resume call.
+        // Here we are creating a receipt with a single data dependency which will then be
+        // resolved by the resume call.
         self.pay_gas_for_new_receipt(true, &[true])?;
         let (new_receipt_idx, data_id) =
             self.ext.yield_create_action_receipt(self.context.current_account_id.clone())?;

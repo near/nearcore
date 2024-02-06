@@ -115,6 +115,10 @@ pub enum Parameter {
     WasmAltBn128PairingCheckElement,
     WasmAltBn128G1SumBase,
     WasmAltBn128G1SumElement,
+    WasmYieldCreateBase,
+    WasmYieldCreateByte,
+    WasmYieldResumeBase,
+    WasmYieldResumeByte,
 
     // Smart contract limits
     MaxGasBurnt,

@@ -170,6 +170,10 @@ wasm_alt_bn128_pairing_check_base: 9_686_000_000_000
 wasm_alt_bn128_pairing_check_element: 5_102_000_000_000
 wasm_alt_bn128_g1_sum_base: 3_000_000_000
 wasm_alt_bn128_g1_sum_element: 5_000_000_000
+wasm_yield_create_base: 300_000_000_000_000
+wasm_yield_create_byte: 300_000_000_000_000
+wasm_yield_resume_base: 300_000_000_000_000
+wasm_yield_resume_byte: 300_000_000_000_000
 
 # Smart contract limits
 max_gas_burnt: 200_000_000_000_000
