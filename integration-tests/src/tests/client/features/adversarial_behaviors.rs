@@ -200,6 +200,8 @@ fn test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
+    let uses_stateless_validation =
+        checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
@@ -237,8 +239,27 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
-                        this_block_should_be_skipped = true;
                         epochs_seen_invalid_chunk.insert(epoch_id.clone());
+
+                        // This is the first block with invalid chunks in the current epoch.
+                        // In pre-stateless validation protocol the first block with invalid chunks
+                        // was skipped, but stateless validation is able to deal with invalid chunks
+                        // without skipping blocks. The expected behavior depends on whether we are
+                        // using stateless validation or not.
+                        if uses_stateless_validation {
+                            // With stateless validation the block usually isn't skipped. Chunk validators
+                            // won't send chunk endorsements for this chunk, which means that it won't be
+                            // included in the block at all. The only exception is the first few blocks,
+                            // which still use the old protocol. In this test the block with height 2 is skipped.
+                            this_block_should_be_skipped = height < 3;
+                        } else {
+                            // In the old protocol, chunks are first included in the block and then the block
+                            // is validated. This means that this block, which includes an invalid chunk,
+                            // will be invalid and it should be skipped. Once this happens, the malicious
+                            // chunk producer is banned for the whole epoch and no blocks are skipped until
+                            // we reach the next epoch.
+                            this_block_should_be_skipped = true;
+                        }
                     }
                 }
             }
@@ -302,6 +323,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
             }
         }
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(true);
         last_block_skipped = this_block_should_be_skipped;
     }
 
@@ -324,11 +347,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
@@ -338,11 +356,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;
