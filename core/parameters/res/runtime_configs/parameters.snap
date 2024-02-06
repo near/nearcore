@@ -167,6 +167,7 @@ max_functions_number_per_contract                     10_000
 wasmer2_stack_limit                                  204_800
 max_locals_per_contract                            1_000_000
 account_id_validity_rules_version                          1
+max_yield_payload_size                                10_240
 disable_9393_fix                        false
 flat_storage_reads                      true
 implicit_account_creation               true

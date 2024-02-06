@@ -208,6 +208,8 @@ pub enum HostError {
     Ed25519VerifyInvalidInput { msg: String },
     /// There is no yielded promise associated with the given `data_id`.
     YieldedPromiseNotFound { data_id: String },
+    /// Yield payload length exceeds the maximum permitted.
+    YieldPayloadLength { length: u64, limit: u64 },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -440,6 +442,10 @@ impl std::fmt::Display for HostError {
             YieldedPromiseNotFound { data_id } => {
                 write!(f, "Attempted to resume invalid yielded promise: {}", data_id)
             }
+            YieldPayloadLength { length, limit } => write!(
+                f,
+                "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
+            ),
         }
     }
 }

@@ -132,6 +132,8 @@ pub struct LimitConfig {
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
+    /// Maximum number of bytes for payload passed over a yield resume.
+    pub max_yield_payload_size: u64,
 }
 
 /// Dynamic configuration parameters required for the WASM runtime to

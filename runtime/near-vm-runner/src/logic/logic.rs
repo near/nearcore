@@ -2140,6 +2140,14 @@ impl<'a> VMLogic<'a> {
 
         let data_id = get_memory_or_register!(self, data_id_ptr, CryptoHash::LENGTH as u64)?;
         let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
+        let payload_len = payload.len() as u64;
+        if payload_len > self.config.limit_config.max_yield_payload_size {
+            return Err(HostError::YieldPayloadLength {
+                length: payload_len,
+                limit: self.config.limit_config.max_yield_payload_size,
+            }
+            .into());
+        }
 
         let data_id =
             CryptoHash(data_id.into_owned().try_into().expect("exactly CryptoHash::LENGTH bytes"));

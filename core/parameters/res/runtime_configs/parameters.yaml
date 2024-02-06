@@ -200,6 +200,7 @@ max_length_storage_value: 4_194_304
 max_promises_per_function_call_action: 1_024
 max_number_input_data_dependencies: 128
 account_id_validity_rules_version: 0
+max_yield_payload_size: 10_240 # kiB
 
 # Contract runtime configuration
 disable_9393_fix: false

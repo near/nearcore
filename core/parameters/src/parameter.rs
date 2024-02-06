@@ -148,6 +148,7 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+    MaxYieldPayloadSize,
 
     // Contract runtime features
     #[strum(serialize = "disable_9393_fix")]
@@ -226,6 +227,7 @@ impl Parameter {
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
+            Parameter::MaxYieldPayloadSize
         ]
         .iter()
     }
