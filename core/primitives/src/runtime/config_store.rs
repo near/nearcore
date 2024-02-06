@@ -131,6 +131,26 @@ impl RuntimeConfigStore {
         Self::with_one_config(RuntimeConfig::free())
     }
 
+    /// Constructs store for measuring WASM coverage.
+    pub fn wasmcov() -> Self {
+        let mut params: ParameterTable =
+            BASE_CONFIG.parse().expect("Failed parsing base parameter file.");
+
+        let mut store = BTreeMap::new();
+
+        for (protocol_version, diff_bytes) in CONFIG_DIFFS {
+            let diff :ParameterTableDiff= diff_bytes.parse().unwrap_or_else(|err| panic!("Failed parsing runtime parameters diff for version {protocol_version}. Error: {err}"));
+            params.apply_diff(diff).unwrap_or_else(|err| panic!("Failed applying diff to `RuntimeConfig` for version {protocol_version}. Error: {err}"));
+
+            let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
+            runtime_config.wasm_config.limit_config.max_total_log_length = u64::MAX;
+            runtime_config.wasm_config.limit_config.max_gas_burnt = u64::MAX;
+            store.insert(*protocol_version, Arc::new(runtime_config));
+        }
+
+        Self { store }
+    }
+
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
         self.store
