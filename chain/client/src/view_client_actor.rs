@@ -2,8 +2,8 @@
 //! Useful for querying from RPC.
 
 use crate::{
-    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
-    GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
+    metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetRealChunk,
+    GetStateChanges, GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use actix::{Addr, SyncArbiter};
 use near_async::actix_wrapper::SyncActixWrapper;
@@ -722,6 +722,51 @@ impl Handler<GetBlockWithMerkleTree> for ViewClientActorInner {
             .get_block_merkle_tree(&block_view.header.hash)
             .map(|merkle_tree| (block_view, merkle_tree))
             .map_err(|e| e.into())
+    }
+}
+
+impl Handler<GetRealChunk> for ViewClientActorInner {
+    #[perf]
+    fn handle(&mut self, msg: GetRealChunk) -> Result<ShardChunk, GetChunkError> {
+        tracing::debug!(target: "client", ?msg);
+        let _timer =
+            metrics::VIEW_CLIENT_MESSAGE_TIME.with_label_values(&["GetChunk"]).start_timer();
+        let get_chunk_from_block = |block: Block,
+                                    shard_id: ShardId,
+                                    chain: &Chain|
+         -> Result<ShardChunk, near_chain::Error> {
+            let chunk_header = block
+                .chunks()
+                .get(shard_id as usize)
+                .ok_or_else(|| near_chain::Error::InvalidShardId(shard_id))?
+                .clone();
+            let chunk_hash = chunk_header.chunk_hash();
+            let chunk = chain.get_chunk(&chunk_hash)?;
+            let res = ShardChunk::with_header(ShardChunk::clone(&chunk), chunk_header).ok_or(
+                near_chain::Error::Other(format!(
+                    "Mismatched versions for chunk with hash {}",
+                    chunk_hash.0
+                )),
+            )?;
+            Ok(res)
+        };
+
+        let chunk = match msg {
+            GetRealChunk::ChunkHash(chunk_hash) => {
+                let chunk = self.chain.get_chunk(&chunk_hash)?;
+                ShardChunk::clone(&chunk)
+            }
+            GetRealChunk::BlockHash(block_hash, shard_id) => {
+                let block = self.chain.get_block(&block_hash)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
+            }
+            GetRealChunk::Height(height, shard_id) => {
+                let block = self.chain.get_block_by_height(height)?;
+                get_chunk_from_block(block, shard_id, &self.chain)?
+            }
+        };
+
+        Ok(chunk)
     }
 }
 
