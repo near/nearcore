@@ -36,7 +36,7 @@ def main():
                               mirror.restart_once)
 
     end_source_height = source_nodes[0].get_latest_block().height
-    time.sleep(5)
+    time.sleep(30)
     # we don't need these anymore
     for node in source_nodes[1:]:
         node.kill()
