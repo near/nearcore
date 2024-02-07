@@ -141,8 +141,8 @@ impl crate::ChainAccess for ChainAccess {
             if chunk.height_included() == height {
                 chunks.push(SourceChunk {
                     shard_id: chunk.shard_id(),
-                    transactions: chunk.transactions().iter().map(|t| t.clone().into()).collect(),
-                    receipts: chunk.prev_outgoing_receipts().iter().cloned().collect(),
+                    transactions: chunk.transactions().to_vec(),
+                    receipts: chunk.prev_outgoing_receipts().to_vec(),
                 })
             }
         }
