@@ -2124,6 +2124,7 @@ impl<'a> VMLogic<'a> {
     ///
     pub fn promise_yield_resume(
         &mut self,
+        data_id_len: u64,
         data_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64,
@@ -2138,7 +2139,7 @@ impl<'a> VMLogic<'a> {
         self.gas_counter.pay_base(yield_resume_base)?;
         self.gas_counter.pay_per(yield_resume_byte, payload_len)?;
 
-        let data_id = get_memory_or_register!(self, data_id_ptr, CryptoHash::LENGTH as u64)?;
+        let data_id = get_memory_or_register!(self, data_id_ptr, data_id_len)?;
         let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
         let payload_len = payload.len() as u64;
         if payload_len > self.config.limit_config.max_yield_payload_size {
@@ -2149,8 +2150,9 @@ impl<'a> VMLogic<'a> {
             .into());
         }
 
-        let data_id =
-            CryptoHash(data_id.into_owned().try_into().expect("exactly CryptoHash::LENGTH bytes"));
+        let data_id: [_; CryptoHash::LENGTH] =
+            (&*data_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
+        let data_id = CryptoHash(data_id);
         let payload = payload.into_owned();
 
         // TODO gas costs for receipt creation
