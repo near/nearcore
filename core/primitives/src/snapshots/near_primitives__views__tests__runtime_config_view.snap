@@ -213,7 +213,7 @@ expression: "&view"
       "wasmer2_stack_limit": 204800,
       "max_locals_per_contract": 1000000,
       "account_id_validity_rules_version": 1,
-      "max_yield_payload_size": 10240
+      "max_yield_payload_size": 1024
     }
   },
   "account_creation_config": {
