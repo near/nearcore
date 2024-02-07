@@ -147,12 +147,15 @@ pytest sanity/meta_tx.py --features nightly
 pytest --timeout=600 sanity/split_storage.py
 pytest --timeout=600 sanity/split_storage.py --features nightly
 
-# Test for resharding
+# Tests for resharding
 pytest --timeout=120 sanity/resharding.py
-pytest --timeout=120 sanity/resharding.py --features nightly
-pytest --timeout=120 sanity/resharding_error_handling.py
-pytest --timeout=120 sanity/resharding_error_handling.py --features nightly
 pytest --timeout=120 sanity/resharding_rpc_tx.py
-pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
 pytest --timeout=120 sanity/resharding_restart.py
-pytest --timeout=120 sanity/resharding_restart.py --features nightly
+pytest --timeout=120 sanity/resharding_error_handling.py
+
+# Tests for resharding in nightly are disabled because resharding is not
+# compatible with stateless validation. 
+# pytest --timeout=120 sanity/resharding.py --features nightly
+# pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
+# pytest --timeout=120 sanity/resharding_restart.py --features nightly
+# pytest --timeout=120 sanity/resharding_error_handling.py --features nightly

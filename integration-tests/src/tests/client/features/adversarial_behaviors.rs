@@ -62,13 +62,18 @@ impl AdversarialBehaviorTestData {
         AdversarialBehaviorTestData { num_validators, env }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { .. } => {
                 self.env.process_partial_encoded_chunk_request(
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 self.env.shards_manager(&account_id).send(
@@ -76,24 +81,15 @@ impl AdversarialBehaviorTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            NetworkRequests::Challenge(_) => {
-                // challenges not enabled.
-            }
-            NetworkRequests::ChunkStateWitness(_, _) => {
-                // TODO(#10265).
-            }
-            NetworkRequests::ChunkEndorsement(_, _) => {
-                // TODO(#10265).
-            }
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
@@ -101,17 +97,15 @@ impl AdversarialBehaviorTestData {
         loop {
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                let network_adapter = self.env.network_adapters[i].clone();
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             for i in 0..self.env.clients.len() {
                 any_message_processed |= self.env.process_shards_manager_responses(i);
@@ -125,11 +119,6 @@ impl AdversarialBehaviorTestData {
 
 #[test]
 fn test_non_adversarial_case() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
@@ -186,6 +175,9 @@ fn test_non_adversarial_case() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
         }
+
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     // Sanity check that the final chain head is what we expect
@@ -208,6 +200,8 @@ fn test_non_adversarial_case() {
 fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
     mut test: AdversarialBehaviorTestData,
 ) {
+    let uses_stateless_validation =
+        checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION);
     let epoch_manager = test.env.clients[0].epoch_manager.clone();
     let bad_chunk_producer =
         test.env.clients[7].validator_signer.as_ref().unwrap().validator_id().clone();
@@ -245,8 +239,30 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 if &chunk_producer == &bad_chunk_producer {
                     invalid_chunks_in_this_block.insert(shard_id);
                     if !epochs_seen_invalid_chunk.contains(&epoch_id) {
-                        this_block_should_be_skipped = true;
                         epochs_seen_invalid_chunk.insert(epoch_id.clone());
+
+                        // This is the first block with invalid chunks in the current epoch.
+                        // In pre-stateless validation protocol the first block with invalid chunks
+                        // was skipped, but stateless validation is able to deal with invalid chunks
+                        // without skipping blocks. The expected behavior depends on whether we are
+                        // using stateless validation or not.
+                        if uses_stateless_validation {
+                            // With stateless validation the block usually isn't skipped. Chunk validators
+                            // won't send chunk endorsements for this chunk, which means that it won't be
+                            // included in the block at all. The only exception is the first few blocks after
+                            // genesis, which are currently handled in a special way.
+                            // In this test the block with height 2 is skipped.
+                            // TODO(#10502): Properly handle blocks right after genesis, ideally no blocks
+                            // would be skipped when using stateless validation.
+                            this_block_should_be_skipped = height < 3;
+                        } else {
+                            // In the old protocol, chunks are first included in the block and then the block
+                            // is validated. This means that this block, which includes an invalid chunk,
+                            // will be invalid and it should be skipped. Once this happens, the malicious
+                            // chunk producer is banned for the whole epoch and no blocks are skipped until
+                            // we reach the next epoch.
+                            this_block_should_be_skipped = true;
+                        }
                     }
                 }
             }
@@ -310,6 +326,8 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
                 assert_eq!(test.env.clients[i].chain.head().unwrap().height, height);
             }
         }
+        test.process_all_actor_messages();
+        test.env.propagate_chunk_state_witnesses_and_endorsements(true);
         last_block_skipped = this_block_should_be_skipped;
     }
 
@@ -332,11 +350,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_chunks = true;
@@ -346,11 +359,6 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk() {
 #[test]
 #[cfg(feature = "test_features")]
 fn test_banning_chunk_producer_when_seeing_invalid_tx_in_chunk() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
     let mut test = AdversarialBehaviorTestData::new();
     test.env.clients[7].produce_invalid_tx_in_chunks = true;

@@ -1277,8 +1277,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// Since `promise_create` is a convenience wrapper around `promise_batch_create` and
-    /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    /// `promise_create` is a convenience wrapper around `promise_batch_create` and
+    /// `promise_batch_action_function_call`. This means it charges the `base` cost twice.
     pub fn promise_create(
         &mut self,
         account_id_len: u64,
@@ -1320,8 +1320,8 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Cost
     ///
-    /// Since `promise_create` is a convenience wrapper around `promise_batch_then` and
-    /// `promise_batch_action_function_call`. This also means it charges `base` cost twice.
+    /// `promise_then` is a convenience wrapper around `promise_batch_then` and
+    /// `promise_batch_action_function_call`. This means it charges the `base` cost twice.
     pub fn promise_then(
         &mut self,
         promise_idx: u64,
