@@ -1815,6 +1815,10 @@ impl ShardsManager {
                 ));
             }
         } else {
+            // Without SingleShardTracking, we're asking all validators to track all shards.
+            // So we may as well forward every part to all block producers, and we also
+            // forward to incoming chunk producers so they can produce the next chunks without
+            // delay.
             let mut next_chunk_producers = self
                 .epoch_manager
                 .shard_ids(&epoch_id)?
@@ -1836,10 +1840,6 @@ impl ShardsManager {
                 }
                 next_chunk_producers.remove(&bp_account_id);
 
-                // Technically, here we should check if the block producer actually cares about the shard.
-                // We don't because with the current implementation, we force all validators to track all
-                // shards by making their config tracking all shards.
-                // See https://github.com/near/nearcore/issues/7388
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkForward {
                         account_id: bp_account_id,
@@ -1848,9 +1848,6 @@ impl ShardsManager {
                 ));
             }
 
-            // We also forward chunk parts to incoming chunk producers because we want them to be able
-            // to produce the next chunk without delays. For the same reason as above, we don't check if they
-            // actually track this shard.
             for next_chunk_producer in next_chunk_producers {
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkForward {
