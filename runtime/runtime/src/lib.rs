@@ -1478,12 +1478,13 @@ impl Runtime {
 
         // Resolve timed-out yielded promises
         let mut yielded_promise_indices: YieldedPromiseIndices =
-            get(&state_update, &TrieKey::YieldedPromiseIndices)?.unwrap_or_default();
+            get(&state_update, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default();
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
         let mut new_receipt_index: usize = 0;
 
         while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
-            let key = TrieKey::YieldedPromise { index: yielded_promise_indices.first_index };
+            let key =
+                TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
 
             let (account_id, data_id, expires_at): (AccountId, CryptoHash, BlockHeight) =
                 get(&state_update, &key)?.ok_or_else(|| {
@@ -1541,7 +1542,7 @@ impl Runtime {
         }
 
         if yielded_promise_indices != initial_yielded_promise_indices {
-            set(&mut state_update, TrieKey::YieldedPromiseIndices, &yielded_promise_indices);
+            set(&mut state_update, TrieKey::YieldedPromiseQueueIndices, &yielded_promise_indices);
         }
 
         check_balance(

@@ -763,14 +763,14 @@ pub fn set_delayed_receipt(
 pub fn get_yielded_promise_indices(
     trie: &dyn TrieAccess,
 ) -> Result<YieldedPromiseIndices, StorageError> {
-    Ok(get(trie, &TrieKey::YieldedPromiseIndices)?.unwrap_or_default())
+    Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
 }
 
 pub fn set_yielded_promise_indices(
     state_update: &mut TrieUpdate,
     yielded_promise_indices: &YieldedPromiseIndices,
 ) {
-    set(state_update, TrieKey::YieldedPromiseIndices, yielded_promise_indices);
+    set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
 }
 
 // Appends to the yielded promises queue in the state.
@@ -781,7 +781,7 @@ pub fn set_yielded_promise(
 ) {
     set(
         state_update,
-        TrieKey::YieldedPromise { index: yielded_promise_indices.next_available_index },
+        TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
         yielded_promise,
     );
     yielded_promise_indices.next_available_index = yielded_promise_indices
