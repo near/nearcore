@@ -3,7 +3,7 @@ use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
 use near_primitives::network::PeerId;
-use near_primitives::sharding::ChunkHash;
+use near_primitives::sharding::{ChunkHash, ShardChunk};
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, EpochId, EpochReference, MaybeBlockId, ShardId,
     TransactionOrReceiptId,
@@ -444,6 +444,17 @@ pub enum GetChunk {
 
 impl Message for GetChunk {
     type Result = Result<ChunkView, GetChunkError>;
+}
+
+#[derive(Debug)]
+pub enum GetRealChunk {
+    Height(BlockHeight, ShardId),
+    BlockHash(CryptoHash, ShardId),
+    ChunkHash(ChunkHash),
+}
+
+impl Message for GetRealChunk {
+    type Result = Result<ShardChunk, GetChunkError>;
 }
 
 #[derive(thiserror::Error, Debug)]
