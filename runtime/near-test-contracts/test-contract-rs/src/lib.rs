@@ -613,6 +613,12 @@ pub fn from_base64(s: &str) -> Vec<u8> {
     base64::Engine::decode(engine, s).unwrap()
 }
 
+/// Delay completion of the receipt for as long as possible through self cross-contract calls.
+///
+/// This contract keeps the recursion depth and returns it when less than 5Tgas remains, which is
+/// most likely is no longer sufficient for another cross-contract call.
+///
+/// This is a stable alternative to yield/resume proposal at the time of writing.
 #[no_mangle]
 pub unsafe fn max_self_recursion_delay() {
     input(0);
