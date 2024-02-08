@@ -244,13 +244,14 @@ impl PeerActor {
         network_state: Arc<NetworkState>,
     ) -> Result<(actix::Addr<Self>, HandshakeSignal), ClosingReason> {
         let connecting_status = match &stream.type_ {
-            tcp::StreamType::Inbound => ConnectingStatus::Inbound(
-                network_state
+            tcp::StreamType::Inbound => {
+                let _ = network_state
                     .inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
-                    .map_err(|_| ClosingReason::TooManyInbound)?,
-            ),
+                    .map_err(|_| ClosingReason::TooManyInbound)?;
+                ConnectingStatus::Inbound
+            },
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
                     tcp::Tier::T1 => network_state
@@ -294,7 +295,7 @@ impl PeerActor {
             account_id: network_state.config.validator.as_ref().map(|v| v.account_id()),
         };
         // recv is the HandshakeSignal returned by this spawn_inner() call.
-        let (send, recv): (HandshakeSignalSender, HandshakeSignal) =
+        let (_send, recv): (HandshakeSignalSender, HandshakeSignal) =
             tokio::sync::oneshot::channel();
         // Start PeerActor on separate thread.
         Ok((
@@ -314,7 +315,7 @@ impl PeerActor {
                         tcp::StreamType::Inbound => PeerType::Inbound,
                         tcp::StreamType::Outbound { .. } => PeerType::Outbound,
                     },
-                    peer_status: PeerStatus::Connecting(send, connecting_status),
+                    peer_status: PeerStatus::Connecting(connecting_status),
                     framed,
                     tracker: Default::default(),
                     stats,
@@ -483,7 +484,7 @@ impl PeerActor {
     ) {
         tracing::debug!(target: "network", "{:?}: Received handshake {:?}", self.my_node_info.id, handshake);
         let cs = match &self.peer_status {
-            PeerStatus::Connecting(_, it) => it,
+            PeerStatus::Connecting(it) => it,
             _ => panic!("process_handshake called in non-connecting state"),
         };
         match cs {
@@ -517,7 +518,7 @@ impl PeerActor {
                     return;
                 }
             }
-            ConnectingStatus::Inbound { .. } => {
+            ConnectingStatus::Inbound => {
                 if PEER_MIN_ALLOWED_PROTOCOL_VERSION > handshake.protocol_version
                     || handshake.protocol_version > PROTOCOL_VERSION
                 {
@@ -594,7 +595,7 @@ impl PeerActor {
             ConnectingStatus::Outbound { handshake_spec, .. } => {
                 handshake_spec.partial_edge_info.clone()
             }
-            ConnectingStatus::Inbound { .. } => {
+            ConnectingStatus::Inbound => {
                 self.network_state.propose_edge(&self.clock, &handshake.sender_peer_id, Some(nonce))
             }
         };
@@ -830,7 +831,7 @@ impl PeerActor {
     fn handle_msg_connecting(&mut self, ctx: &mut actix::Context<Self>, msg: PeerMessage) {
         match (&mut self.peer_status, msg) {
             (
-                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::HandshakeFailure(peer_info, reason),
             ) => {
                 match reason {
@@ -868,7 +869,7 @@ impl PeerActor {
             // TODO(gprusak): LastEdge should rather be a variant of HandshakeFailure.
             // Clean this up (you don't have to modify the proto, just the translation layer).
             (
-                PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }),
+                PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }),
                 PeerMessage::LastEdge(edge),
             ) => {
                 // Check that the edge provided:
@@ -1472,7 +1473,7 @@ impl actix::Actor for PeerActor {
         );
 
         // If outbound peer, initiate handshake.
-        if let PeerStatus::Connecting(_, ConnectingStatus::Outbound { handshake_spec, .. }) =
+        if let PeerStatus::Connecting(ConnectingStatus::Outbound { handshake_spec, .. }) =
             &self.peer_status
         {
             self.send_handshake(handshake_spec.clone());
@@ -1691,11 +1692,9 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
     }
 }
 
-type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
-
 #[derive(Debug)]
 enum ConnectingStatus {
-    Inbound(InboundHandshakePermit),
+    Inbound,
     Outbound { _permit: connection::OutboundHandshakePermit, handshake_spec: HandshakeSpec },
 }
 
@@ -1714,7 +1713,7 @@ enum ConnectingStatus {
 #[derive(Debug)]
 enum PeerStatus {
     /// Handshake in progress.
-    Connecting(HandshakeSignalSender, ConnectingStatus),
+    Connecting(ConnectingStatus),
     /// Ready to go.
     Ready(Arc<connection::Connection>),
 }
