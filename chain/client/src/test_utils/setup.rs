@@ -10,7 +10,6 @@ use crate::adapter::{
 };
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
-use actix_rt::System;
 use chrono::DateTime;
 use chrono::Utc;
 use futures::{future, FutureExt};
@@ -1045,52 +1044,6 @@ pub fn setup_synchronous_shards_manager(
         chain_header_head,
     );
     Arc::new(SynchronousShardsManagerAdapter::new(shards_manager)).into()
-}
-
-pub fn setup_client_with_synchronous_shards_manager(
-    store: Store,
-    vs: ValidatorSchedule,
-    account_id: Option<AccountId>,
-    enable_doomslug: bool,
-    network_adapter: PeerManagerAdapter,
-    client_adapter: Sender<ShardsManagerResponse>,
-    chain_genesis: ChainGenesis,
-    rng_seed: RngSeed,
-    archive: bool,
-    save_trie_changes: bool,
-) -> Client {
-    if let None = System::try_current() {
-        let _ = System::new();
-    }
-    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager =
-        MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    let shards_manager_adapter = setup_synchronous_shards_manager(
-        account_id.clone(),
-        client_adapter,
-        network_adapter.clone(),
-        epoch_manager.clone(),
-        shard_tracker.clone(),
-        runtime.clone(),
-        &chain_genesis,
-    );
-    setup_client_with_runtime(
-        num_validator_seats,
-        account_id,
-        enable_doomslug,
-        network_adapter,
-        shards_manager_adapter,
-        chain_genesis,
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        rng_seed,
-        archive,
-        save_trie_changes,
-        None,
-    )
 }
 
 /// A combined trait bound for both the client side and network side of the ShardsManager API.
