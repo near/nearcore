@@ -2085,6 +2085,8 @@ impl<'a> VMLogic<'a> {
             self.ext.yield_create_action_receipt(self.context.current_account_id.clone())?;
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
         self.ext.append_action_function_call_weight(
             new_receipt_idx,
             method_name,

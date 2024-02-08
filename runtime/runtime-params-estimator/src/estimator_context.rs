@@ -251,7 +251,10 @@ impl Testbed<'_> {
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
-            assert_eq!(block_latency, extra_blocks);
+            assert_eq!(
+                block_latency, extra_blocks,
+                "block latency {block_latency} does not match expected {extra_blocks}"
+            );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {

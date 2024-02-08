@@ -254,6 +254,8 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
+    (Cost::YieldCreateBase, yield_create_base),
+    (Cost::YieldCreateByte, yield_create_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -1255,6 +1257,43 @@ fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     let total_bytes = ctx.config.rocksdb_test_config.op_count as u64
         * ctx.config.rocksdb_test_config.value_size as u64;
     rocks_db_read_cost(&ctx.config) / total_bytes
+}
+
+fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
+    let result = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
+    dbg!(result).0
+    /*
+    let total_cost = {
+        let mut nonce = 1;
+        let mut make_transaction = |tb: &mut TransactionBuilder| -> SignedTransaction {
+            let sender = tb.random_unused_account();
+            let receiver = tb.random_unused_account();
+
+            let action =
+                action_costs::empty_delegate_action(nonce, sender.clone(), receiver.clone());
+            nonce += 1;
+            tb.transaction_from_actions(sender, receiver, vec![action])
+        };
+        // meta tx is delayed by 2 block compared to local receipt
+        let block_latency = 2;
+        let block_size = 100;
+        let (gas_cost, _ext_costs) =
+            transaction_cost_ext(ctx, block_size, &mut make_transaction, block_latency);
+        gas_cost
+    };
+
+    // action receipt creation send cost is paid twice for meta transactions,
+    // exec only once, thus we want to subtract this cost 1.5 times
+    let base_cost = action_receipt_creation(ctx) * 3 / 2;
+
+    total_cost.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE)
+    */
+}
+
+fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let base_cost = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
+    let total_cost = fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 1);
+    total_cost.0.saturating_sub(&base_cost.0, &NonNegativeTolerance::PER_MILLE)
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {
