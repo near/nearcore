@@ -538,11 +538,6 @@ impl ShardsManager {
             Some(it) => it,
         };
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
-        if self.epoch_manager.is_next_block_epoch_start(prev_hash)? {
-            // Chunk forwarding is likely incorrect when the previous block is
-            // in a different epoch. So just don't wait.
-            return Ok(false);
-        }
         let block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
         for (bp, _) in block_producers {

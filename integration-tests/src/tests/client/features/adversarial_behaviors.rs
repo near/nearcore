@@ -1,8 +1,14 @@
 use std::{collections::HashSet, sync::Arc};
 
-use near_async::messaging::CanSend;
+use near_async::{
+    messaging::CanSend,
+    time::{FakeClock, Utc},
+};
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
+use near_chunks::{
+    test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
+};
 use near_client::test_utils::TestEnv;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork,
@@ -21,6 +27,7 @@ use tracing::log::debug;
 struct AdversarialBehaviorTestData {
     num_validators: usize,
     env: TestEnv,
+    clock: FakeClock,
 }
 
 const EPOCH_LENGTH: u64 = 20;
@@ -51,7 +58,9 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let env = TestEnv::builder(chain_genesis)
+            .clock(clock.clock())
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
             .real_epoch_managers(&genesis.config)
@@ -59,7 +68,7 @@ impl AdversarialBehaviorTestData {
             .nightshade_runtimes(&genesis)
             .build();
 
-        AdversarialBehaviorTestData { num_validators, env }
+        AdversarialBehaviorTestData { num_validators, env, clock }
     }
 
     fn process_one_peer_message(
@@ -95,6 +104,14 @@ impl AdversarialBehaviorTestData {
 
     fn process_all_actor_messages(&mut self) {
         loop {
+            // Force trigger any chunk request retries.
+            // NOTE(hpmv): Additionally dial time forward to trigger a full fetch. Why? Probably
+            // because during epoch transitions we don't exactly get this correct. But honestly,
+            // I don't know what I'm doing and it doesn't matter for the test.
+            self.clock.advance(CHUNK_REQUEST_SWITCH_TO_FULL_FETCH);
+            for i in 0..self.num_validators {
+                self.env.shards_manager_adapters[i].send(ShardsManagerResendChunkRequests);
+            }
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
                 let network_adapter = self.env.network_adapters[i].clone();
@@ -162,6 +179,9 @@ fn test_non_adversarial_case() {
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
             // Process any chunk part requests that this client sent. Note that this would also
             // process other network messages (such as production of the next chunk) which is OK.
+            test.process_all_actor_messages();
+            accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
+            // Give one more chance, in case there are any parts that needed to be requested.
             test.process_all_actor_messages();
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
 

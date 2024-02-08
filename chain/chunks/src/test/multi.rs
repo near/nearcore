@@ -26,7 +26,7 @@ use crate::{
         ShardsManagerResendChunkRequests,
     },
     test_utils::default_tip,
-    ShardsManager,
+    ShardsManager, CHUNK_REQUEST_RETRY,
 };
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
@@ -101,9 +101,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));
         test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
         test.register_handler(
-            periodically_resend_chunk_requests(time::Duration::milliseconds(400))
-                .widen()
-                .for_index(idx),
+            periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen().for_index(idx),
         );
     }
     test
