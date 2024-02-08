@@ -221,6 +221,8 @@ pub struct VMConfigView {
     pub function_call_weight: bool,
     /// See [`VMConfig::eth_implicit_accounts`].
     pub eth_implicit_accounts: bool,
+    /// See [`VMConfig::yield_resume_host_functions`].
+    pub yield_resume_host_functions: bool,
 
     /// Describes limits for VM and Runtime.
     ///
@@ -246,6 +248,7 @@ impl From<crate::vm::Config> for VMConfigView {
             function_call_weight: config.function_call_weight,
             vm_kind: config.vm_kind,
             eth_implicit_accounts: config.eth_implicit_accounts,
+            yield_resume_host_functions: config.yield_resume_host_functions,
         }
     }
 }
@@ -267,6 +270,7 @@ impl From<VMConfigView> for crate::vm::Config {
             function_call_weight: view.function_call_weight,
             vm_kind: view.vm_kind,
             eth_implicit_accounts: view.eth_implicit_accounts,
+            yield_resume_host_functions: view.yield_resume_host_functions,
         }
     }
 }

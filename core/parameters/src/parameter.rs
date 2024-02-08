@@ -162,6 +162,7 @@ pub enum Parameter {
     FunctionCallWeight,
     VmKind,
     EthImplicitAccounts,
+    YieldResume,
 }
 
 #[derive(

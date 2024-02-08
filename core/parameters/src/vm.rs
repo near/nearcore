@@ -185,6 +185,9 @@ pub struct Config {
     /// Enable the `EthImplicitAccounts` protocol feature.
     pub eth_implicit_accounts: bool,
 
+    /// Enable the `promise_yield_create` and `promise_yield_resume` host functions.
+    pub yield_resume_host_functions: bool,
+
     /// Describes limits for VM and Runtime.
     pub limit_config: LimitConfig,
 }
