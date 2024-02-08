@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, YieldedPromise};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction, TransferAction,
@@ -328,12 +328,10 @@ pub(crate) fn action_function_call(
             set_yielded_promise(
                 state_update,
                 &mut yielded_promise_indices,
-                &YieldedPromise {
-                    account_id: account_id.clone(),
-                    data_id: yielded_data_id.clone(),
-                    expires_at: apply_state.block_height + 30, // TODO: properly configure this
-                                                               // constant somewhere
-                },
+                account_id.clone(),
+                yielded_data_id.clone(),
+                apply_state.block_height + 30, // TODO: properly configure this
+                                               // constant somewhere
             );
         }
 

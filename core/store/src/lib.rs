@@ -23,11 +23,12 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, Receipt, ReceivedData, YieldedPromise, YieldedPromiseIndices,
+    DelayedReceiptIndices, Receipt, ReceivedData, YieldedPromise, YieldedPromiseQueueEntry,
+    YieldedPromiseQueueIndices,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::ContractCode;
 
@@ -762,27 +763,31 @@ pub fn set_delayed_receipt(
 
 pub fn get_yielded_promise_indices(
     trie: &dyn TrieAccess,
-) -> Result<YieldedPromiseIndices, StorageError> {
+) -> Result<YieldedPromiseQueueIndices, StorageError> {
     Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
 }
 
 pub fn set_yielded_promise_indices(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &YieldedPromiseIndices,
+    yielded_promise_indices: &YieldedPromiseQueueIndices,
 ) {
     set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
 }
 
-// Appends to the yielded promises queue in the state.
+// Records the yielded promise and appends it to the yielded promises queue.
 pub fn set_yielded_promise(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &mut YieldedPromiseIndices,
-    yielded_promise: &YieldedPromise,
+    yielded_promise_indices: &mut YieldedPromiseQueueIndices,
+    account_id: AccountId,
+    data_id: CryptoHash,
+    expires_at: BlockHeight,
 ) {
+    set(state_update, TrieKey::YieldedPromise { data_id }, &YieldedPromise { account_id });
+
     set(
         state_update,
         TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
-        yielded_promise,
+        &YieldedPromiseQueueEntry { data_id, expires_at },
     );
     yielded_promise_indices.next_available_index = yielded_promise_indices
         .next_available_index

@@ -19,7 +19,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    YieldedPromiseIndices,
+    YieldedPromise, YieldedPromiseQueueIndices,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -34,7 +34,8 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+    create_action_hash, create_receipt_id_from_data_id, create_receipt_id_from_receipt,
+    create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
@@ -744,7 +745,7 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
-                    &receipt.receipt_id,
+                    &receipt,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
@@ -765,7 +766,7 @@ impl Runtime {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
                 ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
                     apply_state.current_protocol_version,
-                    &receipt.receipt_id,
+                    &receipt,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -1477,19 +1478,20 @@ impl Runtime {
         }
 
         // Resolve timed-out yielded promises
-        let mut yielded_promise_indices: YieldedPromiseIndices =
+        let mut yielded_promise_indices: YieldedPromiseQueueIndices =
             get(&state_update, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default();
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
         let mut new_receipt_index: usize = 0;
 
+        // TODO: think about whether we want to use the prefetcher
         while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
-            let key =
+            let queue_entry_key =
                 TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
 
-            let (account_id, data_id, expires_at): (AccountId, CryptoHash, BlockHeight) =
-                get(&state_update, &key)?.ok_or_else(|| {
+            let (data_id, expires_at): (CryptoHash, BlockHeight) =
+                get(&state_update, &queue_entry_key)?.ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
-                        "Yielded promise #{} should be in the state",
+                        "Yielded promise queue entry #{} should be in the state",
                         yielded_promise_indices.first_index
                     ))
                 })?;
@@ -1499,24 +1501,17 @@ impl Runtime {
                 break;
             }
 
-            // TODO: figure out if we want to use the prefetcher here
-
-            // Check if the postponed action receipt still exists
-            if let Some(action_receipt_id) = get::<CryptoHash>(
-                &state_update,
-                &TrieKey::PostponedReceiptId { receiver_id: account_id.clone(), data_id: data_id },
-            )? {
-                // The timeout has expired and the yielded ActionReceipt is still postponed.
-                // Here we deliver a DataReceipt without any data to resolve the ActionReceipt.
+            // Check if the yielded promise still needs to be resolved
+            let yielded_promise_key = TrieKey::YieldedPromise { data_id };
+            if let Some(yielded_promise) =
+                get::<YieldedPromise>(&state_update, &yielded_promise_key)?
+            {
+                // Deliver a DataReceipt without any data to resolve the timed-out yield
                 let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
 
-                // We use the yielded ActionReceipt's receipt_id as one of the inputs to generate
-                // an id for the DataReceipt. Because the inputs also include the previous and
-                // current block hashes, there is no concern of collision with ids of receipts
-                // which may subsequently be generated as a result of the ActionReceipt's execution.
-                let new_receipt_id = create_receipt_id_from_receipt(
+                let new_receipt_id = create_receipt_id_from_data_id(
                     apply_state.current_protocol_version,
-                    &action_receipt_id,
+                    &data_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     new_receipt_index,
@@ -1524,14 +1519,16 @@ impl Runtime {
                 new_receipt_index += 1;
 
                 outgoing_receipts.push(Receipt {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: account_id.clone(),
+                    predecessor_id: yielded_promise.account_id.clone(),
+                    receiver_id: yielded_promise.account_id,
                     receipt_id: new_receipt_id,
                     receipt: new_receipt,
                 });
+
+                state_update.remove(yielded_promise_key);
             }
 
-            state_update.remove(key);
+            state_update.remove(queue_entry_key);
             // Math checked above: first_index is less than next_available_index
             yielded_promise_indices.first_index += 1;
         }
