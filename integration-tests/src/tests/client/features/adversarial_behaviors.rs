@@ -181,9 +181,6 @@ fn test_non_adversarial_case() {
             // process other network messages (such as production of the next chunk) which is OK.
             test.process_all_actor_messages();
             accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
-            // Give one more chance, in case there are any parts that needed to be requested.
-            test.process_all_actor_messages();
-            accepted_blocks.extend(test.env.clients[i].finish_blocks_in_processing());
 
             assert_eq!(
                 accepted_blocks.len(),

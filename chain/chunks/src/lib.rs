@@ -1743,7 +1743,7 @@ impl ShardsManager {
         partial_encoded_chunk: &PartialEncodedChunkV2,
         part_ords: HashSet<u64>,
         epoch_id: &EpochId,
-        lastest_block_hash: &CryptoHash,
+        latest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let me = match self.me.as_ref() {
             Some(me) => me,
@@ -1773,7 +1773,7 @@ impl ShardsManager {
 
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
+            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
         if checked_feature!("stable", SingleShardTracking, protocol_version) {
@@ -1790,7 +1790,7 @@ impl ShardsManager {
 
                 if cares_about_shard_this_or_next_epoch(
                     Some(&bp_account_id),
-                    lastest_block_hash,
+                    latest_block_hash,
                     shard_id,
                     false,
                     &self.shard_tracker,

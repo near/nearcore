@@ -13,7 +13,11 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, test_loop::SupportsRoutingLookup,
     types::PeerManagerMessageRequest,
 };
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::{
+    checked_feature,
+    types::{AccountId, NumShards},
+    version::PROTOCOL_VERSION,
+};
 use near_store::test_utils::create_test_store;
 
 use crate::{
@@ -187,14 +191,19 @@ fn test_distribute_chunk_track_all_shards() {
         let chunk = data.chain.produce_chunk(1);
         data.chain.distribute_chunk(&chunk);
     });
-    // Two network rounds is enough because each node should have
-    // forwarded the parts to those block producers that need them.
-    // However, after SingleShardTracking protocol upgrade, we need a longer
-    // delay because validators that don't track the shard will not get
-    // parts forwarded to them.
-    if cfg!(feature = "nightly") {
-        test.run_for(NETWORK_DELAY * 4 + time::Duration::milliseconds(400));
+    if checked_feature!("stable", SingleShardTracking, PROTOCOL_VERSION) {
+        // After SingleShardTracking protocol upgrade, we need a longer
+        // delay because validators that don't track the shard will not get
+        // parts forwarded to them.
+        // We need to wait for 2x CHUNK_REQUEST_DELAY because the first
+        // time that the timer fires it is not yet enough to trigger the
+        // request (due to misalignment of the timer). So we wait twice. After
+        // the second timer fires, another round trip will be enough to get
+        // the needed parts and receipts.
+        test.run_for(CHUNK_REQUEST_RETRY * 2 + NETWORK_DELAY * 2);
     } else {
+        // Two network rounds is enough because each node should have
+        // forwarded the parts to those block producers that need them.
         test.run_for(NETWORK_DELAY * 2);
     }
 
