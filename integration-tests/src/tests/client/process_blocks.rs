@@ -1269,10 +1269,11 @@ fn test_bad_chunk_mask() {
         .track_all_shards()
         .build();
 
+    // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
+    let first_epoch_id = &EpochId::default();
+
     // Generate 4 blocks
     for height in 1..5 {
-        // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
-        let first_epoch_id = &EpochId::default();
         let chunk_producer =
             env.clients[0].epoch_manager.get_chunk_producer(&first_epoch_id, height, 0).unwrap();
         let block_producer =
