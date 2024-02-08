@@ -335,7 +335,7 @@ mod test {
         genesis.config.use_production_config = test_resharding;
 
         let env = if test_resharding {
-            TestEnv::builder(ChainGenesis::new(&genesis))
+            TestEnv::builder(ChainGenesis::new(&genesis.config))
                 .validator_seats(2)
                 .use_state_snapshots()
                 .real_stores()
@@ -343,7 +343,7 @@ mod test {
                 .nightshade_runtimes(&genesis)
                 .build()
         } else {
-            TestEnv::builder(ChainGenesis::new(&genesis))
+            TestEnv::builder(ChainGenesis::new(&genesis.config))
                 .validator_seats(2)
                 .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)

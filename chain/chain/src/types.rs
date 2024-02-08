@@ -4,6 +4,7 @@ use std::time::Duration;
 use borsh::{BorshDeserialize, BorshSerialize};
 use chrono::DateTime;
 use chrono::Utc;
+use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
 use near_chain_configs::ReshardingConfig;
 use near_pool::types::TransactionGroupIterator;
@@ -13,7 +14,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::StorageError;
 use num_rational::Rational32;
 
-use near_chain_configs::{Genesis, ProtocolConfig};
+use near_chain_configs::ProtocolConfig;
 use near_chain_primitives::Error;
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
@@ -236,18 +237,18 @@ impl ChainConfig {
 }
 
 impl ChainGenesis {
-    pub fn new(genesis: &Genesis) -> Self {
+    pub fn new(genesis_config: &GenesisConfig) -> Self {
         Self {
-            time: genesis.config.genesis_time,
-            height: genesis.config.genesis_height,
-            gas_limit: genesis.config.gas_limit,
-            min_gas_price: genesis.config.min_gas_price,
-            max_gas_price: genesis.config.max_gas_price,
-            total_supply: genesis.config.total_supply,
-            gas_price_adjustment_rate: genesis.config.gas_price_adjustment_rate,
-            transaction_validity_period: genesis.config.transaction_validity_period,
-            epoch_length: genesis.config.epoch_length,
-            protocol_version: genesis.config.protocol_version,
+            time: genesis_config.genesis_time,
+            height: genesis_config.genesis_height,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            total_supply: genesis_config.total_supply,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            epoch_length: genesis_config.epoch_length,
+            protocol_version: genesis_config.protocol_version,
         }
     }
 }

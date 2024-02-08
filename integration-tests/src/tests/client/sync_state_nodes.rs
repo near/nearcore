@@ -564,7 +564,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+            let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
