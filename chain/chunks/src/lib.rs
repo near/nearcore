@@ -1810,7 +1810,7 @@ impl ShardsManager {
                 self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                     NetworkRequests::PartialEncodedChunkForward {
                         account_id: next_chunk_producer,
-                        forward: forward.clone(),
+                        forward,
                     },
                 ));
             }
