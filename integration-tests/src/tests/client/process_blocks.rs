@@ -24,8 +24,8 @@ use near_client::test_utils::{
     setup_mock_all_validators, TestEnv,
 };
 use near_client::{
-    BlockApproval, BlockResponse, Client, GetBlockWithMerkleTree, ProcessTxResponse,
-    ProduceChunkResult, SetNetworkInfo,
+    BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
+    SetNetworkInfo,
 };
 use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 use near_network::test_utils::{wait_or_panic, MockPeerManagerAdapter};
@@ -1256,58 +1256,41 @@ fn test_bad_orphan() {
 
 #[test]
 fn test_bad_chunk_mask() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     init_test_logger();
-    let chain_genesis = ChainGenesis::test();
-    let validators = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
-    let mut clients: Vec<Client> = validators
-        .iter()
-        .map(|account_id| {
-            let vs = ValidatorSchedule::new()
-                .num_shards(2)
-                .block_producers_per_epoch(vec![validators.clone()]);
-            setup_client_with_synchronous_shards_manager(
-                create_test_store(),
-                vs,
-                Some(account_id.clone()),
-                false,
-                Arc::new(MockPeerManagerAdapter::default()).into(),
-                MockClientAdapterForShardsManager::default().into_sender(),
-                chain_genesis.clone(),
-                TEST_SEED,
-                false,
-                true,
-            )
-        })
-        .collect();
+
+    // Create a TestEnv with two shards and two validators who track both shards
+    let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
+    let num_validators: u64 = accounts.len().try_into().unwrap();
+    let genesis = Genesis::test_sharded(accounts.clone(), num_validators, vec![num_validators; 2]);
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+        .clients(accounts)
+        .real_epoch_managers(&genesis.config)
+        .nightshade_runtimes(&genesis)
+        .track_all_shards()
+        .build();
+
+    // The test never goes past the first epoch, so EpochId(11111...) can be used for all calculations
+    let first_epoch_id = &EpochId::default();
+
+    // Generate 4 blocks
     for height in 1..5 {
-        let block_producer = (height % 2) as usize;
-        let chunk_producer = ((height + 1) % 2) as usize;
+        let chunk_producer =
+            env.clients[0].epoch_manager.get_chunk_producer(&first_epoch_id, height, 0).unwrap();
+        let block_producer =
+            env.clients[0].epoch_manager.get_block_producer(&first_epoch_id, height).unwrap();
 
-        let ProduceChunkResult {
-            chunk: encoded_chunk,
-            encoded_chunk_parts_paths: merkle_paths,
-            receipts,
-            ..
-        } = create_chunk_on_height(&mut clients[chunk_producer], height);
-        for client in clients.iter_mut() {
-            client
-                .persist_and_distribute_encoded_chunk(
-                    encoded_chunk.clone(),
-                    merkle_paths.clone(),
-                    receipts.clone(),
-                    client.validator_signer.as_ref().unwrap().validator_id().clone(),
-                )
-                .unwrap();
+        // Manually produce a single chunk on shard 0, chunk for 1 is always missing.
+        let shard_chunk = env.client(&chunk_producer).produce_one_chunk(height, 0);
+        env.process_partial_encoded_chunks();
+        for i in 0..env.clients.len() {
+            env.process_shards_manager_responses(i);
         }
+        env.propagate_chunk_state_witnesses_and_endorsements(false);
 
-        let mut block = clients[block_producer].produce_block(height).unwrap().unwrap();
+        // Produce a block with a chunk on shard 0. On shard 1 the chunk is missing. chunk_mask should be [true, false]
+        let mut block = env.client(&block_producer).produce_block(height).unwrap().unwrap();
         {
-            let mut chunk_header = encoded_chunk.cloned_header();
+            let mut chunk_header = shard_chunk.cloned_header();
             *chunk_header.height_included_mut() = height;
             let mut chunk_headers: Vec<_> = block.chunks().iter().cloned().collect();
             chunk_headers[0] = chunk_header;
@@ -1323,21 +1306,25 @@ fn test_bad_chunk_mask() {
             block.mut_header().get_mut().inner_rest.chunk_mask = vec![true, false];
             let mess_with_chunk_mask = height == 4;
             if mess_with_chunk_mask {
+                // On height 4 set the chunk_mask to an invalid value.
                 block.mut_header().get_mut().inner_rest.chunk_mask = vec![false, true];
+                // The original test made sure that block_producer is different from chunk_producer,
+                // so let's make sure that this is still the case using an assert.
+                assert_ne!(block_producer, chunk_producer);
             }
             block
                 .mut_header()
-                .resign(&*clients[block_producer].validator_signer.as_ref().unwrap().clone());
-            let res1 = clients[chunk_producer]
-                .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
-            let res2 = clients[block_producer]
-                .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
-            if !mess_with_chunk_mask {
-                res1.unwrap();
-                res2.unwrap();
-            } else {
-                res1.unwrap_err();
-                res2.unwrap_err();
+                .resign(&*env.client(&block_producer).validator_signer.as_ref().unwrap().clone());
+
+            for client in env.clients.iter_mut() {
+                let res = client
+                    .process_block_test_no_produce_chunk(block.clone().into(), Provenance::NONE);
+                if !mess_with_chunk_mask {
+                    res.unwrap();
+                } else {
+                    // Processing a block with an invalid chunk_mask should fail.
+                    res.unwrap_err();
+                }
             }
         }
     }
