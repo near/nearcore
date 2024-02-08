@@ -123,7 +123,7 @@ fn test_storage_after_commit_of_cold_update() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder_with_genesis(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -236,7 +236,7 @@ fn test_cold_db_head_update() {
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
     let cold_db = storage.cold_db().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder_with_genesis(chain_genesis)
         .stores(vec![hot_store.clone()])
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -274,7 +274,7 @@ fn test_cold_db_copy_with_height_skips() {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder_with_genesis(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -374,7 +374,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     genesis.config.epoch_length = epoch_length;
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder_with_genesis(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -458,7 +458,7 @@ fn test_cold_loop_on_gc_boundary() {
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder_with_genesis(chain_genesis)
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])

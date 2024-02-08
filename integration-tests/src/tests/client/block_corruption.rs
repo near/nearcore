@@ -37,7 +37,7 @@ fn change_shard_id_to_invalid() {
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -179,7 +179,7 @@ fn check_process_flipped_block_fails_on_bit(
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+    let mut env = TestEnv::builder_with_genesis(ChainGenesis::new(&genesis))
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();

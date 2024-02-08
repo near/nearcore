@@ -1361,7 +1361,7 @@ mod tests {
         let epoch_managers = vec![epoch_manager];
         let runtimes = vec![runtime];
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder_with_genesis(chain_genesis)
             .stores(stores)
             .epoch_managers(epoch_managers)
             .runtimes(runtimes)

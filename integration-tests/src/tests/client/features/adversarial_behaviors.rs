@@ -51,7 +51,7 @@ impl AdversarialBehaviorTestData {
             config.chunk_producer_kickout_threshold = 50;
         }
         let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder_with_genesis(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
             .real_epoch_managers(&genesis.config)

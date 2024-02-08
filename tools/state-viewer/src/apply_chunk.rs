@@ -546,7 +546,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder_with_genesis(chain_genesis)
             .stores(vec![store])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()
@@ -633,7 +633,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder_with_genesis(chain_genesis)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()

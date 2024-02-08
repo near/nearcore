@@ -31,7 +31,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
+        TestEnv::builder_with_genesis(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
@@ -95,7 +95,7 @@ fn test_very_long_account_id() {
     let mut env = {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
+        TestEnv::builder_with_genesis(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

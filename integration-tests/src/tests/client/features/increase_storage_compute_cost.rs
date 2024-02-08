@@ -196,7 +196,7 @@ fn assert_compute_limit_reached(
         genesis.config.protocol_version = old_protocol_version;
         genesis.config.gas_limit = genesis.config.gas_limit / gas_divider;
         let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
+        TestEnv::builder_with_genesis(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
             .build()

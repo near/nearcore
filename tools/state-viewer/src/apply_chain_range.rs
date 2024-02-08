@@ -486,7 +486,7 @@ mod test {
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder_with_genesis(chain_genesis)
             .validator_seats(2)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager])

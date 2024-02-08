@@ -200,9 +200,9 @@ impl TestReshardingEnv {
         );
         let chain_genesis = ChainGenesis::new(&genesis);
         let builder = if state_snapshot_enabled {
-            TestEnv::builder(chain_genesis).use_state_snapshots()
+            TestEnv::builder_with_genesis(chain_genesis).use_state_snapshots()
         } else {
-            TestEnv::builder(chain_genesis)
+            TestEnv::builder_with_genesis(chain_genesis)
         };
         // Set the kickout thresholds to zero. In some tests we have chunk
         // producers missing chunks but we don't want any of the clients to get

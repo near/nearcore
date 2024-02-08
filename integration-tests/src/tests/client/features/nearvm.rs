@@ -29,7 +29,7 @@ fn test_nearvm_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder_with_genesis(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
