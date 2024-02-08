@@ -8,7 +8,6 @@ use assert_matches::assert_matches;
 use futures::{future, FutureExt};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
-use near_async::messaging::IntoSender;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
@@ -18,10 +17,8 @@ use near_chain::{
     Block, BlockProcessingArtifact, ChainGenesis, ChainStoreAccess, Error, Provenance,
 };
 use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
 use near_client::test_utils::{
-    create_chunk_on_height, setup_client_with_synchronous_shards_manager, setup_mock,
-    setup_mock_all_validators, TestEnv,
+    create_chunk_on_height, setup_mock, setup_mock_all_validators, TestEnv,
 };
 use near_client::{
     BlockApproval, BlockResponse, GetBlockWithMerkleTree, ProcessTxResponse, ProduceChunkResult,
@@ -41,7 +38,6 @@ use near_parameters::{ActionCosts, ExtCosts};
 use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::block::Approval;
 use near_primitives::block_header::BlockHeader;
-use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::TxExecutionError;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
@@ -73,7 +69,6 @@ use near_store::cold_storage::{update_cold_db, update_cold_head};
 use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
-use near_store::test_utils::create_test_store;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
 use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
@@ -740,8 +735,6 @@ fn invalid_blocks_common(is_requested: bool) {
     });
 }
 
-const TEST_SEED: RngSeed = [3; 32];
-
 #[test]
 fn test_invalid_blocks_not_requested() {
     invalid_blocks_common(false);
@@ -1069,30 +1062,14 @@ fn test_process_invalid_tx() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let store = create_test_store();
-    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
-    let chain_genesis = ChainGenesis::test();
-    let vs =
-        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client_with_synchronous_shards_manager(
-        store,
-        vs,
-        Some("test1".parse().unwrap()),
-        false,
-        network_adapter.into(),
-        client_adapter.as_sender(),
-        chain_genesis,
-        TEST_SEED,
-        false,
-        true,
-    );
-    let signer = Arc::new(create_test_signer("test1"));
+    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(1).build();
+    let client = &mut env.clients[0];
+    let signer = client.validator_signer.as_ref().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
         to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
-    b1.mut_header().resign(&*signer);
+    b1.mut_header().resign(signer.as_ref());
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
 
@@ -1111,30 +1088,16 @@ fn test_no_double_sign() {
 #[test]
 fn test_invalid_gas_price() {
     init_test_logger();
-    let store = create_test_store();
-    let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let client_adapter = Arc::new(MockClientAdapterForShardsManager::default());
     let mut chain_genesis = ChainGenesis::test();
     chain_genesis.min_gas_price = 100;
-    let vs =
-        ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]]);
-    let mut client = setup_client_with_synchronous_shards_manager(
-        store,
-        vs,
-        Some("test1".parse().unwrap()),
-        false,
-        network_adapter.into(),
-        client_adapter.as_sender(),
-        chain_genesis,
-        TEST_SEED,
-        false,
-        true,
-    );
-    let signer = Arc::new(create_test_signer("test1"));
+    let mut env = TestEnv::builder(chain_genesis).clients_count(1).build();
+    let client = &mut env.clients[0];
+    let signer = client.validator_signer.as_ref().unwrap();
+
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.next_gas_price = 0;
-    b1.mut_header().resign(&*signer);
+    b1.mut_header().resign(signer.as_ref());
 
     let res = client.process_block_test(b1.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidGasPrice);
