@@ -1052,7 +1052,7 @@ fn test_process_invalid_tx() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let mut env = TestEnv::default_builder().clients_count(1).build();
+    let mut env = TestEnv::default_builder().clients_count(1).mock_epoch_managers().build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.as_ref().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -1069,7 +1069,7 @@ fn test_time_attack() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     let _ = env.clients[0].produce_block(1).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1).unwrap(), None);
