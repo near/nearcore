@@ -339,13 +339,11 @@ mod test {
                 .validator_seats(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers()
                 .nightshade_runtimes(&genesis)
                 .build()
         } else {
             TestEnv::builder(&genesis.config)
                 .validator_seats(2)
-                .real_epoch_managers()
                 .nightshade_runtimes(&genesis)
                 .build()
         };

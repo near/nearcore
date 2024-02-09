@@ -62,7 +62,6 @@ impl AdversarialBehaviorTestData {
             .clock(clock.clock())
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .real_epoch_managers()
             .track_all_shards()
             .nightshade_runtimes(&genesis)
             .build();

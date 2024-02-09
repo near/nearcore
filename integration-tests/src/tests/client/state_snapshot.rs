@@ -198,7 +198,6 @@ fn test_make_state_snapshot() {
         .clients_count(1)
         .use_state_snapshots()
         .real_stores()
-        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

@@ -222,12 +222,8 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn real_epoch_managers(self) -> Self {
-        self.real_epoch_managers_with_test_overrides(None)
-    }
-
     /// Constructs real EpochManager implementations for each instance.
-    pub fn real_epoch_managers_with_test_overrides(
+    pub fn epoch_managers_with_test_overrides(
         self,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
@@ -254,7 +250,7 @@ impl TestEnvBuilder {
         if ret.epoch_managers.is_some() {
             return ret;
         }
-        ret.real_epoch_managers()
+        ret.epoch_managers_with_test_overrides(None)
     }
 
     /// Constructs MockEpochManager implementations for each instance.
