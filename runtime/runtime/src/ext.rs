@@ -7,7 +7,7 @@ use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
 use near_store::{get_code, get_yielded_promise, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_runner::logic::errors::{AnyError, VMLogicError};
+use near_vm_runner::logic::errors::{AnyError, HostError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
@@ -226,16 +226,17 @@ impl<'a> External for RuntimeExt<'a> {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.receipt_manager.create_external_data_receipt(data_id, data)
-    }
+        let is_allowed =
+            match get_yielded_promise(self.trie_update, data_id).map_err(wrap_storage_error)? {
+                Some(yielded_promise) => yielded_promise.account_id == *self.account_id,
+                None => false,
+            };
 
-    fn get_yielded_promise_account_id(
-        &self,
-        data_id: CryptoHash,
-    ) -> Result<Option<AccountId>, VMLogicError> {
-        Ok(get_yielded_promise(self.trie_update, data_id)
-            .map_err(wrap_storage_error)?
-            .map(|promise_yield| promise_yield.account_id))
+        if is_allowed {
+            self.receipt_manager.create_external_data_receipt(data_id, data)
+        } else {
+            Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into())
+        }
     }
 
     fn append_action_create_account(

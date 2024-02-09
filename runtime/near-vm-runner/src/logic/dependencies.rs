@@ -308,14 +308,6 @@ pub trait External {
         data: Vec<u8>,
     ) -> Result<(), VMLogicError>;
 
-    /// If there is a yielded promise awaiting given `data_id`, returns the id
-    /// of the account on which the promise exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `data_id` - `data_id` with which the DataReceipt should be created
-    fn get_yielded_promise_account_id(&self, data_id: CryptoHash) -> Result<Option<AccountId>>;
-
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
     /// # Arguments

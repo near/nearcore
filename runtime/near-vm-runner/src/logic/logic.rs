@@ -2127,17 +2127,8 @@ impl<'a> VMLogic<'a> {
             CryptoHash(data_id.into_owned().try_into().expect("exactly CryptoHash::LENGTH bytes"));
         let payload = payload.into_owned();
 
-        let is_valid = match self.ext.get_yielded_promise_account_id(data_id)? {
-            Some(expected_account_id) => expected_account_id == self.context.current_account_id,
-            None => false,
-        };
-
-        if is_valid {
-            // TODO gas costs for receipt creation
-            self.ext.create_external_data_receipt(data_id, payload)
-        } else {
-            return Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into());
-        }
+        // TODO gas costs for receipt creation
+        self.ext.create_external_data_receipt(data_id, payload)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
