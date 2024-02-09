@@ -2202,6 +2202,7 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers()
         .nightshade_runtimes(&genesis)
@@ -3478,9 +3479,8 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        genesis.config.min_gas_price = 0;
 
-        let mut env = TestEnv::default_builder()
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
@@ -3575,9 +3575,8 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        genesis.config.min_gas_price = 0;
 
-        let mut env = TestEnv::default_builder()
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
@@ -3654,9 +3653,8 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
-        genesis.config.min_gas_price = 0;
 
-        let mut env = TestEnv::default_builder()
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
