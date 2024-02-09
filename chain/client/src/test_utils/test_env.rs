@@ -8,10 +8,11 @@ use crate::stateless_validation::processing_tracker::{
 };
 use crate::Client;
 use near_async::messaging::CanSend;
+use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::{ChainGenesis, Provenance};
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
@@ -38,18 +39,19 @@ use near_primitives::views::{
 };
 use once_cell::sync::OnceCell;
 
-use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
+use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
+    pub clock: Clock,
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
-    pub shards_manager_adapters: Vec<ShardsManagerAdapterForTest>,
+    pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
     pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
@@ -124,7 +126,7 @@ impl TestEnv {
         self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn shards_manager(&self, account: &AccountId) -> &ShardsManagerAdapterForTest {
+    pub fn shards_manager(&self, account: &AccountId) -> &SynchronousShardsManagerAdapter {
         self.account_indices.lookup(&self.shards_manager_adapters, account)
     }
 
@@ -191,6 +193,7 @@ impl TestEnv {
         {
             let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
+            tracing::info!("Got response for PartialEncodedChunkRequest: {:?}", response);
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {

@@ -29,7 +29,7 @@ fn verify_contract_limits_upgrade(
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let mut env = TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(

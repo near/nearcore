@@ -119,10 +119,10 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
     AccountId, Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, ShardId, StateRoot,
 };
-use near_primitives::unwrap_or_return;
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::ProtocolVersion;
+use near_primitives::{checked_feature, unwrap_or_return};
 use rand::seq::IteratorRandom;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -1743,7 +1743,7 @@ impl ShardsManager {
         partial_encoded_chunk: &PartialEncodedChunkV2,
         part_ords: HashSet<u64>,
         epoch_id: &EpochId,
-        lastest_block_hash: &CryptoHash,
+        latest_block_hash: &CryptoHash,
     ) -> Result<(), Error> {
         let me = match self.me.as_ref() {
             Some(me) => me,
@@ -1771,50 +1771,92 @@ impl ShardsManager {
             owned_parts,
         );
 
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let block_producers =
-            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, lastest_block_hash)?;
+            self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
-        let mut next_chunk_producers = self
-            .epoch_manager
-            .shard_ids(&epoch_id)?
-            .into_iter()
-            .map(|shard_id| {
-                self.epoch_manager.get_chunk_producer(&epoch_id, current_chunk_height + 1, shard_id)
-            })
-            .collect::<Result<HashSet<_>, _>>()?;
-        next_chunk_producers.remove(me);
-        for (bp, _) in block_producers {
-            let bp_account_id = bp.take_account_id();
-            // no need to send anything to myself
-            if me == &bp_account_id {
-                continue;
+
+        if checked_feature!("stable", SingleShardTracking, protocol_version) {
+            let shard_id = partial_encoded_chunk.header.shard_id();
+            let mut accounts_forwarded_to = HashSet::new();
+            accounts_forwarded_to.insert(me.clone());
+            let next_chunk_producer = self.epoch_manager.get_chunk_producer(
+                &epoch_id,
+                current_chunk_height + 1,
+                shard_id,
+            )?;
+            for (bp, _) in block_producers {
+                let bp_account_id = bp.take_account_id();
+
+                if cares_about_shard_this_or_next_epoch(
+                    Some(&bp_account_id),
+                    latest_block_hash,
+                    shard_id,
+                    false,
+                    &self.shard_tracker,
+                ) {
+                    if accounts_forwarded_to.insert(bp_account_id.clone()) {
+                        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                            NetworkRequests::PartialEncodedChunkForward {
+                                account_id: bp_account_id,
+                                forward: forward.clone(),
+                            },
+                        ));
+                    }
+                }
             }
-            next_chunk_producers.remove(&bp_account_id);
 
-            // Technically, here we should check if the block producer actually cares about the shard.
-            // We don't because with the current implementation, we force all validators to track all
-            // shards by making their config tracking all shards.
-            // See https://github.com/near/nearcore/issues/7388
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: bp_account_id,
-                    forward: forward.clone(),
-                },
-            ));
+            if accounts_forwarded_to.insert(next_chunk_producer.clone()) {
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: next_chunk_producer,
+                        forward,
+                    },
+                ));
+            }
+        } else {
+            // Without SingleShardTracking, we're asking all validators to track all shards.
+            // So we may as well forward every part to all block producers, and we also
+            // forward to incoming chunk producers so they can produce the next chunks without
+            // delay.
+            let mut next_chunk_producers = self
+                .epoch_manager
+                .shard_ids(&epoch_id)?
+                .into_iter()
+                .map(|shard_id| {
+                    self.epoch_manager.get_chunk_producer(
+                        &epoch_id,
+                        current_chunk_height + 1,
+                        shard_id,
+                    )
+                })
+                .collect::<Result<HashSet<_>, _>>()?;
+            next_chunk_producers.remove(me);
+            for (bp, _) in block_producers {
+                let bp_account_id = bp.take_account_id();
+                // no need to send anything to myself
+                if me == &bp_account_id {
+                    continue;
+                }
+                next_chunk_producers.remove(&bp_account_id);
+
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: bp_account_id,
+                        forward: forward.clone(),
+                    },
+                ));
+            }
+
+            for next_chunk_producer in next_chunk_producers {
+                self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+                    NetworkRequests::PartialEncodedChunkForward {
+                        account_id: next_chunk_producer,
+                        forward: forward.clone(),
+                    },
+                ));
+            }
         }
-
-        // We also forward chunk parts to incoming chunk producers because we want them to be able
-        // to produce the next chunk without delays. For the same reason as above, we don't check if they
-        // actually track this shard.
-        for next_chunk_producer in next_chunk_producers {
-            self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::PartialEncodedChunkForward {
-                    account_id: next_chunk_producer,
-                    forward: forward.clone(),
-                },
-            ));
-        }
-
         Ok(())
     }
 
