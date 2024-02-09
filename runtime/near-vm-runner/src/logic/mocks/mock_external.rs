@@ -178,6 +178,11 @@ impl External for MockedExternal {
         Ok(())
     }
 
+    fn get_yielded_promise_account_id(&self, _data_id: CryptoHash) -> Result<Option<AccountId>> {
+        // TODO
+        Ok(None)
+    }
+
     fn append_action_create_account(
         &mut self,
         receipt_index: ReceiptIndex,

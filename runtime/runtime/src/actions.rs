@@ -308,6 +308,7 @@ pub(crate) fn action_function_call(
             })
             .collect();
 
+        // Create data receipts for resumed yields
         new_receipts.extend(receipt_manager.external_data_receipts.into_iter().map(
             |(data_id, data)| Receipt {
                 predecessor_id: account_id.clone(),
@@ -319,7 +320,7 @@ pub(crate) fn action_function_call(
             },
         ));
 
-        // Enqueue timeouts for yield data ids
+        // Updates state for newly created yields
         let mut yielded_promise_indices =
             get_yielded_promise_indices(state_update).unwrap_or_default();
         let initial_yielded_promise_indices = yielded_promise_indices.clone();

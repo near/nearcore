@@ -795,6 +795,13 @@ pub fn set_yielded_promise(
         .expect("Next available index for yielded promise exceeded the integer limit");
 }
 
+pub fn get_yielded_promise(
+    trie: &dyn TrieAccess,
+    data_id: CryptoHash,
+) -> Result<Option<YieldedPromise>, StorageError> {
+    get(trie, &TrieKey::YieldedPromise { data_id })
+}
+
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,

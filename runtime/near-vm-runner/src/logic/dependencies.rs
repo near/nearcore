@@ -4,10 +4,7 @@ use super::VMLogicError;
 use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Gas;
-use near_primitives_core::types::GasWeight;
-use near_primitives_core::types::Nonce;
-use near_primitives_core::types::{AccountId, Balance};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -310,6 +307,14 @@ pub trait External {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<(), VMLogicError>;
+
+    /// If there is a yielded promise awaiting given `data_id`, returns the id
+    /// of the account on which the promise exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - `data_id` with which the DataReceipt should be created
+    fn get_yielded_promise_account_id(&self, data_id: CryptoHash) -> Result<Option<AccountId>>;
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///
