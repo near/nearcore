@@ -242,6 +242,7 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers()
         .nightshade_runtimes(&genesis)

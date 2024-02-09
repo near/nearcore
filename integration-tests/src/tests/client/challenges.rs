@@ -332,7 +332,8 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers()
         .nightshade_runtimes(&genesis)

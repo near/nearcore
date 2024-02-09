@@ -2093,8 +2093,10 @@ fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let mut env =
-        TestEnv::default_builder().real_epoch_managers().nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
+        .nightshade_runtimes(&genesis)
+        .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
@@ -2200,8 +2202,10 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env =
-        TestEnv::default_builder().real_epoch_managers().nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
+        .nightshade_runtimes(&genesis)
+        .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_height = genesis_block.header().height();
 
@@ -3092,8 +3096,10 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env =
-        TestEnv::default_builder().real_epoch_managers().nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
+        .nightshade_runtimes(&genesis)
+        .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -3116,7 +3122,7 @@ fn test_not_broadcast_block_on_accept() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let mut env = TestEnv::default_builder()
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(2)
         .real_epoch_managers()
         .nightshade_runtimes(&genesis)
@@ -3186,8 +3192,10 @@ fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env =
-        TestEnv::default_builder().real_epoch_managers().nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
+        .nightshade_runtimes(&genesis)
+        .build();
     let validator_signer = create_test_signer("test0");
     for i in 1..=5 {
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
@@ -3317,8 +3325,10 @@ fn test_validator_stake_host_function() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env =
-        TestEnv::default_builder().real_epoch_managers().nightshade_runtimes(&genesis).build();
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
+        .nightshade_runtimes(&genesis)
+        .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let block_height = deploy_test_contract(
         &mut env,
@@ -3468,6 +3478,7 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.min_gas_price = 0;
 
         let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
@@ -3564,6 +3575,7 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.min_gas_price = 0;
 
         let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
@@ -3642,6 +3654,7 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
+        genesis.config.min_gas_price = 0;
 
         let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
