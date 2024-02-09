@@ -273,7 +273,7 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure EpochManagers are initialized.
     fn ensure_epoch_managers(self) -> Self {
-        let mut ret = self.ensure_stores();
+        let ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             return ret;
         }
