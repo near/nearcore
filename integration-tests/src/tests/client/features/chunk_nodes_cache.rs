@@ -90,7 +90,7 @@ fn compare_node_counts() {
     let old_protocol_version = ProtocolFeature::ChunkNodesCache.protocol_version() - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(

@@ -29,7 +29,7 @@ fn run_test(
     genesis.config.chain_id = String::from(chain_id);
     genesis.config.epoch_length = EPOCH_LENGTH;
     genesis.config.protocol_version = protocol_version;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     // TODO #4305: get directly from NightshadeRuntime
     let migration_data = load_migration_data(&genesis.config.chain_id);
 

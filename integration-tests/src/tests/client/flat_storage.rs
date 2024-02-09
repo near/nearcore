@@ -33,7 +33,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
-    let chain_genesis = ChainGenesis::new(genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     TestEnv::builder(chain_genesis)
         .stores(vec![store])
         .real_epoch_managers(&genesis.config)
