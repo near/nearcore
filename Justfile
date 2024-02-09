@@ -28,6 +28,8 @@ test-ci *FLAGS: check-cargo-fmt \
                 (nextest "stable" FLAGS)
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
+# remove statelessnet everywhere once the program is finished, see
+# https://github.com/near/near-one-project-tracking/issues/20
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
