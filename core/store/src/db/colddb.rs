@@ -147,8 +147,12 @@ fn adjust_op(op: &mut DBOp) -> bool {
             };
         }
         DBOp::Delete { col, key } => {
-            log_assert_fail!("Unexpected delete from {col} in cold store: {key:?}");
-            false
+            if col == DBCol::BlockMisc {
+                true
+            } else {
+                log_assert_fail!("Unexpected delete from {col} in cold store: {key:?}");
+                false
+            }
         }
         DBOp::DeleteAll { col } => {
             log_assert_fail!("Unexpected delete from {col} in cold store");
