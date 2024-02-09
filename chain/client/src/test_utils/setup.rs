@@ -15,7 +15,7 @@ use chrono::Utc;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
-use near_async::time;
+use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
@@ -921,7 +921,7 @@ pub fn setup_client_with_runtime(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: ShardsManagerAdapterForTest,
+    shards_manager_adapter: SynchronousShardsManagerAdapter,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -954,7 +954,7 @@ pub fn setup_client_with_runtime(
         state_sync_adapter,
         runtime,
         network_adapter,
-        shards_manager_adapter.client.into(),
+        shards_manager_adapter.into_sender(),
         validator_signer,
         enable_doomslug,
         rng_seed,
@@ -971,7 +971,7 @@ pub fn setup_client(
     account_id: Option<AccountId>,
     enable_doomslug: bool,
     network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: ShardsManagerAdapterForTest,
+    shards_manager_adapter: SynchronousShardsManagerAdapter,
     chain_genesis: ChainGenesis,
     rng_seed: RngSeed,
     archive: bool,
@@ -1000,6 +1000,7 @@ pub fn setup_client(
 }
 
 pub fn setup_synchronous_shards_manager(
+    clock: Clock,
     account_id: Option<AccountId>,
     client_adapter: Sender<ShardsManagerResponse>,
     network_adapter: PeerManagerAdapter,
@@ -1007,7 +1008,7 @@ pub fn setup_synchronous_shards_manager(
     shard_tracker: ShardTracker,
     runtime: Arc<dyn RuntimeAdapter>,
     chain_genesis: &ChainGenesis,
-) -> ShardsManagerAdapterForTest {
+) -> SynchronousShardsManagerAdapter {
     // Initialize the chain, to make sure that if the store is empty, we write the genesis
     // into the store, and as a short cut to get the parameters needed to instantiate
     // ShardsManager. This way we don't have to wait to construct the Client first.
@@ -1033,7 +1034,7 @@ pub fn setup_synchronous_shards_manager(
     let chain_head = chain.head().unwrap();
     let chain_header_head = chain.header_head().unwrap();
     let shards_manager = ShardsManager::new(
-        time::Clock::real(),
+        clock,
         account_id,
         epoch_manager,
         shard_tracker,
@@ -1043,7 +1044,7 @@ pub fn setup_synchronous_shards_manager(
         chain_head,
         chain_header_head,
     );
-    Arc::new(SynchronousShardsManagerAdapter::new(shards_manager)).into()
+    SynchronousShardsManagerAdapter::new(shards_manager)
 }
 
 /// A combined trait bound for both the client side and network side of the ShardsManager API.
