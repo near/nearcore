@@ -267,11 +267,11 @@ fn cold_store_migration(
             return Err(anyhow::anyhow!("Hot store DBKind is not set"));
         }
         Some(near_store::metadata::DbKind::Hot) => {
-            tracing::info!(target: "cold_store", "Hot store DBKind not Hot.");
+            tracing::info!(target: "cold_store", "Hot store DBKind is Hot.");
             genesis_height
         }
         Some(near_store::metadata::DbKind::Archive) => {
-            tracing::info!(target: "cold_store", "Hot store DBKind not Archive.");
+            tracing::info!(target: "cold_store", "Hot store DBKind is Archive.");
             hot_store
                 .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
                 .ok_or_else(|| anyhow::anyhow!("FINAL_HEAD not found in hot storage"))?
