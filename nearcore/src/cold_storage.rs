@@ -142,7 +142,7 @@ fn cold_store_copy_result_to_string(result: &anyhow::Result<ColdStoreCopyResult>
 }
 
 #[derive(Debug)]
-enum ColdStoreInitialMigrationResult {
+enum ColdStoreMigrationResult {
     /// Cold storage was already initialized
     NoNeedForMigration,
     /// Performed a successful cold storage migration
@@ -151,15 +151,21 @@ enum ColdStoreInitialMigrationResult {
     MigrationInterrupted,
 }
 
-/// This function performs initial population of cold storage if needed.
+/// This function performs migration to cold storage if needed.
 /// Migration can be interrupted via `keep_going` flag.
 ///
-/// First, checks that hot store is of kind `Archive`. If not, no migration needed.
-/// Then, captures hot final head BEFORE the migration, as migration is performed during normal neard run.
-/// If hot final head is not set, returns Err.
-/// Otherwise:
-/// 1. performed migration
-/// 2. updates head to saved hot final head
+/// Migration is performed if cold storage does not have a head set.
+/// New head is determined based on hot storage DBKind.
+/// - If hot storage is of type `Archive`, we need to perform initial migration from legacy archival node.
+///   This process will take a long time. Cold head will be set to hot final head BEFORE the migration started.
+/// - If hot storage is of type `Hot`, this node was just created with split storage,
+///   and we need to perform migration of genesis data to cold storage.
+///   Cold head will be set to genesis height.
+/// - Other kinds of hot storage are indicative of configuration error.
+///
+/// After cold head is determined this function
+/// 1. performs migration
+/// 2. updates cold head
 ///
 /// Any Ok status means that this function should not be retried:
 /// - either migration was performed (now or earlier)
@@ -167,49 +173,66 @@ enum ColdStoreInitialMigrationResult {
 ///   which means that everything cold store thread related has to stop
 ///
 /// Error status means that for some reason migration cannot be performed.
-fn cold_store_initial_migration(
+fn cold_store_migration(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
+    genesis_height: BlockHeight,
     hot_store: &Store,
     cold_store: &Store,
     cold_db: &Arc<ColdDB>,
-) -> anyhow::Result<ColdStoreInitialMigrationResult> {
-    // We only need to perform the migration if hot store is of kind Archive and cold store doesn't have a head yet
-    if hot_store.get_db_kind()? != Some(near_store::metadata::DbKind::Archive)
-        || cold_store.get(DBCol::BlockMisc, HEAD_KEY)?.is_some()
-    {
-        return Ok(ColdStoreInitialMigrationResult::NoNeedForMigration);
+) -> anyhow::Result<ColdStoreMigrationResult> {
+    // Migration is only needed if cold storage is not properly initialised,
+    // i.e. if cold head is not set.
+    if cold_store.get(DBCol::BlockMisc, HEAD_KEY)?.is_some() {
+        return Ok(ColdStoreMigrationResult::NoNeedForMigration);
     }
 
-    tracing::info!(target: "cold_store", "Starting initial population of cold store");
+    tracing::info!(target: "cold_store", "Starting population of cold store.");
+    let new_cold_height = match hot_store.get_db_kind()? {
+        None => {
+            tracing::error!(target: "cold_store", "Hot store DBKind not set.");
+            return Err(anyhow::anyhow!("Hot store DBKind is not set"));
+        }
+        Some(near_store::metadata::DbKind::Hot) => {
+            tracing::info!(target: "cold_store", "Hot store DBKind not Hot.");
+            genesis_height
+        }
+        Some(near_store::metadata::DbKind::Archive) => {
+            tracing::info!(target: "cold_store", "Hot store DBKind not Archive.");
+            hot_store
+                .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
+                .ok_or_else(|| anyhow::anyhow!("FINAL_HEAD not found in hot storage"))?
+                .height
+        }
+        Some(kind) => {
+            tracing::error!(target: "cold_store", "Hot store DBKind not {kind:?}.");
+            return Err(anyhow::anyhow!(format!("Hot store DBKind not {kind:?}.")));
+        }
+    };
 
-    // If FINAL_HEAD is not set for hot storage something isn't right and we will probably fail in `update_cold_head`.
-    // Let's fail early.
-    let hot_final_head = hot_store
-        .get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?
-        .ok_or_else(|| anyhow::anyhow!("FINAL_HEAD not found in hot storage"))?;
-    let hot_final_head_height = hot_final_head.height;
+    tracing::info!(target: "cold_store", new_cold_height, "Determined cold storage head height after migration");
 
     let batch_size = split_storage_config.cold_store_initial_migration_batch_size;
     match copy_all_data_to_cold(cold_db.clone(), hot_store, batch_size, keep_going)? {
         CopyAllDataToColdStatus::EverythingCopied => {
-            tracing::info!(target: "cold_store", "Initial population was successful, writing cold head of height {}", hot_final_head_height);
-            update_cold_head(cold_db, hot_store, &hot_final_head_height)?;
-            Ok(ColdStoreInitialMigrationResult::SuccessfulMigration)
+            tracing::info!(target: "cold_store", new_cold_height, "Cold storage population was successful, writing cold head.");
+            update_cold_head(cold_db, hot_store, &new_cold_height)?;
+            Ok(ColdStoreMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {
-            tracing::info!(target: "cold_store", "Initial population was interrupted");
-            Ok(ColdStoreInitialMigrationResult::MigrationInterrupted)
+            tracing::info!(target: "cold_store", "Genesis population was interrupted");
+            Ok(ColdStoreMigrationResult::MigrationInterrupted)
         }
     }
 }
 
-/// Runs a loop that tries to copy all data from hot store to cold (do initial migration).
+/// Runs a loop that tries to copy all data from hot store to cold (do migration).
 /// If migration fails sleeps for 30s and tries again.
 /// If migration returned any successful status (including interruption status) breaks the loop.
-fn cold_store_initial_migration_loop(
+fn cold_store_migration_loop(
     split_storage_config: &SplitStorageConfig,
     keep_going: &Arc<AtomicBool>,
+    genesis_height: BlockHeight,
     hot_store: &Store,
     cold_store: &Store,
     cold_db: Arc<ColdDB>,
@@ -220,9 +243,10 @@ fn cold_store_initial_migration_loop(
             tracing::debug!(target: "cold_store", "stopping the initial migration loop");
             break;
         }
-        match cold_store_initial_migration(
+        match cold_store_migration(
             split_storage_config,
             keep_going,
+            genesis_height,
             hot_store,
             cold_store,
             &cold_db,
@@ -231,12 +255,12 @@ fn cold_store_initial_migration_loop(
             // Here we pick the second option.
             Err(err) => {
                 let dur = split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", "initial migration failed with error {}, sleeping {}s and trying again", err, dur.as_secs());
+                tracing::error!(target: "cold_store", "migration failed with error {}, sleeping {}s and trying again", err, dur.as_secs());
                 std::thread::sleep(dur);
             }
             // Any Ok status from `cold_store_initial_migration` function means that we can proceed to regular run.
             Ok(status) => {
-                tracing::info!(target: "cold_store", "Initial migration status: {:?}. Moving on.", status);
+                tracing::info!(target: "cold_store", "migration status: {:?}. Moving on.", status);
                 break;
             }
         }
@@ -350,9 +374,10 @@ pub fn spawn_cold_store_loop(
     tracing::info!(target : "cold_store", "Spawning the cold store loop");
     let join_handle =
         std::thread::Builder::new().name("cold_store_copy".to_string()).spawn(move || {
-            cold_store_initial_migration_loop(
+            cold_store_migration_loop(
                 &split_storage_config,
                 &keep_going_clone,
+                genesis_height,
                 &hot_store,
                 &cold_store,
                 cold_db.clone(),
