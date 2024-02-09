@@ -1056,15 +1056,20 @@ def create_and_upload_config_file_from_default(nodes, chain_id, overrider=None):
     pmap(lambda node: upload_config(node, config_json, overrider), nodes)
 
 
-def update_existing_config_file(nodes, overrider=None):
-    for node in nodes:
-        config_json = download_and_read_json(
-            nodes[0],
-            '/home/ubuntu/.near/config.json',
-        )
-        overrider(node, config_json)
-        upload_json(node, '/home/ubuntu/.near/config.json', config_json)
+def update_existing_config_file(node, overrider=None):
+    config_json = download_and_read_json(
+        node,
+        '/home/ubuntu/.near/config.json',
+    )
+    overrider(node, config_json)
+    upload_json(node, '/home/ubuntu/.near/config.json', config_json)
 
+
+def update_existing_config_files(nodes, overrider=None):
+    pmap(
+        lambda node: start_node(node, overrider=overrider),
+        nodes,
+    )
 
 def start_nodes(nodes, upgrade_schedule=None):
     pmap(
