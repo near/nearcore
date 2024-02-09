@@ -2,6 +2,7 @@ mod kv_runtime;
 mod validator_schedule;
 
 use chrono::{DateTime, Utc};
+use near_chain_configs::GenesisConfig;
 use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -47,7 +48,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     num_shards: NumShards,
 ) -> Chain {
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::test();
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
     let vs = ValidatorSchedule::new()
         .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
@@ -315,23 +316,6 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
                     }
                 }
             }
-        }
-    }
-}
-
-impl ChainGenesis {
-    pub fn test() -> Self {
-        ChainGenesis {
-            time: StaticClock::utc(),
-            height: 0,
-            gas_limit: 10u64.pow(15),
-            min_gas_price: 0,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: 100,
-            epoch_length: 5,
-            protocol_version: PROTOCOL_VERSION,
         }
     }
 }

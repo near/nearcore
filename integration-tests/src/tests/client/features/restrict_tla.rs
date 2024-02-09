@@ -1,5 +1,4 @@
 use super::super::process_blocks::create_account;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_primitives::errors::{ActionError, ActionErrorKind};
@@ -17,7 +16,7 @@ fn test_create_top_level_accounts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
+    let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();

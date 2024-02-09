@@ -1,5 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -29,11 +29,10 @@ fn run_test(
     genesis.config.chain_id = String::from(chain_id);
     genesis.config.epoch_length = EPOCH_LENGTH;
     genesis.config.protocol_version = protocol_version;
-    let chain_genesis = ChainGenesis::new(&genesis.config);
     // TODO #4305: get directly from NightshadeRuntime
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();

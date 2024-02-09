@@ -11,6 +11,7 @@ use near_async::messaging::CanSend;
 use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::{ChainGenesis, Provenance};
+use near_chain_configs::GenesisConfig;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -70,11 +71,11 @@ pub struct StateWitnessPropagationOutput {
 
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
-        TestEnvBuilder::new(ChainGenesis::test())
+        TestEnvBuilder::new(GenesisConfig::test())
     }
 
-    pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
-        TestEnvBuilder::new(chain_genesis)
+    pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
+        TestEnvBuilder::new(genesis_config.clone())
     }
 
     /// Process a given block in the client with index `id`.

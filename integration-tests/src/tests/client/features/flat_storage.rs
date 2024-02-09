@@ -1,5 +1,4 @@
 use crate::tests::client::process_blocks::deploy_test_contract_with_protocol_version;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -28,9 +27,8 @@ fn test_flat_storage_upgrade() {
     let old_protocol_version = new_protocol_version - 1;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
-    let chain_genesis = ChainGenesis::new(&genesis.config);
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();

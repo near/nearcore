@@ -3,7 +3,7 @@ use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
 use near_client::adapter::{StateRequestHeader, StateRequestPart, StateResponse};
@@ -564,7 +564,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
+            let mut env = TestEnv::builder(&genesis.config)
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()

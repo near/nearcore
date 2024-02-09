@@ -1,6 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -33,8 +33,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    TestEnv::builder(chain_genesis)
+    TestEnv::builder(&genesis.config)
         .stores(vec![store])
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(genesis)

@@ -39,8 +39,7 @@ fn test_state_dump() {
     genesis.config.epoch_length = 25;
 
     near_actix_test_utils::run_actix(async {
-        let chain_genesis = ChainGenesis::new(&genesis.config);
-        let mut env = TestEnv::builder(chain_genesis.clone())
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(1)
             .use_state_snapshots()
             .real_stores()
@@ -63,7 +62,7 @@ fn test_state_dump() {
 
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
-            chain_genesis,
+            ChainGenesis::new(&genesis.config),
             epoch_manager.clone(),
             shard_tracker,
             runtime,
@@ -137,9 +136,8 @@ fn run_state_sync_with_dumped_parts(
     near_actix_test_utils::run_actix(async {
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::new(&genesis.config);
         let num_clients = 2;
-        let mut env = TestEnv::builder(chain_genesis.clone())
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
@@ -166,7 +164,7 @@ fn run_state_sync_with_dumped_parts(
         });
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
-            chain_genesis,
+            ChainGenesis::new(&genesis.config),
             epoch_manager.clone(),
             shard_tracker,
             runtime,

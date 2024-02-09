@@ -6,7 +6,7 @@ use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::{start_client, start_view_client, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
@@ -295,12 +295,8 @@ impl Runner {
         let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
         let validators =
             test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
-        Self {
-            test_config,
-            validators,
-            state_machine: StateMachine::new(),
-            chain_genesis: ChainGenesis::test(),
-        }
+        let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+        Self { test_config, validators, state_machine: StateMachine::new(), chain_genesis }
     }
 
     /// Add node `v` to the whitelist of node `u`.
