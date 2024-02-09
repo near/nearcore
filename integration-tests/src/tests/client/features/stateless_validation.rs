@@ -121,7 +121,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let chain_genesis = ChainGenesis::new(&genesis);
 
-    let mut env = TestEnv::builder_with_genesis(chain_genesis)
+    let mut env = TestEnv::builder(chain_genesis)
         .clients(accounts.iter().take(8).cloned().collect())
         .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)

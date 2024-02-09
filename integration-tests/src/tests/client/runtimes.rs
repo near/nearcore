@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[test]
 fn test_pending_approvals() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder()
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -41,7 +41,7 @@ fn test_pending_approvals() {
 fn test_invalid_approvals() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let mut env = TestEnv::builder()
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .network_adapters(vec![network_adapter])
@@ -73,7 +73,7 @@ fn test_cap_max_gas_price() {
     genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
     genesis.config.epoch_length = epoch_length;
     let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder_with_genesis(chain_genesis)
+    let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();

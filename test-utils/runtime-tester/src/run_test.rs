@@ -62,7 +62,7 @@ impl Scenario {
             StateSnapshotType::ForReshardingOnly,
         );
 
-        let mut env = TestEnv::builder_with_genesis(ChainGenesis::new(&genesis))
+        let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
             .clients(clients.clone())
             .validators(clients)
             .stores(vec![store])

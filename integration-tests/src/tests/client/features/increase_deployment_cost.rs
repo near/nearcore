@@ -36,7 +36,7 @@ fn test_deploy_cost_increased() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder_with_genesis(chain_genesis)
+        TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

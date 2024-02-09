@@ -335,7 +335,7 @@ mod test {
         genesis.config.use_production_config = test_resharding;
 
         let env = if test_resharding {
-            TestEnv::builder_with_genesis(ChainGenesis::new(&genesis))
+            TestEnv::builder(ChainGenesis::new(&genesis))
                 .validator_seats(2)
                 .use_state_snapshots()
                 .real_stores()
@@ -343,7 +343,7 @@ mod test {
                 .nightshade_runtimes(&genesis)
                 .build()
         } else {
-            TestEnv::builder_with_genesis(ChainGenesis::new(&genesis))
+            TestEnv::builder(ChainGenesis::new(&genesis))
                 .validator_seats(2)
                 .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)
@@ -710,7 +710,7 @@ mod test {
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
         chain_genesis.gas_limit = genesis.config.gas_limit;
-        let mut env = TestEnv::builder_with_genesis(chain_genesis)
+        let mut env = TestEnv::builder(chain_genesis)
             .clients_count(2)
             .stores(vec![store1, store2])
             .epoch_managers(vec![epoch_manager1, epoch_manager2.clone()])
@@ -788,7 +788,7 @@ mod test {
         );
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = epoch_length;
-        let mut env = TestEnv::builder_with_genesis(chain_genesis)
+        let mut env = TestEnv::builder(chain_genesis)
             .validator_seats(2)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager])

@@ -13,7 +13,7 @@ use near_primitives::hash::CryptoHash;
 #[test]
 fn test_request_chunk_restart() {
     init_integration_logger();
-    let mut env = TestEnv::builder().build();
+    let mut env = TestEnv::default_builder().build();
     for i in 1..4 {
         env.produce_block(0, i);
         env.network_adapters[0].pop();

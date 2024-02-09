@@ -40,7 +40,7 @@ fn test_state_dump() {
 
     near_actix_test_utils::run_actix(async {
         let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder_with_genesis(chain_genesis.clone())
+        let mut env = TestEnv::builder(chain_genesis.clone())
             .clients_count(1)
             .use_state_snapshots()
             .real_stores()
@@ -139,7 +139,7 @@ fn run_state_sync_with_dumped_parts(
         genesis.config.epoch_length = epoch_length;
         let chain_genesis = ChainGenesis::new(&genesis);
         let num_clients = 2;
-        let mut env = TestEnv::builder_with_genesis(chain_genesis.clone())
+        let mut env = TestEnv::builder(chain_genesis.clone())
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()

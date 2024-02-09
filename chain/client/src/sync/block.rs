@@ -368,7 +368,7 @@ mod test {
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::builder_with_genesis(chain_genesis).clients_count(2).build();
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -447,7 +447,7 @@ mod test {
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
         let mut chain_genesis = ChainGenesis::test();
         chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::builder_with_genesis(chain_genesis).clients_count(2).build();
+        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

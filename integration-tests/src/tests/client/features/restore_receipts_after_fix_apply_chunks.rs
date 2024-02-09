@@ -33,7 +33,7 @@ fn run_test(
     // TODO #4305: get directly from NightshadeRuntime
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
-    let mut env = TestEnv::builder_with_genesis(chain_genesis)
+    let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
