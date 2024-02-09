@@ -34,8 +34,7 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_data_id, create_receipt_id_from_receipt,
-    create_receipt_id_from_transaction,
+    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
@@ -743,9 +742,9 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id = create_receipt_id_from_receipt(
+                let receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    &receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
@@ -764,9 +763,9 @@ impl Runtime {
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
-                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
+                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    &receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -1509,7 +1508,7 @@ impl Runtime {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
                 let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
 
-                let new_receipt_id = create_receipt_id_from_data_id(
+                let new_receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
                     &data_id,
                     &apply_state.prev_block_hash,
