@@ -245,14 +245,13 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn real_epoch_managers(self, genesis_config: &GenesisConfig) -> Self {
-        self.real_epoch_managers_with_test_overrides(genesis_config, None)
+    pub fn real_epoch_managers(self) -> Self {
+        self.real_epoch_managers_with_test_overrides(None)
     }
 
     /// Constructs real EpochManager implementations for each instance.
     pub fn real_epoch_managers_with_test_overrides(
         self,
-        genesis_config: &GenesisConfig,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
         assert!(
@@ -264,7 +263,7 @@ impl TestEnvBuilder {
             .map(|i| {
                 EpochManager::new_arc_handle_with_test_overrides(
                     ret.stores.as_ref().unwrap()[i].clone(),
-                    genesis_config,
+                    &ret.genesis_config,
                     test_overrides.clone(),
                 )
             })

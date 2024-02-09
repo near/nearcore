@@ -568,7 +568,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers(&genesis.config)
+                .real_epoch_managers()
                 .nightshade_runtimes(&genesis)
                 .build();
 

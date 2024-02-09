@@ -51,8 +51,8 @@ fn test_zero_balance_account_creation() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -132,8 +132,8 @@ fn test_zero_balance_account_add_key() {
     };
     runtime_config.wasm_config.ext_costs = ExtCostsConfig::test();
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -251,8 +251,8 @@ fn test_zero_balance_account_upgrade() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version() - 1;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
