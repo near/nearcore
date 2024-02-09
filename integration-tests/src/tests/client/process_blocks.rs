@@ -202,7 +202,7 @@ pub(crate) fn prepare_env_with_congestion(
     if let Some(gas_price_adjustment_rate) = gas_price_adjustment_rate {
         genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
     }
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -1017,7 +1017,7 @@ fn test_process_invalid_tx() {
     init_test_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.transaction_validity_period = 10;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -1225,7 +1225,7 @@ fn test_bad_chunk_mask() {
     let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
     let genesis = Genesis::test_sharded(accounts.clone(), num_validators, vec![num_validators; 2]);
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+    let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
         .clients(accounts)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -1944,7 +1944,7 @@ fn test_gas_price_change() {
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = gas_limit;
     genesis.config.gas_price_adjustment_rate = gas_price_adjustment_rate;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -1993,7 +1993,7 @@ fn test_gas_price_overflow() {
     genesis.config.epoch_length = 43200;
     genesis.config.max_gas_price = max_gas_price;
 
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -2031,7 +2031,7 @@ fn test_invalid_block_root() {
 #[test]
 fn test_incorrect_validator_key_produce_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(1)
@@ -2391,7 +2391,7 @@ fn test_catchup_gas_price_change() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
@@ -2499,7 +2499,7 @@ fn test_block_execution_outcomes() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = min_gas_price;
     genesis.config.gas_limit = 1000000000000;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -2591,7 +2591,7 @@ fn test_refund_receipts_processing() {
     // Set gas limit to be small enough to produce some delayed receipts, but large enough for
     // transactions to get through.
     genesis.config.gas_limit = 100_000_000;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -2669,7 +2669,7 @@ fn test_delayed_receipt_count_limit() {
     let transaction_costs = RuntimeConfig::test().fees;
     let chunk_gas_limit = 10 * transaction_costs.fee(ActionCosts::new_action_receipt).exec_fee();
     genesis.config.gas_limit = chunk_gas_limit;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -2732,7 +2732,7 @@ fn test_execution_metadata() {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let mut env = TestEnv::builder(chain_genesis)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
@@ -2811,7 +2811,7 @@ fn test_epoch_protocol_version_change() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 2);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION - 1;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(2)
         .validator_seats(2)
@@ -2873,7 +2873,7 @@ fn test_epoch_protocol_version_change() {
 #[test]
 fn test_discard_non_finalizable_block() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -2936,7 +2936,7 @@ fn test_query_final_state() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -3186,7 +3186,7 @@ fn test_header_version_downgrade() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -3410,7 +3410,7 @@ fn test_catchup_no_sharding_change() {
     init_integration_logger();
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     genesis.config.epoch_length = 5;
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(1)
         .validator_seats(1)

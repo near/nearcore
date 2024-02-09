@@ -119,7 +119,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
 
     let mut env = TestEnv::builder(chain_genesis)
         .clients(accounts.iter().take(8).cloned().collect())

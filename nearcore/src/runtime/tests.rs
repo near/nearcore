@@ -1446,7 +1446,7 @@ fn test_trie_and_flat_state_equality() {
 #[test]
 fn test_genesis_hash() {
     let genesis = near_mainnet_res::mainnet_genesis();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let store = near_store::test_utils::create_test_store();
 
     let tempdir = tempfile::tempdir().unwrap();

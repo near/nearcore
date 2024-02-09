@@ -57,7 +57,7 @@ impl AdversarialBehaviorTestData {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
         }
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let env = TestEnv::builder(chain_genesis)
             .clock(clock.clock())

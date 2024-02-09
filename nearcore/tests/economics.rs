@@ -41,7 +41,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         &genesis.config,
         epoch_manager.clone(),
     );
-    TestEnv::builder(ChainGenesis::new(&genesis))
+    TestEnv::builder(ChainGenesis::new(&genesis.config))
         .stores(vec![store])
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![runtime])

@@ -341,7 +341,7 @@ fn test_request_chunks_for_orphan() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -482,7 +482,7 @@ fn test_processing_chunks_sanity() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
@@ -582,7 +582,7 @@ impl ChunkForwardingOptimizationTestData {
             ];
             config.num_block_producer_seats = num_block_producers as u64;
         }
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let env = TestEnv::builder(chain_genesis)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
@@ -812,7 +812,7 @@ fn test_processing_blocks_async() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let mut env = TestEnv::builder(chain_genesis)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)

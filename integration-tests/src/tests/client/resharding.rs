@@ -198,7 +198,7 @@ impl TestReshardingEnv {
             gas_limit,
             genesis_protocol_version,
         );
-        let chain_genesis = ChainGenesis::new(&genesis);
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let builder = if state_snapshot_enabled {
             TestEnv::builder(chain_genesis).use_state_snapshots()
         } else {

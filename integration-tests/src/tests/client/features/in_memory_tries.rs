@@ -113,7 +113,7 @@ fn test_in_memory_trie_node_consistency() {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
