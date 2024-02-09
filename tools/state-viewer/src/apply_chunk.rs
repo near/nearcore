@@ -479,7 +479,7 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
-    use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
+    use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -537,7 +537,6 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let chain_genesis = ChainGenesis::test();
 
         let signers = (0..4)
             .map(|i| {
@@ -546,7 +545,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(vec![store])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()
@@ -622,9 +621,6 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let mut chain_genesis = ChainGenesis::test();
-        // receipts get delayed with the small ChainGenesis::test() limit
-        chain_genesis.gas_limit = genesis.config.gas_limit;
 
         let signers = (0..4)
             .map(|i| {
@@ -633,7 +629,7 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager.clone()])
             .track_all_shards()

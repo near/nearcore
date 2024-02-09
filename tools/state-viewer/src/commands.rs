@@ -1320,7 +1320,6 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain::ChainGenesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
@@ -1342,7 +1341,6 @@ mod tests {
         near_o11y::testonly::init_test_logger();
         let validators = vec!["test0".parse::<AccountId>().unwrap()];
         let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
-        let chain_genesis = ChainGenesis::test();
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let home_dir = tmp_dir.path();
@@ -1361,7 +1359,7 @@ mod tests {
         let epoch_managers = vec![epoch_manager];
         let runtimes = vec![runtime];
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(stores)
             .epoch_managers(epoch_managers)
             .runtimes(runtimes)

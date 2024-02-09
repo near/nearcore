@@ -121,7 +121,7 @@ pub fn setup_mock_node(
         setup_runtime(network_home_dir, &config, false);
     tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
 
-    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
 
     // set up client dir to be ready to process blocks from client_start_height
     if client_start_height > 0 {
