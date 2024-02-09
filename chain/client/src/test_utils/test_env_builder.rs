@@ -4,6 +4,7 @@ use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
 use near_async::messaging::IntoSender;
+use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
@@ -40,6 +41,7 @@ impl EpochManagerKind {
 
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
+    clock: Option<Clock>,
     chain_genesis: ChainGenesis,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
@@ -69,6 +71,7 @@ impl TestEnvBuilder {
         let validators = clients.clone();
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
         Self {
+            clock: None,
             chain_genesis,
             clients,
             validators,
@@ -84,6 +87,12 @@ impl TestEnvBuilder {
             save_trie_changes: true,
             state_snapshot_enabled: false,
         }
+    }
+
+    pub fn clock(mut self, clock: Clock) -> Self {
+        assert!(self.clock.is_none(), "Cannot set clock twice");
+        self.clock = Some(clock);
+        self
     }
 
     /// Sets list of client [`AccountId`]s to the one provided.  Panics if the
@@ -459,6 +468,7 @@ impl TestEnvBuilder {
     }
 
     fn build_impl(self) -> TestEnv {
+        let clock = self.clock.unwrap_or_else(|| Clock::real());
         let chain_genesis = self.chain_genesis;
         let clients = self.clients.clone();
         let num_clients = clients.len();
@@ -474,12 +484,14 @@ impl TestEnvBuilder {
             .collect::<Vec<_>>();
         let shards_manager_adapters = (0..num_clients)
             .map(|i| {
+                let clock = clock.clone();
                 let epoch_manager = epoch_managers[i].clone();
                 let shard_tracker = shard_trackers[i].clone();
                 let runtime = runtimes[i].clone();
                 let network_adapter = network_adapters[i].clone();
                 let client_adapter = client_adapters[i].clone();
                 setup_synchronous_shards_manager(
+                    clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
                     network_adapter.into(),
@@ -536,6 +548,7 @@ impl TestEnvBuilder {
                 .collect();
 
         TestEnv {
+            clock,
             chain_genesis,
             validators,
             network_adapters,

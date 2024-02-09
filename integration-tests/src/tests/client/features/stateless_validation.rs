@@ -73,8 +73,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
-        // Make all validators produce chunks for all shards.
-        minimum_validators_per_shard: num_validators as NumSeats,
+        // Each shard has 2 chunk prducers, so 4 shards, 8 chunk producers total.
+        minimum_validators_per_shard: 2,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
