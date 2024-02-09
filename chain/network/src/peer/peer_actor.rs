@@ -251,7 +251,7 @@ impl PeerActor {
                     .try_acquire_owned()
                     .map_err(|_| ClosingReason::TooManyInbound)?;
                 ConnectingStatus::Inbound
-            },
+            }
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
                     tcp::Tier::T1 => network_state
