@@ -1067,7 +1067,7 @@ def update_existing_config_file(node, overrider=None):
 
 def update_existing_config_files(nodes, overrider=None):
     pmap(
-        lambda node: start_node(node, overrider=overrider),
+        lambda node: update_existing_config_file(node, overrider=overrider),
         nodes,
     )
 
