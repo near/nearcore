@@ -1746,7 +1746,11 @@ fn test_gc_fork_tail() {
 fn test_tx_forwarding() {
     let mut genesis_config = GenesisConfig::test();
     genesis_config.epoch_length = 100;
-    let mut env = TestEnv::builder(&genesis_config).clients_count(50).validator_seats(50).build();
+    let mut env = TestEnv::builder(&genesis_config)
+        .clients_count(50)
+        .validator_seats(50)
+        .mock_epoch_managers()
+        .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     // forward to 2 chunk producers
@@ -1761,7 +1765,11 @@ fn test_tx_forwarding() {
 fn test_tx_forwarding_no_double_forwarding() {
     let mut genesis_config = GenesisConfig::test();
     genesis_config.epoch_length = 100;
-    let mut env = TestEnv::builder(&genesis_config).clients_count(50).validator_seats(50).build();
+    let mut env = TestEnv::builder(&genesis_config)
+        .clients_count(50)
+        .validator_seats(50)
+        .mock_epoch_managers()
+        .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let genesis_hash = *genesis_block.hash();
     // The transaction has already been forwarded, so it won't be forwarded again.

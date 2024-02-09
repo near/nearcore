@@ -6,7 +6,7 @@ use itertools::{multizip, Itertools};
 use near_async::messaging::IntoSender;
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
-use near_chain::test_utils::{KeyValueRuntime, MockEpochManager};
+use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::GenesisConfig;
@@ -199,29 +199,6 @@ impl TestEnvBuilder {
         }
     }
 
-    /// Specifies custom MockEpochManager for each client.  This allows us to
-    /// construct [`TestEnv`] with a custom implementation.
-    ///
-    /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`Self::build`] method will
-    /// panic.
-    pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert_eq!(epoch_managers.len(), self.clients.len());
-        assert!(self.epoch_managers.is_none(), "Cannot override twice");
-        assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        assert!(
-            self.shard_trackers.is_none(),
-            "Cannot override epoch_managers after shard_trackers"
-        );
-        assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
-        self.epoch_managers =
-            Some(epoch_managers.into_iter().map(|epoch_manager| epoch_manager.into()).collect());
-        self
-    }
-
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     ///
@@ -278,6 +255,34 @@ impl TestEnvBuilder {
             return ret;
         }
         ret.real_epoch_managers()
+    }
+
+    /// Constructs MockEpochManager implementations for each instance.
+    pub fn mock_epoch_managers(self) -> Self {
+        assert!(self.epoch_managers.is_none(), "Cannot override twice");
+        let mut ret = self.ensure_stores();
+        let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
+            .map(|i| {
+                let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
+                    .block_producers_per_epoch(vec![ret.validators.clone()]);
+                MockEpochManager::new_with_validators(
+                    ret.stores.as_ref().unwrap()[i].clone(),
+                    vs,
+                    ret.genesis_config.epoch_length,
+                )
+                .into()
+            })
+            .collect();
+        assert!(
+            ret.shard_trackers.is_none(),
+            "Cannot override shard_trackers without overriding epoch_managers"
+        );
+        assert!(
+            ret.runtimes.is_none(),
+            "Cannot override runtimes without overriding epoch_managers"
+        );
+        ret.epoch_managers = Some(epoch_managers);
+        ret
     }
 
     /// Visible for extension methods in integration-tests.
