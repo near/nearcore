@@ -1,4 +1,4 @@
-use near_chain::{Block, ChainGenesis, Provenance};
+use near_chain::{Block, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -62,7 +62,7 @@ impl Scenario {
             StateSnapshotType::ForReshardingOnly,
         );
 
-        let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
+        let mut env = TestEnv::builder(&genesis.config)
             .clients(clients.clone())
             .validators(clients)
             .stores(vec![store])
