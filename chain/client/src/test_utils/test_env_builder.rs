@@ -6,7 +6,7 @@ use itertools::{multizip, Itertools};
 use near_async::messaging::IntoSender;
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
-use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
+use near_chain::test_utils::{KeyValueRuntime, MockEpochManager};
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
 use near_chain_configs::GenesisConfig;
