@@ -18,7 +18,7 @@ use near_network::types::HighestHeightPeerInfo;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
-use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
+use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper, ShardChunk};
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -81,6 +81,40 @@ impl Client {
             return accepted_blocks;
         }
         vec![]
+    }
+
+    /// Manually produce a single chunk on the given shard and send out the corresponding network messages
+    pub fn produce_one_chunk(&mut self, height: BlockHeight, shard_id: ShardId) -> ShardChunk {
+        let ProduceChunkResult {
+            chunk: encoded_chunk,
+            encoded_chunk_parts_paths: merkle_paths,
+            receipts,
+            transactions_storage_proof,
+        } = create_chunk_on_height_for_shard(self, height, shard_id);
+        let shard_chunk = self
+            .persist_and_distribute_encoded_chunk(
+                encoded_chunk,
+                merkle_paths,
+                receipts,
+                self.validator_signer.as_ref().unwrap().validator_id().clone(),
+            )
+            .unwrap();
+        let prev_block = self.chain.get_block(shard_chunk.prev_block()).unwrap();
+        let prev_chunk_header = Chain::get_prev_chunk_header(
+            self.epoch_manager.as_ref(),
+            &prev_block,
+            shard_chunk.shard_id(),
+        )
+        .unwrap();
+        self.send_chunk_state_witness_to_chunk_validators(
+            &self.epoch_manager.get_epoch_id_from_prev_block(shard_chunk.prev_block()).unwrap(),
+            prev_block.header(),
+            &prev_chunk_header,
+            &shard_chunk,
+            transactions_storage_proof,
+        )
+        .unwrap();
+        shard_chunk
     }
 }
 

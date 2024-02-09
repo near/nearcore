@@ -22,6 +22,7 @@ component_management:
       - "!debug_scripts/**"
       - "!docs/**"
       - "!genesis-tools/**"
+      - "!integration-tests/**"
       - "!nightly/**"
       - "!tools/**"
     statuses:
