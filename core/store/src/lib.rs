@@ -802,6 +802,10 @@ pub fn get_yielded_promise(
     get(trie, &TrieKey::YieldedPromise { data_id })
 }
 
+pub fn remove_yielded_promise(state_update: &mut TrieUpdate, data_id: CryptoHash) {
+    state_update.remove(TrieKey::YieldedPromise { data_id })
+}
+
 pub fn set_access_key(
     state_update: &mut TrieUpdate,
     account_id: AccountId,
