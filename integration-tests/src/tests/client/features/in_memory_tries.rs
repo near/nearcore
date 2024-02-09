@@ -6,7 +6,7 @@ use near_chain::{Block, ChainGenesis, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::test_loop::ShardsManagerResendChunkRequests;
 use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
-use near_client::test_utils::TestEnv;
+use near_client::test_utils::{TestEnv, TestEnvBuilder};
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -479,8 +479,7 @@ fn num_memtrie_roots(env: &TestEnv, client_id: usize, shard: ShardUId) -> Option
 /// This base case does not use in-memory tries. We leave this test here
 /// nonetheless, because single-shard tracking setup is difficult to get
 /// right.
-#[test]
-fn test_in_memory_trie_consistency_with_state_sync_base_case() {
+fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: bool) {
     // Recommended to run with RUST_LOG=memtrie=debug,chunks=error,info
     init_test_logger();
     let validator_stake = 1000000 * ONE_NEAR;
@@ -564,6 +563,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case() {
         .clients((0..NUM_VALIDATORS).map(|i| format!("account{}", i).parse().unwrap()).collect())
         .stores(stores.clone())
         .real_epoch_managers(&genesis.config)
+        .maybe_track_all_shards(track_all_shards)
         .nightshade_runtimes_with_trie_config(
             &genesis,
             // Don't load any memtries.
@@ -598,12 +598,36 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case() {
         &mut nonces,
         &mut balances,
         100,
-        false,
+        track_all_shards,
     );
     // Assert that indeed no memtries are loaded.
     for i in 0..NUM_VALIDATORS {
         for shard_id in 0..4 {
             assert_eq!(num_memtrie_roots(&env, i, ShardUId { version: 1, shard_id }), None);
+        }
+    }
+}
+
+#[test]
+fn test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard() {
+    test_in_memory_trie_consistency_with_state_sync_base_case(false);
+}
+
+#[test]
+fn test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
+    test_in_memory_trie_consistency_with_state_sync_base_case(true);
+}
+
+trait TestEnvBuilderExt {
+    fn maybe_track_all_shards(self, track_all_shards: bool) -> Self;
+}
+
+impl TestEnvBuilderExt for TestEnvBuilder {
+    fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
+        if track_all_shards {
+            self.track_all_shards()
+        } else {
+            self
         }
     }
 }
