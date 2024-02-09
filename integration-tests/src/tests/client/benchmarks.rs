@@ -29,7 +29,7 @@ fn benchmark_large_chunk_production_time() {
 
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

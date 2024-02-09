@@ -92,7 +92,7 @@ fn test_continuous_epoch_sync_info_population() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -247,7 +247,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -327,11 +327,11 @@ fn test_node_after_simulated_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let mut env = TestEnv::default_builder()
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .real_stores()
         .use_state_snapshots()
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

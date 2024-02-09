@@ -21,7 +21,7 @@ fn process_blocks_with_storage_usage_fix(
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     for i in 1..=16 {

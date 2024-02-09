@@ -122,7 +122,7 @@ fn test_storage_after_commit_of_cold_update() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -233,7 +233,7 @@ fn test_cold_db_head_update() {
     let cold_db = storage.cold_db().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -268,7 +268,7 @@ fn test_cold_db_copy_with_height_skips() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -365,7 +365,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -449,7 +449,7 @@ fn test_cold_loop_on_gc_boundary() {
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
