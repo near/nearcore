@@ -1369,6 +1369,7 @@ fn test_archival_save_trie_changes() {
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.total_supply = 1_000_000_000;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)

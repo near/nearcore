@@ -120,6 +120,7 @@ fn test_storage_after_commit_of_cold_update() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -265,6 +266,7 @@ fn test_cold_db_copy_with_height_skips() {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
+    genesis.config.min_gas_price = 0;
     let mut env = TestEnv::builder(&genesis.config)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
