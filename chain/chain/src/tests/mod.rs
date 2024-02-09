@@ -1,6 +1,7 @@
 mod challenges;
 mod doomslug;
 mod garbage_collection;
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod simple_chain;
 mod sync_chain;
 
