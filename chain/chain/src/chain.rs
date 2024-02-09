@@ -11,6 +11,7 @@ use crate::orphan::{Orphan, OrphanBlockPool};
 use crate::sharding::shuffle_receipt_proofs;
 use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
+use crate::state_transition_data::garbage_collect_state_transition_data;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
@@ -1818,6 +1819,15 @@ impl Chain {
                 let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
                 flat_storage_manager.update_flat_storage_for_shard(shard_uid, &block)?;
                 self.garbage_collect_memtrie_roots(&block, shard_uid);
+            }
+        }
+
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
+        if cfg!(feature = "shadow_chunk_validation")
+            || checked_feature!("stable", StatelessValidationV0, protocol_version)
+        {
+            if let Err(err) = garbage_collect_state_transition_data(&self.chain_store, &block) {
+                tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
             }
         }
 
