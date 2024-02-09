@@ -1090,7 +1090,6 @@ def neard_start_script(node, upgrade_schedule=None, epoch_height=None):
     return '''
         sudo mv /home/ubuntu/near.log /home/ubuntu/near.log.1 2>/dev/null
         sudo mv /home/ubuntu/near.upgrade.log /home/ubuntu/near.upgrade.log.1 2>/dev/null
-        sudo rm -rf /home/ubuntu/.near/data
         tmux new -s near -d bash
         sudo rm -rf /home/ubuntu/neard.log
         tmux send-keys -t near 'RUST_BACKTRACE=full RUST_LOG=debug,actix_web=info {neard_binary} run 2>&1 | tee -a {neard_binary}.log' C-m
