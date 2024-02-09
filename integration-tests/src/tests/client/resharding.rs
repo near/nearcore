@@ -2,7 +2,7 @@ use crate::tests::client::process_blocks::set_block_protocol_version;
 use assert_matches::assert_matches;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
-use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
@@ -198,11 +198,10 @@ impl TestReshardingEnv {
             gas_limit,
             genesis_protocol_version,
         );
-        let chain_genesis = ChainGenesis::new(&genesis.config);
         let builder = if state_snapshot_enabled {
-            TestEnv::builder(chain_genesis).use_state_snapshots()
+            TestEnv::builder(&genesis.config).use_state_snapshots()
         } else {
-            TestEnv::builder(chain_genesis)
+            TestEnv::builder(&genesis.config)
         };
         // Set the kickout thresholds to zero. In some tests we have chunk
         // producers missing chunks but we don't want any of the clients to get

@@ -1,4 +1,3 @@
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -30,8 +29,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis.config);
-        TestEnv::builder(chain_genesis)
+        TestEnv::builder(&genesis.config)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
@@ -94,8 +92,7 @@ fn test_account_id_in_function_call_permission_upgrade() {
 fn test_very_long_account_id() {
     let mut env = {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-        let chain_genesis = ChainGenesis::new(&genesis.config);
-        TestEnv::builder(chain_genesis)
+        TestEnv::builder(&genesis.config)
             .real_epoch_managers(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,

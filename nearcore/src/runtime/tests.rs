@@ -1518,7 +1518,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::test();
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {

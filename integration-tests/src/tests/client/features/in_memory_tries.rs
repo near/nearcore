@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -113,12 +113,11 @@ fn test_in_memory_trie_node_consistency() {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis.config);
 
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
     let stores = vec![create_test_store(), create_test_store()];
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
         .real_epoch_managers(&genesis.config)
@@ -177,7 +176,7 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart nodes, and change some configs.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
         .real_epoch_managers(&genesis.config)
@@ -208,7 +207,7 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart again, but this time flip the nodes.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores)
         .real_epoch_managers(&genesis.config)

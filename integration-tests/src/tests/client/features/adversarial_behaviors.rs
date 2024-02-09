@@ -4,7 +4,7 @@ use near_async::{
     messaging::CanSend,
     time::{FakeClock, Utc},
 };
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_chunks::{
     test_loop::ShardsManagerResendChunkRequests, CHUNK_REQUEST_SWITCH_TO_FULL_FETCH,
@@ -57,9 +57,8 @@ impl AdversarialBehaviorTestData {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
         }
-        let chain_genesis = ChainGenesis::new(&genesis.config);
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder(&genesis.config)
             .clock(clock.clock())
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
