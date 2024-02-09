@@ -69,6 +69,10 @@ pub struct StateWitnessPropagationOutput {
 }
 
 impl TestEnv {
+    pub fn default_builder() -> TestEnvBuilder {
+        TestEnvBuilder::new(ChainGenesis::test())
+    }
+
     pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
         TestEnvBuilder::new(chain_genesis)
     }

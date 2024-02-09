@@ -1,4 +1,4 @@
-use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -194,7 +194,7 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .clients_count(1)
         .use_state_snapshots()
         .real_stores()

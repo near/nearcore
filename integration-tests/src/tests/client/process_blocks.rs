@@ -1062,7 +1062,7 @@ fn test_process_invalid_tx() {
 #[test]
 fn test_time_attack() {
     init_test_logger();
-    let mut env = TestEnv::builder(ChainGenesis::test()).clients_count(1).build();
+    let mut env = TestEnv::default_builder().clients_count(1).build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.as_ref().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
@@ -1079,7 +1079,7 @@ fn test_time_attack() {
 
 #[test]
 fn test_no_double_sign() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let _ = env.clients[0].produce_block(1).unwrap().unwrap();
     // Second time producing with the same height should fail.
     assert_eq!(env.clients[0].produce_block(1).unwrap(), None);
@@ -1105,7 +1105,7 @@ fn test_invalid_gas_price() {
 
 #[test]
 fn test_invalid_height_too_large() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
@@ -1117,7 +1117,7 @@ fn test_invalid_height_too_large() {
 /// Check that if block height is 5 epochs behind the head, it is not processed.
 #[test]
 fn test_invalid_height_too_old() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     for i in 1..4 {
         env.produce_block(0, i);
     }
@@ -1133,7 +1133,7 @@ fn test_invalid_height_too_old() {
 fn test_bad_orphan() {
     let mut genesis = ChainGenesis::test();
     genesis.epoch_length = 100;
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     for i in 1..4 {
         env.produce_block(0, i);
     }
@@ -2019,7 +2019,7 @@ fn test_gas_price_overflow() {
 
 #[test]
 fn test_invalid_block_root() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let mut b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let signer = create_test_signer("test0");
     b1.mut_header().get_mut().inner_lite.block_merkle_root = CryptoHash::default();
@@ -2045,7 +2045,7 @@ fn test_incorrect_validator_key_produce_block() {
 }
 
 fn test_block_merkle_proof_with_len(n: NumBlocks, rng: &mut StdRng) {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let mut blocks = vec![genesis_block.clone()];
     let mut cur_height = genesis_block.header().height() + 1;
@@ -2112,7 +2112,7 @@ fn test_block_merkle_proof() {
 
 #[test]
 fn test_block_merkle_proof_same_hash() {
-    let env = TestEnv::builder(ChainGenesis::test()).build();
+    let env = TestEnv::default_builder().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let proof =
         env.clients[0].chain.get_block_proof(genesis_block.hash(), genesis_block.hash()).unwrap();
@@ -2124,7 +2124,7 @@ fn test_data_reset_before_state_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
     let epoch_length = 5;
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -2211,7 +2211,7 @@ fn test_sync_hash_validity() {
 
 #[test]
 fn test_block_height_processed_orphan() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let block = env.clients[0].produce_block(1).unwrap().unwrap();
     let mut orphan_block = block;
     let validator_signer = create_test_signer("test0");
@@ -2235,7 +2235,7 @@ fn test_validate_chunk_extra() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -3138,7 +3138,7 @@ fn prepare_env_with_transaction() -> (TestEnv, CryptoHash) {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -3164,7 +3164,7 @@ fn test_not_broadcast_block_on_accept() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .clients_count(2)
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
@@ -3235,7 +3235,7 @@ fn test_node_shutdown_with_old_protocol_version() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -3254,7 +3254,7 @@ fn test_node_shutdown_with_old_protocol_version() {
 
 #[test]
 fn test_block_ordinal() {
-    let mut env = TestEnv::builder(ChainGenesis::test()).build();
+    let mut env = TestEnv::default_builder().build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     assert_eq!(genesis_block.header().block_ordinal(), 1);
     let mut ordinal = 1;
@@ -3368,7 +3368,7 @@ fn test_validator_stake_host_function() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -3525,7 +3525,7 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let mut env = TestEnv::builder(ChainGenesis::test())
+        let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
@@ -3621,7 +3621,7 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let mut env = TestEnv::builder(ChainGenesis::test())
+        let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
@@ -3699,7 +3699,7 @@ mod contract_precompilation_tests {
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let mut env = TestEnv::builder(ChainGenesis::test())
+        let mut env = TestEnv::default_builder()
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()

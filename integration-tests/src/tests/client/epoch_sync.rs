@@ -333,7 +333,7 @@ fn test_node_after_simulated_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .clients_count(num_clients)
         .real_stores()
         .use_state_snapshots()

@@ -52,7 +52,7 @@ fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -125,7 +125,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -242,7 +242,7 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
@@ -276,7 +276,7 @@ fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::default_builder()
         .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
