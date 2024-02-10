@@ -274,6 +274,7 @@ class LoadTestSpoon:
             all_node_pks=all_node_pks,
             node_ips=node_ips,
         )
+        mocknet.clear_data(self.all_nodes)
         mocknet.start_nodes(self.all_nodes, self.upgrade_schedule)
         time.sleep(60)
 
