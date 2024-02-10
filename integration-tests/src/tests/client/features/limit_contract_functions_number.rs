@@ -29,7 +29,7 @@ fn verify_contract_limits_upgrade(
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let mut env = TestEnv::builder(&genesis.config)
-            .real_epoch_managers(&genesis.config)
+            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],
@@ -73,7 +73,7 @@ fn verify_contract_limits_upgrade(
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 // Disabled in nightly due to https://github.com/near/nearcore/issues/8590
-#[cfg(not(feature = "nightly"))]
+#[cfg(all(not(feature = "nightly"), not(feature = "statelessnet_protocol")))]
 #[test]
 fn test_function_limit_change() {
     verify_contract_limits_upgrade(
@@ -86,7 +86,7 @@ fn test_function_limit_change() {
 
 // Check that we can't call a contract exceeding functions number limit after upgrade.
 // Disabled in nightly due to https://github.com/near/nearcore/issues/8590
-#[cfg(not(feature = "nightly"))]
+#[cfg(all(not(feature = "nightly"), not(feature = "statelessnet_protocol")))]
 #[test]
 fn test_local_limit_change() {
     verify_contract_limits_upgrade(

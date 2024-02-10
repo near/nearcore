@@ -35,7 +35,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
     TestEnv::builder(&genesis.config)
         .stores(vec![store])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(genesis)
         .build()
 }

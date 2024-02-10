@@ -19,7 +19,7 @@ fn prepare_env_with_contract(
     genesis.config.protocol_version = protocol_version;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
     deploy_test_contract(&mut env, account, &contract, epoch_length, 1);

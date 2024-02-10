@@ -57,8 +57,8 @@ fn exec_meta_transaction(
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

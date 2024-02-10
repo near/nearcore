@@ -120,7 +120,7 @@ fn test_in_memory_trie_node_consistency() {
     let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -179,7 +179,7 @@ fn test_in_memory_trie_node_consistency() {
     let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -210,7 +210,7 @@ fn test_in_memory_trie_node_consistency() {
     let mut env = TestEnv::builder(&genesis.config)
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
