@@ -5,7 +5,6 @@ use near_client::ProcessTxResponse;
 use near_epoch_manager::EpochManager;
 use num_rational::Ratio;
 
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -41,7 +40,7 @@ fn setup_env(genesis: &Genesis) -> TestEnv {
         &genesis.config,
         epoch_manager.clone(),
     );
-    TestEnv::builder(ChainGenesis::new(&genesis.config))
+    TestEnv::builder(&genesis.config)
         .stores(vec![store])
         .epoch_managers(vec![epoch_manager])
         .runtimes(vec![runtime])

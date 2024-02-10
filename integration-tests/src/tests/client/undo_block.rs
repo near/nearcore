@@ -1,4 +1,4 @@
-use near_chain::{ChainGenesis, ChainStore, ChainStoreAccess, Provenance};
+use near_chain::{ChainStore, ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_epoch_manager::EpochManagerAdapter;
@@ -12,10 +12,9 @@ use std::sync::Arc;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let env = TestEnv::builder(chain_genesis)
+    let env = TestEnv::builder(&genesis.config)
         .stores(vec![store])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(genesis)
         .build();
     let epoch_manager = env.clients[0].epoch_manager.clone();

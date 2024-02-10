@@ -4,7 +4,6 @@
 //! we want to test here are pretty heavy and its enough to run them once and
 //! note the wall-clock time.
 
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::{create_chunk_on_height, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -29,9 +28,8 @@ fn benchmark_large_chunk_production_time() {
     let tx_size = 3 * mb;
 
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

@@ -303,7 +303,8 @@ mod test {
     use std::sync::Arc;
 
     use near_chain::test_utils::wait_for_all_blocks_in_processing;
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::Provenance;
+    use near_chain_configs::GenesisConfig;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_o11y::testonly::TracingCapture;
@@ -366,9 +367,9 @@ mod test {
         let block_fetch_horizon = 10;
         let mut block_sync =
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+        let mut genesis_config = GenesisConfig::test();
+        genesis_config.epoch_length = 100;
+        let mut env = TestEnv::builder(&genesis_config).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -445,9 +446,9 @@ mod test {
         let block_fetch_horizon = 10;
         let mut block_sync =
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+        let mut genesis_config = GenesisConfig::test();
+        genesis_config.epoch_length = 5;
+        let mut env = TestEnv::builder(&genesis_config).clients_count(2).build();
         let mut blocks = vec![];
         for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

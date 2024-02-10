@@ -42,7 +42,7 @@ impl EpochManagerKind {
 /// A builder for the TestEnv structure.
 pub struct TestEnvBuilder {
     clock: Option<Clock>,
-    chain_genesis: ChainGenesis,
+    genesis_config: GenesisConfig,
     clients: Vec<AccountId>,
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
@@ -63,7 +63,7 @@ pub struct TestEnvBuilder {
 /// Builder for the [`TestEnv`] structure.
 impl TestEnvBuilder {
     /// Constructs a new builder.
-    pub(crate) fn new(chain_genesis: ChainGenesis) -> Self {
+    pub(crate) fn new(genesis_config: GenesisConfig) -> Self {
         if let None = System::try_current() {
             let _ = System::new();
         }
@@ -72,7 +72,7 @@ impl TestEnvBuilder {
         let seeds: HashMap<AccountId, RngSeed> = HashMap::with_capacity(1);
         Self {
             clock: None,
-            chain_genesis,
+            genesis_config,
             clients,
             validators,
             home_dirs: None,
@@ -245,14 +245,13 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn real_epoch_managers(self, genesis_config: &GenesisConfig) -> Self {
-        self.real_epoch_managers_with_test_overrides(genesis_config, None)
+    pub fn real_epoch_managers(self) -> Self {
+        self.real_epoch_managers_with_test_overrides(None)
     }
 
     /// Constructs real EpochManager implementations for each instance.
     pub fn real_epoch_managers_with_test_overrides(
         self,
-        genesis_config: &GenesisConfig,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
         assert!(
@@ -264,7 +263,7 @@ impl TestEnvBuilder {
             .map(|i| {
                 EpochManager::new_arc_handle_with_test_overrides(
                     ret.stores.as_ref().unwrap()[i].clone(),
-                    genesis_config,
+                    &ret.genesis_config,
                     test_overrides.clone(),
                 )
             })
@@ -285,7 +284,7 @@ impl TestEnvBuilder {
                 MockEpochManager::new_with_validators(
                     ret.stores.as_ref().unwrap()[i].clone(),
                     vs,
-                    ret.chain_genesis.epoch_length,
+                    ret.genesis_config.epoch_length,
                 )
                 .into()
             })
@@ -469,7 +468,7 @@ impl TestEnvBuilder {
 
     fn build_impl(self) -> TestEnv {
         let clock = self.clock.unwrap_or_else(|| Clock::real());
-        let chain_genesis = self.chain_genesis;
+        let chain_genesis = ChainGenesis::new(&self.genesis_config);
         let clients = self.clients.clone();
         let num_clients = clients.len();
         let validators = self.validators;
