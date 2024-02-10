@@ -1,6 +1,6 @@
 use anyhow::Context;
 use borsh::BorshDeserialize;
-use near_chain::{Block, ChainGenesis, Error, Provenance};
+use near_chain::{Block, Error, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -37,8 +37,8 @@ fn change_shard_id_to_invalid() {
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -179,8 +179,8 @@ fn check_process_flipped_block_fails_on_bit(
     let epoch_length = 5000000;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis.config))
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

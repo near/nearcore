@@ -2,7 +2,7 @@ use crate::tests::client::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, Error, Provenance};
+use near_chain::{Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
@@ -52,8 +52,8 @@ fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -125,8 +125,8 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -242,8 +242,9 @@ fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -276,8 +277,8 @@ fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -341,11 +342,10 @@ fn test_request_chunks_for_orphan() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,
@@ -482,11 +482,10 @@ fn test_processing_chunks_sanity() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();
@@ -582,11 +581,10 @@ impl ChunkForwardingOptimizationTestData {
             ];
             config.num_block_producer_seats = num_block_producers as u64;
         }
-        let chain_genesis = ChainGenesis::new(&genesis.config);
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .real_epoch_managers(&genesis.config)
+            .real_epoch_managers()
             .track_all_shards()
             .nightshade_runtimes(&genesis)
             .build();
@@ -812,11 +810,10 @@ fn test_processing_blocks_async() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis.config);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();

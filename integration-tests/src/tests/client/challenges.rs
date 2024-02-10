@@ -60,8 +60,8 @@ fn test_block_with_challenges() {
 #[test]
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     env.produce_block(0, 1);
@@ -332,9 +332,10 @@ fn challenge(
 
 #[test]
 fn test_verify_chunk_invalid_state_challenge() {
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::default_builder()
-        .real_epoch_managers(&genesis.config)
+    let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
