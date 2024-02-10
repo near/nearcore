@@ -283,26 +283,28 @@ pub trait External {
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError>;
 
-    /// Create a receipt which will be executed after some data is received.
+    /// Create a receipt with a new input data dependency.
     ///
-    /// Returns the ReceiptIndex along with a `data_id` which can be used to submit the data.
+    /// Returns the ReceiptIndex of the newly created receipt and the id of its data dependency.
     ///
     /// # Arguments
     ///
     /// * `receiver_id` - account id of the receiver of the receipt created
-    fn create_receipt_awaiting_data(
+    fn yield_create_action_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
-    /// Creates a DataReceipt corresponding to a `data_id` created by
-    /// `create_receipt_awaiting_data`.
+    /// Creates a DataReceipt under the specified `data_id`.
+    ///
+    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or if the
+    /// corresponding ActionReceipt was already resolved, this function will fail with an error.
     ///
     /// # Arguments
     ///
     /// * `data_id` - `data_id` with which the DataReceipt should be created
     /// * `data` - contents of the DataReceipt
-    fn create_external_data_receipt(
+    fn yield_submit_data_receipt(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,

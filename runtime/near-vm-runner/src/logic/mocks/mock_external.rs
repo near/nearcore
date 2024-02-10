@@ -159,7 +159,7 @@ impl External for MockedExternal {
         Ok(index as u64)
     }
 
-    fn create_receipt_awaiting_data(
+    fn yield_create_action_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
@@ -169,7 +169,7 @@ impl External for MockedExternal {
         Ok((index as u64, data_id))
     }
 
-    fn create_external_data_receipt(
+    fn yield_submit_data_receipt(
         &mut self,
         _data_id: CryptoHash,
         _data: Vec<u8>,

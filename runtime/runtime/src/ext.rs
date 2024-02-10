@@ -211,7 +211,7 @@ impl<'a> External for RuntimeExt<'a> {
         self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
     }
 
-    fn create_receipt_awaiting_data(
+    fn yield_create_action_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
@@ -221,7 +221,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map(|receipt_index| (receipt_index, input_data_id))
     }
 
-    fn create_external_data_receipt(
+    fn yield_submit_data_receipt(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,

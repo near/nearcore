@@ -2072,7 +2072,7 @@ impl<'a> VMLogic<'a> {
         self.pay_gas_for_new_receipt(true, &[])?;
 
         let (new_receipt_idx, data_id) =
-            self.ext.create_receipt_awaiting_data(self.context.current_account_id.clone())?;
+            self.ext.yield_create_action_receipt(self.context.current_account_id.clone())?;
 
         self.registers.set(
             &mut self.gas_counter,
@@ -2128,7 +2128,7 @@ impl<'a> VMLogic<'a> {
         let payload = payload.into_owned();
 
         // TODO gas costs for receipt creation
-        self.ext.create_external_data_receipt(data_id, payload)
+        self.ext.yield_submit_data_receipt(data_id, payload)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
