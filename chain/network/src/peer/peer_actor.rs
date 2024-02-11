@@ -249,7 +249,7 @@ impl PeerActor {
                     .inbound_handshake_permits
                     .clone()
                     .try_acquire_owned()
-                    .map_err(|_| ClosingReason::TooManyInbound)?
+                    .map_err(|_| ClosingReason::TooManyInbound)?,
             ),
             tcp::StreamType::Outbound { tier, peer_id } => ConnectingStatus::Outbound {
                 _permit: match tier {
