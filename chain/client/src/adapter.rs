@@ -1,12 +1,16 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
-use near_network::types::{NetworkInfo, ReasonForBan, StateResponseInfo};
+use near_network::types::{
+    NetworkInfo, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
+    PartialEncodedChunkResponseMsg, ReasonForBan, StateResponseInfo,
+};
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::sharding::PartialEncodedChunk;
 use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -92,19 +96,22 @@ pub(crate) struct RecvChallenge(pub Challenge);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunkForward;
+pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunk;
+pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunkResponse;
+pub(crate) struct RecvPartialEncodedChunkResponse(
+    pub PartialEncodedChunkResponseMsg,
+    pub std::time::Instant,
+);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
-pub(crate) struct RecvPartialEncodedChunkRequest;
+pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestMsg, pub CryptoHash);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "ProcessTxResponse")]
