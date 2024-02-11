@@ -145,6 +145,7 @@ impl RuntimeConfigStore {
             let mut runtime_config = RuntimeConfig::new(&params).unwrap_or_else(|err| panic!("Failed generating `RuntimeConfig` from parameters for version {protocol_version}. Error: {err}"));
             runtime_config.wasm_config.limit_config.max_total_log_length = u64::MAX;
             runtime_config.wasm_config.limit_config.max_gas_burnt = u64::MAX;
+            runtime_config.wasm_config.limit_config.max_total_prepaid_gas = u64::MAX;
             store.insert(*protocol_version, Arc::new(runtime_config));
         }
 
