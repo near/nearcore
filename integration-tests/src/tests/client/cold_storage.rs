@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -119,12 +119,10 @@ fn test_storage_after_commit_of_cold_update() {
     let max_height = epoch_length * 4;
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -228,17 +226,14 @@ fn test_cold_db_head_update() {
     let max_height = epoch_length * 10;
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
     let cold_db = storage.cold_db().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -270,12 +265,10 @@ fn test_cold_db_copy_with_height_skips() {
     let skips = HashSet::from([1, 4, 5, 7, 11, 14, 16, 19]);
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -370,12 +363,9 @@ fn test_initial_copy_to_cold(batch_size: usize) {
     let max_height = epoch_length * 4;
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -450,19 +440,16 @@ fn test_cold_loop_on_gc_boundary() {
     let epoch_length = 5;
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let hot_store = &storage.get_hot_store();
     let cold_store = &storage.get_cold_store().unwrap();
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers(&genesis.config)
+        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
