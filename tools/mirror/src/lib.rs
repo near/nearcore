@@ -162,7 +162,7 @@ fn put_target_nonce(
     public_key: &PublicKey,
     nonce: &LatestTargetNonce,
 ) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
+    tracing::trace!(target: "mirror", "storing {:?} in DB for ({}, {:?})", &nonce, account_id, public_key);
     let db_key = nonce_col_key(account_id, public_key);
     db.put_cf(
         db.cf_handle(DBCol::Nonces.name()).unwrap(),
@@ -196,7 +196,7 @@ fn put_pending_outcome(
     id: CryptoHash,
     access_keys: HashSet<(AccountId, PublicKey)>,
 ) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
+    tracing::trace!(target: "mirror", "storing {:?} in DB for {:?}", &access_keys, &id);
     Ok(db.put_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
@@ -205,7 +205,7 @@ fn put_pending_outcome(
 }
 
 fn delete_pending_outcome(db: &DB, id: &CryptoHash) -> anyhow::Result<()> {
-    tracing::debug!(target: "mirror", "deleting {:?} from DB", &id);
+    tracing::trace!(target: "mirror", "deleting {:?} from DB", &id);
     Ok(db.delete_cf(
         db.cf_handle(DBCol::AccessKeyOutcomes.name()).unwrap(),
         &borsh::to_vec(&id).unwrap(),
