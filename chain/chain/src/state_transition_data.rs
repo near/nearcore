@@ -6,6 +6,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_chain_primitives::error::Error;
 use near_primitives::block::Block;
 use near_primitives::checked_feature;
+use near_primitives::hash::CryptoHash;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::utils::{get_block_shard_id, get_block_shard_id_rev};
 use near_store::db::STATE_TRANSITIONS_METADATA_KEY;
@@ -28,7 +29,11 @@ impl Chain {
             || checked_feature!("stable", StatelessValidationV0, protocol_version)
         {
             let chain_store = self.chain_store();
-            let final_block = chain_store.get_block(block.header().last_final_block())?;
+            let final_block_hash = *block.header().last_final_block();
+            if final_block_hash == CryptoHash::default() {
+                return Ok(());
+            }
+            let final_block = chain_store.get_block(&final_block_hash)?;
             let final_block_height = final_block.header().height();
             let final_block_present_chunks = final_block
                 .chunks()
