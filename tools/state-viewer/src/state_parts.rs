@@ -112,7 +112,7 @@ impl StatePartsSubCommand {
             &near_config,
             epoch_manager.clone(),
         );
-        let chain_genesis = ChainGenesis::new(&near_config.genesis);
+        let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
         let mut chain = Chain::new_for_view_client(
             epoch_manager,
             shard_tracker,

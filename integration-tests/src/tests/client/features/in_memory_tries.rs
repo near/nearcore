@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
-use near_chain::{Block, ChainGenesis, Provenance};
+use near_chain::{Block, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::test_loop::ShardsManagerResendChunkRequests;
 use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
@@ -117,17 +117,15 @@ fn test_in_memory_trie_node_consistency() {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
     let stores = vec![create_test_store(), create_test_store()];
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
         .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -190,11 +188,10 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart nodes, and change some configs.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis.config)
         .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -229,11 +226,10 @@ fn test_in_memory_trie_node_consistency() {
 
     // Restart again, but this time flip the nodes.
     drop(env);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clock(clock.clock())
         .clients(vec!["account0".parse().unwrap(), "account1".parse().unwrap()])
         .stores(stores)
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_trie_config(
             &genesis,

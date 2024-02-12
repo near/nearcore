@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -20,11 +20,7 @@ fn process_blocks_with_storage_usage_fix(
     genesis.config.chain_id = chain_id;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-    let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     for i in 1..=16 {
         // We cannot just use TestEnv::produce_block as we are updating protocol version
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();

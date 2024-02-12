@@ -5,7 +5,6 @@
 
 use crate::node::{Node, RuntimeNode};
 use crate::tests::standard_cases::fee_helper;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey, Signer};
@@ -58,10 +57,7 @@ fn exec_meta_transaction(
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);
 

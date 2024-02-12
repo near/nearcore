@@ -1,6 +1,9 @@
 mod challenges;
 mod doomslug;
 mod garbage_collection;
+// Checks consistency of chain block hashes for stable and nightly chains.
+// Disable for custom chains.
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod simple_chain;
 mod sync_chain;
 
