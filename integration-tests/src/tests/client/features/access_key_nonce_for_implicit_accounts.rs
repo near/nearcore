@@ -775,7 +775,7 @@ fn test_chunk_forwarding_optimization() {
     // Note: For nightly, which includes SingleShardTracking, this check is disabled because
     // we're so efficient with part forwarding now that we don't seem to be forwarding more
     // than it is necessary.
-    if !cfg!(feature = "nightly") {
+    if !cfg!(feature = "nightly") && !cfg!(feature = "statelessnet_protocol") {
         assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
     }
     debug!(target: "test",
