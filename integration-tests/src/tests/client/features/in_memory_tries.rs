@@ -6,7 +6,7 @@ use near_chain::{Block, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::test_loop::ShardsManagerResendChunkRequests;
 use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
-use near_client::test_utils::{TestEnv, TestEnvBuilder};
+use near_client::test_utils::{TestEnv};
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -277,14 +277,12 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
 }
 
 fn check_block_does_not_have_missing_chunks(env: &TestEnv, block: &Block) {
+    // Skip the check for the block right after genesis.
     if block.header().prev_hash() != env.clients[0].chain.genesis_block().hash() {
-        let prev_block = env.clients[0].chain.get_block(&block.header().prev_hash()).unwrap();
-        for (new_chunk, old_chunk) in block.chunks().iter().zip(prev_block.chunks().iter()) {
-            if new_chunk.chunk_hash() == old_chunk.chunk_hash() {
-                panic!(
-                    "Block at height {} is produced without all chunks; the test setup is faulty",
-                    block.header().height()
-                );
+        for chunk in block.chunks().iter() {
+            if !chunk.is_new_chunk(block.header().height()) {
+                panic!("Block at height {} is produced without all chunks; the test setup is faulty",
+                       block.header().height());
             }
         }
     }
@@ -442,7 +440,7 @@ fn run_chain_for_some_blocks_while_sending_money_around(
 
     assert_eq!(total_txs_included_in_chunks, 50 * num_rounds);
     if track_all_shards {
-        assert!(num_chunks_not_found_in_all_clients == 0);
+        assert_eq!(num_chunks_not_found_in_all_clients, 0);
     } else {
         assert!(num_chunks_not_found_in_all_clients > 0);
     }
@@ -550,15 +548,13 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
         // The total supply must be correct to pass validation.
         genesis_config.total_supply += initial_balance + staked;
     }
-    let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let genesis = Genesis::new(genesis_config.clone(), GenesisRecords(records)).unwrap();
 
     let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
-    let mut env = TestEnv::builder(chain_genesis.clone())
+    let mut env = TestEnv::builder(&genesis_config)
         .clients((0..NUM_VALIDATORS).map(|i| format!("account{}", i).parse().unwrap()).collect())
         .stores(stores.clone())
-        .real_epoch_managers(&genesis.config)
         .maybe_track_all_shards(track_all_shards)
         .nightshade_runtimes_with_trie_config(
             &genesis,
@@ -612,18 +608,4 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case_track_single_shard(
 #[test]
 fn test_in_memory_trie_consistency_with_state_sync_base_case_track_all_shards() {
     test_in_memory_trie_consistency_with_state_sync_base_case(true);
-}
-
-trait TestEnvBuilderExt {
-    fn maybe_track_all_shards(self, track_all_shards: bool) -> Self;
-}
-
-impl TestEnvBuilderExt for TestEnvBuilder {
-    fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
-        if track_all_shards {
-            self.track_all_shards()
-        } else {
-            self
-        }
-    }
 }

@@ -431,7 +431,7 @@ impl TestEnv {
         let last_chunk_header = &last_block.chunks()[shard_id as usize];
 
         for i in 0..self.clients.len() {
-            let tracks_shard = client
+            let tracks_shard = self.clients[i]
                 .epoch_manager
                 .cares_about_shard_from_prev_block(
                     &head.prev_block_hash,
