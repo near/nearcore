@@ -147,7 +147,7 @@ fn is_valid_kind_archive(kind: DbKind, archive: bool) -> bool {
     match (kind, archive) {
         (DbKind::Archive, true) => true,
         (DbKind::Cold, true) => true,
-        (DbKind::Hot, true) => true,
+        (DbKind::Hot, _) => true,
         (DbKind::RPC, _) => true,
         _ => false,
     }
@@ -647,6 +647,7 @@ mod tests {
         let (home_dir, opener) = NodeStorage::test_opener();
         let node_storage = opener.open().unwrap();
         let hot_store = Store { storage: node_storage.hot_storage.clone() };
+        assert_eq!(hot_store.get_db_kind().unwrap(), Some(DbKind::RPC));
 
         let keys = vec![vec![0], vec![1], vec![2], vec![3]];
         let columns = vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader];
