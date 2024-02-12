@@ -369,7 +369,8 @@ mod test {
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
         let mut genesis_config = GenesisConfig::test();
         genesis_config.epoch_length = 100;
-        let mut env = TestEnv::builder(&genesis_config).clients_count(2).build();
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -448,7 +449,8 @@ mod test {
             BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
         let mut genesis_config = GenesisConfig::test();
         genesis_config.epoch_length = 5;
-        let mut env = TestEnv::builder(&genesis_config).clients_count(2).build();
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

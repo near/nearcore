@@ -12,11 +12,8 @@ use std::sync::Arc;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> (TestEnv, Arc<dyn EpochManagerAdapter>) {
-    let env = TestEnv::builder(&genesis.config)
-        .stores(vec![store])
-        .real_epoch_managers()
-        .nightshade_runtimes(genesis)
-        .build();
+    let env =
+        TestEnv::builder(&genesis.config).stores(vec![store]).nightshade_runtimes(genesis).build();
     let epoch_manager = env.clients[0].epoch_manager.clone();
     (env, epoch_manager)
 }

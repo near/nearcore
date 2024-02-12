@@ -219,7 +219,7 @@ impl TestReshardingEnv {
             .clients_count(num_clients)
             .validator_seats(num_validators)
             .real_stores()
-            .real_epoch_managers_with_test_overrides(epoch_config_test_overrides)
+            .epoch_managers_with_test_overrides(epoch_config_test_overrides)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
             .build();

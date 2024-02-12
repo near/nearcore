@@ -28,10 +28,7 @@ fn benchmark_large_chunk_production_time() {
     let tx_size = 3 * mb;
 
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let account_id = env.get_client_id(0).clone();
     let signer =

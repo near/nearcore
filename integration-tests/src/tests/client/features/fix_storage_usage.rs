@@ -20,10 +20,7 @@ fn process_blocks_with_storage_usage_fix(
     genesis.config.chain_id = chain_id;
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::FixStorageUsage.protocol_version() - 1;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     for i in 1..=16 {
         // We cannot just use TestEnv::produce_block as we are updating protocol version
         let mut block = env.clients[0].produce_block(i).unwrap().unwrap();
