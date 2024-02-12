@@ -650,36 +650,6 @@ pub unsafe fn max_self_recursion_delay() {
 }
 
 #[no_mangle]
-pub unsafe fn max_self_recursion_delay() {
-    input(0);
-    let bytes = [0u8; 4];
-    read_register(0, bytes.as_ptr() as *const u64 as u64);
-    let recursion = u32::from_be_bytes(bytes);
-    let available_gas = prepaid_gas() - used_gas();
-    if available_gas < 5_000_000_000_000 {
-        return value_return(4, bytes.as_ptr() as u64);
-    }
-    current_account_id(1);
-    let method_name = "max_self_recursion_delay";
-    let promise_idx = promise_batch_create(u64::MAX, 1);
-    let amount = 1u128;
-    let gas_fixed = 0;
-    let gas_weight = 1;
-    let argument_bytes = recursion.saturating_add(1).to_be_bytes();
-    promise_batch_action_function_call_weight(
-        promise_idx,
-        method_name.len() as u64,
-        method_name.as_ptr() as u64,
-        argument_bytes.len() as u64,
-        argument_bytes.as_ptr() as u64,
-        &amount as *const u128 as u64,
-        gas_fixed,
-        gas_weight,
-    );
-    promise_return(promise_idx);
-}
-
-#[no_mangle]
 fn call_promise() {
     unsafe {
         input(0);
