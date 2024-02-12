@@ -2425,24 +2425,26 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             };
 
-            // Increase transaction refcounts for all included txs
-            for tx in chunk.transactions().iter() {
-                let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
-                store_update.increment_refcount(
-                    DBCol::Transactions,
-                    tx.get_hash().as_ref(),
-                    &bytes,
-                );
-            }
+            if false {
+                // Increase transaction refcounts for all included txs
+                for tx in chunk.transactions().iter() {
+                    let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
+                    store_update.increment_refcount(
+                        DBCol::Transactions,
+                        tx.get_hash().as_ref(),
+                        &bytes,
+                    );
+                }
 
-            // Increase receipt refcounts for all included receipts
-            for receipt in chunk.prev_outgoing_receipts().iter() {
-                let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
-                store_update.increment_refcount(
-                    DBCol::Receipts,
-                    receipt.get_hash().as_ref(),
-                    &bytes,
-                );
+                // Increase receipt refcounts for all included receipts
+                for receipt in chunk.prev_outgoing_receipts().iter() {
+                    let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
+                    store_update.increment_refcount(
+                        DBCol::Receipts,
+                        receipt.get_hash().as_ref(),
+                        &bytes,
+                    );
+                }
             }
 
             store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
@@ -2490,14 +2492,16 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        for ((outcome_id, block_hash), outcome_with_proof) in
-            self.chain_store_cache_update.outcomes.iter()
-        {
-            store_update.insert_ser(
-                DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(outcome_id, block_hash),
-                &outcome_with_proof,
-            )?;
+        if false {
+            for ((outcome_id, block_hash), outcome_with_proof) in
+                self.chain_store_cache_update.outcomes.iter()
+            {
+                store_update.insert_ser(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(outcome_id, block_hash),
+                    &outcome_with_proof,
+                )?;
+            }
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(
