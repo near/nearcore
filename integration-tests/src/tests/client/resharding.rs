@@ -24,6 +24,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
+use near_store::metadata::DbKind;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use near_store::trie::SnapshotError;
 use near_store::{DBCol, ShardUId};
@@ -609,18 +610,18 @@ impl TestReshardingEnv {
     }
 
     /// Check that after resharding is finished, the artifacts stored in storage is removed
-    fn check_resharding_artifacts(&mut self) {
+    fn check_resharding_artifacts(&mut self, client_id: usize) {
         tracing::debug!(target: "test", "checking resharding artifacts");
 
-        let env = &mut self.env;
-        let head = env.clients[0].chain.head().unwrap();
+        let client = &mut self.env.clients[client_id];
+        let head = client.chain.head().unwrap();
         for height in 0..head.height {
             let (block_hash, num_shards) = {
-                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                let block = client.chain.get_block_by_height(height).unwrap();
                 (*block.hash(), block.chunks().len() as NumShards)
             };
             for shard_id in 0..num_shards {
-                let res = env.clients[0]
+                let res = client
                     .chain
                     .chain_store()
                     .get_state_changes_for_resharding(&block_hash, shard_id);
@@ -995,7 +996,7 @@ fn test_shard_layout_upgrade_simple_impl(
 
     test_env.check_tx_outcomes(false);
     test_env.check_accounts(accounts_to_check.iter().collect());
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
 }
@@ -1023,6 +1024,41 @@ fn test_shard_layout_upgrade_simple_v2_seed_43() {
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+}
+
+#[test]
+fn test_resharding_with_different_db_kind() {
+    init_test_logger();
+
+    let genesis_protocol_version = get_genesis_protocol_version(&ReshardingType::V2);
+    let target_protocol_version = get_target_protocol_version(&ReshardingType::V2);
+
+    let epoch_length = 5;
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        3,
+        3,
+        10,
+        None,
+        genesis_protocol_version,
+        42,
+        true,
+        Some(ReshardingType::V2),
+    );
+
+    // Set three different DbKind versions
+    test_env.env.clients[0].chain.chain_store().store().set_db_kind(DbKind::Hot).unwrap();
+    test_env.env.clients[1].chain.chain_store().store().set_db_kind(DbKind::Archive).unwrap();
+    test_env.env.clients[2].chain.chain_store().store().set_db_kind(DbKind::RPC).unwrap();
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..4 * epoch_length {
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+    }
+
+    test_env.check_resharding_artifacts(0);
+    test_env.check_resharding_artifacts(1);
+    test_env.check_resharding_artifacts(2);
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
@@ -1336,7 +1372,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     test_env.check_accounts(new_accounts);
 
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 // Test cross contract calls
@@ -1410,7 +1446,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 // This test doesn't make much sense for the V1 resharding. That is because in
@@ -1483,7 +1519,7 @@ fn test_missing_chunks(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 fn test_shard_layout_upgrade_missing_chunks(
