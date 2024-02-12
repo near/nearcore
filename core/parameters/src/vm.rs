@@ -211,6 +211,16 @@ impl Config {
         self.regular_op_cost = 0;
         self.limit_config.max_gas_burnt = u64::MAX;
     }
+
+    pub fn enable_all_features(&mut self) {
+        self.yield_resume_host_functions = true;
+        self.eth_implicit_accounts = true;
+        self.function_call_weight = true;
+        self.alt_bn128 = true;
+        self.ed25519_verify = true;
+        self.math_extension = true;
+        self.implicit_account_creation = true;
+    }
 }
 
 fn wasmer2_stack_limit_default() -> i32 {

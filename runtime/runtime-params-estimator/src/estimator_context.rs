@@ -118,6 +118,8 @@ impl<'c> EstimatorContext<'c> {
     fn make_apply_state(store: Store) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+        runtime_config.wasm_config.enable_all_features();
+        runtime_config.wasm_config.make_free();
 
         // Override vm limits config to simplify block processing.
         runtime_config.wasm_config.limit_config = LimitConfig {
