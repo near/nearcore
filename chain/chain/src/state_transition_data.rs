@@ -39,7 +39,9 @@ impl Chain {
 
 /// Removes StateTransitionData entries from the db based on last final block state.
 /// It is safe to delete all StateTransitionData before the last final block
-/// for the shards with present chunks in that block.
+/// for the shards with present chunks in that block. We use chunk's height created
+/// here in order to not prematurely remove state transitions for shards with
+/// missing chunks in the final block.
 /// TODO(resharding): this doesn't work after shard layout change
 fn clear_before_last_final_block(
     chain_store: &ChainStore,
