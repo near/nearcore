@@ -45,6 +45,7 @@ use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderV3};
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
+use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -60,7 +61,6 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
     BlockHeaderView, FinalExecutionStatus, QueryRequest, QueryResponseKind,
 };
-use near_primitives_core::checked_feature;
 use near_primitives_core::num_rational::{Ratio, Rational32};
 use near_primitives_core::types::ShardId;
 use near_store::cold_storage::{update_cold_db, update_cold_head};
@@ -2158,11 +2158,6 @@ fn test_block_height_processed_orphan() {
 
 #[test]
 fn test_validate_chunk_extra() {
-    // TODO(#10506): Fix test to handle stateless validation
-    if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
-        return;
-    }
-
     let mut capture = near_o11y::testonly::TracingCapture::enable();
 
     let epoch_length = 5;
@@ -2237,7 +2232,7 @@ fn test_validate_chunk_extra() {
     for (i, block) in vec![&mut block1, &mut block2].into_iter().enumerate() {
         let mut chunk_header = encoded_chunk.cloned_header();
         *chunk_header.height_included_mut() = i as BlockHeight + next_height;
-        let chunk_headers = vec![chunk_header];
+        let chunk_headers = vec![chunk_header.clone()];
         block.set_chunks(chunk_headers.clone());
         block.mut_header().get_mut().inner_rest.chunk_headers_root =
             Block::compute_chunk_headers_root(&chunk_headers).0;
@@ -2250,6 +2245,8 @@ fn test_validate_chunk_extra() {
         block.mut_header().get_mut().inner_rest.chunk_mask = vec![true];
         block.mut_header().get_mut().inner_lite.prev_outcome_root =
             Block::compute_outcome_root(block.chunks().iter());
+        let endorsement = ChunkEndorsement::new(chunk_header.chunk_hash(), &validator_signer);
+        block.set_chunk_endorsements(vec![vec![Some(Box::new(endorsement.signature))]]);
         block.mut_header().get_mut().inner_rest.block_body_hash =
             block.compute_block_body_hash().unwrap();
         block.mut_header().resign(&validator_signer);
