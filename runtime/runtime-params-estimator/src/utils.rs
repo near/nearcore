@@ -226,7 +226,10 @@ pub(crate) fn fn_cost_with_setup(
 
         (gas_cost, ext_costs[&ext_cost])
     };
-    assert_eq!(measured_count, count, "fn_cost_with_setup: measured_count={measured_count} did not match {count}");
+    assert_eq!(
+        measured_count, count,
+        "fn_cost_with_setup: measured_count={measured_count} did not match {count}"
+    );
 
     let base_cost = noop_function_call_cost(ctx);
 

@@ -1266,7 +1266,8 @@ fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
 
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
-    let total_cost = fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 1);
+    let total_cost =
+        fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 1);
     total_cost.0.saturating_sub(&base_cost.0, &NonNegativeTolerance::PER_MILLE)
 }
 

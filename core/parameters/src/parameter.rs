@@ -228,7 +228,7 @@ impl Parameter {
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
-            Parameter::MaxYieldPayloadSize
+            Parameter::MaxYieldPayloadSize,
         ]
         .iter()
     }
