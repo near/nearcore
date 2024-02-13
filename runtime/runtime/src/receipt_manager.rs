@@ -38,7 +38,7 @@ pub struct ReceiptMetadata {
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
     pub(super) yielded_data_ids: YieldedDataIds,
-    pub(super) external_data_receipts: ExternalDataReceipts,
+    pub(super) data_receipts: ExternalDataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
@@ -108,14 +108,16 @@ impl ReceiptManager {
         Ok(new_receipt_index)
     }
 
-    /// Special case of create_receipt allowing a data dependency without a corresponding
-    /// ActionReceipt that will produce the data.
+    /// Special case of create_receipt used by yielded promises.
+    ///
+    /// The receipt will be executed after the input data is explicitly submitted by calling
+    /// `create_data_receipt` with specified `input_data_id`.
     ///
     /// # Arguments
     ///
     /// * `input_data_id` - data id which will be used to later submit the receipt input
     /// * `receiver_id` - account id of the receiver of the receipt created
-    pub(super) fn create_receipt_awaiting_data(
+    pub(super) fn create_yielded_action_receipt(
         &mut self,
         input_data_id: CryptoHash,
         receiver_id: AccountId,
@@ -131,19 +133,20 @@ impl ReceiptManager {
         Ok(new_receipt_index)
     }
 
-    /// Creation of an "external" DataReceipt corresponding to a `data_id` produced by
-    /// `create_receipt_awaiting_data`.
+    /// Submits a data receipt.
+    ///
+    /// Should only be used to resolve dependencies created by `create_yielded_action_receipt`.
     ///
     /// # Arguments
     ///
     /// * `data_id` - id of the DataReceipt being submitted
     /// * `data` - contents of the DataReceipt
-    pub(super) fn create_external_data_receipt(
+    pub(super) fn create_data_receipt(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.external_data_receipts.push((data_id, data));
+        self.data_receipts.push((data_id, data));
         Ok(())
     }
 
@@ -398,12 +401,8 @@ impl ReceiptManager {
     ///
     /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
     pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
-        let ReceiptManager {
-            action_receipts,
-            yielded_data_ids: _,
-            external_data_receipts: _,
-            gas_weights,
-        } = self;
+        let ReceiptManager { action_receipts, yielded_data_ids: _, data_receipts: _, gas_weights } =
+            self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
             return Ok(0);

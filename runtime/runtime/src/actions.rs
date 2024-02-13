@@ -309,19 +309,17 @@ pub(crate) fn action_function_call(
             .collect();
 
         // Create data receipts for resumed yields
-        new_receipts.extend(receipt_manager.external_data_receipts.into_iter().map(
-            |(data_id, data)| {
-                remove_yielded_promise(state_update, data_id);
-                Receipt {
-                    predecessor_id: account_id.clone(),
-                    receiver_id: account_id.clone(),
-                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                    // "Generating receipt IDs" section
-                    receipt_id: CryptoHash::default(),
-                    receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
-                }
-            },
-        ));
+        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|(data_id, data)| {
+            remove_yielded_promise(state_update, data_id);
+            Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
+            }
+        }));
 
         // Updates state for newly created yields
         let mut yielded_promise_indices =

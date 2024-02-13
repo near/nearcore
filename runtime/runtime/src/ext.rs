@@ -217,7 +217,7 @@ impl<'a> External for RuntimeExt<'a> {
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
         self.receipt_manager
-            .create_receipt_awaiting_data(input_data_id, receiver_id)
+            .create_yielded_action_receipt(input_data_id, receiver_id)
             .map(|receipt_index| (receipt_index, input_data_id))
     }
 
@@ -233,7 +233,7 @@ impl<'a> External for RuntimeExt<'a> {
             };
 
         if is_allowed {
-            self.receipt_manager.create_external_data_receipt(data_id, data)
+            self.receipt_manager.create_data_receipt(data_id, data)
         } else {
             Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into())
         }
