@@ -255,13 +255,20 @@ impl FlatStorage {
         let mut deltas = HashMap::new();
         for delta_metadata in deltas_metadata {
             let block_hash = delta_metadata.block.hash;
-            let changes: CachedFlatStateChanges =
+            let changes: CachedFlatStateChanges = if delta_metadata
+                .prev_block_with_changes
+                .is_none()
+            {
                 store_helper::get_delta_changes(&store, shard_uid, block_hash)
                     .expect("failed to read flat state delta changes")
                     .unwrap_or_else(|| {
                         panic!("cannot find block delta for block {block_hash:?} shard {shard_id}")
                     })
-                    .into();
+                    .into()
+            } else {
+                // Don't read delta if we know that it is empty.
+                Default::default()
+            };
             deltas.insert(
                 block_hash,
                 CachedFlatStateDelta { metadata: delta_metadata, changes: Arc::new(changes) },
