@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
-
 use near_async::messaging::CanSend;
 use near_async::time::{FakeClock, Utc};
 use near_chain::{Block, Provenance};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::test_loop::ShardsManagerResendChunkRequests;
 use near_chunks::CHUNK_REQUEST_SWITCH_TO_FULL_FETCH;
-use near_client::test_utils::{TestEnv};
+use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
@@ -24,6 +22,7 @@ use near_store::{ShardUId, TrieConfig};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::seq::IteratorRandom;
 use rand::{thread_rng, Rng};
+use std::collections::{HashMap, HashSet};
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
@@ -276,14 +275,13 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     block_producer
 }
 
-fn check_block_does_not_have_missing_chunks(env: &TestEnv, block: &Block) {
-    // Skip the check for the block right after genesis.
-    if block.header().prev_hash() != env.clients[0].chain.genesis_block().hash() {
-        for chunk in block.chunks().iter() {
-            if !chunk.is_new_chunk(block.header().height()) {
-                panic!("Block at height {} is produced without all chunks; the test setup is faulty",
-                       block.header().height());
-            }
+fn check_block_does_not_have_missing_chunks(block: &Block) {
+    for chunk in block.chunks().iter() {
+        if !chunk.is_new_chunk(block.header().height()) {
+            panic!(
+                "Block at height {} is produced without all chunks; the test setup is faulty",
+                block.header().height()
+            );
         }
     }
 }
@@ -350,7 +348,9 @@ fn run_chain_for_some_blocks_while_sending_money_around(
         let next_block_producer = get_block_producer(&env, &tip, 2);
         println!("Producing block at height {} by {}", tip.height + 1, cur_block_producer);
         let block = env.client(&cur_block_producer).produce_block(tip.height + 1).unwrap().unwrap();
-        check_block_does_not_have_missing_chunks(&env, &block);
+        if round > 0 {
+            check_block_does_not_have_missing_chunks(&block);
+        }
 
         // Let's produce some skip blocks too so that we test that in-memory tries are able to
         // deal with forks.
@@ -372,7 +372,9 @@ fn run_chain_for_some_blocks_while_sending_money_around(
             skip_block = Some(
                 env.client(&next_block_producer).produce_block(tip.height + 2).unwrap().unwrap(),
             );
-            check_block_does_not_have_missing_chunks(&env, &skip_block.as_ref().unwrap());
+            if round > 0 {
+                check_block_does_not_have_missing_chunks(&skip_block.as_ref().unwrap());
+            }
         }
 
         let block_processed =
