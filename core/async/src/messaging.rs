@@ -1,5 +1,5 @@
 use crate::break_apart::BreakApart;
-use crate::functional::SendFunction;
+use crate::functional::{SendAsyncFunction, SendFunction};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
@@ -83,6 +83,10 @@ impl<M, R: Send + 'static, A: CanSend<MessageExpectingResponse<M, R>> + ?Sized> 
 impl<M, R: Send + 'static> Sender<MessageExpectingResponse<M, R>> {
     pub fn send_async(&self, message: M) -> BoxFuture<'static, R> {
         self.sender.send_async(message)
+    }
+
+    pub fn from_async_fn(send_async: impl Fn(M) -> R + Send + Sync + 'static) -> Self {
+        Self::from_impl(SendAsyncFunction::new(send_async))
     }
 }
 

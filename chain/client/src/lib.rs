@@ -8,9 +8,6 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-pub use crate::adapter::{
-    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
-};
 pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
 pub use crate::client_actor::NetworkAdversarialMessage;
@@ -19,6 +16,9 @@ pub use crate::config_updater::ConfigUpdater;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client::{start_view_client, ViewClientActor};
 pub use near_client_primitives::debug::DebugStatus;
+pub use near_network::client::{
+    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
+};
 
 pub mod adapter;
 pub mod adversarial;

@@ -20,6 +20,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -388,7 +389,7 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
+        client_sender_for_network(client_actor.clone(), view_client.clone()),
         shards_manager_adapter.as_sender(),
         genesis_id,
     )

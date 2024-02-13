@@ -42,7 +42,7 @@ pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<A
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        network.clone(),
+        network.as_client_adapter(),
         noop().into_sender(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),

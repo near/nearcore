@@ -1,6 +1,7 @@
 use crate::client::ClientSenderForNetwork;
 use crate::config;
 use crate::debug::{DebugStatus, GetDebugStatus};
+use crate::network_protocol;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     Disconnect, Edge, PeerIdOrHash, PeerMessage, Ping, Pong, RawRoutedMessage, RoutedMessageBody,
@@ -18,7 +19,6 @@ use crate::types::{
     NetworkResponses, PeerInfo, PeerManagerMessageRequest, PeerManagerMessageResponse, PeerType,
     SetChainInfo, SnapshotHostInfo,
 };
-use crate::{client, network_protocol};
 use actix::fut::future::wrap_future;
 use actix::{Actor as _, AsyncContext as _};
 use anyhow::Context as _;

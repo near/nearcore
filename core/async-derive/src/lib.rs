@@ -38,8 +38,16 @@ pub fn derive_into_multi_sender(input: TokenStream) -> TokenStream {
                 } else if last_segment.ident == "AsyncSender" {
                     type_bounds.push(quote!(
                             near_async::messaging::CanSend<near_async::messaging::MessageExpectingResponse<#(#arguments),*>>));
+                } else if last_segment.ident == "ActixAsyncSender" {
+                    let message_type = arguments[0].clone();
+                    let result_type = quote!(std::result::Result<near_async::actix::ActixResult<#message_type>, near_async::actix::AsyncSendError>);
+                    type_bounds.push(quote!(
+                            near_async::messaging::CanSend<near_async::messaging::MessageExpectingResponse<#message_type, #result_type>>));
                 } else {
-                    panic!("Field {} must be either a Sender or an AsyncSender", field_name);
+                    panic!(
+                        "Field {} must be either a Sender, AsyncSender, or ActixAsyncSender",
+                        field_name
+                    );
                 }
                 initializers.push(quote!(near_async::messaging::IntoSender::as_sender(&input)));
                 if let Some(name) = &field.ident {
@@ -88,42 +96,51 @@ pub fn derive_multi_send(input: TokenStream) -> TokenStream {
             quote!(#index)
         });
         let cfg_attrs = extract_cfg_attributes(&field.attrs);
-        match &field.ty {
-            syn::Type::Path(path) => {
-                let last_segment = path.path.segments.last().unwrap();
-                let arguments = match last_segment.arguments.clone() {
-                    syn::PathArguments::AngleBracketed(arguments) => {
-                        arguments.args.into_iter().collect::<Vec<_>>()
-                    }
-                    _ => {
-                        continue;
-                    }
-                };
-                if last_segment.ident == "Sender" {
-                    let message_type = arguments[0].clone();
-                    impls.push(quote! {
-                        #(#cfg_attrs)*
-                        impl near_async::messaging::CanSend<#message_type> for #struct_name {
-                            fn send(&self, message: #message_type) {
-                                self.#field_name.send(message);
-                            }
-                        }
-                    });
-                } else if last_segment.ident == "AsyncSender" {
-                    let message_type = arguments[0].clone();
-                    let result_type = arguments[1].clone();
-                    let outer_msg_type = quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>);
-                    impls.push(quote! {
-                        #(#cfg_attrs)*
-                        impl near_async::messaging::CanSend<#outer_msg_type> for #struct_name {
-                            fn send(&self, message: #outer_msg_type) {
-                                self.#field_name.send(message)
-                            }
-                        }
-                    });
+        if let syn::Type::Path(path) = &field.ty {
+            let last_segment = path.path.segments.last().unwrap();
+            let arguments = match last_segment.arguments.clone() {
+                syn::PathArguments::AngleBracketed(arguments) => {
+                    arguments.args.into_iter().collect::<Vec<_>>()
                 }
+                _ => {
+                    continue;
+                }
+            };
+            if last_segment.ident == "Sender" {
+                let message_type = arguments[0].clone();
+                impls.push(quote! {
+                    #(#cfg_attrs)*
+                    impl near_async::messaging::CanSend<#message_type> for #struct_name {
+                        fn send(&self, message: #message_type) {
+                            self.#field_name.send(message);
+                        }
+                    }
+                });
+            } else if last_segment.ident == "AsyncSender" {
+                let message_type = arguments[0].clone();
+                let result_type = arguments[1].clone();
+                let outer_msg_type = quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>);
+                impls.push(quote! {
+                    #(#cfg_attrs)*
+                    impl near_async::messaging::CanSend<#outer_msg_type> for #struct_name {
+                        fn send(&self, message: #outer_msg_type) {
+                            self.#field_name.send(message)
+                        }
+                    }
+                });
+            } else if last_segment.ident == "ActixAsyncSender" {
+                let message_type = arguments[0].clone();
+                let result_type = quote!(std::result::Result<near_async::actix::ActixResult<#message_type>, near_async::actix::AsyncSendError>);
+                let outer_msg_type = quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>);
+                impls.push(quote! {
+                    #(#cfg_attrs)*
+                    impl near_async::messaging::CanSend<#outer_msg_type> for #struct_name {
+                        fn send(&self, message: #outer_msg_type) {
+                            self.#field_name.send(message)
+                        }
+                    }
+                });
             }
-            _ => {}
         }
     }
 
@@ -156,27 +173,28 @@ pub fn derive_multi_send_message(input: TokenStream) -> TokenStream {
         });
         field_names.push(field_name.clone());
         discriminator_names.push(syn::Ident::new(&format!("_{}", field_name), Span::call_site()));
-        match &field.ty {
-            syn::Type::Path(path) => {
-                let last_segment = path.path.segments.last().unwrap();
-                let arguments = match last_segment.arguments.clone() {
-                    syn::PathArguments::AngleBracketed(arguments) => {
-                        arguments.args.into_iter().collect::<Vec<_>>()
-                    }
-                    _ => {
-                        continue;
-                    }
-                };
-                if last_segment.ident == "Sender" {
-                    let message_type = arguments[0].clone();
-                    message_types.push(quote!(#message_type));
-                } else if last_segment.ident == "AsyncSender" {
-                    let message_type = arguments[0].clone();
-                    let result_type = arguments[1].clone();
-                    message_types.push(quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>));
+        if let syn::Type::Path(path) = &field.ty {
+            let last_segment = path.path.segments.last().unwrap();
+            let arguments = match last_segment.arguments.clone() {
+                syn::PathArguments::AngleBracketed(arguments) => {
+                    arguments.args.into_iter().collect::<Vec<_>>()
                 }
+                _ => {
+                    continue;
+                }
+            };
+            if last_segment.ident == "Sender" {
+                let message_type = arguments[0].clone();
+                message_types.push(quote!(#message_type));
+            } else if last_segment.ident == "AsyncSender" {
+                let message_type = arguments[0].clone();
+                let result_type = arguments[1].clone();
+                message_types.push(quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>));
+            } else if last_segment.ident == "ActixAsyncSender" {
+                let message_type = arguments[0].clone();
+                let result_type = quote!(std::result::Result<near_async::actix::ActixResult<#message_type>, near_async::actix::AsyncSendError>);
+                message_types.push(quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>));
             }
-            _ => {}
         }
     }
 

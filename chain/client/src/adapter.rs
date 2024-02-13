@@ -2,7 +2,7 @@ use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::IntoSender;
-use near_network::client::{BlockRequest, BlockResponse, ClientSenderForNetwork};
+use near_network::client::ClientSenderForNetwork;
 use near_network::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
@@ -48,41 +48,8 @@ pub fn client_sender_for_network(
         transaction: client_addr.clone().into_sender(),
         tx_status_request: view_client_addr.clone().into_sender(),
         tx_status_response: view_client_addr.clone().into_sender(),
-    }
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        match self.view_client_addr.send(AnnounceAccountRequest(accounts).with_span_context()).await
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("mailbox error: {err}");
-                Ok(vec![])
-            }
-        }
-    }
-
-    async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId) {
-        match self
-            .client_addr
-            .send(
-                ChunkStateWitnessMessage { witness, peer_id, attempts_remaining: 5 }
-                    .with_span_context(),
-            )
-            .await
-        {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
-    }
-
-    async fn chunk_endorsement(&self, endorsement: ChunkEndorsement) {
-        match self.client_addr.send(ChunkEndorsementMessage(endorsement).with_span_context()).await
-        {
-            Ok(()) => {}
-            Err(err) => tracing::error!("mailbox error: {err}"),
-        }
+        announce_account: view_client_addr.into_sender(),
+        chunk_state_witness: client_addr.clone().into_sender(),
+        chunk_endorsement: client_addr.into_sender(),
     }
 }

@@ -8,10 +8,8 @@ use api::RpcRequest;
 pub use api::{RpcFrom, RpcInto};
 use futures::Future;
 use futures::FutureExt;
-use near_async::actix::{ActixResult, AsyncSendError};
-use near_async::messaging::{
-    AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
-};
+use near_async::actix::{ActixAsyncSender, AsyncSendError};
+use near_async::messaging::{CanSend, MessageExpectingResponse, SendAsync, Sender};
 use near_chain_configs::GenesisConfig;
 use near_client::{
     DebugStatus, GetBlock, GetBlockProof, GetChunk, GetClientConfig, GetExecutionOutcome,
@@ -222,48 +220,40 @@ fn process_query_response(
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ClientSenderForRpc(
-    AsyncSender<DebugStatus, ActixResult<DebugStatus>>,
-    AsyncSender<GetClientConfig, ActixResult<GetClientConfig>>,
-    AsyncSender<GetNetworkInfo, ActixResult<GetNetworkInfo>>,
-    AsyncSender<ProcessTxRequest, ActixResult<ProcessTxRequest>>,
-    AsyncSender<Status, ActixResult<Status>>,
+    ActixAsyncSender<DebugStatus>,
+    ActixAsyncSender<GetClientConfig>,
+    ActixAsyncSender<GetNetworkInfo>,
+    ActixAsyncSender<ProcessTxRequest>,
+    ActixAsyncSender<Status>,
     Sender<ProcessTxRequest>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
-    #[cfg(feature = "test_features")]
-    AsyncSender<
-        near_client::NetworkAdversarialMessage,
-        ActixResult<near_client::NetworkAdversarialMessage>,
-    >,
-    #[cfg(feature = "sandbox")]
-    AsyncSender<
-        near_client_primitives::types::SandboxMessage,
-        ActixResult<near_client_primitives::types::SandboxMessage>,
-    >,
+    #[cfg(feature = "test_features")] ActixAsyncSender<near_client::NetworkAdversarialMessage>,
+    #[cfg(feature = "sandbox")] ActixAsyncSender<near_client_primitives::types::SandboxMessage>,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ViewClientSenderForRpc(
-    AsyncSender<GetBlock, ActixResult<GetBlock>>,
-    AsyncSender<GetBlockProof, ActixResult<GetBlockProof>>,
-    AsyncSender<GetChunk, ActixResult<GetChunk>>,
-    AsyncSender<GetExecutionOutcome, ActixResult<GetExecutionOutcome>>,
-    AsyncSender<GetGasPrice, ActixResult<GetGasPrice>>,
-    AsyncSender<GetMaintenanceWindows, ActixResult<GetMaintenanceWindows>>,
-    AsyncSender<GetNextLightClientBlock, ActixResult<GetNextLightClientBlock>>,
-    AsyncSender<GetProtocolConfig, ActixResult<GetProtocolConfig>>,
-    AsyncSender<GetReceipt, ActixResult<GetReceipt>>,
-    AsyncSender<GetSplitStorageInfo, ActixResult<GetSplitStorageInfo>>,
-    AsyncSender<GetStateChanges, ActixResult<GetStateChanges>>,
-    AsyncSender<GetStateChangesInBlock, ActixResult<GetStateChangesInBlock>>,
-    AsyncSender<GetValidatorInfo, ActixResult<GetValidatorInfo>>,
-    AsyncSender<GetValidatorOrdered, ActixResult<GetValidatorOrdered>>,
-    AsyncSender<Query, ActixResult<Query>>,
-    AsyncSender<TxStatus, ActixResult<TxStatus>>,
+    ActixAsyncSender<GetBlock>,
+    ActixAsyncSender<GetBlockProof>,
+    ActixAsyncSender<GetChunk>,
+    ActixAsyncSender<GetExecutionOutcome>,
+    ActixAsyncSender<GetGasPrice>,
+    ActixAsyncSender<GetMaintenanceWindows>,
+    ActixAsyncSender<GetNextLightClientBlock>,
+    ActixAsyncSender<GetProtocolConfig>,
+    ActixAsyncSender<GetReceipt>,
+    ActixAsyncSender<GetSplitStorageInfo>,
+    ActixAsyncSender<GetStateChanges>,
+    ActixAsyncSender<GetStateChangesInBlock>,
+    ActixAsyncSender<GetValidatorInfo>,
+    ActixAsyncSender<GetValidatorOrdered>,
+    ActixAsyncSender<Query>,
+    ActixAsyncSender<TxStatus>,
     #[cfg(feature = "test_features")] Sender<near_client::NetworkAdversarialMessage>,
 );
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
-pub struct PeerManagerSenderForRpc(AsyncSender<GetDebugStatus, ActixResult<GetDebugStatus>>);
+pub struct PeerManagerSenderForRpc(ActixAsyncSender<GetDebugStatus>);
 
 struct JsonRpcHandler {
     client_sender: ClientSenderForRpc,
@@ -473,9 +463,10 @@ impl JsonRpcHandler {
         })
     }
 
-    async fn client_send<M, R, F, E>(&self, msg: M) -> Result<R, E>
+    async fn client_send<M, R: Send + 'static, F: Send + 'static, E>(&self, msg: M) -> Result<R, E>
     where
-        ClientSenderForRpc: CanSendAsync<M, Result<Result<R, F>, AsyncSendError>>,
+        ClientSenderForRpc:
+            CanSend<MessageExpectingResponse<M, Result<Result<R, F>, AsyncSendError>>>,
         E: RpcFrom<F>,
         E: RpcFrom<AsyncSendError>,
     {
@@ -486,9 +477,13 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn view_client_send<M, T, E, F>(&self, msg: M) -> Result<T, E>
+    async fn view_client_send<M, T: Send + 'static, E, F: Send + 'static>(
+        &self,
+        msg: M,
+    ) -> Result<T, E>
     where
-        ViewClientSenderForRpc: CanSendAsync<M, Result<Result<T, F>, AsyncSendError>>,
+        ViewClientSenderForRpc:
+            CanSend<MessageExpectingResponse<M, Result<Result<T, F>, AsyncSendError>>>,
         E: RpcFrom<F>,
         E: RpcFrom<AsyncSendError>,
     {
@@ -499,9 +494,12 @@ impl JsonRpcHandler {
             .map_err(RpcFrom::rpc_from)
     }
 
-    async fn peer_manager_send<M, T, E>(&self, msg: M) -> Result<T, E>
+    async fn peer_manager_send<M, T: Send + 'static, E: Send + 'static>(
+        &self,
+        msg: M,
+    ) -> Result<T, E>
     where
-        PeerManagerSenderForRpc: CanSendAsync<M, Result<T, AsyncSendError>>,
+        PeerManagerSenderForRpc: CanSend<MessageExpectingResponse<M, Result<T, AsyncSendError>>>,
         E: RpcFrom<AsyncSendError>,
     {
         self.peer_manager_sender.send_async(msg).await.map_err(RpcFrom::rpc_from)

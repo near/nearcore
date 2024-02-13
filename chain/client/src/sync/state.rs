@@ -28,7 +28,7 @@ use actix_rt::ArbiterHandle;
 use borsh::BorshDeserialize;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
-use near_async::messaging::CanSendAsync;
+use near_async::messaging::SendAsync;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
 use near_chain::resharding::ReshardingRequest;

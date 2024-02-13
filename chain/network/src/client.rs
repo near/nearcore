@@ -108,6 +108,25 @@ pub enum ProcessTxResponse {
     DoesNotTrackShard,
 }
 
+/// Account announcements that needs to be validated before being processed.
+/// They are paired with last epoch id known to this announcement, in order to accept only
+/// newer announcements.
+#[derive(actix::Message, Debug)]
+#[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
+pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
+
+#[derive(actix::Message, Debug, PartialEq, Eq)]
+#[rtype(result = "()")]
+pub struct ChunkStateWitnessMessage {
+    pub witness: ChunkStateWitness,
+    pub peer_id: PeerId,
+    pub attempts_remaining: usize,
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
+
 #[derive(
     Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
 )]
@@ -132,6 +151,12 @@ pub struct ClientSenderForNetwork {
         AsyncSender<BlockHeadersResponse, Result<Result<(), ReasonForBan>, AsyncSendError>>,
     pub challenge: AsyncSender<RecvChallenge, Result<(), AsyncSendError>>,
     pub network_info: AsyncSender<SetNetworkInfo, Result<(), AsyncSendError>>,
+    pub announce_account: AsyncSender<
+        AnnounceAccountRequest,
+        Result<Result<Vec<AnnounceAccount>, ReasonForBan>, AsyncSendError>,
+    >,
+    pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, Result<(), AsyncSendError>>,
+    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, Result<(), AsyncSendError>>,
 }
 
 impl ClientSenderForNetwork {
@@ -217,14 +242,20 @@ impl ClientSenderForNetwork {
         self.send_async(SetNetworkInfo(info)).await.ok();
     }
 
-    async fn announce_account(
+    pub async fn announce_account(
         &self,
-        _accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
+        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
     ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        Ok(vec![])
+        self.send_async(AnnounceAccountRequest(accounts)).await.unwrap_or(Ok(vec![]))
     }
 
-    async fn chunk_state_witness(&self, _witness: ChunkStateWitness, _peer_id: PeerId) {}
+    pub async fn chunk_state_witness(&self, witness: ChunkStateWitness, peer_id: PeerId) {
+        self.send_async(ChunkStateWitnessMessage { witness, peer_id, attempts_remaining: 5 })
+            .await
+            .ok();
+    }
 
-    async fn chunk_endorsement(&self, _endorsement: ChunkEndorsement) {}
+    pub async fn chunk_endorsement(&self, endorsement: ChunkEndorsement) {
+        self.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
+    }
 }

@@ -1,4 +1,4 @@
-use crate::messaging::{CanSend, MessageExpectingResponse};
+use crate::messaging::{AsyncSender, CanSend, MessageExpectingResponse};
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 use std::fmt::Display;
 
@@ -33,6 +33,7 @@ impl Display for AsyncSendError {
 }
 
 pub type ActixResult<T> = <T as actix::Message>::Result;
+pub type ActixAsyncSender<T> = AsyncSender<T, Result<ActixResult<T>, AsyncSendError>>;
 
 impl<M, A> CanSend<MessageExpectingResponse<M, Result<M::Result, AsyncSendError>>>
     for actix::Addr<A>

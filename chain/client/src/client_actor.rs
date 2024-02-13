@@ -45,8 +45,9 @@ use near_client_primitives::types::{
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ProcessTxRequest, ProcessTxResponse,
-    RecvChallenge, SetNetworkInfo, StateResponse,
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{

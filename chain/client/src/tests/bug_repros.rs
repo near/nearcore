@@ -11,7 +11,7 @@ use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest};
+use near_network::client::{BlockApproval, BlockResponse, ProcessTxRequest};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::GetBlock;
 use near_actix_test_utils::run_actix;
