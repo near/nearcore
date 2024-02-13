@@ -1530,7 +1530,7 @@ impl Runtime {
             // Math checked above: first_index is less than next_available_index
             yielded_promise_indices.first_index += 1;
         }
-        // TODO: add metrics call
+        metrics.yield_timeouts_done(total_gas_burnt, total_compute_usage);
 
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
