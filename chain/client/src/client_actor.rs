@@ -2006,32 +2006,11 @@ impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
     fn handle(
         &mut self,
         msg: WithSpanContext<ChunkStateWitnessMessage>,
-        ctx: &mut Context<Self>,
+        _ctx: &mut Context<Self>,
     ) -> Self::Result {
         let (_span, msg) = handler_debug_span!(target: "client", msg);
-        let peer_id = msg.peer_id.clone();
-        let attempts_remaining = msg.attempts_remaining;
-        match self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
-            Err(err) => {
-                tracing::error!(target: "client", ?err, "Error processing chunk state witness");
-            }
-            Ok(Some(witness)) => {
-                if attempts_remaining > 0 {
-                    ctx.run_later(Duration::from_millis(100), move |_, ctx| {
-                        ctx.address().do_send(
-                            ChunkStateWitnessMessage {
-                                witness,
-                                peer_id,
-                                attempts_remaining: attempts_remaining - 1,
-                            }
-                            .with_span_context(),
-                        );
-                    });
-                } else {
-                    tracing::error!(target: "client", "Failed to process chunk state witness even after 5 tries due to missing parent block");
-                }
-            }
-            Ok(None) => {}
+        if let Err(err) = self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
+            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }
 }
