@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define CATCH_BASE 0xcafebabe
+#define CATCH_BASE 0x0afebabe
 #define THREAD_NUM 10
 
 static void start_counting() {
