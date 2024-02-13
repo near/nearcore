@@ -27,7 +27,7 @@ pub mod orphan;
 pub mod resharding;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
-mod state_transition_data;
+mod stateless_validation;
 mod store;
 pub mod store_validator;
 pub mod test_utils;

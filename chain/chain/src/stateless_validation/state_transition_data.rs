@@ -129,10 +129,8 @@ mod tests {
     use near_store::test_utils::create_test_store;
     use near_store::{DBCol, Store};
 
-    use crate::state_transition_data::StateTransitionStartHeights;
+    use super::{clear_before_last_final_block, StateTransitionStartHeights};
     use crate::ChainStore;
-
-    use super::clear_before_last_final_block;
 
     #[test]
     fn initial_state_transition_data_gc() {
