@@ -61,6 +61,14 @@ pub enum MockAction {
         public_key: near_crypto::PublicKey,
         nonce: u64,
     },
+    YieldCreate {
+        data_id: CryptoHash,
+        receiver_id: AccountId,
+    },
+    YieldResume {
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -166,16 +174,16 @@ impl External for MockedExternal {
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
         let index = self.action_log.len();
         let data_id = self.generate_data_id();
-        self.action_log.push(MockAction::CreateReceipt { receipt_indices: vec![], receiver_id });
+        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id });
         Ok((index as u64, data_id))
     }
 
     fn yield_submit_data_receipt(
         &mut self,
-        _data_id: CryptoHash,
-        _data: Vec<u8>,
+        data_id: CryptoHash,
+        data: Vec<u8>,
     ) -> Result<(), crate::logic::VMLogicError> {
-        // TODO
+        self.action_log.push(MockAction::YieldResume { data_id, data });
         Ok(())
     }
 
