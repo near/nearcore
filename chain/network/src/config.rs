@@ -4,12 +4,14 @@ use crate::network_protocol::PeerAddr;
 use crate::network_protocol::PeerInfo;
 use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
-use crate::sink::Sink;
 use crate::snapshot_hosts;
 use crate::stun;
 use crate::tcp;
 use crate::types::ROUTED_MESSAGE_TTL;
 use anyhow::Context;
+use near_async::messaging::noop;
+use near_async::messaging::IntoSender;
+use near_async::messaging::Sender;
 use near_async::time;
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::network::PeerId;
@@ -168,7 +170,7 @@ pub struct NetworkConfig {
     /// TEST-ONLY
     /// TODO(gprusak): make it pub(crate), once all integration tests
     /// are merged into near_network.
-    pub event_sink: Sink<Event>,
+    pub event_sink: Sender<Event>,
 }
 
 impl NetworkConfig {
@@ -341,7 +343,7 @@ impl NetworkConfig {
             } else {
                 None
             },
-            event_sink: Sink::null(),
+            event_sink: noop().into_sender(),
         };
         this.override_config(cfg.experimental.network_config_overrides);
         Ok(this)
@@ -411,7 +413,7 @@ impl NetworkConfig {
                 enable_outbound: true,
             }),
             skip_tombstones: None,
-            event_sink: Sink::null(),
+            event_sink: noop().into_sender(),
         }
     }
 

@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
+use syn::Meta;
 
 #[proc_macro_derive(MultiSenderFrom)]
 pub fn derive_into_multi_sender(input: TokenStream) -> TokenStream {
@@ -151,11 +152,15 @@ fn extract_cfg_attributes(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
     attrs.iter().filter(|attr| attr.path().is_ident("cfg")).cloned().collect()
 }
 
-#[proc_macro_derive(MultiSendMessage)]
+#[proc_macro_derive(
+    MultiSendMessage,
+    attributes(multi_send_message_derive, multi_send_input_derive)
+)]
 pub fn derive_multi_send_message(input: TokenStream) -> TokenStream {
     let ast: syn::DeriveInput = syn::parse(input).unwrap();
     let struct_name = ast.ident.clone();
     let message_enum_name = syn::Ident::new(&format!("{}Message", struct_name), Span::call_site());
+    let input_enum_name = syn::Ident::new(&format!("{}Input", struct_name), Span::call_site());
     let input = match ast.data {
         syn::Data::Struct(input) => input,
         _ => {
@@ -165,7 +170,9 @@ pub fn derive_multi_send_message(input: TokenStream) -> TokenStream {
 
     let mut field_names = Vec::new();
     let mut message_types = Vec::new();
+    let mut input_types = Vec::new();
     let mut discriminator_names = Vec::new();
+    let mut input_extractors = Vec::new();
     for (i, field) in input.fields.into_iter().enumerate() {
         let field_name = field.ident.as_ref().map(|ident| quote!(#ident)).unwrap_or_else(|| {
             let index = syn::Index::from(i);
@@ -186,21 +193,49 @@ pub fn derive_multi_send_message(input: TokenStream) -> TokenStream {
             if last_segment.ident == "Sender" {
                 let message_type = arguments[0].clone();
                 message_types.push(quote!(#message_type));
+                input_types.push(quote!(#message_type));
+                input_extractors.push(quote!(msg));
             } else if last_segment.ident == "AsyncSender" {
                 let message_type = arguments[0].clone();
                 let result_type = arguments[1].clone();
                 message_types.push(quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>));
+                input_types.push(quote!(#message_type));
+                input_extractors.push(quote!(msg.message));
             } else if last_segment.ident == "ActixAsyncSender" {
                 let message_type = arguments[0].clone();
                 let result_type = quote!(std::result::Result<near_async::actix::ActixResult<#message_type>, near_async::actix::AsyncSendError>);
                 message_types.push(quote!(near_async::messaging::MessageExpectingResponse<#message_type, #result_type>));
+                input_types.push(quote!(#message_type));
+                input_extractors.push(quote!(msg.message));
             }
         }
     }
 
+    let mut message_derives = proc_macro2::TokenStream::new();
+    let mut input_derives = proc_macro2::TokenStream::new();
+    for attr in ast.attrs {
+        if attr.path().is_ident("multi_send_message_derive") {
+            let Meta::List(metalist) = attr.meta else {
+                panic!("multi_send_message_derive must be a list");
+            };
+            message_derives = metalist.tokens;
+        } else if attr.path().is_ident("multi_send_input_derive") {
+            let Meta::List(metalist) = attr.meta else {
+                panic!("multi_send_input_derive must be a list");
+            };
+            input_derives = metalist.tokens;
+        }
+    }
+
     quote! {
+        #[derive(#message_derives)]
         pub enum #message_enum_name {
             #(#discriminator_names(#message_types),)*
+        }
+
+        #[derive(#input_derives)]
+        pub enum #input_enum_name {
+            #(#discriminator_names(#input_types),)*
         }
 
         impl near_async::messaging::CanSend<#message_enum_name> for #struct_name {
@@ -216,6 +251,14 @@ pub fn derive_multi_send_message(input: TokenStream) -> TokenStream {
                 #message_enum_name::#discriminator_names(message)
             }
         })*
+
+        impl #message_enum_name {
+            pub fn into_input(self) -> #input_enum_name {
+                match self {
+                    #(Self::#discriminator_names(msg) => #input_enum_name::#discriminator_names(#input_extractors),)*
+                }
+            }
+        }
     }
     .into()
 }

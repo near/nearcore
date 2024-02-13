@@ -15,7 +15,7 @@ use near_primitives::types::{AccountId, EpochId, ShardId};
 use near_primitives::views::FinalExecutionOutcomeView;
 
 /// Transaction status query
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Option<Box<FinalExecutionOutcomeView>>")]
 pub struct TxStatusRequest {
     pub tx_hash: CryptoHash,
@@ -23,17 +23,17 @@ pub struct TxStatusRequest {
 }
 
 /// Transaction status response
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct TxStatusResponse(pub Box<FinalExecutionOutcomeView>);
 
 /// Request a block.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Option<Box<Block>>")]
 pub struct BlockRequest(pub CryptoHash);
 
 /// Block response.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct BlockResponse {
     pub block: Block,
@@ -41,22 +41,22 @@ pub struct BlockResponse {
     pub was_requested: bool,
 }
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct BlockApproval(pub Approval, pub PeerId);
 
 /// Request headers.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Option<Vec<BlockHeader>>")]
 pub struct BlockHeadersRequest(pub Vec<CryptoHash>);
 
 /// Headers response.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Result<(),ReasonForBan>")]
 pub struct BlockHeadersResponse(pub Vec<BlockHeader>, pub PeerId);
 
 /// State request header.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Option<StateResponse>")]
 pub struct StateRequestHeader {
     pub shard_id: ShardId,
@@ -64,7 +64,7 @@ pub struct StateRequestHeader {
 }
 
 /// State request part.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Option<StateResponse>")]
 pub struct StateRequestPart {
     pub shard_id: ShardId,
@@ -73,19 +73,19 @@ pub struct StateRequestPart {
 }
 
 /// Response to state request.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct StateResponse(pub Box<StateResponseInfo>);
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct SetNetworkInfo(pub NetworkInfo);
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct RecvChallenge(pub Challenge);
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "ProcessTxResponse")]
 pub struct ProcessTxRequest {
     pub transaction: SignedTransaction,
@@ -93,7 +93,7 @@ pub struct ProcessTxRequest {
     pub check_only: bool,
 }
 
-#[derive(actix::MessageResponse, Debug, PartialEq, Eq)]
+#[derive(actix::MessageResponse, Debug, Clone, PartialEq, Eq)]
 pub enum ProcessTxResponse {
     /// No response.
     NoResponse,
@@ -111,11 +111,11 @@ pub enum ProcessTxResponse {
 /// Account announcements that needs to be validated before being processed.
 /// They are paired with last epoch id known to this announcement, in order to accept only
 /// newer announcements.
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "Result<Vec<AnnounceAccount>,ReasonForBan>")]
 pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
-#[derive(actix::Message, Debug, PartialEq, Eq)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
@@ -123,13 +123,15 @@ pub struct ChunkStateWitnessMessage {
     pub attempts_remaining: usize,
 }
 
-#[derive(actix::Message, Debug)]
+#[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 
 #[derive(
     Clone, near_async::MultiSend, near_async::MultiSenderFrom, near_async::MultiSendMessage,
 )]
+#[multi_send_message_derive(Debug)]
+#[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSenderForNetwork {
     pub tx_status_request: AsyncSender<
         TxStatusRequest,

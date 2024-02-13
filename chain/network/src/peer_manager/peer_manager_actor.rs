@@ -182,7 +182,7 @@ impl actix::Actor for PeerManagerActor {
         // Periodically prints bandwidth stats for each peer.
         self.report_bandwidth_stats_trigger(ctx, REPORT_BANDWIDTH_STATS_TRIGGER_INTERVAL);
 
-        self.state.config.event_sink.push(Event::PeerManagerStarted);
+        self.state.config.event_sink.send(Event::PeerManagerStarted);
     }
 
     /// Try to gracefully disconnect from connected peers.
@@ -252,7 +252,7 @@ impl PeerManagerActor {
                             panic!("failed to start listening on server_addr={server_addr:?} e={e:?}")
                         }
                     };
-                    state.config.event_sink.push(Event::ServerStarted);
+                    state.config.event_sink.send(Event::ServerStarted);
                     arbiter.spawn({
                         let clock = clock.clone();
                         let state = state.clone();
@@ -325,7 +325,7 @@ impl PeerManagerActor {
                                     }
                                 });
 
-                                state.config.event_sink.push(Event::ReconnectLoopSpawned(peer_info));
+                                state.config.event_sink.send(Event::ReconnectLoopSpawned(peer_info));
                             }
                         }
                     }
@@ -644,7 +644,7 @@ impl PeerManagerActor {
             self.state
                 .config
                 .event_sink
-                .push(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
+                .send(Event::ReconnectLoopSpawned(conn_info.peer_info.clone()));
         }
     }
 

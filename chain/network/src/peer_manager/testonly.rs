@@ -1,5 +1,6 @@
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
+use crate::client::ClientSenderForNetworkMessage;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
@@ -21,7 +22,8 @@ use crate::types::{
     ReasonForBan,
 };
 use crate::PeerManagerActor;
-use near_async::messaging::IntoSender;
+use near_async::messaging::IntoMultiSender;
+use near_async::messaging::Sender;
 use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -558,10 +560,33 @@ pub(crate) async fn start(
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
-            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
-            cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc.as_sender(), genesis_id)
-                .unwrap()
+            cfg.event_sink = Sender::from_fn({
+                let send = send.clone();
+                move |event| {
+                    send.send(Event::PeerManager(event));
+                }
+            });
+            let client_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: ClientSenderForNetworkMessage| {
+                    send.send(Event::Client(fake_client::Event::Client(event.into_input())));
+                }
+            });
+            let shards_manager_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event| {
+                    send.send(Event::Client(fake_client::Event::ShardsManager(event)));
+                }
+            });
+            PeerManagerActor::spawn(
+                clock,
+                store,
+                cfg,
+                client_sender.break_apart().into_multi_sender(),
+                shards_manager_sender,
+                genesis_id,
+            )
+            .unwrap()
         }
     })
     .await;

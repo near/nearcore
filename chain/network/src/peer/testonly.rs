@@ -1,4 +1,5 @@
 use crate::broadcast;
+use crate::client::ClientSenderForNetworkMessage;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::{
@@ -14,7 +15,7 @@ use crate::store;
 use crate::tcp;
 use crate::testonly::actix::ActixSystem;
 use crate::testonly::fake_client;
-use near_async::messaging::IntoSender;
+use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::PeerId;
@@ -94,20 +95,36 @@ impl PeerHandle {
         stream: tcp::Stream,
     ) -> PeerHandle {
         let cfg = Arc::new(cfg);
-        let (send, recv) = broadcast::unbounded_channel();
+        let (send, recv) = broadcast::unbounded_channel::<Event>();
 
-        let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
         let store = store::Store::from(near_store::db::TestDB::new());
         let mut network_cfg = cfg.network.clone();
-        network_cfg.event_sink = send.sink().compose(Event::Network);
+        network_cfg.event_sink = Sender::from_fn({
+            let send = send.clone();
+            move |event| {
+                send.send(Event::Network(event));
+            }
+        });
+        let client_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event: ClientSenderForNetworkMessage| {
+                send.send(Event::Client(fake_client::Event::Client(event.into_input())));
+            }
+        });
+        let shards_manager_sender = Sender::from_fn({
+            let send = send.clone();
+            move |event| {
+                send.send(Event::Client(fake_client::Event::ShardsManager(event)));
+            }
+        });
         let network_state = Arc::new(NetworkState::new(
             &clock,
             store.clone(),
             peer_store::PeerStore::new(&clock, network_cfg.peer_store.clone()).unwrap(),
             network_cfg.verify().unwrap(),
             cfg.chain.genesis_id.clone(),
-            fc.clone(),
-            fc.as_sender(),
+            client_sender.break_apart().into_multi_sender(),
+            shards_manager_sender,
             vec![],
         ));
         let actix = ActixSystem::spawn({

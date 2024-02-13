@@ -229,7 +229,7 @@ impl PeerActor {
         match Self::spawn_inner(clock, stream, force_encoding, network_state.clone()) {
             Ok(it) => Ok(it),
             Err(reason) => {
-                network_state.config.event_sink.push(Event::ConnectionClosed(
+                network_state.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent { stream_id, reason: reason.clone() },
                 ));
                 Err(reason.into())
@@ -791,7 +791,7 @@ impl PeerActor {
                             act.sync_snapshot_hosts();
                         }
 
-                        act.network_state.config.event_sink.push(Event::HandshakeCompleted(HandshakeCompletedEvent{
+                        act.network_state.config.event_sink.send(Event::HandshakeCompleted(HandshakeCompletedEvent{
                             stream_id: act.stream_id,
                             edge,
                             tier: conn.tier,
@@ -1003,13 +1003,15 @@ impl PeerActor {
         msg: PeerMessage,
     ) {
         let _span = tracing::trace_span!(target: "network", "receive_message").entered();
-        // This is a fancy way to clone the message iff event_sink is non-null.
-        // If you have a better idea on how to achieve that, feel free to improve this.
-        let message_processed_event = self
-            .network_state
-            .config
-            .event_sink
-            .delayed_push(|| Event::MessageProcessed(conn.tier, msg.clone()));
+        // TODO: does this need to be guarded with a test flag?
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, msg));
+            }
+        };
         let was_requested = match &msg {
             PeerMessage::Block(block) => {
                 self.network_state.txns_since_last_block.store(0, Ordering::Release);
@@ -1112,11 +1114,14 @@ impl PeerActor {
         .entered();
 
         // Clones message iff someone is listening on the sink. Should be in tests only.
-        let message_processed_event = self
-            .network_state
-            .config
-            .event_sink
-            .delayed_push(|| Event::MessageProcessed(conn.tier, peer_msg.clone()));
+        let message_processed_event = {
+            let sink = self.network_state.config.event_sink.clone();
+            let msg = peer_msg.clone();
+            let tier = conn.tier;
+            move || {
+                sink.send(Event::MessageProcessed(tier, msg));
+            }
+        };
 
         match peer_msg {
             PeerMessage::Disconnect(d) => {
@@ -1324,7 +1329,7 @@ impl PeerActor {
                 if let Some(&t) = self.routed_message_cache.get(&key) {
                     if now <= t + DROP_DUPLICATED_MESSAGES_PERIOD {
                         metrics::MessageDropped::Duplicate.inc(&msg.body);
-                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
                         tracing::debug!(target: "network", "Dropping duplicated message from {} to {:?}", msg.author, msg.target);
                         return;
                     }
@@ -1364,11 +1369,11 @@ impl PeerActor {
                             );
                             // TODO(gprusak): deprecate Event::Ping/Pong in favor of
                             // MessageProcessed.
-                            self.network_state.config.event_sink.push(Event::Ping(ping.clone()));
+                            self.network_state.config.event_sink.send(Event::Ping(ping.clone()));
                             message_processed_event();
                         }
                         RoutedMessageBody::Pong(pong) => {
-                            self.network_state.config.event_sink.push(Event::Pong(pong.clone()));
+                            self.network_state.config.event_sink.send(Event::Pong(pong.clone()));
                             message_processed_event();
                         }
                         _ => self.receive_message(ctx, &conn, PeerMessage::Routed(msg)),
@@ -1377,7 +1382,7 @@ impl PeerActor {
                     if msg.decrease_ttl() {
                         self.network_state.send_message_to_peer(&self.clock, conn.tier, msg);
                     } else {
-                        self.network_state.config.event_sink.push(Event::RoutedMessageDropped);
+                        self.network_state.config.event_sink.send(Event::RoutedMessageDropped);
                         tracing::warn!(target: "network", ?msg, from = ?conn.peer_info.id, "Message dropped because TTL reached 0.");
                         metrics::ROUTED_MESSAGE_DROPPED
                             .with_label_values(&[msg.body_variant()])
@@ -1480,7 +1485,7 @@ impl actix::Actor for PeerActor {
         self.network_state
             .config
             .event_sink
-            .push(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
+            .send(Event::HandshakeStarted(HandshakeStartedEvent { stream_id: self.stream_id }));
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
@@ -1519,7 +1524,7 @@ impl actix::Actor for PeerActor {
                 // TODO(gprusak): reporting ConnectionClosed event is quite scattered right now and
                 // it is very ugly: it may happen here, in spawn_inner, or in NetworkState::unregister().
                 // Centralize it, once we get rid of actix.
-                self.network_state.config.event_sink.push(Event::ConnectionClosed(
+                self.network_state.config.event_sink.send(Event::ConnectionClosed(
                     ConnectionClosedEvent {
                         stream_id: self.stream_id,
                         reason: self.closing_reason.clone().unwrap_or(ClosingReason::Unknown),

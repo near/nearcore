@@ -408,7 +408,7 @@ impl NetworkState {
 
             this.config
                 .event_sink
-                .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
+                .send(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
         });
     }
 
