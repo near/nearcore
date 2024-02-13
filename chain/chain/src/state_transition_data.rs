@@ -1,4 +1,4 @@
-use std::collections::hash_map::Entry;
+use std::cmp::min;
 
 use std::collections::HashMap;
 
@@ -102,16 +102,10 @@ fn compute_start_heights(chain_store: &ChainStore) -> Result<StateTransitionStar
             )))
         })?;
         let block_height = chain_store.get_block_height(&block_hash)?;
-        match start_heights.entry(shard_id) {
-            Entry::Occupied(mut entry) => {
-                if block_height < *entry.get() {
-                    entry.insert(block_height);
-                }
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(block_height);
-            }
-        };
+        start_heights
+            .entry(shard_id)
+            .and_modify(|height| *height = min(block_height, *height))
+            .or_insert(block_height);
     }
     tracing::debug!(
         target: "state_transition_data",
