@@ -151,6 +151,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_g1_multiexp_element => Cost::AltBn128G1MultiexpElement,
         ExtCosts::alt_bn128_pairing_check_base => Cost::AltBn128PairingCheckBase,
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
+        ExtCosts::yield_create_base => Cost::YieldCreateBase,
+        ExtCosts::yield_create_byte => Cost::YieldCreateByte,
         _ => return None,
     })
 }

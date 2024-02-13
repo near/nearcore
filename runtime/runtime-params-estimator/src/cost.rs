@@ -694,6 +694,24 @@ pub enum Cost {
     OneCPUInstruction,
     OneNanosecond,
 
+    /// Estimates `yield_create_base`, which covers the base cost of the host function
+    /// `promise_yield_create` to pause the contract logic until it is resumed by an external
+    /// stimulus. This cost should be roughly pretty similar to the cost of ActionFunctionCallBase
+    /// (in SiR situation) as the fee for this is not otherwise subtracted and there is much else
+    /// that `yield_create_base` does that isn't covered by other fees.
+    ///
+    /// Estimation: We run a very tight loop of 1000 calls to this host function. Then we subtract
+    /// all other known costs from the estimated number.
+    ///
+    YieldCreateBase,
+    /// Estimates `yield_create_byte`, the cost charged per method and argument byte in calls to the
+    /// `promise_yield_create` host function.
+    ///
+    /// Estimation: We run the same payload as when estimating `yield_create_base`, except once
+    /// with additional method bytes, and another time with some significant number of bytes in
+    /// arguments.
+    YieldCreateByte,
+
     __Count,
 }
 

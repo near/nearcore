@@ -40,6 +40,7 @@ static CONFIG_DIFFS: &[(ProtocolVersion, &str)] = &[
     (129, include_config!("129.yaml")),
     // Introduce ETH-implicit accounts.
     (138, include_config!("138.yaml")),
+    (139, include_config!("139.yaml")),
 ];
 
 /// Testnet parameters for versions <= 29, which (incorrectly) differed from mainnet parameters

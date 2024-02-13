@@ -384,6 +384,26 @@ expression: view
       "cost_category": "WASM_HOST_COST",
       "cost": "WRITE_REGISTER_BYTE",
       "gas_used": "10"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_CREATE_BASE",
+      "gas_used": "61"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_CREATE_BYTE",
+      "gas_used": "62"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_RESUME_BASE",
+      "gas_used": "63"
+    },
+    {
+      "cost_category": "WASM_HOST_COST",
+      "cost": "YIELD_RESUME_BYTE",
+      "gas_used": "64"
     }
   ]
 }
