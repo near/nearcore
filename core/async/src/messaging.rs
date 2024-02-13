@@ -3,7 +3,7 @@ use crate::functional::{SendAsyncFunction, SendFunction};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -65,15 +65,15 @@ impl<M> Sender<M> {
 }
 
 pub trait SendAsync<M, R: Send + 'static> {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R>;
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
 impl<M, R: Send + 'static, A: CanSend<MessageExpectingResponse<M, R>> + ?Sized> SendAsync<M, R>
     for A
 {
-    fn send_async(&self, message: M) -> BoxFuture<'static, R> {
-        let (sender, receiver) = oneshot::channel::<R>();
-        let future = async move { receiver.await.expect("Future was cancelled") };
+    fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
+        let (sender, receiver) = oneshot::channel::<Result<R, AsyncSendError>>();
+        let future = async move { receiver.await.unwrap_or_else(|_| Err(AsyncSendError::Dropped)) };
         let responder = Box::new(move |r| sender.send(r).ok().unwrap());
         self.send(MessageExpectingResponse { message, responder });
         future.boxed()
@@ -81,7 +81,7 @@ impl<M, R: Send + 'static, A: CanSend<MessageExpectingResponse<M, R>> + ?Sized> 
 }
 
 impl<M, R: Send + 'static> Sender<MessageExpectingResponse<M, R>> {
-    pub fn send_async(&self, message: M) -> BoxFuture<'static, R> {
+    pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         self.sender.send_async(message)
     }
 
@@ -90,9 +90,26 @@ impl<M, R: Send + 'static> Sender<MessageExpectingResponse<M, R>> {
     }
 }
 
+/// Generic failure for async send.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum AsyncSendError {
+    // The receiver side could not accept the message.
+    Closed,
+    // The receiver side could not process the message in time.
+    Timeout,
+    // The message was ignored entirely.
+    Dropped,
+}
+
+impl Display for AsyncSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
 pub struct MessageExpectingResponse<T, R> {
     pub message: T,
-    pub responder: Box<dyn FnOnce(R) + Send>,
+    pub responder: Box<dyn FnOnce(Result<R, AsyncSendError>) + Send>,
 }
 
 impl<T: Debug, R> Debug for MessageExpectingResponse<T, R> {

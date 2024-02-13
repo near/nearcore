@@ -1,4 +1,4 @@
-use near_async::actix::AsyncSendError;
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};

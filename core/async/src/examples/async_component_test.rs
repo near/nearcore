@@ -43,7 +43,7 @@ fn inner_request_handler(
     LoopEventHandler::new_simple(
         |event: MessageExpectingResponse<InnerRequest, InnerResponse>,
          data: &mut InnerComponent| {
-            (event.responder)(data.process_request(event.message));
+            (event.responder)(Ok(data.process_request(event.message)));
         },
     )
 }

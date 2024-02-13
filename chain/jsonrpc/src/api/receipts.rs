@@ -1,5 +1,5 @@
 use super::{Params, RpcFrom, RpcRequest};
-use near_async::actix::AsyncSendError;
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{GetReceipt, GetReceiptError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{

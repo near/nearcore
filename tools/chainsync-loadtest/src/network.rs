@@ -229,25 +229,24 @@ impl Network {
         let data = self.data.clone();
         let min_peers = self.min_peers;
         ClientSenderForNetwork {
-            tx_status_request: Sender::from_async_fn(|_| Ok(None)),
+            tx_status_request: Sender::from_async_fn(|_| None),
             tx_status_response: Noop.into_sender(),
-            state_request_header: Sender::from_async_fn(|_| Ok(None)),
-            state_request_part: Sender::from_async_fn(|_| Ok(None)),
+            state_request_header: Sender::from_async_fn(|_| None),
+            state_request_part: Sender::from_async_fn(|_| None),
             state_response: Noop.into_sender(),
             block_approval: Noop.into_sender(),
             transaction: Noop.into_sender(),
-            block_request: Sender::from_async_fn(|_| Ok(None)),
-            block_headers_request: Sender::from_async_fn(|_| Ok(None)),
+            block_request: Sender::from_async_fn(|_| None),
+            block_headers_request: Sender::from_async_fn(|_| None),
             block: Sender::from_async_fn(move |block: BlockResponse| {
                 blocks.get(&block.block.hash().clone()).map(|p| p.set(block.block));
-                Ok(())
             }),
             block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
                 if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
                     let hash = *h.prev_hash();
                     block_headers.get(&hash).map(|p| p.set(headers.0));
                 }
-                Ok(Ok(()))
+                Ok(())
             }),
             challenge: Noop.into_sender(),
             network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
@@ -255,15 +254,14 @@ impl Network {
                 n.info_ = Arc::new(info.0);
                 if n.info_.num_connected_peers < min_peers {
                     info!("connected = {}/{}", n.info_.num_connected_peers, min_peers);
-                    return Ok(());
+                    return;
                 }
                 for s in n.info_futures.split_off(0) {
                     s.send(n.info_.clone()).unwrap();
                 }
-                Ok(())
             }),
             announce_account: Sender::from_async_fn(|accounts: AnnounceAccountRequest| {
-                Ok(Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>()))
+                Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>())
             }),
             chunk_state_witness: Noop.into_sender(),
             chunk_endorsement: Noop.into_sender(),

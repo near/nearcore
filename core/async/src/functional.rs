@@ -34,6 +34,6 @@ impl<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static>
 {
     fn send(&self, message: MessageExpectingResponse<M, R>) {
         let MessageExpectingResponse { message, responder } = message;
-        responder((self.f)(message));
+        responder(Ok((self.f)(message)));
     }
 }

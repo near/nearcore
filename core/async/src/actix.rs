@@ -1,6 +1,5 @@
-use crate::messaging::{AsyncSender, CanSend, MessageExpectingResponse};
+use crate::messaging::{AsyncSendError, AsyncSender, CanSend, MessageExpectingResponse};
 use near_o11y::{WithSpanContext, WithSpanContextExt};
-use std::fmt::Display;
 
 /// An actix Addr implements CanSend for any message type that the actor handles.
 impl<M, A> CanSend<M> for actix::Addr<A>
@@ -15,42 +14,25 @@ where
     }
 }
 
-/// Generic failure for async send. We don't use MailboxError because that is Actix-specific.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AsyncSendError {
-    #[default]
-    Closed,
-    Timeout,
-}
-
-impl Display for AsyncSendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AsyncSendError::Closed => write!(f, "Closed"),
-            AsyncSendError::Timeout => write!(f, "Timeout"),
-        }
-    }
-}
-
 pub type ActixResult<T> = <T as actix::Message>::Result;
-pub type ActixAsyncSender<T> = AsyncSender<T, Result<ActixResult<T>, AsyncSendError>>;
+pub type ActixAsyncSender<T> = AsyncSender<T, ActixResult<T>>;
 
-impl<M, A> CanSend<MessageExpectingResponse<M, Result<M::Result, AsyncSendError>>>
-    for actix::Addr<A>
+impl<M, A> CanSend<MessageExpectingResponse<M, M::Result>> for actix::Addr<A>
 where
     M: actix::Message + Send + 'static,
     M::Result: Send,
     A: actix::Actor + actix::Handler<M>,
     A::Context: actix::dev::ToEnvelope<A, M>,
 {
-    fn send(&self, message: MessageExpectingResponse<M, Result<M::Result, AsyncSendError>>) {
+    fn send(&self, message: MessageExpectingResponse<M, M::Result>) {
         let MessageExpectingResponse { message, responder } = message;
         let future = self.send(message);
         actix::spawn(async move {
-            responder(future.await.map_err(|err| match err {
-                actix::MailboxError::Closed => AsyncSendError::Closed,
-                actix::MailboxError::Timeout => AsyncSendError::Timeout,
-            }));
+            match future.await {
+                Ok(result) => responder(Ok(result)),
+                Err(actix::MailboxError::Closed) => responder(Err(AsyncSendError::Closed)),
+                Err(actix::MailboxError::Timeout) => responder(Err(AsyncSendError::Timeout)),
+            }
         });
     }
 }
@@ -102,16 +84,16 @@ where
     }
 }
 
-impl<M, S> CanSend<MessageExpectingResponse<M, Result<M::Result, AsyncSendError>>>
+impl<M, S> CanSend<MessageExpectingResponse<M, M::Result>>
     for AddrWithAutoSpanContext<S>
 where
     M: actix::Message + Send + 'static,
     M::Result: Send,
     S: actix::Actor,
     actix::Addr<S>:
-        CanSend<MessageExpectingResponse<WithSpanContext<M>, Result<M::Result, AsyncSendError>>>,
+        CanSend<MessageExpectingResponse<WithSpanContext<M>, M::Result>>,
 {
-    fn send(&self, message: MessageExpectingResponse<M, Result<M::Result, AsyncSendError>>) {
+    fn send(&self, message: MessageExpectingResponse<M, M::Result>) {
         let MessageExpectingResponse { message, responder } = message;
         CanSend::send(
             &self.inner,

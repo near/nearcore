@@ -1,8 +1,5 @@
 use crate::network_protocol::StateResponseInfo;
-
 use crate::types::{NetworkInfo, ReasonForBan};
-
-use near_async::actix::AsyncSendError;
 use near_async::messaging::{AsyncSender, SendAsync};
 use near_primitives::block::{Approval, Block, BlockHeader};
 use near_primitives::challenge::Challenge;
@@ -133,32 +130,23 @@ pub struct ChunkEndorsementMessage(pub ChunkEndorsement);
 #[multi_send_message_derive(Debug)]
 #[multi_send_input_derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSenderForNetwork {
-    pub tx_status_request: AsyncSender<
-        TxStatusRequest,
-        Result<Option<Box<FinalExecutionOutcomeView>>, AsyncSendError>,
-    >,
-    pub tx_status_response: AsyncSender<TxStatusResponse, Result<(), AsyncSendError>>,
-    pub state_request_header:
-        AsyncSender<StateRequestHeader, Result<Option<StateResponse>, AsyncSendError>>,
-    pub state_request_part:
-        AsyncSender<StateRequestPart, Result<Option<StateResponse>, AsyncSendError>>,
-    pub state_response: AsyncSender<StateResponse, Result<(), AsyncSendError>>,
-    pub block_approval: AsyncSender<BlockApproval, Result<(), AsyncSendError>>,
-    pub transaction: AsyncSender<ProcessTxRequest, Result<ProcessTxResponse, AsyncSendError>>,
-    pub block_request: AsyncSender<BlockRequest, Result<Option<Box<Block>>, AsyncSendError>>,
-    pub block_headers_request:
-        AsyncSender<BlockHeadersRequest, Result<Option<Vec<BlockHeader>>, AsyncSendError>>,
-    pub block: AsyncSender<BlockResponse, Result<(), AsyncSendError>>,
-    pub block_headers:
-        AsyncSender<BlockHeadersResponse, Result<Result<(), ReasonForBan>, AsyncSendError>>,
-    pub challenge: AsyncSender<RecvChallenge, Result<(), AsyncSendError>>,
-    pub network_info: AsyncSender<SetNetworkInfo, Result<(), AsyncSendError>>,
-    pub announce_account: AsyncSender<
-        AnnounceAccountRequest,
-        Result<Result<Vec<AnnounceAccount>, ReasonForBan>, AsyncSendError>,
-    >,
-    pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, Result<(), AsyncSendError>>,
-    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, Result<(), AsyncSendError>>,
+    pub tx_status_request: AsyncSender<TxStatusRequest, Option<Box<FinalExecutionOutcomeView>>>,
+    pub tx_status_response: AsyncSender<TxStatusResponse, ()>,
+    pub state_request_header: AsyncSender<StateRequestHeader, Option<StateResponse>>,
+    pub state_request_part: AsyncSender<StateRequestPart, Option<StateResponse>>,
+    pub state_response: AsyncSender<StateResponse, ()>,
+    pub block_approval: AsyncSender<BlockApproval, ()>,
+    pub transaction: AsyncSender<ProcessTxRequest, ProcessTxResponse>,
+    pub block_request: AsyncSender<BlockRequest, Option<Box<Block>>>,
+    pub block_headers_request: AsyncSender<BlockHeadersRequest, Option<Vec<BlockHeader>>>,
+    pub block: AsyncSender<BlockResponse, ()>,
+    pub block_headers: AsyncSender<BlockHeadersResponse, Result<(), ReasonForBan>>,
+    pub challenge: AsyncSender<RecvChallenge, ()>,
+    pub network_info: AsyncSender<SetNetworkInfo, ()>,
+    pub announce_account:
+        AsyncSender<AnnounceAccountRequest, Result<Vec<AnnounceAccount>, ReasonForBan>>,
+    pub chunk_state_witness: AsyncSender<ChunkStateWitnessMessage, ()>,
+    pub chunk_endorsement: AsyncSender<ChunkEndorsementMessage, ()>,
 }
 
 impl ClientSenderForNetwork {

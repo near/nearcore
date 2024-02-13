@@ -1,5 +1,5 @@
 use super::{RpcFrom, RpcInto};
-use near_async::actix::AsyncSendError;
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::NetworkInfoResponse;
 use near_client_primitives::types::{KnownProducer, PeerInfo};
 use near_jsonrpc_primitives::types::network_info::{

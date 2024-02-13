@@ -11,7 +11,6 @@ pub use crate::network_protocol::{
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::{StateSync, StateSyncResponse};
-use near_async::actix::AsyncSendError;
 use near_async::messaging::{AsyncSender, Sender};
 use near_async::time;
 use near_crypto::PublicKey;
@@ -371,8 +370,7 @@ pub enum NetworkResponses {
 
 #[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerAdapter {
-    pub async_request_sender:
-        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, AsyncSendError>>,
+    pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
 }

@@ -1,4 +1,4 @@
-use near_async::actix::AsyncSendError;
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::GetMaintenanceWindowsError;
