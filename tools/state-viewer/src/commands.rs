@@ -30,7 +30,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
@@ -1139,7 +1139,7 @@ fn get_state_stats_group_by<'a>(
     // The flat state iterator is sorted by type, account id. In order to
     // rearrange it we get the iterators for each type and later merge them by
     // the account id.
-    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
+    let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
         .map(|(type_byte, _)| {
             chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))

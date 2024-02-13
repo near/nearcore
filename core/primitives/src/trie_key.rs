@@ -49,9 +49,9 @@ pub mod col {
     pub const YIELDED_PROMISE_QUEUE_ENTRY: u8 = 11;
     /// This column id is used to store yielded promises by their data id.
     pub const YIELDED_PROMISE: u8 = 12;
-    /// All columns
-    /// TODO: rename this to indicate it is the set of columns whose entries indicate account ids
-    pub const NON_DELAYED_RECEIPT_COLUMNS: [(u8, &str); 8] = [
+    /// All columns except those used for the delayed receipts queue and the yielded promises
+    /// queue, which are both global state for the shard.
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 8] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -400,7 +400,7 @@ pub mod trie_key_parsers {
     pub fn parse_account_id_from_raw_key(
         raw_key: &[u8],
     ) -> Result<Option<AccountId>, std::io::Error> {
-        for (col, col_name) in col::NON_DELAYED_RECEIPT_COLUMNS {
+        for (col, col_name) in col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY {
             if parse_account_id_prefix(col, raw_key).is_err() {
                 continue;
             }
