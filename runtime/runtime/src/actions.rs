@@ -321,7 +321,7 @@ pub(crate) fn action_function_call(
             }
         }));
 
-        // Updates state for newly created yields
+        // Update trie state for newly created yields
         let mut yielded_promise_indices =
             get_yielded_promise_indices(state_update).unwrap_or_default();
         let initial_yielded_promise_indices = yielded_promise_indices.clone();

@@ -1482,7 +1482,6 @@ impl Runtime {
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
         let mut new_receipt_index: usize = 0;
 
-        // TODO: think about whether we want to use the prefetcher
         while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
             let queue_entry_key =
                 TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
@@ -1495,7 +1494,7 @@ impl Runtime {
                     ))
                 })?;
 
-            // Yielded promise queue entries are ordered by expires_at
+            // Queue entries are ordered by expires_at
             if expires_at > apply_state.block_height {
                 break;
             }

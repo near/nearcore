@@ -18,7 +18,7 @@ type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
 type YieldedDataIds = Vec<(AccountId, CryptoHash)>;
-type ExternalDataReceipts = Vec<(CryptoHash, Vec<u8>)>;
+type DataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceiptMetadata {
@@ -38,7 +38,7 @@ pub struct ReceiptMetadata {
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
     pub(super) yielded_data_ids: YieldedDataIds,
-    pub(super) data_receipts: ExternalDataReceipts,
+    pub(super) data_receipts: DataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
 }
 
