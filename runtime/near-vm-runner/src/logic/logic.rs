@@ -2074,8 +2074,7 @@ impl<'a> VMLogic<'a> {
         // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
         let num_bytes = method_name.len() as u64 + arguments.len() as u64;
         self.gas_counter.pay_per(yield_create_byte, num_bytes)?;
-        // Make sure that the gas that's passed onto callback cannot be used for this execution any
-        // longer.
+        // Prepay gas for the callback so that it cannot be used for this execution any longer.
         self.gas_counter.prepay_gas(gas)?;
 
         // Here we are creating a receipt with a single data dependency which will then be
@@ -2109,9 +2108,12 @@ impl<'a> VMLogic<'a> {
     ///
     /// # Errors
     ///
-    /// * If called as view function returns `ProhibitedInView`.
-    /// * If `data_id_ptr + CryptoHash::LENGTH` points outside the memory of the guest or host
+    /// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`.
+    /// * If a malformed data id is passed, returns `DataIdMalformed`.
+    /// * If an unexpected data id is passed, returns `YieldedPromiseNotFound`.
+    /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`.
+    /// * If called as view function returns `ProhibitedInView`.
     ///
     /// # Cost
     ///
@@ -2157,7 +2159,6 @@ impl<'a> VMLogic<'a> {
         let data_id = CryptoHash(data_id);
         let payload = payload.into_owned();
 
-        // TODO gas costs for receipt creation
         self.ext.yield_submit_data_receipt(data_id, payload)
     }
 
