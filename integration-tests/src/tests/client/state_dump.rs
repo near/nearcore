@@ -43,7 +43,6 @@ fn test_state_dump() {
             .clients_count(1)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers()
             .nightshade_runtimes(&genesis)
             .build();
 
@@ -141,7 +140,6 @@ fn run_state_sync_with_dumped_parts(
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers()
             .nightshade_runtimes(&genesis)
             .build();
 

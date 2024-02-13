@@ -17,7 +17,6 @@ fn test_create_top_level_accounts() {
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 

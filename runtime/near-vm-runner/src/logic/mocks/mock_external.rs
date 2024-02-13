@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 #[derive(serde::Serialize)]
 #[serde(remote = "GasWeight")]
+#[allow(dead_code)] // The value is never read because this is a mock.
 struct GasWeightSer(u64);
 
 #[derive(Debug, Clone, serde::Serialize)]

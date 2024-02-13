@@ -33,11 +33,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
-    TestEnv::builder(&genesis.config)
-        .stores(vec![store])
-        .real_epoch_managers()
-        .nightshade_runtimes(genesis)
-        .build()
+    TestEnv::builder(&genesis.config).stores(vec![store]).nightshade_runtimes(genesis).build()
 }
 
 /// Waits for flat storage creation on given shard for `CREATION_TIMEOUT` blocks.
