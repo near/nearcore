@@ -1,6 +1,33 @@
 use near_o11y::metrics::{try_create_int_gauge_vec, IntGaugeVec};
 use once_cell::sync::Lazy;
 
+pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_HEADERS_VALID: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_check_num_headers_valid",
+        "Number of valid state headers dumped for the epoch",
+        &["shard_id", "chain_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_HEADERS_INVALID: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_check_num_header_invalid",
+        "Number of invalid state header dumped for the epoch",
+        &["shard_id", "chain_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_HEADERS_DUMPED: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_sync_dump_check_num_header_dumped",
+        "Number of dumped headers for the epoch",
+        &["shard_id", "chain_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_check_num_parts_valid",
@@ -22,7 +49,7 @@ pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID: Lazy<IntGaugeVec> = L
 pub(crate) static STATE_SYNC_DUMP_CHECK_NUM_PARTS_DUMPED: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_state_sync_dump_check_num_parts_dumped",
-        "Number of total parts required for the epoch",
+        "Number of dumped parts required for the epoch",
         &["shard_id", "chain_id"],
     )
     .unwrap()
