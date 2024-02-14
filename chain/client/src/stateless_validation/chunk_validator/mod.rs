@@ -1,3 +1,5 @@
+pub mod orphan_witness_pool;
+
 use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
@@ -31,6 +33,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
+use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -53,6 +56,7 @@ pub struct ChunkValidator {
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    orphan_witness_pool: OrphanStateWitnessPool,
 }
 
 impl ChunkValidator {
@@ -69,6 +73,7 @@ impl ChunkValidator {
             network_sender,
             runtime_adapter,
             chunk_endorsement_tracker,
+            orphan_witness_pool: OrphanStateWitnessPool::default(),
         }
     }
 
