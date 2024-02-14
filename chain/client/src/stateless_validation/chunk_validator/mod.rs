@@ -1,3 +1,4 @@
+pub mod orphan_witness_handling;
 pub mod orphan_witness_pool;
 
 use super::processing_tracker::ProcessingDoneTracker;
@@ -599,7 +600,15 @@ impl Client {
         // Context: We are currently unable to handle production of the state witness for the
         // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
-        let prev_block = self.chain.get_block(prev_block_hash)?;
+        let prev_block = match self.chain.get_block(prev_block_hash) {
+            Ok(block) => block,
+            Err(Error::DBNotFoundErr(_)) => {
+                // Previous block isn't available at the moment, add this witness to the orphan pool.
+                self.handle_orphan_state_witness(witness)?;
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        };
         self.process_chunk_state_witness_with_prev_block(
             witness,
             peer_id,
