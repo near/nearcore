@@ -24,7 +24,7 @@ use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessInner,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessInner, MAX_CHUNK_STATE_WITNESS_INNER_SIZE,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -87,6 +87,7 @@ impl ChunkValidator {
         if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
             return Err(Error::InvalidChunkStateWitness("Invalid signature".to_string()));
         }
+        validate_chunk_state_witness_size(&state_witness)?;
 
         let state_witness_inner = state_witness.inner;
         let chunk_header = state_witness_inner.chunk_header.clone();
@@ -322,6 +323,17 @@ pub(crate) fn pre_validate_chunk_state_witness(
             })
             .collect::<Result<_, _>>()?,
     })
+}
+
+fn validate_chunk_state_witness_size(witness: &ChunkStateWitness) -> Result<(), Error> {
+    let witness_size = borsh::to_vec(&witness.inner)?.len();
+    if witness_size > MAX_CHUNK_STATE_WITNESS_INNER_SIZE {
+        return Err(Error::InvalidChunkStateWitness(format!(
+            "ChunkStateWitness is too big. Size ({}) is larger than maximum allowed ({})",
+            witness_size, MAX_CHUNK_STATE_WITNESS_INNER_SIZE
+        )));
+    }
+    Ok(())
 }
 
 /// Validate that receipt proofs contain the receipts that should be applied during the

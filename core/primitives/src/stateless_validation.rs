@@ -17,6 +17,9 @@ use near_primitives_core::types::{AccountId, Balance};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
+/// ChunkStateWitnesses with `inner` larger than 16MB will be rejected.
+pub const MAX_CHUNK_STATE_WITNESS_INNER_SIZE: usize = 16_000_000;
+
 /// Signable
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateWitness {
