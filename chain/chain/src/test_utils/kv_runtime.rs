@@ -934,6 +934,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        _state_witness: &ChunkStateWitness,
+        _epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,

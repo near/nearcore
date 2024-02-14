@@ -393,6 +393,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error>;
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error>;
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1004,6 +1010,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_header = &state_witness.inner.chunk_header;
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        self.verify_chunk_state_witness_signature_in_epoch(state_witness, &epoch_id)
+    }
+
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let chunk_header = &state_witness.inner.chunk_header;
         let chunk_producer = epoch_manager.get_chunk_producer_info(
             &epoch_id,
             chunk_header.height_created(),
