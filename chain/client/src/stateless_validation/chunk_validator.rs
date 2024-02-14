@@ -650,3 +650,83 @@ impl Client {
         result.map(|_| None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use near_crypto::Signature;
+    use near_primitives::challenge::PartialState;
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::merkle::{Direction, MerklePathItem};
+    use near_primitives::sharding::{
+        ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3, ShardProof,
+    };
+    use near_primitives::stateless_validation::{
+        ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+        MAX_CHUNK_STATE_WITNESS_INNER_SIZE,
+    };
+    use near_primitives::validator_signer::EmptyValidatorSigner;
+
+    use crate::stateless_validation::chunk_validator::validate_chunk_state_witness_size;
+
+    fn dummy_chunk_state_witness() -> ChunkStateWitness {
+        let dummy_chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            CryptoHash::default(),
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            CryptoHash::default(),
+            CryptoHash::default(),
+            vec![],
+            &EmptyValidatorSigner::default(),
+        ));
+        let dummy_partial_state = PartialState::TrieValues(Vec::new());
+        ChunkStateWitness {
+            inner: ChunkStateWitnessInner::new(
+                dummy_chunk_header,
+                ChunkStateTransition {
+                    block_hash: CryptoHash::default(),
+                    base_state: dummy_partial_state.clone(),
+                    post_state_root: CryptoHash::default(),
+                },
+                HashMap::new(),
+                CryptoHash::default(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                dummy_partial_state,
+            ),
+            signature: Signature::default(),
+        }
+    }
+
+    #[test]
+    fn test_validate_chunk_witness_size() {
+        let mut witness = dummy_chunk_state_witness();
+
+        // Small state witnesses are accepted
+        validate_chunk_state_witness_size(&witness).unwrap();
+
+        // Modify the witness to be larger than the allowed limit
+        let dummy_merkle_path_item =
+            MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left };
+        let items_count =
+            MAX_CHUNK_STATE_WITNESS_INNER_SIZE / std::mem::size_of::<MerklePathItem>() + 1;
+        let big_path = vec![dummy_merkle_path_item; items_count];
+        let big_receipt_proof = ReceiptProof(
+            Vec::new(),
+            ShardProof { from_shard_id: 0, to_shard_id: 0, proof: big_path },
+        );
+        witness.inner.source_receipt_proofs.insert(ChunkHash::default(), big_receipt_proof);
+
+        // state witnesses larger than MAX_CHUNK_STATE_WITNESS_INNER_SIZE are rejected
+        validate_chunk_state_witness_size(&witness).unwrap_err();
+    }
+}
