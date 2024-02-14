@@ -182,9 +182,9 @@ impl ProtocolFeature {
             | ProtocolFeature::SimpleNightshadeV2 => 64,
 
             // StatelessNet features
-            ProtocolFeature::StatelessValidationV0 => 80,
-            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
-            ProtocolFeature::SingleShardTracking => 82,
+            ProtocolFeature::StatelessValidationV0 => 140,
+            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 140,
+            ProtocolFeature::SingleShardTracking => 140,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
