@@ -24,6 +24,7 @@ pub mod adapter;
 pub mod adversarial;
 mod chunk_inclusion_tracker;
 mod client;
+pub mod client_actions;
 mod client_actor;
 mod config_updater;
 pub mod debug;

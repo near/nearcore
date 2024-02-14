@@ -1,4 +1,5 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use crate::futures::DelayedActionRunner;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
@@ -93,5 +94,30 @@ impl FutureSpawner for TestLoopFutureSpawner {
             description: description.to_string(),
         });
         self.send(task);
+    }
+}
+
+pub type TestLoopDelayedActionEvent<T> =
+    Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + 'static>;
+
+pub fn drive_delayed_action_runners<T>() -> LoopEventHandler<T, TestLoopDelayedActionEvent<T>> {
+    LoopEventHandler::new(|event, data, ctx| {
+        let mut runner = TestLoopDelayedActionRunner { sender: ctx.sender.clone() };
+        event(data, &mut runner);
+        Ok(())
+    })
+}
+
+pub struct TestLoopDelayedActionRunner<T> {
+    sender: DelaySender<TestLoopDelayedActionEvent<T>>,
+}
+
+impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
+    fn run_later_boxed(
+        &mut self,
+        dur: std::time::Duration,
+        f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + 'static>,
+    ) {
+        self.sender.send_with_delay(f, dur.try_into().unwrap());
     }
 }

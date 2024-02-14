@@ -30,7 +30,7 @@ use actix::{Actor as _, ActorContext as _, ActorFutureExt as _, AsyncContext as 
 use lru::LruCache;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
