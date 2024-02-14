@@ -2,7 +2,7 @@ use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
-use near_async::time;
+use near_async::time::{self, Clock};
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
@@ -77,6 +77,7 @@ fn setup_network_node(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client_actor = start_client(
+        Clock::real(),
         client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),

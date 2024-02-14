@@ -68,7 +68,10 @@ pub mod multi_instance;
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
-    futures::{TestLoopFutureSpawner, TestLoopTask},
+    futures::{
+        TestLoopDelayedActionEvent, TestLoopDelayedActionRunner, TestLoopFutureSpawner,
+        TestLoopTask,
+    },
 };
 use crate::test_loop::event_handler::LoopHandlerContext;
 use crate::time;
@@ -321,6 +324,20 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 
     pub fn run_instant(&mut self) {
         self.run_for(time::Duration::ZERO);
+    }
+
+    pub fn future_spawner(&self) -> TestLoopFutureSpawner
+    where
+        Event: From<Arc<TestLoopTask>>,
+    {
+        self.sender().narrow()
+    }
+
+    pub fn delayed_action_runner<InnerData>(&self) -> TestLoopDelayedActionRunner<InnerData>
+    where
+        Event: From<TestLoopDelayedActionEvent<InnerData>>,
+    {
+        TestLoopDelayedActionRunner { sender: self.sender().narrow() }
     }
 }
 
