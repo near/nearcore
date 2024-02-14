@@ -7,7 +7,9 @@
 
 use crate::Client;
 use itertools::Itertools;
+use near_chain::Block;
 use near_chain_primitives::Error;
+use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, EpochId};
 use std::ops::Range;
@@ -148,6 +150,32 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    pub fn process_ready_orphan_chunk_state_witnesses(&mut self, accepted_block: &Block) {
+        let ready_witnesses = self
+            .chunk_validator
+            .orphan_witness_pool
+            .take_state_witnesses_waiting_for_block(accepted_block.hash());
+        for witness in ready_witnesses {
+            let header = &witness.inner.chunk_header;
+            tracing::debug!(
+                target: "client",
+                witness_height = header.height_created(),
+                witness_shard = header.shard_id(),
+                witness_chunk = ?header.chunk_hash(),
+                witness_prev_block = ?header.prev_block_hash(),
+                "Processing an orphaned ChunkStateWitness, its previous block has arrived."
+            );
+            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
+                witness,
+                PeerId::random(), // TODO: Should peer_id even be here? https://github.com/near/stakewars-iv/issues/17
+                accepted_block,
+                None,
+            ) {
+                tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
+            }
+        }
     }
 }
 

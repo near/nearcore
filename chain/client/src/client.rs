@@ -1643,6 +1643,8 @@ impl Client {
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+
+        self.process_ready_orphan_chunk_state_witnesses(&block);
     }
 
     /// Reconcile the transaction pool after processing a block.
