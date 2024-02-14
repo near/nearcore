@@ -8,7 +8,8 @@ use near_primitives::checked_feature;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner, StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+    StoredChunkStateTransitionData, MAX_CHUNK_STATE_WITNESS_INNER_SIZE,
 };
 use near_primitives::types::EpochId;
 use std::collections::HashMap;
@@ -57,6 +58,15 @@ impl Client {
             metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
                 .with_label_values(&[&chunk_header.shard_id().to_string()])
                 .observe(witness_size as f64);
+
+            // Don't send out state witnesses with invalid size to avoid getting banned.
+            // Produced witnesses should generally be smaller than the limit, but it's better to make sure.
+            if witness_size > MAX_CHUNK_STATE_WITNESS_INNER_SIZE {
+                return Err(Error::InvalidChunkStateWitness(format!(
+                    "Produced a state witness that is too large (witness size: {}, max size: {})",
+                    witness_size, MAX_CHUNK_STATE_WITNESS_INNER_SIZE
+                )));
+            }
             ChunkStateWitness { inner: witness_inner, signature }
         };
 
