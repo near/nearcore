@@ -1,18 +1,10 @@
-use crate::time;
+use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
-use futures::FutureExt;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::task::Context;
-use tokio::sync::oneshot;
-
-use crate::{
-    futures::FutureSpawner,
-    messaging::{self, CanSend},
-};
-
-use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 
 // Support for futures in TestLoop.
 //
@@ -49,34 +41,6 @@ use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 ///
 /// The response is used to complete the future that is returned by
 /// our `AsyncSender::send_async` implementation.
-pub struct MessageExpectingResponse<T, R> {
-    pub message: T,
-    pub responder: Box<dyn FnOnce(R) + Send>,
-}
-
-impl<T: Debug, R> Debug for MessageExpectingResponse<T, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("MessageWithResponder").field(&self.message).finish()
-    }
-}
-
-impl<
-        Message: 'static,
-        Response: Send + 'static,
-        Event: From<MessageExpectingResponse<Message, Response>> + 'static,
-    > messaging::CanSendAsync<Message, Response> for DelaySender<Event>
-{
-    fn send_async(&self, message: Message) -> BoxFuture<'static, Response> {
-        let (sender, receiver) = oneshot::channel::<Response>();
-        let future = async move { receiver.await.expect("Future was cancelled") };
-        let responder = Box::new(move |r| sender.send(r).ok().unwrap());
-        self.send_with_delay(
-            MessageExpectingResponse { message, responder }.into(),
-            time::Duration::ZERO,
-        );
-        future.boxed()
-    }
-}
 
 pub struct TestLoopTask {
     future: Mutex<Option<BoxFuture<'static, ()>>>,
