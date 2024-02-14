@@ -401,9 +401,7 @@ impl<'a> ChainUpdate<'a> {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;
                 }
             }
-            ShardBlockUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
-                self.chain_store_update
-                    .remove_state_changes_for_resharding(*block.hash(), shard_uid.shard_id());
+            ShardUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
                 self.process_resharding_results(
                     block,
                     &shard_uid,
