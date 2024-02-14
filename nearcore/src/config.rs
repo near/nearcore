@@ -359,6 +359,8 @@ pub struct Config {
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
+    // Used for removing limits to allow coverage of wasm modules.
+    pub wasmcov_limits: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -401,6 +403,7 @@ impl Default for Config {
             s3_credentials_file: None,
             enable_multiline_logging: None,
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
+            wasmcov_limits: false,
         }
     }
 }
