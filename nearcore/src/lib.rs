@@ -287,7 +287,7 @@ pub fn start_with_config_and_synchronization(
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let genesis_block =
         Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
     let genesis_id = GenesisId {

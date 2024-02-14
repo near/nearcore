@@ -196,6 +196,6 @@ if __name__ == '__main__':
         mocknet.create_and_upload_config_file_from_default(
             all_nodes, chain_id, override_config)
     else:
-        mocknet.update_existing_config_file(all_nodes, override_config)
+        mocknet.update_existing_config_files(all_nodes, override_config)
     mocknet.start_nodes(all_nodes)
     mocknet.wait_all_nodes_up(all_nodes)

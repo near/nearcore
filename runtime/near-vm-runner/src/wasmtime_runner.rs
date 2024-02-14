@@ -18,7 +18,7 @@ use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
-    pub(crate) static CALLER: RefCell<Option<Caller>> = RefCell::new(None);
+    pub(crate) static CALLER: RefCell<Option<Caller>> = const { RefCell::new(None) };
 }
 pub struct WasmtimeMemory(Memory);
 

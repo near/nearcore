@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::adapter::ShardsManagerRequestFromClient;
 use crate::client::ShardsManagerResponse;
+use crate::test_loop::ShardsManagerResendChunkRequests;
 use crate::ShardsManager;
 
 /// Deprecated. Use `MockChainForShardsManager`.
@@ -299,6 +300,13 @@ impl CanSend<ShardsManagerRequestFromNetwork> for SynchronousShardsManagerAdapte
     fn send(&self, msg: ShardsManagerRequestFromNetwork) {
         let mut shards_manager = self.shards_manager.lock().unwrap();
         shards_manager.handle_network_request(msg);
+    }
+}
+
+impl CanSend<ShardsManagerResendChunkRequests> for SynchronousShardsManagerAdapter {
+    fn send(&self, _: ShardsManagerResendChunkRequests) {
+        let mut shards_manager = self.shards_manager.lock().unwrap();
+        shards_manager.resend_chunk_requests();
     }
 }
 

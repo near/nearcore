@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
@@ -73,10 +72,7 @@ fn test_eth_implicit_account_creation() {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -129,10 +125,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         return;
     }
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let deposit_for_account_creation = NEAR_BASE;
     let mut height = 1;

@@ -658,7 +658,7 @@ pub(crate) mod wasmtime {
     }
 
     thread_local! {
-        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = UnsafeCell::new(0 as *mut c_void);
+        static CALLER_CONTEXT: UnsafeCell<*mut c_void> = const { UnsafeCell::new(core::ptr::null_mut()) };
     }
 
     pub(crate) fn link<'a, 'b>(

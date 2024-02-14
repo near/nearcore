@@ -132,6 +132,8 @@ pub enum ProtocolFeature {
 
     // Stateless validation: lower block and chunk validator kickout percent from 90 to 50.
     LowerValidatorKickoutPercentForDebugging,
+    // Stateless validation: single shard tracking.
+    SingleShardTracking,
 }
 
 impl ProtocolFeature {
@@ -182,6 +184,7 @@ impl ProtocolFeature {
             // StatelessNet features
             ProtocolFeature::StatelessValidationV0 => 80,
             ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
+            ProtocolFeature::SingleShardTracking => 82,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -203,7 +206,7 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    81
+    82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
     139

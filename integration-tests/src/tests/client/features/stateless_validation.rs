@@ -4,7 +4,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
 
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -73,8 +73,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
-        // Make all validators produce chunks for all shards.
-        minimum_validators_per_shard: num_validators as NumSeats,
+        // Each shard has 2 chunk prducers, so 4 shards, 8 chunk producers total.
+        minimum_validators_per_shard: 2,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
@@ -119,11 +119,9 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
-
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts.iter().take(8).cloned().collect())
-        .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
+        .epoch_managers_with_test_overrides(epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)
         .build();
     let mut tx_hashes = vec![];
