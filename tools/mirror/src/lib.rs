@@ -1759,7 +1759,8 @@ impl<T: ChainAccess> TxMirror<T> {
         let last_stored_height = get_last_source_height(&self.db)?;
         let last_height = last_stored_height.unwrap_or(self.target_genesis_height - 1);
 
-        let next_heights = self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA).await?;
+        let next_heights =
+            self.source_chain_access.init(last_height, CREATE_ACCOUNT_DELTA + 1).await?;
 
         if next_heights.is_empty() {
             anyhow::bail!("no new blocks after #{}", last_height);
