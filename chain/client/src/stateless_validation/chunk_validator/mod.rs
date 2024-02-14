@@ -600,6 +600,28 @@ impl Client {
         // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
         let prev_block = self.chain.get_block(prev_block_hash)?;
+        self.process_chunk_state_witness_with_prev_block(
+            witness,
+            peer_id,
+            &prev_block,
+            processing_done_tracker,
+        )
+    }
+
+    pub fn process_chunk_state_witness_with_prev_block(
+        &mut self,
+        witness: ChunkStateWitness,
+        peer_id: PeerId,
+        prev_block: &Block,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        if witness.inner.chunk_header.prev_block_hash() != prev_block.hash() {
+            return Err(Error::Other(
+                "process_chunk_state_witness_with_prev_block - prev_block doesn't match"
+                    .to_string(),
+            ));
+        }
+
         let prev_chunk_header = Chain::get_prev_chunk_header(
             self.epoch_manager.as_ref(),
             &prev_block,
