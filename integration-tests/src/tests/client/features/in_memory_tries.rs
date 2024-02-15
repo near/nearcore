@@ -556,7 +556,7 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
     let stores = (0..NUM_VALIDATORS).map(|_| create_test_store()).collect::<Vec<_>>();
     let mut env = TestEnv::builder(&genesis_config)
         .clients((0..NUM_VALIDATORS).map(|i| format!("account{}", i).parse().unwrap()).collect())
-        .stores(stores.clone())
+        .stores(stores)
         .maybe_track_all_shards(track_all_shards)
         .nightshade_runtimes_with_trie_config(
             &genesis,
