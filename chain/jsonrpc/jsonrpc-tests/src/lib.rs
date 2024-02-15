@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
+use near_async::{
+    actix::AddrWithAutoSpanContextExt,
+    messaging::{noop, IntoMultiSender},
+};
 use near_chain_configs::GenesisConfig;
 use near_client::test_utils::setup_no_network_with_validity_period_and_no_epoch_sync;
 use near_client::ViewClientActor;
@@ -48,9 +52,9 @@ pub fn start_all_with_validity_period_and_no_epoch_sync(
     start_http(
         RpcConfig::new(addr),
         TEST_GENESIS_CONFIG.clone(),
-        actor_handles.client_actor,
-        actor_handles.view_client_actor.clone(),
-        None,
+        actor_handles.client_actor.clone().with_auto_span_context().into_multi_sender(),
+        actor_handles.view_client_actor.clone().with_auto_span_context().into_multi_sender(),
+        noop().into_multi_sender(),
         Arc::new(DummyEntityDebugHandler {}),
     );
     (actor_handles.view_client_actor, addr)

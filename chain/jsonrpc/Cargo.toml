@@ -16,6 +16,7 @@ actix-cors.workspace = true
 actix-web.workspace = true
 actix.workspace = true
 bs58.workspace = true
+derive_more.workspace = true
 easy-ext.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -27,6 +28,7 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-client-primitives.workspace = true
 near-primitives.workspace = true

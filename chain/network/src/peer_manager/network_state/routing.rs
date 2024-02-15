@@ -50,7 +50,7 @@ impl NetworkState {
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
                 new_accounts.clone(),
             ));
-            this.config.event_sink.push(Event::AccountsAdded(new_accounts));
+            this.config.event_sink.send(Event::AccountsAdded(new_accounts));
         }).await.unwrap()
     }
 
@@ -130,7 +130,7 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
-                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
+                this.config.event_sink.send(Event::EdgesAdded(edges.clone()));
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 // Retu
                 oks.iter()

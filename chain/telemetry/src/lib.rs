@@ -3,7 +3,7 @@ mod metrics;
 use actix::{Actor, Addr, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::static_clock::StaticClock;
 use std::ops::Sub;

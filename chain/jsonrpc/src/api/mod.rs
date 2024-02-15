@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_jsonrpc_primitives::errors::RpcParseError;
@@ -53,8 +54,8 @@ where
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         RpcError::new(
             -32_000,
             "Server error".to_string(),
@@ -63,11 +64,12 @@ impl RpcFrom<actix::MailboxError> for RpcError {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for ServerError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for ServerError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         match error {
-            actix::MailboxError::Closed => ServerError::Closed,
-            actix::MailboxError::Timeout => ServerError::Timeout,
+            AsyncSendError::Timeout => ServerError::Timeout,
+            AsyncSendError::Closed => ServerError::Closed,
+            AsyncSendError::Dropped => ServerError::Closed,
         }
     }
 }

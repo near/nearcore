@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::TxStatusError;
@@ -52,8 +53,8 @@ impl RpcRequest for RpcTransactionStatusRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcTransactionError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcTransactionError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { debug_info: error.to_string() }
     }
 }

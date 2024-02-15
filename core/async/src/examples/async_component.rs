@@ -51,7 +51,7 @@ impl OuterComponent {
         // to async/await. So we use a FutureSpawner to do that.
         future_spawner.spawn("inner request", async move {
             let inner_response = sender.send_async(inner_request).await;
-            let response = OuterResponse(inner_response.0.repeat(2));
+            let response = OuterResponse(inner_response.unwrap().0.repeat(2));
             response_sender.send(response);
         });
     }

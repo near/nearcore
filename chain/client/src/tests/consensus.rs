@@ -5,10 +5,10 @@ use actix::System;
 use near_chain::test_utils::ValidatorSchedule;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval, BlockResponse};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_actix_test_utils::run_actix;
 use near_chain::Block;
+use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{NetworkRequests, NetworkResponses, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;

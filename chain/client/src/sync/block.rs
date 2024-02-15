@@ -302,6 +302,7 @@ enum BlockSyncDue {
 mod test {
     use std::sync::Arc;
 
+    use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils::wait_for_all_blocks_in_processing;
     use near_chain::Provenance;
     use near_chain_configs::GenesisConfig;
@@ -366,7 +367,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
+            BlockSync::new(network_adapter.as_multi_sender(), block_fetch_horizon, false, true);
         let mut genesis_config = GenesisConfig::test();
         genesis_config.epoch_length = 100;
         let mut env =
@@ -446,7 +447,7 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
+            BlockSync::new(network_adapter.as_multi_sender(), block_fetch_horizon, true, true);
         let mut genesis_config = GenesisConfig::test();
         genesis_config.epoch_length = 5;
         let mut env =

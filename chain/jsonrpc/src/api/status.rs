@@ -1,3 +1,4 @@
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::StatusError;
 use near_jsonrpc_primitives::types::status::{
     RpcHealthResponse, RpcStatusError, RpcStatusResponse,
@@ -6,8 +7,8 @@ use near_primitives::views::StatusResponse;
 
 use super::RpcFrom;
 
-impl RpcFrom<actix::MailboxError> for RpcStatusError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcStatusError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

@@ -1,12 +1,13 @@
 use super::{RpcFrom, RpcInto};
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::NetworkInfoResponse;
 use near_client_primitives::types::{KnownProducer, PeerInfo};
 use near_jsonrpc_primitives::types::network_info::{
     RpcKnownProducer, RpcNetworkInfoError, RpcNetworkInfoResponse, RpcPeerInfo,
 };
 
-impl RpcFrom<actix::MailboxError> for RpcNetworkInfoError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcNetworkInfoError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

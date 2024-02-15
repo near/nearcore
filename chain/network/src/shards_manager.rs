@@ -7,7 +7,7 @@ use crate::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 
-#[derive(Message, Debug, strum::IntoStaticStr)]
+#[derive(Message, Debug, strum::IntoStaticStr, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub enum ShardsManagerRequestFromNetwork {
     ProcessPartialEncodedChunk(PartialEncodedChunk),

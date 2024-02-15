@@ -8,7 +8,7 @@ use near_chain::chain::{
 };
 use near_chain::resharding::ReshardingRequest;
 use near_chain::Chain;
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;

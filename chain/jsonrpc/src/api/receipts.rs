@@ -1,4 +1,5 @@
 use super::{Params, RpcFrom, RpcRequest};
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::{GetReceipt, GetReceiptError};
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::receipts::{
@@ -12,8 +13,8 @@ impl RpcRequest for RpcReceiptRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcReceiptError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcReceiptError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

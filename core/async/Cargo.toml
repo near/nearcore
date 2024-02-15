@@ -22,6 +22,7 @@ serde_json.workspace = true
 time.workspace = true
 tokio.workspace = true
 
+near-async-derive.workspace = true
 near-o11y.workspace = true
 near-performance-metrics.workspace = true
 
