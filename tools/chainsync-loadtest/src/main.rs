@@ -5,6 +5,7 @@ mod network;
 use anyhow::{anyhow, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::noop;
+use near_async::messaging::IntoMultiSender;
 use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
 use near_async::time;
