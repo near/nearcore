@@ -132,6 +132,8 @@ pub struct LimitConfig {
     /// historically.
     #[serde(default = "AccountIdValidityRulesVersion::v0")]
     pub account_id_validity_rules_version: AccountIdValidityRulesVersion,
+    /// Number of blocks after which a yielded promise times out.
+    pub yield_timeout_length_in_blocks: u64,
     /// Maximum number of bytes for payload passed over a yield resume.
     pub max_yield_payload_size: u64,
 }

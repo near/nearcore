@@ -148,6 +148,7 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+    YieldTimeoutLengthInBlocks,
     MaxYieldPayloadSize,
 
     // Contract runtime features
@@ -228,6 +229,7 @@ impl Parameter {
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
+            Parameter::YieldTimeoutLengthInBlocks,
             Parameter::MaxYieldPayloadSize,
         ]
         .iter()
