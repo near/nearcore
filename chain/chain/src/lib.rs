@@ -13,7 +13,6 @@ mod block_processing_utils;
 pub mod blocks_delay_tracker;
 pub mod chain;
 mod chain_update;
-mod chunk_endorsement;
 pub mod chunks_store;
 pub mod crypto_hash_timer;
 mod doomslug;

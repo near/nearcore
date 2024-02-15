@@ -24,9 +24,7 @@ pub fn read_resource(path: &str) -> Vec<u8> {
 /// other systems. Requires write access to /proc/sys/vm/drop_caches
 #[cfg(target_os = "linux")]
 pub fn clear_linux_page_cache() -> std::io::Result<()> {
-    unsafe {
-        libc::sync();
-    }
+    rustix::fs::sync();
     std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
