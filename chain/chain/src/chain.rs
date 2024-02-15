@@ -1821,6 +1821,10 @@ impl Chain {
             }
         }
 
+        if let Err(err) = self.garbage_collect_state_transition_data(&block) {
+            tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
+        }
+
         self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {

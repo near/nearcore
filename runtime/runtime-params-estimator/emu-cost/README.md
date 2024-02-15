@@ -10,7 +10,7 @@ instrumented QEMU running in Docker, and count how many x86 instructions are exe
 
  Instrumentation of QEMU is implemented in the following manner. We install instrumentation callback which conditionally increments
 the instruction counter on every instruction during translation by QEMU's JIT, TCG. We activate counting when specific Linux syscall
-(currently, 0 aka sys_read) is executed with the certain arguments (file descriptor argument == 0xcafebabe or 0xcafebabf).
+(currently, 0 aka sys_read) is executed with the certain arguments (file descriptor argument == 0x0afebabe or 0x0afebabf).
 On start event we clear instruction counter, on stop event we stop counting and return counted instructions into the buffer provided
 to read syscall. As result, NEAR benchmark will know the exact instruction counter passed between two moments and this value
 is the pure function of Docker image used, Rust compiler version and the NEAR implementation and is fully reproducible.
@@ -51,10 +51,10 @@ Now start the estimator under QEMU with the counter plugin enabled (note, that R
       CARGO_PROFILE_RELEASE_LTO=fat
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
       export CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
-  
+
   See [#4678](https://github.com/near/nearcore/issues/4678) for more details.
-  
-* You also may observe slight differences in different launches, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations. 
+
+* You also may observe slight differences in different launches, because number of instructions operating with disk cache is not fully determined, as well as weight of RocksDB operations.
   To improve estimation, you can launch it several times and take the worst result.
 
 ## IO cost calibration
