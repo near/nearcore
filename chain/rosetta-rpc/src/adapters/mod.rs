@@ -867,6 +867,35 @@ mod tests {
     use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
     use near_primitives::transaction::{Action, TransferAction};
 
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    #[test]
+    fn test_convert_nonrefundable_storage_transfer_action() {
+        let transfer_actions = vec![near_primitives::transaction::TransferAction {
+            deposit: near_primitives::types::Balance::MAX,
+        }
+        .into()];
+        let nonrefundable_transfer_actions =
+            vec![near_primitives::transaction::NonrefundableStorageTransferAction {
+                deposit: near_primitives::types::Balance::MAX,
+            }
+            .into()];
+        let near_transfer_actions = NearActions {
+            sender_account_id: "sender.near".parse().unwrap(),
+            receiver_account_id: "receiver.near".parse().unwrap(),
+            actions: transfer_actions,
+        };
+        let near_nonrefundable_transfer_actions = NearActions {
+            sender_account_id: "sender.near".parse().unwrap(),
+            receiver_account_id: "receiver.near".parse().unwrap(),
+            actions: nonrefundable_transfer_actions,
+        };
+        let transfer_operations_converted: Vec<crate::models::Operation> =
+            near_transfer_actions.into();
+        let nonrefundable_transfer_operations_converted: Vec<crate::models::Operation> =
+            near_nonrefundable_transfer_actions.into();
+        assert_eq!(transfer_operations_converted, nonrefundable_transfer_operations_converted);
+    }
+
     #[test]
     fn test_convert_block_changes_to_transactions() {
         run_actix(async {
@@ -1034,12 +1063,6 @@ mod tests {
             deposit: near_primitives::types::Balance::MAX,
         }
         .into()];
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let nonrefundable_transfer_actions =
-            vec![near_primitives::transaction::NonrefundableStorageTransferAction {
-                deposit: near_primitives::types::Balance::MAX,
-            }
-            .into()];
         let stake_actions = vec![near_primitives::transaction::StakeAction {
             stake: 456,
             public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
@@ -1070,13 +1093,6 @@ mod tests {
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]
                 .concat();
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let wallet_style_create_account_with_nonrefundable_actions = [
-            create_account_actions.to_vec(),
-            add_key_actions.to_vec(),
-            nonrefundable_transfer_actions.to_vec(),
-        ]
-        .concat();
         let create_account_and_stake_immediately_actions =
             [create_account_actions.to_vec(), transfer_actions.to_vec(), stake_actions.to_vec()]
                 .concat();
@@ -1102,8 +1118,6 @@ mod tests {
             function_call_without_balance_actions,
             function_call_with_balance_actions,
             wallet_style_create_account_actions,
-            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            wallet_style_create_account_with_nonrefundable_actions,
             create_account_and_stake_immediately_actions,
             deploy_contract_and_call_it_actions,
             two_factor_auth_actions,

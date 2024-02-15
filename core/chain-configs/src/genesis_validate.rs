@@ -208,6 +208,25 @@ mod test {
         Account::new(100, 10, 0, Default::default(), 0, PROTOCOL_VERSION)
     }
 
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    #[test]
+    fn test_total_supply_includes_nonrefundable_amount() {
+        let mut config = GenesisConfig::default();
+        config.epoch_length = 42;
+        config.total_supply = 111;
+        config.validators = vec![AccountInfo {
+            account_id: "test".parse().unwrap(),
+            public_key: VALID_ED25519_RISTRETTO_KEY.parse().unwrap(),
+            amount: 10,
+        }];
+        let records = GenesisRecords(vec![StateRecord::Account {
+            account_id: "test".parse().unwrap(),
+            account: Account::new(100, 10, 1, Default::default(), 0, PROTOCOL_VERSION),
+        }]);
+        let genesis = &Genesis::new(config, records).unwrap();
+        validate_genesis(genesis).unwrap();
+    }
+
     #[test]
     #[should_panic(expected = "wrong total supply")]
     fn test_total_supply_not_match() {

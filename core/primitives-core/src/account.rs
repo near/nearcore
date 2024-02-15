@@ -466,8 +466,22 @@ pub struct FunctionCallPermission {
 mod tests {
 
     use crate::hash::hash;
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    use crate::version::ProtocolFeature;
 
     use super::*;
+
+    #[test]
+    #[should_panic]
+    fn test_v1_account_cannot_have_nonrefundable_amount() {
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let protocol_version = crate::version::PROTOCOL_VERSION;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let protocol_version = ProtocolFeature::NonRefundableBalance.protocol_version() - 1;
+
+        Account::new(0, 0, 1, CryptoHash::default(), 0, protocol_version);
+    }
 
     #[test]
     fn test_legacy_account_serde_serialization() {
@@ -572,6 +586,21 @@ mod tests {
         let deserialized_account =
             <Account as BorshDeserialize>::deserialize(&mut &serialized_account[..]).unwrap();
         assert_eq!(deserialized_account, account);
+    }
+
+    #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+    #[test]
+    #[should_panic(expected = "account serialization sentinel not allowed for AccountV1")]
+    fn test_account_v1_borsh_serialization_sentinel() {
+        let account = Account {
+            amount: Account::SERIALIZATION_SENTINEL,
+            locked: 1_000_000,
+            code_hash: CryptoHash::default(),
+            storage_usage: 100,
+            version: AccountVersion::V1,
+        };
+        let serialized_account = borsh::to_vec(&account).unwrap();
+        <Account as BorshDeserialize>::deserialize(&mut &serialized_account[..]).unwrap();
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
