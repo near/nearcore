@@ -250,6 +250,13 @@ impl From<TransferAction> for Action {
     }
 }
 
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+impl From<NonrefundableStorageTransferAction> for Action {
+    fn from(nonrefundable_transfer_action: NonrefundableStorageTransferAction) -> Self {
+        Self::NonrefundableStorageTransfer(nonrefundable_transfer_action)
+    }
+}
+
 impl From<StakeAction> for Action {
     fn from(stake_action: StakeAction) -> Self {
         Self::Stake(Box::new(stake_action))

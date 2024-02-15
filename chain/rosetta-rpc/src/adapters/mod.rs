@@ -1034,6 +1034,12 @@ mod tests {
             deposit: near_primitives::types::Balance::MAX,
         }
         .into()];
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let nonrefundable_transfer_actions =
+            vec![near_primitives::transaction::NonrefundableStorageTransferAction {
+                deposit: near_primitives::types::Balance::MAX,
+            }
+            .into()];
         let stake_actions = vec![near_primitives::transaction::StakeAction {
             stake: 456,
             public_key: near_crypto::SecretKey::from_random(near_crypto::KeyType::ED25519)
@@ -1064,6 +1070,13 @@ mod tests {
         let wallet_style_create_account_actions =
             [create_account_actions.to_vec(), add_key_actions.to_vec(), transfer_actions.to_vec()]
                 .concat();
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let wallet_style_create_account_with_nonrefundable_actions = [
+            create_account_actions.to_vec(),
+            add_key_actions.to_vec(),
+            nonrefundable_transfer_actions.to_vec(),
+        ]
+        .concat();
         let create_account_and_stake_immediately_actions =
             [create_account_actions.to_vec(), transfer_actions.to_vec(), stake_actions.to_vec()]
                 .concat();
@@ -1089,6 +1102,8 @@ mod tests {
             function_call_without_balance_actions,
             function_call_with_balance_actions,
             wallet_style_create_account_actions,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            wallet_style_create_account_with_nonrefundable_actions,
             create_account_and_stake_immediately_actions,
             deploy_contract_and_call_it_actions,
             two_factor_auth_actions,

@@ -6,7 +6,6 @@
 //!
 //! NEP: https://github.com/near/NEPs/pull/491
 
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
@@ -80,10 +79,7 @@ fn setup_env_with_protocol_version(protocol_version: Option<ProtocolVersion>) ->
     if let Some(protocol_version) = protocol_version {
         genesis.config.protocol_version = protocol_version;
     }
-    TestEnv::builder(ChainGenesis::new(&genesis))
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build()
+    TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build()
 }
 
 /// Creates a test environment using default protocol version.
