@@ -134,7 +134,7 @@ pub enum Error {
     /// Invalid chunk state.
     #[error("Invalid Chunk State")]
     InvalidChunkState(Box<ChunkState>),
-    #[error("Invalid Chunk State Witness")]
+    #[error("Invalid Chunk State Witness: {0}")]
     InvalidChunkStateWitness(String),
     #[error("Invalid Chunk Endorsement")]
     InvalidChunkEndorsement,
