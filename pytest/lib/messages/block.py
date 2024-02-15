@@ -3,7 +3,6 @@ from messages.tx import Receipt, SignedTransaction
 
 
 class Block:
-
     def header(self):
         if self.enum == 'BlockV1':
             return self.BlockV1.header
@@ -11,6 +10,8 @@ class Block:
             return self.BlockV2.header
         elif self.enum == 'BlockV3':
             return self.BlockV3.header
+        elif self.enum == 'BlockV4':
+            return self.BlockV4.header
         assert False, "header is called on Block, but the enum variant `%s` is unknown" % self.enum
 
     def chunks(self):
@@ -19,6 +20,8 @@ class Block:
         elif self.enum == 'BlockV2':
             return self.BlockV2.chunks
         elif self.enum == 'BlockV3':
+            return self.BlockV3.body.chunks
+        elif self.enum == 'BlockV4':
             return self.BlockV3.body.chunks
         assert False, "chunks is called on Block, but the enum variant `%s` is unknown" % self.enum
 
@@ -34,13 +37,20 @@ class BlockV2:
 class BlockV3:
     pass
 
+class BlockV4:
+    pass
 
 class BlockBody:
     pass
 
+class BlockBodyV1:
+    pass
+
+class BlockBodyV2:
+    pass
+
 
 class BlockHeader:
-
     def inner_lite(self):
         if self.enum == 'BlockHeaderV4':
             return self.BlockHeaderV4.inner_lite
@@ -252,6 +262,7 @@ block_schema = [
                 ['BlockV1', BlockV1],
                 ['BlockV2', BlockV2],
                 ['BlockV3', BlockV3],
+                ['BlockV4', BlockV4],
             ]
         }
     ],
@@ -288,12 +299,33 @@ block_schema = [
             'kind': 'struct',
             'fields': [
                 ['header', BlockHeader],
+                ['body', BlockBodyV1],
+            ]
+        }
+    ],
+    [
+        BlockV4, {
+            'kind': 'struct',
+            'fields': [
+                ['header', BlockHeader],
                 ['body', BlockBody],
             ]
         }
     ],
     [
-        BlockBody,
+        BlockBody, {
+            'kind':
+                'enum',
+            'field':
+                'enum',
+            'values': [
+                ['V1', BlockBodyV1],
+                ['V2', BlockBodyV2],
+            ]
+        }
+    ],
+    [
+        BlockBodyV1,
         {
             'kind':
                 'struct',
@@ -302,6 +334,23 @@ block_schema = [
                 ['challenges', [()]],  # TODO
                 ['vrf_value', [32]],
                 ['vrf_proof', [64]],
+            ]
+        }
+    ],
+    [
+        BlockBodyV2,
+        {
+            'kind':
+                'struct',
+            'fields': [
+                ['chunks', [ShardChunkHeader]],
+                ['challenges', [()]],  # TODO
+                ['vrf_value', [32]],
+                ['vrf_proof', [64]],
+                ['chunk_endorsements', [[{
+                    'kind': 'option',
+                    'type': Signature
+                }]]],
             ]
         }
     ],
