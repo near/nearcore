@@ -331,7 +331,7 @@ pub(crate) fn action_function_call(
                 state_update,
                 &mut yielded_promise_indices,
                 account_id.clone(),
-                yielded_data_id.clone(),
+                *yielded_data_id,
                 apply_state.block_height
                     + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
             );
