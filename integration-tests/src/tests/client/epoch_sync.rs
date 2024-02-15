@@ -4,8 +4,8 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_chain::Provenance;
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess};
-use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -90,14 +90,8 @@ fn test_continuous_epoch_sync_info_population() {
     let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     let mut last_epoch_id = EpochId::default();
@@ -248,14 +242,8 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
     let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     let mut last_epoch_id = EpochId::default();
@@ -333,11 +321,10 @@ fn test_node_after_simulated_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .real_stores()
         .use_state_snapshots()
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 

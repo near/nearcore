@@ -1446,7 +1446,7 @@ fn test_trie_and_flat_state_equality() {
 #[test]
 fn test_genesis_hash() {
     let genesis = near_mainnet_res::mainnet_genesis();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let store = near_store::test_utils::create_test_store();
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -1518,7 +1518,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::test();
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {

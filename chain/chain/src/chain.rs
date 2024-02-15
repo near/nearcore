@@ -1821,6 +1821,10 @@ impl Chain {
             }
         }
 
+        if let Err(err) = self.garbage_collect_state_transition_data(&block) {
+            tracing::error!(target: "chain", ?err, "failed to garbage collect state transition data");
+        }
+
         self.pending_state_patch.clear();
 
         if let Some(tip) = &new_head {
@@ -2990,6 +2994,10 @@ impl Chain {
             );
         }
 
+        // Nit: it would be more elegant to only call this after resharding, not
+        // after every state sync but it doesn't hurt.
+        self.process_snapshot_after_resharding()?;
+
         Ok(())
     }
 
@@ -3532,10 +3540,10 @@ impl Chain {
         Ok(())
     }
 
-    // Similar to `process_snapshot` but only called after resharding is done.
-    // This is to speed up the snapshot removal once resharding is finished in
-    // order to minimize the storage overhead.
-    pub fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
+    // Similar to `process_snapshot` but only called after resharding and
+    // catchup is done. This is to speed up the snapshot removal once resharding
+    // is finished in order to minimize the storage overhead.
+    fn process_snapshot_after_resharding(&mut self) -> Result<(), Error> {
         let Some(snapshot_callbacks) = &self.snapshot_callbacks else { return Ok(()) };
 
         let tries = self.runtime_adapter.get_tries();

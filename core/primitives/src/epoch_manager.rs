@@ -128,6 +128,9 @@ impl AllEpochConfig {
 
     pub fn for_protocol_version(&self, protocol_version: ProtocolVersion) -> EpochConfig {
         let mut config = self.genesis_epoch_config.clone();
+
+        Self::config_stateless_net(&mut config, &self.chain_id, protocol_version);
+
         if !self.use_production_config {
             return config;
         }
@@ -141,6 +144,25 @@ impl AllEpochConfig {
         Self::config_test_overrides(&mut config, &self.test_overrides);
 
         config
+    }
+
+    // StatelessNet only. Lower the kickout threshold so the network is more stable while
+    // we figure out issues with block and chunk production.
+    fn config_stateless_net(
+        config: &mut EpochConfig,
+        chain_id: &str,
+        protocol_version: ProtocolVersion,
+    ) {
+        if chain_id == near_primitives_core::chains::STATELESSNET
+            && checked_feature!(
+                "stable",
+                LowerValidatorKickoutPercentForDebugging,
+                protocol_version
+            )
+        {
+            config.block_producer_kickout_threshold = 50;
+            config.chunk_producer_kickout_threshold = 50;
+        }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {

@@ -2792,7 +2792,7 @@ fn test_verify_chunk_state_witness() {
         vec![],
         Default::default(),
     );
-    let signature = signer.sign_chunk_state_witness(&witness_inner);
+    let signature = signer.sign_chunk_state_witness(&witness_inner).0;
 
     // Check chunk state witness validity.
     let mut chunk_state_witness = ChunkStateWitness { inner: witness_inner, signature };
@@ -2804,6 +2804,7 @@ fn test_verify_chunk_state_witness() {
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
-    chunk_state_witness.signature = bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner);
+    chunk_state_witness.signature =
+        bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner).0;
     assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
 }

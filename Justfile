@@ -7,6 +7,7 @@ with_macos_excludes := if os() == "macos" {
     ""
 }
 nightly_flags := "--features nightly,test_features"
+statelessnet_flags := "--features statelessnet_protocol"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -23,9 +24,12 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-non-default \
                 check-cargo-udeps \
                 (nextest "nightly" FLAGS) \
+                (nextest "statelessnet" FLAGS) \
                 (nextest "stable" FLAGS)
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
+# remove statelessnet everywhere once the program is finished, see
+# https://github.com/near/near-one-project-tracking/issues/20
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -43,6 +47,7 @@ nextest-unit TYPE *FLAGS:
         {{ ci_hack_nextest_profile }} \
         {{ with_macos_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
+           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
@@ -56,6 +61,7 @@ nextest-integration TYPE *FLAGS:
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
         {{ if TYPE == "nightly" { nightly_flags } \
+           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}

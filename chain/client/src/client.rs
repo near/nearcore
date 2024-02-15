@@ -531,7 +531,18 @@ impl Client {
     /// Produce block if we are block producer for given block `height`.
     /// Either returns produced block (not applied) or error.
     pub fn produce_block(&mut self, height: BlockHeight) -> Result<Option<Block>, Error> {
-        let _span = tracing::debug_span!(target: "client", "produce_block", height).entered();
+        self.produce_block_on_head(height, true)
+    }
+
+    /// Produce block for given `height` on top of chain head.
+    /// Either returns produced block (not applied) or error.
+    pub fn produce_block_on_head(
+        &mut self,
+        height: BlockHeight,
+        prepare_chunk_headers: bool,
+    ) -> Result<Option<Block>, Error> {
+        let _span =
+            tracing::debug_span!(target: "client", "produce_block_on_head", height).entered();
 
         let head = self.chain.head()?;
         assert_eq!(
@@ -539,10 +550,12 @@ impl Client {
             self.epoch_manager.get_epoch_id_from_prev_block(&head.prev_block_hash).unwrap()
         );
 
-        self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
-            &head.last_block_hash,
-            self.chunk_endorsement_tracker.as_ref(),
-        )?;
+        if prepare_chunk_headers {
+            self.chunk_inclusion_tracker.prepare_chunk_headers_ready_for_inclusion(
+                &head.last_block_hash,
+                self.chunk_endorsement_tracker.as_ref(),
+            )?;
+        }
 
         self.produce_block_on(height, head.last_block_hash)
     }
@@ -1373,8 +1386,12 @@ impl Client {
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
+
+        // TODO(#10569) We would like a proper error handling here instead of `expect`.
         persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())
             .expect("Could not persist chunk");
+
+        self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.

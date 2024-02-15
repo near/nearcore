@@ -1,8 +1,10 @@
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
 
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
@@ -14,7 +16,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::AccountInfo;
+use near_primitives::types::{AccountInfo, EpochId};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::checked_feature;
@@ -71,8 +73,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         protocol_treasury_account: accounts[num_validators].clone(),
         // Simply make all validators block producers.
         num_block_producer_seats: num_validators as NumSeats,
-        // Make all validators produce chunks for all shards.
-        minimum_validators_per_shard: num_validators as NumSeats,
+        // Each shard has 2 chunk prducers, so 4 shards, 8 chunk producers total.
+        minimum_validators_per_shard: 2,
         // Even though not used for the most recent protocol version,
         // this must still have the same length as the number of shards,
         // or else the genesis fails validation.
@@ -124,11 +126,9 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         genesis_config.total_supply += initial_balance + staked;
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
-    let chain_genesis = ChainGenesis::new(&genesis);
-
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts.iter().take(8).cloned().collect())
-        .real_epoch_managers_with_test_overrides(&genesis.config, epoch_config_test_overrides)
+        .epoch_managers_with_test_overrides(epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)
         .build();
     let mut tx_hashes = vec![];
@@ -193,17 +193,8 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             env.process_shards_manager_responses_and_finish_processing_blocks(j);
         }
 
-        // First propagate chunk state witnesses, then chunk endorsements.
-        // Note that validation of chunk state witness is done asynchonously
-        // which is why it's important to pass the expected set of chunk endorsements to wait for.
-        // We don't wait for endorsements from the next block producer, as block producers don't
-        // send endorsements to themselves.
-        let output = env.propagate_chunk_state_witnesses();
-        let next_block_producer = get_block_producer(&env, &tip, 2);
-        env.wait_to_propagate_chunk_endorsements(
-            output.chunk_hash_to_account_ids,
-            &next_block_producer,
-        );
+        let output = env.propagate_chunk_state_witnesses(false);
+        env.propagate_chunk_endorsements(false);
 
         found_differing_post_state_root_due_to_state_transitions |=
             output.found_differing_post_state_root_due_to_state_transitions;
@@ -256,4 +247,68 @@ fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountI
     let height = head.height + height_offset;
     let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
     block_producer
+}
+
+#[test]
+fn test_protocol_upgrade_81() {
+    init_integration_logger();
+
+    if !checked_feature!("stable", LowerValidatorKickoutPercentForDebugging, PROTOCOL_VERSION) {
+        println!("Test not applicable without LowerValidatorKickoutPercentForDebugging enabled");
+        return;
+    }
+    for is_statelessnet in [true, false] {
+        let validator_stake = 1000000 * ONE_NEAR;
+        let num_accounts = 9;
+        let accounts = (0..num_accounts)
+            .map(|i| format!("account{}", i).parse().unwrap())
+            .collect::<Vec<AccountId>>();
+        let num_validators = 8;
+        // Split accounts into 4 shards, so that each shard will store two
+        // validator accounts.
+        let shard_layout = ShardLayout::v1(
+            vec!["account2", "account4", "account6"]
+                .into_iter()
+                .map(|s| s.parse().unwrap())
+                .collect(),
+            None,
+            1,
+        );
+        let num_shards = shard_layout.shard_ids().count();
+        let genesis_config = GenesisConfig {
+            protocol_version: PROTOCOL_VERSION,
+            chain_id: if is_statelessnet {
+                "statelessnet".to_string()
+            } else {
+                "mocknet".to_string()
+            },
+            shard_layout,
+            validators: accounts
+                .iter()
+                .take(num_validators)
+                .map(|account_id| AccountInfo {
+                    account_id: account_id.clone(),
+                    public_key: create_test_signer(account_id.as_str()).public_key(),
+                    amount: validator_stake,
+                })
+                .collect(),
+            // The genesis requires this, so set it to something arbitrary.
+            protocol_treasury_account: accounts[num_validators].clone(),
+            num_block_producer_seats: num_validators as NumSeats,
+            minimum_validators_per_shard: num_validators as NumSeats,
+            num_block_producer_seats_per_shard: vec![8; num_shards],
+            block_producer_kickout_threshold: 90,
+            chunk_producer_kickout_threshold: 90,
+            ..Default::default()
+        };
+        let epoch_manager = EpochManager::new_arc_handle(create_test_store(), &genesis_config);
+        let config = epoch_manager.get_epoch_config(&EpochId::default()).unwrap();
+        if is_statelessnet {
+            assert_eq!(config.block_producer_kickout_threshold, 50);
+            assert_eq!(config.chunk_producer_kickout_threshold, 50);
+        } else {
+            assert_eq!(config.block_producer_kickout_threshold, 90);
+            assert_eq!(config.chunk_producer_kickout_threshold, 90);
+        }
+    }
 }

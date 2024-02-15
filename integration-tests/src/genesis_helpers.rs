@@ -21,7 +21,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);
-    let chain_genesis = ChainGenesis::new(genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =
@@ -44,7 +44,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let dir = tempdir().unwrap();
     let store = create_test_store();
     initialize_genesis_state(store.clone(), genesis, None);
-    let chain_genesis = ChainGenesis::new(genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime =

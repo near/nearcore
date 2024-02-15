@@ -12,7 +12,7 @@
 QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 // Files with descriptors after this one are intercepted for instruction counting marks.
-#define CATCH_BASE 0xcafebabe
+#define CATCH_BASE 0x0afebabe
 
 static uint64_t insn_count = 0;
 static uint64_t read_count = 0;

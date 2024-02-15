@@ -12,7 +12,9 @@ use chrono::{DateTime, Utc};
 use near_crypto::{KeyType, PublicKey, Signature};
 use std::sync::Arc;
 
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 pub struct BlockHeaderInnerLite {
     /// Height of this block.
     pub height: BlockHeight,
@@ -152,7 +154,9 @@ pub struct BlockHeaderInnerRestV3 {
 }
 
 /// Add `block_body_hash`
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 pub struct BlockHeaderInnerRestV4 {
     /// Hash of block body
     pub block_body_hash: CryptoHash,
@@ -331,7 +335,9 @@ pub struct BlockHeaderV3 {
 }
 
 /// V3 -> V4: Add hash of block body to inner_rest
-#[derive(BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    BorshSerialize, BorshDeserialize, serde::Serialize, Debug, Clone, Eq, PartialEq, Default,
+)]
 #[borsh(init=init)]
 pub struct BlockHeaderV4 {
     pub prev_hash: CryptoHash,
