@@ -149,6 +149,12 @@ impl TestEnv {
 
                 keep_going |= network_adapter.handle_filtered(|request| match request {
                     PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkRequest { .. },
+                    ) => {
+                        self.process_partial_encoded_chunk_request(i, request);
+                        None
+                    }
+                    PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::PartialEncodedChunkMessage {
                             account_id,
                             partial_encoded_chunk,
@@ -423,23 +429,37 @@ impl TestEnv {
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_id as usize];
-        let response = client
-            .runtime_adapter
-            .query(
-                shard_uid,
-                &last_chunk_header.prev_state_root(),
-                last_block.header().height(),
-                last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
-                last_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id },
-            )
-            .unwrap();
-        match response.kind {
-            QueryResponseKind::ViewAccount(account_view) => account_view,
-            _ => panic!("Wrong return value"),
+
+        for i in 0..self.clients.len() {
+            let tracks_shard = self.clients[i]
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self.get_client_id(i),
+                    shard_id,
+                )
+                .unwrap();
+            if tracks_shard {
+                let response = self.clients[i]
+                    .runtime_adapter
+                    .query(
+                        shard_uid,
+                        &last_chunk_header.prev_state_root(),
+                        last_block.header().height(),
+                        last_block.header().raw_timestamp(),
+                        last_block.header().prev_hash(),
+                        last_block.header().hash(),
+                        last_block.header().epoch_id(),
+                        &QueryRequest::ViewAccount { account_id },
+                    )
+                    .unwrap();
+                match response.kind {
+                    QueryResponseKind::ViewAccount(account_view) => return account_view,
+                    _ => panic!("Wrong return value"),
+                }
+            }
         }
+        panic!("No client tracks shard {}", shard_id);
     }
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {

@@ -341,6 +341,15 @@ impl TestEnvBuilder {
         ret.shard_trackers(shard_trackers)
     }
 
+    /// Calls track_all_shards only if the given boolean is true.
+    pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
+        if track_all_shards {
+            self.track_all_shards()
+        } else {
+            self
+        }
+    }
+
     /// Internal impl to make sure ShardTrackers are initialized.
     fn ensure_shard_trackers(self) -> Self {
         let ret = self.ensure_epoch_managers();
