@@ -623,13 +623,6 @@ impl TxTracker {
     }
 
     fn log_target_block(&self, msg: &StreamerMessage) {
-        // don't do any work here if we're definitely not gonna log it
-        if tracing::level_filters::LevelFilter::current()
-            > tracing::level_filters::LevelFilter::DEBUG
-        {
-            return;
-        }
-
         // right now we're just logging this, but it would be nice to collect/index this
         // and have some HTTP debug page where you can see how close the target chain is
         // to the source chain
