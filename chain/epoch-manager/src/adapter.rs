@@ -546,6 +546,10 @@ impl EpochManagerAdapter for EpochManagerHandle {
         epoch_manager.get_next_epoch_id_from_prev_block(parent_hash)
     }
 
+    /// For every `shard_id` in the current block, calculates the corresponding `shard_id``
+    /// in the previous block, taking into account potential resharding.
+    /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
+    /// The resulting Vec will always be of the same length as the `shard_ids` argument.
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
