@@ -109,7 +109,7 @@ impl Client {
             witness_chunk = ?chunk_header.chunk_hash(),
             witness_prev_block = ?chunk_header.prev_block_hash(),
             "Saving an orphaned ChunkStateWitness to orphan pool");
-        self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness);
+        self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
         Ok(HandleOrphanWitnessOutcome::SavedTooPool)
     }
 

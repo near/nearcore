@@ -583,6 +583,34 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_orphan_chunk_state_witness_total_count",
+        "Total number of orphaned chunk state witnesses that were saved for later processing",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_orphan_chunk_state_witness_pool_size",
+        "Number of orphaned witnesses kept in OrphanStateWitnessPool (by shard_id)",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
+pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_MEMORY_USED: Lazy<IntGaugeVec> =
+    Lazy::new(|| {
+        try_create_int_gauge_vec(
+            "near_orphan_chunk_state_witness_pool_memory_used",
+            "Memory in bytes consumed by the OrphanStateWitnessPool (by shard_id)",
+            &["shard_id"],
+        )
+        .unwrap()
+    });
+
 pub(crate) static BLOCK_PRODUCER_ENDORSED_STAKE_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_block_producer_endorsed_stake_ratio",
