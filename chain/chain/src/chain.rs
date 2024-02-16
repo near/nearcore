@@ -2103,16 +2103,6 @@ impl Chain {
         let head = self.head()?;
         let is_next = header.prev_hash() == &head.last_block_hash;
 
-        // Sandbox allows fast-forwarding, so only enable when not within sandbox
-        if !cfg!(feature = "sandbox") {
-            // A heuristic to prevent block height to jump too fast towards BlockHeight::max and cause
-            // overflow-related problems
-            let block_height = header.height();
-            if block_height > head.height + self.epoch_length * 20 {
-                return Err(Error::InvalidBlockHeight(block_height));
-            }
-        }
-
         // Block is an orphan if we do not know about the previous full block.
         if !is_next && !self.block_exists(header.prev_hash())? {
             // Before we add the block to the orphan pool, do some checks:
