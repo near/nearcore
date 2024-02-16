@@ -7,7 +7,7 @@ use crate::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use crate::Client;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::{ChainGenesis, Provenance};
@@ -515,7 +515,7 @@ impl TestEnv {
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[idx].clone().into(),
+            self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
             self.chain_genesis.clone(),
             self.clients[idx].epoch_manager.clone(),

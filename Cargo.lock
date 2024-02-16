@@ -3417,6 +3417,7 @@ dependencies = [
  "derive-enum-from-into",
  "derive_more",
  "futures",
+ "near-async-derive",
  "near-o11y",
  "near-performance-metrics",
  "once_cell",
@@ -3424,6 +3425,16 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+]
+
+[[package]]
+name = "near-async-derive"
+version = "0.0.0"
+dependencies = [
+ "pretty_assertions",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.32",
 ]
 
 [[package]]
