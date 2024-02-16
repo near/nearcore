@@ -171,3 +171,287 @@ mod metrics_tracker {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use near_primitives::hash::{hash, CryptoHash};
+    use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
+    use near_primitives::stateless_validation::ChunkStateWitness;
+    use near_primitives::types::{BlockHeight, ShardId};
+
+    use super::OrphanStateWitnessPool;
+
+    /// Make a dummy witness for testing
+    /// encoded_length is used to differentiate between witnesses with the same main parameters.
+    fn make_witness(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+        encoded_length: u64,
+    ) -> ChunkStateWitness {
+        let mut witness = ChunkStateWitness::new_dummy(height, shard_id, prev_block_hash);
+        match &mut witness.inner.chunk_header {
+            ShardChunkHeader::V3(header) => match &mut header.inner {
+                ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
+                _ => panic!(),
+            },
+            _ => panic!(),
+        }
+        witness
+    }
+
+    /// Generate fake block hash based on height
+    fn block(height: BlockHeight) -> CryptoHash {
+        hash(&height.to_be_bytes())
+    }
+
+    /// Assert that both Vecs are equal after sorting. It's order-independent, unlike the standard assert_eq!
+    fn assert_same(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
+        let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
+            let bytes1 = borsh::to_vec(witness1).unwrap();
+            let bytes2 = borsh::to_vec(witness2).unwrap();
+            bytes1.cmp(&bytes2)
+        };
+        observed.sort_by(sort_comparator);
+        expected.sort_by(sort_comparator);
+        if observed != expected {
+            let print_witness_info = |witness: &ChunkStateWitness| {
+                let header = &witness.inner.chunk_header;
+                eprintln!(
+                    "- height = {}, shard_id = {}, encoded_length: {} prev_block: {}",
+                    header.height_created(),
+                    header.shard_id(),
+                    header.encoded_length(),
+                    header.prev_block_hash()
+                );
+            };
+            eprintln!("Mismatch!");
+            eprintln!("Expected {} witnesses:", expected.len());
+            for witness in expected {
+                print_witness_info(&witness);
+            }
+            eprintln!("Observed {} witnesse:", observed.len());
+            for witness in observed {
+                print_witness_info(&witness);
+            }
+            eprintln!("==================");
+            panic!("assert_same failed");
+        }
+    }
+
+    // Check that the pool is empty, all witnesses have been removed from both fields
+    fn assert_empty(pool: &OrphanStateWitnessPool) {
+        assert!(pool.witness_cache.is_empty());
+        assert!(pool.waiting_for_block.is_empty());
+    }
+
+    /// Basic functionality - inserting witnesses and fetching them works as expected
+    #[test]
+    fn basic() {
+        let mut pool = OrphanStateWitnessPool::new(10);
+
+        let witness1 = make_witness(100, 1, block(99), 0);
+        let witness2 = make_witness(100, 2, block(99), 0);
+        let witness3 = make_witness(101, 1, block(100), 0);
+        let witness4 = make_witness(101, 2, block(100), 0);
+
+        pool.add_orphan_state_witness(witness1.clone(), 0);
+        pool.add_orphan_state_witness(witness2.clone(), 0);
+        pool.add_orphan_state_witness(witness3.clone(), 0);
+        pool.add_orphan_state_witness(witness4.clone(), 0);
+
+        let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_same(waiting_for_99, vec![witness1, witness2]);
+
+        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+        assert_same(waiting_for_100, vec![witness3, witness4]);
+
+        assert_empty(&pool);
+    }
+
+    /// When a new witness is inserted with the same (shard_id, height) as an existing witness, the new witness
+    /// should replace the old one. The old one should be ejected from the pool.
+    #[test]
+    fn replacing() {
+        let mut pool = OrphanStateWitnessPool::new(10);
+
+        // The old witness is replaced when the awaited block is the same
+        {
+            let witness1 = make_witness(100, 1, block(99), 0);
+            let witness2 = make_witness(100, 1, block(99), 1);
+            pool.add_orphan_state_witness(witness1, 0);
+            pool.add_orphan_state_witness(witness2.clone(), 0);
+
+            let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+            assert_same(waiting_for_99, vec![witness2]);
+        }
+
+        // The old witness is replaced when the awaited block is different, waiting_for_block is cleaned as expected
+        {
+            let witness3 = make_witness(102, 1, block(100), 0);
+            let witness4 = make_witness(102, 1, block(101), 0);
+            pool.add_orphan_state_witness(witness3, 0);
+            pool.add_orphan_state_witness(witness4.clone(), 0);
+
+            let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
+            assert_same(waiting_for_101, vec![witness4]);
+
+            let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+            assert_same(waiting_for_100, vec![]);
+        }
+
+        assert_empty(&pool);
+    }
+
+    /// The pool has limited capacity. Once it hits the capacity, the least-recently used witness will be ejected.
+    #[test]
+    fn limited_capacity() {
+        let mut pool = OrphanStateWitnessPool::new(2);
+
+        let witness1 = make_witness(102, 1, block(101), 0);
+        let witness2 = make_witness(101, 1, block(100), 0);
+        let witness3 = make_witness(101, 2, block(100), 0);
+
+        pool.add_orphan_state_witness(witness1, 0);
+        pool.add_orphan_state_witness(witness2.clone(), 0);
+
+        // Inserting the third witness causes the pool to go over capacity, so witness1 should be ejected.
+        pool.add_orphan_state_witness(witness3.clone(), 0);
+
+        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+        assert_same(waiting_for_100, vec![witness2, witness3]);
+
+        // witness1 should be ejected, no one is waiting for block 101
+        let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
+        assert_same(waiting_for_101, vec![]);
+
+        assert_empty(&pool);
+    }
+
+    /// When a witness is ejected from the cache, it should also be removed from the corresponding waiting_for_block set.
+    /// But it's not enough to remove it from the set, if the set has become empty we must also remove the set itself
+    /// from `waiting_for_block`. Otherwise `waiting_for_block` would have a constantly increasing amount of empty sets,
+    /// which would cause a memory leak.
+    #[test]
+    fn empty_waiting_sets_cleared_on_ejection() {
+        let mut pool = OrphanStateWitnessPool::new(1);
+
+        let witness1 = make_witness(100, 1, block(99), 0);
+        pool.add_orphan_state_witness(witness1, 0);
+
+        // When witness2 is added to the pool witness1 gets ejected from the cache (capacity is set to 1).
+        // When this happens the set of witness waiting for block 99 will become empty. Then this empty set should
+        // be removed from `waiting_for_block`, otherwise there'd be a memory leak.
+        let witness2 = make_witness(100, 2, block(100), 0);
+        pool.add_orphan_state_witness(witness2.clone(), 0);
+
+        // waiting_for_block contains only one entry, list of witnesses waiting for block 100.
+        assert_eq!(pool.waiting_for_block.len(), 1);
+
+        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+        assert_same(waiting_for_100, vec![witness2]);
+
+        assert_empty(&pool);
+    }
+
+    /// OrphanStateWitnessPool can handle large shard ids without any problems, it doesn't keep a Vec indexed by shard_id
+    #[test]
+    fn large_shard_id() {
+        let mut pool = OrphanStateWitnessPool::new(10);
+
+        let large_shard_id = ShardId::MAX;
+        let witness = make_witness(101, large_shard_id, block(99), 0);
+        pool.add_orphan_state_witness(witness.clone(), 0);
+
+        let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_same(waiting_for_99, vec![witness]);
+
+        assert_empty(&pool);
+    }
+
+    /// An OrphanStateWitnessPool with 0 capacity shouldn't crash, it should just ignore all witnesses
+    #[test]
+    fn zero_capacity() {
+        let mut pool = OrphanStateWitnessPool::new(0);
+
+        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, 1, block(99), 0), 1);
+        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
+
+        let waiting = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_same(waiting, vec![]);
+
+        assert_empty(&pool);
+    }
+
+    /// OrphanStateWitnessPool has a Drop implementation which clears the metrics.
+    /// It's hard to test it because metrics are global and it could interfere with other tests,
+    /// but we can at least test that it doesn't crash. That's always something.
+    #[test]
+    fn destructor_doesnt_crash() {
+        let mut pool = OrphanStateWitnessPool::new(10);
+        pool.add_orphan_state_witness(make_witness(100, 0, block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 0);
+        pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 1);
+        pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
+        std::mem::drop(pool);
+        println!("Ok!");
+    }
+
+    /// A longer test scenario
+    #[test]
+    fn scenario() {
+        let mut pool = OrphanStateWitnessPool::new(5);
+
+        // Witnesses for shards 0, 1, 2, 3 at height 1000, looking for block 99
+        let witness0 = make_witness(100, 0, block(99), 0);
+        let witness1 = make_witness(100, 1, block(99), 0);
+        let witness2 = make_witness(100, 2, block(99), 0);
+        let witness3 = make_witness(100, 3, block(99), 0);
+        pool.add_orphan_state_witness(witness0, 0);
+        pool.add_orphan_state_witness(witness1, 0);
+        pool.add_orphan_state_witness(witness2, 0);
+        pool.add_orphan_state_witness(witness3, 0);
+
+        // Another witness on shard 1, height 100. Should replace witness1
+        let witness5 = make_witness(100, 1, block(99), 1);
+        pool.add_orphan_state_witness(witness5.clone(), 0);
+
+        // Witnesses for shards 0, 1, 2, 3 at height 101, looking for block 100
+        let witness6 = make_witness(101, 0, block(100), 0);
+        let witness7 = make_witness(101, 1, block(100), 0);
+        let witness8 = make_witness(101, 2, block(100), 0);
+        let witness9 = make_witness(101, 3, block(100), 0);
+        pool.add_orphan_state_witness(witness6, 0);
+        pool.add_orphan_state_witness(witness7.clone(), 0);
+        pool.add_orphan_state_witness(witness8.clone(), 0);
+        pool.add_orphan_state_witness(witness9.clone(), 0);
+
+        // Pool capacity is 5, so three witnesses at height 100 should be ejected.
+        // The only surviving witness should be witness5, which was the freshest one among them
+        let looking_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_same(looking_for_99, vec![witness5]);
+
+        // Let's add a few more witnesses
+        let witness10 = make_witness(102, 1, block(101), 0);
+        let witness11 = make_witness(102, 4, block(100), 0);
+        let witness12 = make_witness(102, 1, block(77), 0);
+        pool.add_orphan_state_witness(witness10, 0);
+        pool.add_orphan_state_witness(witness11.clone(), 0);
+        pool.add_orphan_state_witness(witness12.clone(), 0);
+
+        // Check that witnesses waiting for block 100 are correct
+        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+        assert_same(waiting_for_100, vec![witness7, witness8, witness9, witness11]);
+
+        // At this point the pool contains only witness12, no one should be waiting for block 101.
+        let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
+        assert_same(waiting_for_101, vec![]);
+
+        let waiting_for_77 = pool.take_state_witnesses_waiting_for_block(&block(77));
+        assert_same(waiting_for_77, vec![witness12]);
+
+        assert_empty(&pool);
+    }
+}
