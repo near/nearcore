@@ -1,7 +1,7 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
@@ -70,11 +70,11 @@ fn setup_network_node(
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(LateBoundSender::default());
+    let network_adapter = LateBoundSender::new();
+    let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
     let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
+        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client_actor = start_client(
         client_config.clone(),
         chain_genesis.clone(),
@@ -83,7 +83,7 @@ fn setup_network_node(
         runtime.clone(),
         config.node_id(),
         state_sync_adapter,
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
         telemetry_actor,
@@ -99,7 +99,7 @@ fn setup_network_node(
         epoch_manager.clone(),
         shard_tracker.clone(),
         runtime.clone(),
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         client_config.clone(),
         adv,
     );

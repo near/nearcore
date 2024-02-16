@@ -1,4 +1,5 @@
-use futures::{future::BoxFuture, FutureExt};
+pub use futures::future::BoxFuture; // pub for macros
+use futures::FutureExt;
 
 /// Abstraction for something that can drive futures.
 ///

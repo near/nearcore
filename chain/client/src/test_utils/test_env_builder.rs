@@ -3,7 +3,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::IntoSender;
+use near_async::messaging::{IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -482,7 +482,7 @@ impl TestEnvBuilder {
                     clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
-                    network_adapter.into(),
+                    network_adapter.as_multi_sender(),
                     epoch_manager.into_adapter(),
                     shard_tracker,
                     runtime,
@@ -521,7 +521,7 @@ impl TestEnvBuilder {
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
                         false,
-                        network_adapter.into(),
+                        network_adapter.as_multi_sender(),
                         shards_manager_adapter,
                         chain_genesis.clone(),
                         epoch_manager.into_adapter(),

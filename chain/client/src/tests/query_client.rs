@@ -1,9 +1,9 @@
 use actix::System;
 use futures::{future, FutureExt};
+use near_async::messaging::IntoMultiSender;
 use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::adapter::{BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader};
@@ -223,7 +223,7 @@ fn test_state_request() {
             true,
             false,
             true,
-            Arc::new(MockPeerManagerAdapter::default()).into(),
+            MockPeerManagerAdapter::default().into_multi_sender(),
             100,
             Utc::now(),
         );
