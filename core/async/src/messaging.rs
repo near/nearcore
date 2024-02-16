@@ -70,7 +70,7 @@ impl<M> Sender<M> {
 }
 
 /// Extension trait (not for anyone to implement), that allows a
-/// Sender<MessageExpectingResponse<M, R>> to be used to send a message and then
+/// Sender<MessageWithCallback<M, R>> to be used to send a message and then
 /// getting a future of the response.
 ///
 /// See `AsyncSendError` for reasons that the future may resolve to an error result.
@@ -78,9 +78,7 @@ pub trait SendAsync<M, R: Send + 'static> {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>>;
 }
 
-impl<M, R: Send + 'static, A: CanSend<MessageExpectingResponse<M, R>> + ?Sized> SendAsync<M, R>
-    for A
-{
+impl<M, R: Send + 'static, A: CanSend<MessageWithCallback<M, R>> + ?Sized> SendAsync<M, R> for A {
     fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         // To send a message and get a future of the response, we use a oneshot
         // channel that is resolved when the responder function is called. It's
@@ -90,12 +88,12 @@ impl<M, R: Send + 'static, A: CanSend<MessageExpectingResponse<M, R>> + ?Sized> 
         let (sender, receiver) = oneshot::channel::<Result<R, AsyncSendError>>();
         let future = async move { receiver.await.unwrap_or_else(|_| Err(AsyncSendError::Dropped)) };
         let responder = Box::new(move |r| sender.send(r).ok().unwrap());
-        self.send(MessageExpectingResponse { message, responder });
+        self.send(MessageWithCallback { message, callback: responder });
         future.boxed()
     }
 }
 
-impl<M, R: Send + 'static> Sender<MessageExpectingResponse<M, R>> {
+impl<M, R: Send + 'static> Sender<MessageWithCallback<M, R>> {
     /// Same as the above, but for a concrete Sender type.
     pub fn send_async(&self, message: M) -> BoxFuture<'static, Result<R, AsyncSendError>> {
         self.sender.send_async(message)
@@ -130,20 +128,20 @@ impl Display for AsyncSendError {
 }
 
 /// Used to implement an async sender. An async sender is just a Sender whose
-/// message is `MessageExpectingResponse<M, R>`, which is a message plus a
-/// responder function (which resolves the future that send_async returns).
-pub struct MessageExpectingResponse<T, R> {
+/// message is `MessageWithCallback<M, R>`, which is a message plus a
+/// callback function (which resolves the future that send_async returns).
+pub struct MessageWithCallback<T, R> {
     pub message: T,
-    pub responder: Box<dyn FnOnce(Result<R, AsyncSendError>) + Send>,
+    pub callback: Box<dyn FnOnce(Result<R, AsyncSendError>) + Send>,
 }
 
-impl<T: Debug, R> Debug for MessageExpectingResponse<T, R> {
+impl<T: Debug, R> Debug for MessageWithCallback<T, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("MessageExpectingResponse").field(&self.message).finish()
+        f.debug_tuple("MessageWithCallback").field(&self.message).finish()
     }
 }
 
-pub type AsyncSender<M, R> = Sender<MessageExpectingResponse<M, R>>;
+pub type AsyncSender<M, R> = Sender<MessageWithCallback<M, R>>;
 
 /// Sometimes we want to be able to pass in a sender that has not yet been fully constructed.
 /// LateBoundSender can act as a placeholder to pass CanSend and CanSendAsync capabilities

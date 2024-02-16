@@ -1,4 +1,4 @@
-use crate::messaging::{CanSend, MessageExpectingResponse};
+use crate::messaging::{CanSend, MessageWithCallback};
 use std::marker::PhantomData;
 
 /// Allows a Sender to be created from a raw function.
@@ -32,10 +32,10 @@ impl<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static> SendAsyncFun
 }
 
 impl<M: 'static, R: 'static, F: Fn(M) -> R + Send + Sync + 'static>
-    CanSend<MessageExpectingResponse<M, R>> for SendAsyncFunction<M, R, F>
+    CanSend<MessageWithCallback<M, R>> for SendAsyncFunction<M, R, F>
 {
-    fn send(&self, message: MessageExpectingResponse<M, R>) {
-        let MessageExpectingResponse { message, responder } = message;
+    fn send(&self, message: MessageWithCallback<M, R>) {
+        let MessageWithCallback { message, callback: responder } = message;
         responder(Ok((self.f)(message)));
     }
 }

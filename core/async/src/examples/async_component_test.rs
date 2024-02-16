@@ -2,7 +2,7 @@ use super::async_component::{
     InnerComponent, InnerRequest, InnerResponse, OuterComponent, OuterRequest, OuterResponse,
 };
 use crate::{
-    messaging::{CanSend, IntoSender, MessageExpectingResponse},
+    messaging::{CanSend, IntoSender, MessageWithCallback},
     test_loop::{
         event_handler::{capture_events, LoopEventHandler},
         futures::{drive_futures, TestLoopFutureSpawner, TestLoopTask},
@@ -24,8 +24,8 @@ struct TestData {
 enum TestEvent {
     OuterResponse(OuterResponse),
     OuterRequest(OuterRequest),
-    // Requests that need responses need to use MessageExpectingResponse.
-    InnerRequest(MessageExpectingResponse<InnerRequest, InnerResponse>),
+    // Requests that need responses need to use MessageWithCallback.
+    InnerRequest(MessageWithCallback<InnerRequest, InnerResponse>),
     // Arc<TestLoopTask> is needed to support futures.
     Task(Arc<TestLoopTask>),
 }
@@ -39,11 +39,10 @@ fn outer_request_handler(
 }
 
 fn inner_request_handler(
-) -> LoopEventHandler<InnerComponent, MessageExpectingResponse<InnerRequest, InnerResponse>> {
+) -> LoopEventHandler<InnerComponent, MessageWithCallback<InnerRequest, InnerResponse>> {
     LoopEventHandler::new_simple(
-        |event: MessageExpectingResponse<InnerRequest, InnerResponse>,
-         data: &mut InnerComponent| {
-            (event.responder)(Ok(data.process_request(event.message)));
+        |event: MessageWithCallback<InnerRequest, InnerResponse>, data: &mut InnerComponent| {
+            (event.callback)(Ok(data.process_request(event.message)));
         },
     )
 }

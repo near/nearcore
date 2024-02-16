@@ -1,4 +1,4 @@
-use crate::messaging::{AsyncSendError, CanSend, MessageExpectingResponse};
+use crate::messaging::{AsyncSendError, CanSend, MessageWithCallback};
 use near_o11y::{WithSpanContext, WithSpanContextExt};
 
 /// An actix Addr implements CanSend for any message type that the actor handles.
@@ -16,15 +16,15 @@ where
 
 pub type ActixResult<T> = <T as actix::Message>::Result;
 
-impl<M, A> CanSend<MessageExpectingResponse<M, M::Result>> for actix::Addr<A>
+impl<M, A> CanSend<MessageWithCallback<M, M::Result>> for actix::Addr<A>
 where
     M: actix::Message + Send + 'static,
     M::Result: Send,
     A: actix::Actor + actix::Handler<M>,
     A::Context: actix::dev::ToEnvelope<A, M>,
 {
-    fn send(&self, message: MessageExpectingResponse<M, M::Result>) {
-        let MessageExpectingResponse { message, responder } = message;
+    fn send(&self, message: MessageWithCallback<M, M::Result>) {
+        let MessageWithCallback { message, callback: responder } = message;
         let future = self.send(message);
         actix::spawn(async move {
             match future.await {
@@ -83,18 +83,18 @@ where
     }
 }
 
-impl<M, S> CanSend<MessageExpectingResponse<M, M::Result>> for AddrWithAutoSpanContext<S>
+impl<M, S> CanSend<MessageWithCallback<M, M::Result>> for AddrWithAutoSpanContext<S>
 where
     M: actix::Message + Send + 'static,
     M::Result: Send,
     S: actix::Actor,
-    actix::Addr<S>: CanSend<MessageExpectingResponse<WithSpanContext<M>, M::Result>>,
+    actix::Addr<S>: CanSend<MessageWithCallback<WithSpanContext<M>, M::Result>>,
 {
-    fn send(&self, message: MessageExpectingResponse<M, M::Result>) {
-        let MessageExpectingResponse { message, responder } = message;
+    fn send(&self, message: MessageWithCallback<M, M::Result>) {
+        let MessageWithCallback { message, callback: responder } = message;
         CanSend::send(
             &self.inner,
-            MessageExpectingResponse { message: message.with_span_context(), responder },
+            MessageWithCallback { message: message.with_span_context(), callback: responder },
         );
     }
 }

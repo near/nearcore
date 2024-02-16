@@ -6,7 +6,7 @@ use crate::types::{
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
 use futures::{future, Future, FutureExt};
-use near_async::messaging::{CanSend, MessageExpectingResponse};
+use near_async::messaging::{CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
 use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
 use near_primitives::hash::hash;
@@ -233,16 +233,16 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl CanSend<MessageExpectingResponse<PeerManagerMessageRequest, PeerManagerMessageResponse>>
+impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>>
     for MockPeerManagerAdapter
 {
     fn send(
         &self,
-        message: MessageExpectingResponse<PeerManagerMessageRequest, PeerManagerMessageResponse>,
+        message: MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     ) {
         self.requests.write().unwrap().push_back(message.message);
         self.notify.notify_one();
-        (message.responder)(Ok(PeerManagerMessageResponse::NetworkResponses(
+        (message.callback)(Ok(PeerManagerMessageResponse::NetworkResponses(
             NetworkResponses::NoResponse,
         )));
     }

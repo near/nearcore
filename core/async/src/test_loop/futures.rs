@@ -26,14 +26,14 @@ use std::task::Context;
 //
 //   2. A way to send a message to the TestLoop and expect a response as a
 //      future, which will resolve whenever the TestLoop handles the message.
-//      To support this, use MessageExpectingResponse<Request, Response> as the
+//      To support this, use MessageWithCallback<Request, Response> as the
 //      event type, and in the handler, call (event.responder)(result)
 //      (possibly asynchronously) to complete the future.
 //
 //      This is needed to support the AsyncSender interface, which is required
 //      by some components as they expect a response to each message. The way
 //      this is implemented is by implementing a conversion from
-//      DelaySender<MessageExpectingResponse<Request, Response>> to
+//      DelaySender<MessageWithCallback<Request, Response>> to
 //      AsyncSender<Request, Response>.
 
 /// A message, plus a response callback. This should be used as the event type
