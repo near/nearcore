@@ -4182,7 +4182,15 @@ impl Chain {
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
-        let prev_shard_id = epoch_manager.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
+        let prev_shard_id = *epoch_manager
+            .get_prev_shard_ids(prev_block.hash(), vec![shard_id])?
+            .first()
+            .ok_or_else(|| {
+                Error::Other(
+                    "get_prev_chunk_header: no parent shard_id, this should be impossible"
+                        .to_string(),
+                )
+            })?;
         Ok(prev_block
             .chunks()
             .get(prev_shard_id as usize)
