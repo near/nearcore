@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lru::LruCache;
+use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, ShardId};
@@ -100,6 +101,6 @@ impl OrphanStateWitnessPool {
 
 impl Default for OrphanStateWitnessPool {
     fn default() -> OrphanStateWitnessPool {
-        OrphanStateWitnessPool::new(12)
+        OrphanStateWitnessPool::new(default_orphan_state_witness_pool_size())
     }
 }

@@ -67,6 +67,7 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+        orphan_witness_pool_size: usize,
     ) -> Self {
         Self {
             my_signer,
@@ -74,7 +75,7 @@ impl ChunkValidator {
             network_sender,
             runtime_adapter,
             chunk_endorsement_tracker,
-            orphan_witness_pool: OrphanStateWitnessPool::default(),
+            orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
         }
     }
 
