@@ -28,8 +28,8 @@ use near_primitives::version::{
 use near_primitives_core::account::id::AccountType;
 use near_store::{
     get_access_key, get_code, get_yielded_promise_indices, remove_access_key, remove_account,
-    remove_yielded_promise, set_access_key, set_code, set_yielded_promise,
-    set_yielded_promise_indices, StorageError, TrieUpdate,
+    set_access_key, set_code, set_yielded_promise, set_yielded_promise_indices, StorageError,
+    TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -310,7 +310,6 @@ pub(crate) fn action_function_call(
 
         // Create data receipts for resumed yields
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|(data_id, data)| {
-            remove_yielded_promise(state_update, data_id);
             Receipt {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),

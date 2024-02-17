@@ -10,6 +10,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
+use std::collections::HashSet;
 
 use crate::config::safe_add_gas;
 
@@ -17,7 +18,7 @@ use crate::config::safe_add_gas;
 type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
-type YieldedDataIds = Vec<(AccountId, CryptoHash)>;
+type YieldedDataIds = HashSet<(AccountId, CryptoHash)>;
 type DataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,7 +130,7 @@ impl ReceiptManager {
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
         self.action_receipts.push((receiver_id.clone(), new_receipt));
-        self.yielded_data_ids.push((receiver_id, input_data_id));
+        self.yielded_data_ids.insert((receiver_id, input_data_id));
         Ok(new_receipt_index)
     }
 
