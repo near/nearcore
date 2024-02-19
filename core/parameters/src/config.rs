@@ -60,6 +60,19 @@ impl RuntimeConfig {
         }
     }
 
+    pub fn wasmcov() -> Self {
+        let config_store = super::config_store::RuntimeConfigStore::new(None);
+        let mut wasm_config =
+            crate::vm::Config::clone(&config_store.get_config(PROTOCOL_VERSION).wasm_config);
+        wasm_config.make_free();
+        wasm_config.limit_config.max_total_log_length = u64::MAX;
+        Self {
+            fees: RuntimeFeesConfig::free(),
+            wasm_config,
+            account_creation_config: AccountCreationConfig::default(),
+        }
+    }
+
     pub fn storage_amount_per_byte(&self) -> Balance {
         self.fees.storage_usage_config.storage_amount_per_byte
     }

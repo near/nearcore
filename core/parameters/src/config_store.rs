@@ -138,6 +138,11 @@ impl RuntimeConfigStore {
         Self::with_one_config(RuntimeConfig::free())
     }
 
+    /// Constructs store with a single config with zero costs.
+    pub fn wasmcov() -> Self {
+        Self::with_one_config(RuntimeConfig::wasmcov())
+    }
+
     /// Returns a `RuntimeConfig` for the corresponding protocol version.
     pub fn get_config(&self, protocol_version: ProtocolVersion) -> &Arc<RuntimeConfig> {
         self.store
