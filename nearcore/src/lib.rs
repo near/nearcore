@@ -10,7 +10,7 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender};
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
@@ -296,17 +296,17 @@ pub fn start_with_config_and_synchronization(
     };
 
     // State Sync actors
-    let client_adapter_for_sync = Arc::new(LateBoundSender::default());
-    let network_adapter_for_sync = Arc::new(LateBoundSender::default());
+    let client_adapter_for_sync = LateBoundSender::new();
+    let network_adapter_for_sync = LateBoundSender::new();
     let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         client_adapter_for_sync.as_sender(),
         network_adapter_for_sync.as_sender(),
     )));
 
     let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(LateBoundSender::default());
-    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
+    let network_adapter = LateBoundSender::new();
+    let shards_manager_adapter = LateBoundSender::new();
+    let client_adapter_for_shards_manager = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -315,7 +315,7 @@ pub fn start_with_config_and_synchronization(
         view_epoch_manager.clone(),
         view_shard_tracker,
         view_runtime.clone(),
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         config.client_config.clone(),
         adv.clone(),
     );
@@ -323,7 +323,7 @@ pub fn start_with_config_and_synchronization(
     let state_snapshot_actor = Arc::new(
         StateSnapshotActor::new(
             runtime.get_flat_storage_manager(),
-            network_adapter.clone().into(),
+            network_adapter.as_multi_sender(),
             runtime.get_tries(),
         )
         .start(),
@@ -341,7 +341,7 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         node_id,
         sync_adapter,
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,

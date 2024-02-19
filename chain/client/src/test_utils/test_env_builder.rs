@@ -3,7 +3,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::IntoSender;
+use near_async::messaging::{IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -341,6 +341,15 @@ impl TestEnvBuilder {
         ret.shard_trackers(shard_trackers)
     }
 
+    /// Calls track_all_shards only if the given boolean is true.
+    pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
+        if track_all_shards {
+            self.track_all_shards()
+        } else {
+            self
+        }
+    }
+
     /// Internal impl to make sure ShardTrackers are initialized.
     fn ensure_shard_trackers(self) -> Self {
         let ret = self.ensure_epoch_managers();
@@ -473,7 +482,7 @@ impl TestEnvBuilder {
                     clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
-                    network_adapter.into(),
+                    network_adapter.as_multi_sender(),
                     epoch_manager.into_adapter(),
                     shard_tracker,
                     runtime,
@@ -512,7 +521,7 @@ impl TestEnvBuilder {
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
                         false,
-                        network_adapter.into(),
+                        network_adapter.as_multi_sender(),
                         shards_manager_adapter,
                         chain_genesis.clone(),
                         epoch_manager.into_adapter(),

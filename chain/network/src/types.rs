@@ -11,9 +11,7 @@ pub use crate::network_protocol::{
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::{StateSync, StateSyncResponse};
-use near_async::messaging::{
-    AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
-};
+use near_async::messaging::{AsyncSender, Sender};
 use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
@@ -370,27 +368,11 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(Clone, derive_more::AsRef)]
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerAdapter {
-    pub async_request_sender:
-        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>,
+    pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
-}
-
-impl<
-        A: CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
-            + CanSend<PeerManagerMessageRequest>
-            + CanSend<SetChainInfo>,
-    > From<Arc<A>> for PeerManagerAdapter
-{
-    fn from(arc: Arc<A>) -> Self {
-        Self {
-            async_request_sender: arc.as_async_sender(),
-            request_sender: arc.as_sender(),
-            set_chain_info_sender: arc.as_sender(),
-        }
-    }
 }
 
 #[cfg(test)]
