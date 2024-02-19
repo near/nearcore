@@ -45,7 +45,10 @@ fn hypercall(index: u32) -> u64 {
         };
         assert_eq!(result.raw_os_error(), rustix::io::Errno::BADF.raw_os_error());
         let buffer = u64::from_ne_bytes(buffer);
-        assert!(buffer != 0xffff_ffff_ffff_ffff, "this mode must run under qemu with the counter_plugin");
+        assert!(
+            buffer != 0xffff_ffff_ffff_ffff,
+            "this mode must run under qemu with the counter_plugin"
+        );
         buffer
     }
 }
