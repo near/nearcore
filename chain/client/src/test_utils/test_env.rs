@@ -553,6 +553,11 @@ impl TestEnv {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
     }
 
+    /// Returns the index of client with the given [`AccoountId`].
+    pub fn get_client_index(&self, account_id: &AccountId) -> usize {
+        self.account_indices.index(account_id)
+    }
+
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
