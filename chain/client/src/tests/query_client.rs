@@ -291,6 +291,7 @@ fn test_garbage_collection() {
             vec![false, true], // first validator non-archival, second archival
             vec![true, true],
             true,
+            None,
             Box::new(
                 move |conns,
                       _,

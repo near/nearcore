@@ -79,6 +79,7 @@ fn test_consensus_with_epoch_switches() {
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, from_whom: AccountId, msg: &PeerManagerMessageRequest| {
                 let mut all_blocks: RwLockWriteGuard<BTreeMap<BlockHeight, Block>> =
                     all_blocks.write().unwrap();

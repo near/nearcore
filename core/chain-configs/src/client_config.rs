@@ -301,6 +301,25 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::from_millis(200))
 }
 
+/// Config for the Chunk Distribution Network feature.
+/// This allows nodes to push and pull chunks from a central stream.
+/// The two benefits of this approach are: (1) less request/response traffic
+/// on the peer-to-peer network and (2) lower latency for RPC nodes indexing the chain.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct ChunkDistributionNetworkConfig {
+    pub enabled: bool,
+    pub uris: ChunkDistributionUris,
+}
+
+/// URIs for the Chunk Distribution Network feature.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct ChunkDistributionUris {
+    /// URI for pulling chunks from the stream.
+    pub get: String,
+    /// URI for publishing chunks to the stream.
+    pub set: String,
+}
+
 /// ClientConfig where some fields can be updated at runtime.
 #[derive(Clone, serde::Serialize)]
 pub struct ClientConfig {
@@ -419,6 +438,11 @@ pub struct ClientConfig {
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
+    /// Optional config for the Chunk Distribution Network feature.
+    /// If set to `None` then this node does not participate in the Chunk Distribution Network.
+    /// Nodes not participating will still function fine, but possibly with higher
+    /// latency due to the need of requesting chunks over the peer-to-peer network.
+    pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
 }
 
 impl ClientConfig {
@@ -502,6 +526,7 @@ impl ClientConfig {
                 default_produce_chunk_add_transactions_time_limit(),
                 "produce_chunk_add_transactions_time_limit",
             ),
+            chunk_distribution_network: None,
         }
     }
 }
