@@ -24,7 +24,7 @@ When deciding how to instrument a specific part of the code, consider the follow
 1. Do I need execution timing information? If so, use a span; otherwise
 2. Do I need call stack information? If so, use a span; otherwise
 3. Do I need to preserve information about inputs or outputs to a specific section of the code? If
-   so, use key-values on a pre-existing spans or an event; otherwise
+   so, use key-values on a pre-existing span or an event; otherwise
 4. Use an event if it represents information applicable to a single point of execution trace.
 
 As of writing (February 2024) our codebase uses spans somewhat sparsely and relies on events
