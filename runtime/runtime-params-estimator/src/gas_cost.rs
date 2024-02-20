@@ -54,8 +54,7 @@ impl GasCost {
     pub(crate) fn measure(metric: GasMetric) -> GasClock {
         let start = Instant::now();
         if let GasMetric::ICount = metric {
-            QemuMeasurement::start_count_instructions()
-                .unwrap_or_else(|e| panic!("could not start counting QEMU instructions: {e}"));
+            QemuMeasurement::start_count_instructions();
         };
         GasClock { start, metric }
     }
@@ -365,7 +364,7 @@ impl GasClock {
         match self.metric {
             GasMetric::ICount => {
                 let qemu = QemuMeasurement::end_count_instructions();
-                result.qemu = Some(qemu.unwrap_or_else(|e| panic!("qemu measurement failed: {e}")));
+                result.qemu = Some(qemu);
             }
             GasMetric::Time => {
                 let ns: u64 = self.start.elapsed().as_nanos().try_into().unwrap();

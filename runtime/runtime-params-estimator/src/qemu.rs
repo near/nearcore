@@ -21,32 +21,35 @@ pub(crate) struct QemuMeasurement {
 }
 
 impl QemuMeasurement {
-    pub(crate) fn start_count_instructions() -> std::io::Result<()> {
-        hypercall(HYPERCALL_START_COUNTING)?;
-        Ok(())
+    pub(crate) fn start_count_instructions() {
+        hypercall(HYPERCALL_START_COUNTING);
     }
 
-    pub(crate) fn end_count_instructions() -> std::io::Result<QemuMeasurement> {
-        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED)?.into();
-        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ)?.into();
-        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN)?.into();
-
-        Ok(QemuMeasurement { instructions, io_r_bytes, io_w_bytes })
+    pub(crate) fn end_count_instructions() -> QemuMeasurement {
+        let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED).into();
+        let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ).into();
+        let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN).into();
+        QemuMeasurement { instructions, io_r_bytes, io_w_bytes }
     }
 
     pub(crate) fn zero() -> Self {
         QemuMeasurement { instructions: 0.into(), io_r_bytes: 0.into(), io_w_bytes: 0.into() }
     }
 }
-fn hypercall(index: u32) -> std::io::Result<u64> {
+fn hypercall(index: u32) -> u64 {
     unsafe {
         let fd = std::os::fd::BorrowedFd::borrow_raw((CATCH_BASE + index).try_into().unwrap());
-        let mut buffer: [u8; 8] = std::mem::zeroed(); // SAFE: Initializing an array of PoD
-        let count = rustix::io::read(&fd, &mut buffer)?;
-        if count != std::mem::size_of_val(&buffer) {
-            return Err(std::io::Error::other("read unexpected number of bytes"));
-        }
-        Ok(u64::from_ne_bytes(buffer))
+        let mut buffer: [u8; 8] = [0xff; 8];
+        let Err(result) = rustix::io::read(&fd, &mut buffer) else {
+            panic!("this read call should have returned an error");
+        };
+        assert_eq!(result.raw_os_error(), rustix::io::Errno::BADF.raw_os_error());
+        let buffer = u64::from_ne_bytes(buffer);
+        assert!(
+            buffer != 0xffff_ffff_ffff_ffff,
+            "this mode must run under qemu with the counter_plugin"
+        );
+        buffer
     }
 }
 

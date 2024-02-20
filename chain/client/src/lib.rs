@@ -22,6 +22,7 @@ pub use near_network::client::{
 
 pub mod adapter;
 pub mod adversarial;
+mod chunk_distribution_network;
 mod chunk_inclusion_tracker;
 mod client;
 mod client_actor;
