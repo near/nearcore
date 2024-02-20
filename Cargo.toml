@@ -97,9 +97,6 @@ members = [
 [workspace.lints.rust]
 warnings = "deny"
 
-[workspace.profile.fuzz.lints.rust]
-warnings = { level = "allow", priority = 10 }
-
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
 correctness = { level = "deny", priority = -50 }
