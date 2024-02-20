@@ -161,6 +161,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let account_from = "test3.3".parse().unwrap();
@@ -454,6 +455,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let mut seen_heights_same_block = seen_heights_same_block.write().unwrap();
@@ -642,6 +644,7 @@ fn test_catchup_sanity_blocks_produced() {
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let propagate = if let NetworkRequests::Block { block } = msg {
@@ -721,6 +724,7 @@ fn test_all_chunks_accepted_common(
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(move |_, sender_account_id: AccountId, msg: &PeerManagerMessageRequest| {
                 let msg = msg.as_network_requests_ref();
                 let mut seen_chunk_same_sender = seen_chunk_same_sender.write().unwrap();

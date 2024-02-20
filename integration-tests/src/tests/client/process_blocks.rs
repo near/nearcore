@@ -495,6 +495,7 @@ fn produce_block_with_approvals_arrived_early() {
             archive,
             epoch_sync_enabled,
             false,
+            None,
             Box::new(
                 move |conns,
                       _,
@@ -774,6 +775,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(
                 move |conns,
                       _,

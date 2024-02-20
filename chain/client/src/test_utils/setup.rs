@@ -20,7 +20,9 @@ use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::{ClientConfig, MutableConfigValue, ReshardingConfig};
+use near_chain_configs::{
+    ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -81,6 +83,7 @@ pub fn setup(
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
@@ -125,16 +128,20 @@ pub fn setup(
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = TelemetryActor::default().start();
-    let config = ClientConfig::test(
-        skip_sync_wait,
-        min_block_prod_time,
-        max_block_prod_time,
-        num_validator_seats,
-        archive,
-        true,
-        epoch_sync_enabled,
-        state_sync_enabled,
-    );
+    let config = {
+        let mut base = ClientConfig::test(
+            skip_sync_wait,
+            min_block_prod_time,
+            max_block_prod_time,
+            num_validator_seats,
+            archive,
+            true,
+            epoch_sync_enabled,
+            state_sync_enabled,
+        );
+        base.chunk_distribution_network = chunk_distribution_config;
+        base
+    };
 
     let adv = crate::adversarial::Controls::default();
 
@@ -335,6 +342,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             transaction_validity_period,
             StaticClock::utc(),
             ctx,
+            None,
         );
         vca = Some(view_client_addr);
         sma = Some(shards_manager_adapter);
@@ -434,6 +442,7 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
     peer_manager_mock: Box<
         dyn FnMut(
             // Peer validators
@@ -484,6 +493,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
+        let chunk_distribution_config1 = chunk_distribution_config.clone();
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
@@ -859,6 +869,7 @@ pub fn setup_mock_all_validators(
                 10000,
                 genesis_time,
                 ctx,
+                chunk_distribution_config1,
             );
             view_client_addr_slot = Some(view_client_addr);
             shards_manager_adapter_slot = Some(shards_manager_adapter);

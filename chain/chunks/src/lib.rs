@@ -2062,6 +2062,27 @@ impl ShardsManager {
             ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
                 self.check_incomplete_chunks(&prev_block_hash)
             }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                candidate_chunk,
+                request_header,
+                prev_hash,
+            } => {
+                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
+                    self.request_chunk_single(&request_header, prev_hash, false);
+                }
+            }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
+                candidate_chunk,
+                request_header,
+                ancestor_hash,
+                epoch_id,
+            } => {
+                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                    self.request_chunks_for_orphan(vec![request_header], &epoch_id, ancestor_hash);
+                }
+            }
         }
     }
 
