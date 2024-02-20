@@ -849,15 +849,11 @@ impl Client {
         let prepared_transactions =
             self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
-        let prepared_transactions = PreparedTransactions {
-            transactions: Self::maybe_insert_invalid_transaction(
-                prepared_transactions.transactions,
-                prev_block_hash,
-                self.produce_invalid_tx_in_chunks,
-            ),
-            limited_by: prepared_transactions.limited_by,
-            storage_proof: prepared_transactions.storage_proof,
-        };
+        let prepared_transactions = Self::maybe_insert_invalid_transaction(
+            prepared_transactions,
+            prev_block_hash,
+            self.produce_invalid_tx_in_chunks,
+        );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
@@ -945,12 +941,12 @@ impl Client {
 
     #[cfg(feature = "test_features")]
     fn maybe_insert_invalid_transaction(
-        mut txs: Vec<SignedTransaction>,
+        mut txs: PreparedTransactions,
         prev_block_hash: CryptoHash,
         insert: bool,
-    ) -> Vec<SignedTransaction> {
+    ) -> PreparedTransactions {
         if insert {
-            txs.push(SignedTransaction::new(
+            txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new(
                     "test".parse().unwrap(),
@@ -960,6 +956,9 @@ impl Client {
                     prev_block_hash,
                 ),
             ));
+            if txs.storage_proof.is_none() {
+                txs.storage_proof = Some(Default::default());
+            }
         }
         txs
     }

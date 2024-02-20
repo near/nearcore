@@ -696,6 +696,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(vec![])
     }
 
+    fn is_chunk_producer_for_epoch(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
+    }
+
     fn get_block_producer(
         &self,
         epoch_id: &EpochId,
@@ -1054,7 +1062,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _storage: RuntimeStorageConfig,
+        storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1065,7 +1073,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
+        Ok(PreparedTransactions {
+            transactions: res,
+            limited_by: None,
+            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
+        })
     }
 
     fn apply_chunk(
@@ -1076,7 +1088,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyChunkResult, Error> {
-        assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
@@ -1224,7 +1235,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: None,
+            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
             processed_delayed_receipts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })

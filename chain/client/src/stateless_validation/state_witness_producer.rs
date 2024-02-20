@@ -5,7 +5,8 @@ use near_chain_primitives::Error;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
-use near_primitives::hash::CryptoHash;
+use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner, StoredChunkStateTransitionData,
@@ -43,10 +44,7 @@ impl Client {
             .ordered_chunk_validators();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        // TODO(#10502): Handle production of state witness for first chunk after genesis.
-        let witness = if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
-            ChunkStateWitness::empty(chunk.cloned_header())
-        } else {
+        let witness = {
             let witness_inner = self.create_state_witness_inner(
                 prev_block_header,
                 prev_chunk_header,
@@ -131,12 +129,12 @@ impl Client {
         chunk_header: &ShardChunkHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<(ChunkStateTransition, Vec<ChunkStateTransition>, CryptoHash), Error> {
+        let store = self.chain.chain_store().store();
         let shard_id = chunk_header.shard_id();
         let epoch_id =
             self.epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
         let prev_chunk_height_included = prev_chunk_header.height_included();
-
         let mut prev_blocks = self.chain.get_blocks_until_height(
             *chunk_header.prev_block_hash(),
             prev_chunk_height_included,
@@ -144,20 +142,25 @@ impl Client {
         )?;
         prev_blocks.reverse();
         let (main_block, implicit_blocks) = prev_blocks.split_first().unwrap();
-        let store = self.chain.chain_store().store();
-        let StoredChunkStateTransitionData { base_state, receipts_hash } = store
-            .get_ser(
-                near_store::DBCol::StateTransitionData,
-                &near_primitives::utils::get_block_shard_id(main_block, shard_id),
-            )?
-            .ok_or(Error::Other(format!(
-                "Missing state proof for block {main_block} and shard {shard_id}"
-            )))?;
+        let (base_state, receipts_hash) = if prev_chunk_header.is_genesis() {
+            (Default::default(), hash(&borsh::to_vec::<[Receipt]>(&[]).unwrap()))
+        } else {
+            let StoredChunkStateTransitionData { base_state, receipts_hash } = store
+                .get_ser(
+                    near_store::DBCol::StateTransitionData,
+                    &near_primitives::utils::get_block_shard_id(main_block, shard_id),
+                )?
+                .ok_or(Error::Other(format!(
+                    "Missing main transition state proof for block {main_block} and shard {shard_id}"
+                )))?;
+            (base_state, receipts_hash)
+        };
         let main_transition = ChunkStateTransition {
             block_hash: *main_block,
             base_state,
             post_state_root: *self.chain.get_chunk_extra(main_block, &shard_uid)?.state_root(),
         };
+
         let mut implicit_transitions = vec![];
         for block_hash in implicit_blocks {
             let StoredChunkStateTransitionData { base_state, .. } = store
@@ -166,7 +169,7 @@ impl Client {
                     &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
                 )?
                 .ok_or(Error::Other(format!(
-                    "Missing state proof for block {block_hash} and shard {shard_id}"
+                    "Missing implicit transition state proof for block {block_hash} and shard {shard_id}"
                 )))?;
             implicit_transitions.push(ChunkStateTransition {
                 block_hash: *block_hash,
@@ -190,7 +193,7 @@ impl Client {
         prev_block_header: &BlockHeader,
         prev_chunk_header: &ShardChunkHeader,
     ) -> Result<HashMap<ChunkHash, ReceiptProof>, Error> {
-        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
+        if prev_chunk_header.is_genesis() {
             // State witness which proves the execution of the first chunk in the blockchain
             // doesn't have any source receipts.
             return Ok(HashMap::new());

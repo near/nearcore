@@ -292,6 +292,18 @@ pub trait EpochManagerAdapter: Send + Sync {
         )))
     }
 
+    /// This function is only needed to have a 'return true' implementation
+    /// as part of MockEpochManager to make tests work with stateless validation
+    /// enabled.
+    /// TODO(#10640): remove this after we get rid of MockEpochManager
+    fn is_chunk_producer_for_epoch(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(self.get_epoch_chunk_producers(epoch_id)?.iter().any(|v| v.account_id() == account_id))
+    }
+
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
     fn epoch_sync_init_epoch_manager(
         &self,
