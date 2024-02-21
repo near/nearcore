@@ -49,6 +49,7 @@ test_features = [
   "near-jsonrpc-adversarial-primitives/test_features",
 ]
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-client/nightly",
@@ -61,6 +62,7 @@ nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-client-primitives/nightly_protocol",
   "near-client/nightly_protocol",
