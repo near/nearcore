@@ -34,7 +34,7 @@ use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -610,6 +610,24 @@ impl TestEnv {
         let height = head.height + height_offset;
 
         epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+    }
+
+    /// Get chunk producer responsible for producing the chunk at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_chunk_producer_at_offset(
+        &self,
+        head: &Tip,
+        height_offset: u64,
+        shard_id: ShardId,
+    ) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
