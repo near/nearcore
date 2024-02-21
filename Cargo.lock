@@ -4208,6 +4208,7 @@ dependencies = [
  "bs58",
  "derive_more",
  "enum-map",
+ "expect-test",
  "insta",
  "near-account-id",
  "num-rational",

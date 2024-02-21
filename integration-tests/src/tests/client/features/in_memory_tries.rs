@@ -105,7 +105,14 @@ fn test_in_memory_trie_node_consistency() {
         let staked = if i < 2 { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                PROTOCOL_VERSION,
+            ),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),
@@ -540,7 +547,14 @@ fn test_in_memory_trie_consistency_with_state_sync_base_case(track_all_shards: b
         let staked = if i < NUM_VALIDATORS { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                genesis_config.protocol_version,
+            ),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),

@@ -76,11 +76,11 @@ fn total_accounts_balance(
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
     accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
-        let (amount, locked) = match get_account(state, account_id)? {
+        let (amount, locked, nonrefundable) = match get_account(state, account_id)? {
             None => return Ok(accumulator),
-            Some(account) => (account.amount(), account.locked()),
+            Some(account) => (account.amount(), account.locked(), account.nonrefundable()),
         };
-        Ok(safe_add_balance_apply!(accumulator, amount, locked))
+        Ok(safe_add_balance_apply!(accumulator, amount, locked, nonrefundable))
     })
 }
 
@@ -426,6 +426,7 @@ mod tests {
         .unwrap();
     }
 
+    /// This tests shows how overflow (which we do not expect) would be handled on a transfer.
     #[test]
     fn test_total_balance_overflow_returns_unexpected_overflow() {
         let tries = TestTriesBuilder::new().build();
@@ -436,8 +437,10 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let alice = account_new(u128::MAX, hash(&[]));
-        let bob = account_new(1u128, hash(&[]));
+        // We use `u128::MAX - 1`, because `u128::MAX` is used as a sentinel value for accounts version 2 or higher.
+        // See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+        let alice = account_new(u128::MAX - 1, hash(&[]));
+        let bob = account_new(2u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);
         set_account(&mut initial_state, bob_id.clone(), &bob);
@@ -446,8 +449,9 @@ mod tests {
         let signer =
             InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
 
+        // Sending 2 yoctoNEAR, so that we have an overflow when adding to alice's balance.
         let tx =
-            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 2, CryptoHash::default());
 
         let receipt = Receipt {
             predecessor_id: tx.transaction.signer_id.clone(),
@@ -474,6 +478,64 @@ mod tests {
                 &ApplyStats::default(),
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow)
+        );
+    }
+
+    /// This tests shows what would happen if the total balance becomes u128::MAX
+    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher
+    /// See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+    #[test]
+    fn test_total_balance_u128_max() {
+        let tries = TestTriesBuilder::new().build();
+        let root = MerkleHash::default();
+        let alice_id = alice_account();
+        let bob_id = bob_account();
+        let gas_price = 100;
+        let deposit = 1000;
+
+        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let alice = account_new(u128::MAX - 1, hash(&[]));
+        let bob = account_new(1u128, hash(&[]));
+
+        set_account(&mut initial_state, alice_id.clone(), &alice);
+        set_account(&mut initial_state, bob_id.clone(), &bob);
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
+
+        let signer =
+            InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
+
+        let tx =
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
+
+        let receipt = Receipt {
+            predecessor_id: tx.transaction.signer_id.clone(),
+            receiver_id: tx.transaction.receiver_id.clone(),
+            receipt_id: Default::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx.transaction.signer_id.clone(),
+                signer_public_key: tx.transaction.public_key.clone(),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit })],
+            }),
+        };
+
+        // Alice's balance becomes u128::MAX, which causes it is interpreted as
+        // the Alice's account version to be 2 or higher, instead of being interpreted
+        // as Alice's balance. Another field is then interpreted as the balance which causes
+        // `BalanceMismatchError`.
+        assert_matches!(
+            check_balance(
+                &RuntimeConfig::test(),
+                &initial_state,
+                &None,
+                &[receipt],
+                &[tx],
+                &[],
+                &ApplyStats::default(),
+            ),
+            Err(RuntimeError::BalanceMismatchError { .. })
         );
     }
 }

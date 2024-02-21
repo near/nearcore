@@ -17,10 +17,12 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
-    FunctionCallAction, StakeAction, TransferAction,
+    FunctionCallAction, StakeAction,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
-use near_primitives::types::{AccountId, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode};
+use near_primitives::types::{
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+};
 use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
     ProtocolFeature, ProtocolVersion, DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION,
@@ -374,7 +376,7 @@ pub(crate) fn try_refund_allowance(
     state_update: &mut TrieUpdate,
     account_id: &AccountId,
     public_key: &PublicKey,
-    transfer: &TransferAction,
+    deposit: Balance,
 ) -> Result<(), StorageError> {
     if let Some(mut access_key) = get_access_key(state_update, account_id, public_key)? {
         let mut updated = false;
@@ -382,7 +384,7 @@ pub(crate) fn try_refund_allowance(
             &mut access_key.permission
         {
             if let Some(allowance) = function_call_permission.allowance.as_mut() {
-                let new_allowance = allowance.saturating_add(transfer.deposit);
+                let new_allowance = allowance.saturating_add(deposit);
                 if new_allowance > *allowance {
                     *allowance = new_allowance;
                     updated = true;
@@ -396,12 +398,22 @@ pub(crate) fn try_refund_allowance(
     Ok(())
 }
 
-pub(crate) fn action_transfer(
-    account: &mut Account,
-    transfer: &TransferAction,
-) -> Result<(), StorageError> {
-    account.set_amount(account.amount().checked_add(transfer.deposit).ok_or_else(|| {
+pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result<(), StorageError> {
+    account.set_amount(account.amount().checked_add(deposit).ok_or_else(|| {
         StorageError::StorageInconsistentState("Account balance integer overflow".to_string())
+    })?);
+    Ok(())
+}
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub(crate) fn action_nonrefundable_storage_transfer(
+    account: &mut Account,
+    deposit: Balance,
+) -> Result<(), StorageError> {
+    account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
+        StorageError::StorageInconsistentState(
+            "non-refundable account balance integer overflow".to_string(),
+        )
     })?);
     Ok(())
 }
@@ -414,6 +426,7 @@ pub(crate) fn action_create_account(
     account_id: &AccountId,
     predecessor_id: &AccountId,
     result: &mut ActionResult,
+    protocol_version: ProtocolVersion,
 ) {
     if account_id.is_top_level() {
         if account_id.len() < account_creation_config.min_allowed_top_level_account_length as usize
@@ -446,8 +459,10 @@ pub(crate) fn action_create_account(
     *account = Some(Account::new(
         0,
         0,
+        0,
         CryptoHash::default(),
         fee_config.storage_usage_config.num_bytes_account,
+        protocol_version,
     ));
 }
 
@@ -459,11 +474,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
     account: &mut Option<Account>,
     actor_id: &mut AccountId,
     account_id: &AccountId,
-    transfer: &TransferAction,
+    deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
+    nonrefundable: bool,
 ) {
     *actor_id = account_id.clone();
+
+    let (refundable_balance, nonrefundable_balance) =
+        if nonrefundable { (0, deposit) } else { (deposit, 0) };
 
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
@@ -483,13 +502,15 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                transfer.deposit,
+                refundable_balance,
                 0,
+                nonrefundable_balance,
                 CryptoHash::default(),
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
                     + borsh::object_length(&access_key).unwrap() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record,
+                current_protocol_version,
             ));
 
             set_access_key(state_update, account_id.clone(), public_key, &access_key);
@@ -507,8 +528,14 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + magic_bytes.code().len() as u64
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
-                *account =
-                    Some(Account::new(transfer.deposit, 0, *magic_bytes.hash(), storage_usage));
+                *account = Some(Account::new(
+                    refundable_balance,
+                    0,
+                    nonrefundable_balance,
+                    *magic_bytes.hash(),
+                    storage_usage,
+                    current_protocol_version,
+                ));
                 set_code(state_update, account_id.clone(), &magic_bytes);
 
                 // Precompile Wallet Contract and store result (compiled code or error) in the database.
@@ -929,6 +956,8 @@ pub(crate) fn check_actor_permissions(
         }
         Action::CreateAccount(_) | Action::FunctionCall(_) | Action::Transfer(_) => (),
         Action::Delegate(_) => (),
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        Action::NonrefundableStorageTransfer(_) => (),
     };
     Ok(())
 }
@@ -938,8 +967,12 @@ pub(crate) fn check_account_existence(
     account: &Option<Account>,
     account_id: &AccountId,
     config: &RuntimeConfig,
-    is_the_only_action: bool,
-    is_refund: bool,
+    implicit_account_creation_eligible: bool,
+    #[cfg_attr(
+        not(feature = "protocol_feature_nonrefundable_transfer_nep491"),
+        allow(unused_variables)
+    )]
+    receipt_starts_with_create_account: bool,
 ) -> Result<(), ActionError> {
     match action {
         Action::CreateAccount(_) => {
@@ -971,24 +1004,35 @@ pub(crate) fn check_account_existence(
         }
         Action::Transfer(_) => {
             if account.is_none() {
-                return if config.wasm_config.implicit_account_creation
-                    && is_the_only_action
-                    && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
-                    && !is_refund
-                {
-                    // OK. It's implicit account creation.
-                    // Notes:
-                    // - The transfer action has to be the only action in the transaction to avoid
-                    // abuse by hijacking this account with other public keys or contracts.
-                    // - Refunds don't automatically create accounts, because refunds are free and
-                    // we don't want some type of abuse.
-                    // - Account deletion with beneficiary creates a refund, so it'll not create a
-                    // new account.
-                    Ok(())
-                } else {
-                    Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }
-                        .into())
-                };
+                return check_transfer_to_nonexisting_account(
+                    config,
+                    account_id,
+                    implicit_account_creation_eligible,
+                );
+            }
+        }
+        // TODO(nonrefundable) Merge with arm above on stabilization.
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        Action::NonrefundableStorageTransfer(_) => {
+            if account.is_none() {
+                return check_transfer_to_nonexisting_account(
+                    config,
+                    account_id,
+                    implicit_account_creation_eligible,
+                );
+            } else if !receipt_starts_with_create_account {
+                // If the account already existed before the current receipt,
+                // non-refundable transfer is not allowed. But for named
+                // accounts, it could be that the account was created in this
+                // receipt which is allowed. Checking for the first action of
+                // the receipt being a `CreateAccount` action serves this
+                // purpose.
+                // For implicit accounts creation with non-refundable storage
+                // we require that this is the only action in the receipt.
+                return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
+                    account_id: account_id.clone(),
+                }
+                .into());
             }
         }
         Action::DeployContract(_)
@@ -1009,6 +1053,29 @@ pub(crate) fn check_account_existence(
     Ok(())
 }
 
+fn check_transfer_to_nonexisting_account(
+    config: &RuntimeConfig,
+    account_id: &AccountId,
+    implicit_account_creation_eligible: bool,
+) -> Result<(), ActionError> {
+    if config.wasm_config.implicit_account_creation
+        && implicit_account_creation_eligible
+        && account_is_implicit(account_id, config.wasm_config.eth_implicit_accounts)
+    {
+        // OK. It's implicit account creation.
+        // Notes:
+        // - Transfer action has to be the only action in the transaction to avoid
+        // abuse by hijacking this account with other public keys or contracts.
+        // - Refunds don't automatically create accounts, because refunds are free and
+        // we don't want some type of abuse.
+        // - Account deletion with beneficiary creates a refund, so it'll not create a
+        // new account.
+        Ok(())
+    } else {
+        Err(ActionErrorKind::AccountDoesNotExist { account_id: account_id.clone() }.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1022,6 +1089,7 @@ mod tests {
     use near_primitives::transaction::CreateAccountAction;
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{EpochId, StateChangeCause};
+    use near_primitives_core::version::PROTOCOL_VERSION;
     use near_store::set_account;
     use near_store::test_utils::TestTriesBuilder;
     use std::sync::Arc;
@@ -1045,6 +1113,7 @@ mod tests {
             &account_id,
             &predecessor_id,
             &mut action_result,
+            PROTOCOL_VERSION,
         );
         if action_result.result.is_ok() {
             assert!(account.is_some());
@@ -1130,7 +1199,8 @@ mod tests {
         storage_usage: u64,
         state_update: &mut TrieUpdate,
     ) -> ActionResult {
-        let mut account = Some(Account::new(100, 0, *code_hash, storage_usage));
+        let mut account =
+            Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
         let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
@@ -1268,7 +1338,7 @@ mod tests {
         let tries = TestTriesBuilder::new().build();
         let mut state_update =
             tries.new_trie_update(ShardUId::single_shard(), CryptoHash::default());
-        let account = Account::new(100, 0, CryptoHash::default(), 100);
+        let account = Account::new(100, 0, 0, CryptoHash::default(), 100, PROTOCOL_VERSION);
         set_account(&mut state_update, account_id.clone(), &account);
         set_access_key(&mut state_update, account_id.clone(), public_key.clone(), access_key);
 

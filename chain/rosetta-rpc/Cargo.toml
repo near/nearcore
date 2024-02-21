@@ -43,6 +43,7 @@ insta.workspace = true
 near-actix-test-utils.workspace = true
 
 [features]
+protocol_feature_nonrefundable_transfer_nep491 = []
 nightly_protocol = [
   "near-actix-test-utils/nightly_protocol",
   "near-chain-configs/nightly_protocol",
@@ -65,4 +66,5 @@ nightly = [
   "near-primitives/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_nonrefundable_transfer_nep491",
 ]

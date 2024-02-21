@@ -17,7 +17,7 @@ pub use config::RosettaRpcConfig;
 use near_chain_configs::Genesis;
 use near_client::{ClientActor, ViewClientActor};
 use near_o11y::WithSpanContextExt;
-use near_primitives::borsh::BorshDeserialize;
+use near_primitives::{borsh::BorshDeserialize, version::PROTOCOL_VERSION};
 
 mod adapters;
 mod config;
@@ -368,7 +368,15 @@ async fn account_balance(
             Err(crate::errors::ErrorKind::NotFound(_)) => (
                 block.header.hash,
                 block.header.height,
-                near_primitives::account::Account::new(0, 0, Default::default(), 0).into(),
+                near_primitives::account::Account::new(
+                    0,
+                    0,
+                    0,
+                    Default::default(),
+                    0,
+                    PROTOCOL_VERSION,
+                )
+                .into(),
             ),
             Err(err) => return Err(err.into()),
         };

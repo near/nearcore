@@ -108,7 +108,14 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         let staked = if i < num_validators { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                PROTOCOL_VERSION,
+            ),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),
