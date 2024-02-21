@@ -17,18 +17,18 @@ Use this tool to measure the running time of elementary runtime operations that 
 
     ```bash
     --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 \
-      --docker --metric icount
+      --containerized --metric icount
     ```
 
-    This will run and build the estimator inside a docker container, using QEMU to precisely count
+    This will run and build the estimator inside a container, using QEMU to precisely count
     the number of executed instructions.
 
-    Alternatively you can skip docker during the development and iterate as such (actual production
-    estimations should still utilize docker to ensure reproducibility):
+    Alternatively you can skip containerization during the development and iterate as such (actual
+    production estimations should still utilize containers to ensure reproducibility):
 
     ```
     cargo build --profile=dev-release -p runtime-params-estimator --features required
-    qemu-x86 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/dev-release/runtime-params-estimator $ARGS
+    qemu-x86 -cpu Haswell-v4 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/dev-release/runtime-params-estimator $ARGS
     ```
 
     You can also significantly reduce the number of accounts in most of the cases.
