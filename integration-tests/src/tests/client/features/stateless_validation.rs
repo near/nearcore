@@ -9,7 +9,6 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::block::Tip;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
@@ -164,7 +163,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             let _ = env.clients[0].process_tx(tx, false, false);
         }
 
-        let block_producer = get_block_producer(&env, &tip, 1);
+        let block_producer = env.get_block_producer_at_offset(&tip, 1);
         tracing::debug!(
             target: "stateless_validation",
             "Producing block at height {} by {}", tip.height + 1, block_producer
@@ -236,17 +235,6 @@ fn test_chunk_validation_low_missing_chunks() {
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81);
-}
-
-/// Returns the block producer for the height of head + height_offset.
-fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountId {
-    let client = &env.clients[0];
-    let epoch_manager = &client.epoch_manager;
-    let parent_hash = &head.last_block_hash;
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-    let height = head.height + height_offset;
-    let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
-    block_producer
 }
 
 #[test]

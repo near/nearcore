@@ -10,6 +10,7 @@ use crate::Client;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
+use near_chain::types::Tip;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
@@ -596,6 +597,19 @@ impl TestEnv {
     /// Returns the index of client with the given [`AccoountId`].
     pub fn get_client_index(&self, account_id: &AccountId) -> usize {
         self.account_indices.index(account_id)
+    }
+
+    /// Get block producer responsible for producing the block at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_block_producer_at_offset(&self, head: &Tip, height_offset: u64) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_block_producer(&epoch_id, height).unwrap()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
