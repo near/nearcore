@@ -1,5 +1,10 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::network::PeerId;
+use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::test_utils::create_test_store;
+use nearcore::config::GenesisExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
@@ -311,4 +316,60 @@ fn test_protocol_upgrade_81() {
             assert_eq!(config.chunk_producer_kickout_threshold, 90);
         }
     }
+}
+
+/// Test that Client rejects ChunkStateWitnesses with invalid shard_id
+#[test]
+fn test_chunk_state_witness_bad_shard_id() {
+    init_integration_logger();
+
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
+    let accounts = vec!["test0".parse().unwrap()];
+    let genesis = Genesis::test(accounts.clone(), 1);
+    let mut env = TestEnv::builder(&genesis.config)
+        .validators(accounts)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    // Run the client for a few blocks
+    let upper_height = 6;
+    for height in 1..upper_height {
+        tracing::info!(target: "test", "Producing block at height: {height}");
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
+        env.process_block(0, block, Provenance::PRODUCED);
+    }
+
+    // Create a dummy ChunkStateWitness with an invalid shard_id
+    let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
+    let invalid_shard_id = 1000000000;
+
+    let shard_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+        previous_block,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        upper_height,
+        invalid_shard_id,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        Default::default(),
+        &EmptyValidatorSigner::default(),
+    ));
+    let witness = ChunkStateWitness::empty(shard_header);
+
+    // Client should reject this ChunkStateWitness and the error message should mention "shard"
+    tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
+    let res = env.clients[0].process_chunk_state_witness(witness, PeerId::random(), None);
+    let error = res.unwrap_err();
+    let error_message = format!("{}", error).to_lowercase();
+    tracing::info!(target: "test", "error message: {}", error_message);
+    assert!(error_message.contains("shard"));
 }

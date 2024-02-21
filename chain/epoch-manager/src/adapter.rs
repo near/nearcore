@@ -113,11 +113,25 @@ pub trait EpochManagerAdapter: Send + Sync {
     ///
     /// Most of the times parent of the shard is the shard itself, unless a
     /// resharding happened and some shards were split.
+    /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
+    /// The resulting Vec will always be of the same length as the `shard_ids` argument.
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
     ) -> Result<Vec<ShardId>, Error>;
+
+    /// For a `ShardId` in the current block, returns its parent `ShardId`
+    /// from previous block.
+    ///
+    /// Most of the times parent of the shard is the shard itself, unless a
+    /// resharding happened and some shards were split.
+    /// If there was no resharding, it just returns the `shard_id` as is, without any validation.
+    fn get_prev_shard_id(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -572,6 +586,28 @@ impl EpochManagerAdapter for EpochManagerHandle {
             }
         }
         Ok(shard_ids)
+    }
+
+    fn get_prev_shard_id(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        if self.is_next_block_epoch_start(prev_hash)? {
+            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+            if prev_shard_layout != shard_layout {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                assert!(prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
+                                    "invalid shard layout.  parent_shard_id: {}\nshard_layout: {:?}\nprev_shard_layout: {:?}",
+                                    parent_shard_id,
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                return Ok(parent_shard_id);
+            }
+        }
+        Ok(shard_id)
     }
 
     fn get_shard_layout_from_prev_block(
