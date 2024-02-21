@@ -1871,4 +1871,31 @@ mod tests {
         let input = logic.internal_mem_write(vec![0u8; 289].as_slice());
         logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
     }
+
+    #[test]
+    fn test_bls12381_empty_input() {
+        let mut zero1: [u8; 96] = [0; 96];
+        zero1[0] |= 0x40;
+        let empty_multiexp1 = get_g1_multiexp_many_points(&vec![]);
+        assert_eq!(zero1, empty_multiexp1.as_slice());
+
+        let mut zero2: [u8; 192] = [0; 192];
+        zero2[0] |= 0x40;
+        let empty_multiexp2 = get_g2_multiexp_many_points(&vec![]);
+        assert_eq!(zero2, empty_multiexp2.as_slice());
+
+        let map_fp_res = map_fp_to_g1(vec![]);
+        assert_eq!(map_fp_res.len(), 0);
+
+        let map_fp2_res = map_fp2_to_g2(vec![]);
+        assert_eq!(map_fp2_res.len(), 0);
+
+        assert_eq!(pairing_check(vec![], vec![]), 0);
+
+        let decompress_p1_res = decompress_p1(vec![]);
+        assert_eq!(decompress_p1_res.len(), 0);
+
+        let decompress_p2_res = decompress_p2(vec![]);
+        assert_eq!(decompress_p2_res.len(), 0);
+    }
 }
