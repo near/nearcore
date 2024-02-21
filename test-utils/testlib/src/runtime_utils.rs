@@ -4,6 +4,7 @@ use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::hash;
 use near_primitives::state_record::StateRecord;
 use near_primitives::types::{AccountId, Balance};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub fn alice_account() -> AccountId {
     "alice.near".parse().unwrap()
@@ -46,7 +47,7 @@ pub fn add_contract(genesis: &mut Genesis, account_id: &AccountId, code: Vec<u8>
     if !is_account_record_found {
         records.push(StateRecord::Account {
             account_id: account_id.clone(),
-            account: Account::new(0, 0, hash, 0),
+            account: Account::new(0, 0, 0, hash, 0, PROTOCOL_VERSION),
         });
     }
     records.push(StateRecord::Contract { account_id: account_id.clone(), code });
@@ -63,7 +64,7 @@ pub fn add_account_with_access_key(
     let records = genesis.force_read_records().as_mut();
     records.push(StateRecord::Account {
         account_id: account_id.clone(),
-        account: Account::new(balance, 0, Default::default(), 0),
+        account: Account::new(balance, 0, 0, Default::default(), 0, PROTOCOL_VERSION),
     });
     records.push(StateRecord::AccessKey { account_id, public_key, access_key });
 }

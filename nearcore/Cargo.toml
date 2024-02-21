@@ -116,6 +116,9 @@ protocol_feature_fix_staking_threshold = [
 protocol_feature_fix_contract_loading_cost = [
   "near-vm-runner/protocol_feature_fix_contract_loading_cost",
 ]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
+]
 new_epoch_sync = [
   "near-client/new_epoch_sync"
 ]
@@ -147,6 +150,7 @@ nightly = [
   "node-runtime/nightly",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_nonrefundable_transfer_nep491",
   "serialize_all_state_changes",
   "testlib/nightly",
 ]

@@ -123,6 +123,10 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
+    /// Allows creating an account with a non refundable balance to cover storage costs.
+    /// NEP: https://github.com/near/NEPs/pull/491
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    NonRefundableBalance,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -194,6 +198,8 @@ impl ProtocolFeature {
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             ProtocolFeature::EthImplicitAccounts => 138,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            ProtocolFeature::NonRefundableBalance => 140,
         }
     }
 }
@@ -209,7 +215,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
     82
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    139
+    140
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

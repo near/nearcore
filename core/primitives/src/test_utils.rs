@@ -27,7 +27,7 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
+    Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
 }
 
 impl Transaction {
@@ -680,5 +680,11 @@ impl FinalExecutionOutcomeView {
                 "receipt #{i} failed: {receipt:?}",
             );
         }
+    }
+
+    /// Calculates how much NEAR was burnt for gas, after refunds.
+    pub fn tokens_burnt(&self) -> Balance {
+        self.transaction_outcome.outcome.tokens_burnt
+            + self.receipts_outcome.iter().map(|r| r.outcome.tokens_burnt).sum::<u128>()
     }
 }

@@ -589,6 +589,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(shard_ids)
     }
 
+    fn get_prev_shard_id(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        Ok(shard_id)
+    }
+
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
@@ -1242,8 +1250,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
+                        0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

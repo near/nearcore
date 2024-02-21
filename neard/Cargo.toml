@@ -73,6 +73,7 @@ no_cache = ["nearcore/no_cache"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
+protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
 
@@ -95,6 +96,7 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_nonrefundable_transfer_nep491",
   "serialize_all_state_changes",
 ]
 nightly_protocol = [

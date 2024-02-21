@@ -4182,8 +4182,12 @@ impl Chain {
         prev_block: &Block,
         shard_id: ShardId,
     ) -> Result<ShardChunkHeader, Error> {
-        let prev_shard_id = epoch_manager.get_prev_shard_ids(prev_block.hash(), vec![shard_id])?[0];
-        Ok(prev_block.chunks().get(prev_shard_id as usize).unwrap().clone())
+        let prev_shard_id = epoch_manager.get_prev_shard_id(prev_block.hash(), shard_id)?;
+        Ok(prev_block
+            .chunks()
+            .get(prev_shard_id as usize)
+            .ok_or(Error::InvalidShardId(shard_id))?
+            .clone())
     }
 
     pub fn group_receipts_by_shard(

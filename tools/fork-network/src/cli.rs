@@ -749,8 +749,10 @@ impl ForkNetworkCommand {
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
+                    0,
                     CryptoHash::default(),
                     storage_bytes,
+                    PROTOCOL_VERSION,
                 ),
             )?;
             storage_mutator.set_access_key(
