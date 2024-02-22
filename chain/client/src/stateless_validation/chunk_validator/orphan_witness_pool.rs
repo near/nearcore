@@ -22,10 +22,7 @@ pub struct OrphanStateWitnessPool {
 
 struct CacheEntry {
     witness: ChunkStateWitness,
-    // cargo complains that metrics_tracker is never read, but it's ok,
-    // as metrics_tracker does all of its work during initalization and destruction.
-    #[allow(dead_code)]
-    metrics_tracker: OrphanWitnessMetricsTracker,
+    _metrics_tracker: OrphanWitnessMetricsTracker,
 }
 
 impl OrphanStateWitnessPool {
@@ -55,7 +52,7 @@ impl OrphanStateWitnessPool {
         let prev_block_hash = *chunk_header.prev_block_hash();
         let cache_key = (chunk_header.shard_id(), chunk_header.height_created());
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
-        let cache_entry = CacheEntry { witness, metrics_tracker };
+        let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
             // If another witness has been ejected from the cache due to capacity limit,
             // then remove the ejected witness from `waiting_for_block` to keep them in sync
