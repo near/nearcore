@@ -1618,6 +1618,14 @@ mod tests {
             let res1 = decompress_p1(vec![p1.clone()]);
 
             assert_eq!(res1, serialize_uncompressed_g1(&p1));
+
+            let p1_neg = p1.mul(&Big::new_int(-1));
+            let res1_neg = decompress_p1(vec![p1_neg.clone()]);
+
+            assert_eq!(res1[0..48], res1_neg[0..48]);
+            assert_ne!(res1[48..], res1_neg[48..]);
+            assert_eq!(res1_neg, serialize_uncompressed_g1(&p1_neg));
+
         }
 
         let zero1 = ECP::new();
@@ -1723,6 +1731,13 @@ mod tests {
             let res1 = decompress_p2(vec![p2.clone()]);
 
             assert_eq!(res1, serialize_uncompressed_g2(&p2));
+
+            let p2_neg = p2.mul(&Big::new_int(-1));
+            let res2_neg = decompress_p2(vec![p2_neg.clone()]);
+
+            assert_eq!(res1[0..96], res2_neg[0..96]);
+            assert_ne!(res1[96..], res2_neg[96..]);
+            assert_eq!(res2_neg, serialize_uncompressed_g2(&p2_neg));
         }
 
         let zero2 = ECP2::new();
