@@ -1859,6 +1859,33 @@ mod tests {
     }
 
     #[test]
+    fn test_bls12381_pairing_check_two_points() {
+        let mut rnd = get_rnd();
+
+        for _ in 0..100 {
+            let p1 = get_random_g1_point(&mut rnd);
+            let p2 = get_random_g2_point(&mut rnd);
+
+            let p1_neg = p1.mul(&Big::new_int(-1));
+            let p2_neg = p2.mul(&Big::new_int(-1));
+
+            assert_eq!(pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]), 2);
+
+            let mut s1 = Big::random(&mut rnd);
+            s1.mod2m(32 * 8);
+
+            let mut s2 = Big::random(&mut rnd);
+            s2.mod2m(32 * 8);
+
+            assert_eq!(pairing_check(vec![p1.mul(&s1), p1_neg.mul(&s2)], vec![p2.mul(&s2), p2.mul(&s1)]), 0);
+            assert_eq!(pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2.mul(&s2), p2_neg.mul(&s1)]), 0);
+            assert_eq!(pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2_neg.mul(&s2), p2_neg.mul(&s1)]), 2);
+        }
+    }
+
+    #[test]
     fn test_bls12381_pairing_check_many_points() {
         let mut rnd = get_rnd();
 
