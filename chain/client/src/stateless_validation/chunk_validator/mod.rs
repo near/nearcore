@@ -652,8 +652,6 @@ impl Client {
             return Ok(());
         }
 
-        // TODO(#10265): If the previous block does not exist, we should
-        // queue this (similar to orphans) to retry later.
         let result = self.chunk_validator.start_validating_chunk(
             witness,
             &self.chain,
