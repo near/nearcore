@@ -1865,12 +1865,31 @@ mod tests {
 
         assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
 
-        // Point not on the curve
+        // G1 point not on the curve
         let p = get_random_g1_curve_point(&mut rnd);
         let mut p_ser = serialize_uncompressed_g1(&p);
         p_ser[95] ^= 0x01;
 
         assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        // G2 point not on the curve
+        let p = get_random_g2_curve_point(&mut rnd);
+        let mut p_ser = serialize_uncompressed_g2(&p);
+        p_ser[191] ^= 0x01;
+
+        assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
+
+        // not G1 point
+        let p = get_random_not_g1_curve_point(&mut rnd);
+        let p_ser = serialize_uncompressed_g1(&p);
+
+        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+
+        // not G2 point
+        let p = get_random_not_g2_curve_point(&mut rnd);
+        let p_ser = serialize_uncompressed_g2(&p);
+
+        assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
 
         //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
         let p = get_random_g1_curve_point(&mut rnd);
