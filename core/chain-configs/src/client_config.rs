@@ -302,7 +302,7 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
 }
 
 pub fn default_orphan_state_witness_pool_size() -> usize {
-    // With 5 shards, a capacity of 25 witnesses allows to store 3 orphan witnesses per shard.
+    // With 5 shards, a capacity of 25 witnesses allows to store 5 orphan witnesses per shard.
     25
 }
 
