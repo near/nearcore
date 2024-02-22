@@ -31,7 +31,6 @@ pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestM
 pub fn client_sender_for_network(
     client_addr: actix::Addr<ClientActor>,
     view_client_addr: actix::Addr<ViewClientActor>,
-
 ) -> ClientSenderForNetwork {
     let client_addr = client_addr.with_auto_span_context();
     let view_client_addr = view_client_addr.with_auto_span_context();
