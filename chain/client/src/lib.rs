@@ -19,10 +19,10 @@ pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::{
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client::{start_view_client, ViewClientActor};
 pub use near_client_primitives::debug::DebugStatus;
-pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, ProcessingDoneWaiter};
 pub use near_network::client::{
     BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
 };
+pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, ProcessingDoneWaiter};
 
 pub mod adapter;
 pub mod adversarial;
