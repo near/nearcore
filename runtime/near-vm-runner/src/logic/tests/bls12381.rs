@@ -1486,6 +1486,25 @@ mod tests {
     }
 
     #[test]
+    fn test_bls12381_map_fp_to_g1_edge_cases() {
+        let fp = FP::new_big(Big::new_int(0));
+        let res1 = map_fp_to_g1(vec![fp.clone()]);
+
+        let mut res2 = map_to_curve_g1(fp);
+        res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+
+        assert_eq!(res1, serialize_uncompressed_g1(&res2));
+
+        let fp = FP::new_big(Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa".to_string()));
+        let res1 = map_fp_to_g1(vec![fp.clone()]);
+
+        let mut res2 = map_to_curve_g1(fp);
+        res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+
+        assert_eq!(res1, serialize_uncompressed_g1(&res2));
+    }
+
+    #[test]
     fn test_bls12381_map_fp_to_g1_many_points() {
         let mut rnd = get_rnd();
 
