@@ -36,6 +36,15 @@ impl Client {
         let witness_height = chunk_header.height_created();
         let witness_shard = chunk_header.shard_id();
 
+        let _span = tracing::debug_span!(target: "client",
+            "handle_orphan_state_witness",
+            witness_height,
+            witness_shard,
+            witness_chunk = ?chunk_header.chunk_hash(),
+            witness_prev_block = ?chunk_header.prev_block_hash(),
+        )
+        .entered();
+
         // Don't save orphaned state witnesses which are far away from the current chain head.
         let chain_head = &self.chain.head()?;
         let head_distance = witness_height.saturating_sub(chain_head.height);
@@ -43,10 +52,6 @@ impl Client {
             tracing::debug!(
                 target: "client",
                 head_height = chain_head.height,
-                witness_height,
-                witness_shard,
-                witness_chunk = ?chunk_header.chunk_hash(),
-                witness_prev_block = ?chunk_header.prev_block_hash(),
                 "Not saving an orphaned ChunkStateWitness because its height isn't within the allowed height range");
             return Ok(HandleOrphanWitnessOutcome::TooFarFromHead {
                 witness_height,
@@ -107,13 +112,7 @@ impl Client {
         }
 
         // Orphan witness is OK, save it to the pool
-        tracing::debug!(
-            target: "client",
-            witness_height,
-            witness_shard,
-            witness_chunk = ?chunk_header.chunk_hash(),
-            witness_prev_block = ?chunk_header.prev_block_hash(),
-            "Saving an orphaned ChunkStateWitness to orphan pool");
+        tracing::debug!(target: "client", "Saving an orphaned ChunkStateWitness to orphan pool");
         self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
         Ok(HandleOrphanWitnessOutcome::SavedTooPool)
     }
