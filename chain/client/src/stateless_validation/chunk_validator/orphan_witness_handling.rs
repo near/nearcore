@@ -6,6 +6,7 @@
 //! arrives, all witnesses that were waiting for it can be processed.
 
 use crate::Client;
+use bytesize::ByteSize;
 use itertools::Itertools;
 use near_chain::Block;
 use near_chain_primitives::Error;
@@ -23,7 +24,8 @@ pub const ALLOWED_ORPHAN_WITNESS_DISTANCE_FROM_HEAD: Range<BlockHeight> = 2..6;
 
 /// We keep only orphan witnesses which are smaller than this size.
 /// This limits the maximum memory usage of OrphanStateWitnessPool.
-pub const MAX_ORPHAN_WITNESS_SIZE: usize = 40_000_000;
+/// TODO(#10259) - consider merging this limit with the non-orphan witness size limit.
+pub const MAX_ORPHAN_WITNESS_SIZE: ByteSize = ByteSize::mb(40);
 
 impl Client {
     pub fn handle_orphan_state_witness(
@@ -54,7 +56,10 @@ impl Client {
 
         // Don't save orphaned state witnesses which are bigger than the allowed limit.
         let witness_size = borsh::to_vec(&witness)?.len();
-        if witness_size > MAX_ORPHAN_WITNESS_SIZE {
+        let witness_size_u64: u64 = witness_size.try_into().map_err(|_| {
+            Error::Other(format!("Cannot convert witness size to u64: {}", witness_size))
+        })?;
+        if witness_size_u64 > MAX_ORPHAN_WITNESS_SIZE.as_u64() {
             tracing::warn!(
                 target: "client",
                 witness_height,

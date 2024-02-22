@@ -626,10 +626,11 @@ impl Client {
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         if witness.inner.chunk_header.prev_block_hash() != prev_block.hash() {
-            return Err(Error::Other(
-                "process_chunk_state_witness_with_prev_block - prev_block doesn't match"
-                    .to_string(),
-            ));
+            return Err(Error::Other(format!(
+                "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
+                witness.inner.chunk_header.prev_block_hash(),
+                prev_block.hash()
+            )));
         }
 
         let prev_chunk_header = Chain::get_prev_chunk_header(

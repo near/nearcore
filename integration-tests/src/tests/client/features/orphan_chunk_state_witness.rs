@@ -324,7 +324,8 @@ fn test_orphan_witness_too_large() {
     // Modify the witness to be larger than the allowed limit
     let dummy_merkle_path_item =
         MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left };
-    let items_count = MAX_ORPHAN_WITNESS_SIZE / std::mem::size_of::<MerklePathItem>() + 1;
+    let max_size_usize: usize = MAX_ORPHAN_WITNESS_SIZE.as_u64().try_into().unwrap();
+    let items_count = max_size_usize / std::mem::size_of::<MerklePathItem>() + 1;
     let big_path = vec![dummy_merkle_path_item; items_count];
     let big_receipt_proof =
         ReceiptProof(Vec::new(), ShardProof { from_shard_id: 0, to_shard_id: 0, proof: big_path });
