@@ -302,8 +302,8 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
 }
 
 pub fn default_orphan_state_witness_pool_size() -> usize {
-    // With 4 shards, a capacity of 12 witnesses allows to store 3 orphan witnesses per shard.
-    12
+    // With 5 shards, a capacity of 25 witnesses allows to store 3 orphan witnesses per shard.
+    25
 }
 
 /// Config for the Chunk Distribution Network feature.
