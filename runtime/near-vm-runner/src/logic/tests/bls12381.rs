@@ -1232,8 +1232,12 @@ mod tests {
 
         const MAX_N: usize = 500;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut res2 = ECP::new();
 
@@ -1366,8 +1370,12 @@ mod tests {
 
         const MAX_N: usize = 250;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut res2 = ECP2::new();
 
@@ -1483,8 +1491,12 @@ mod tests {
 
         const MAX_N: usize = 500;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut fps: Vec<FP> = vec![];
             let mut res2_mul: Vec<u8> = vec![];
@@ -1546,8 +1558,12 @@ mod tests {
 
         const MAX_N: usize = 250;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut fps: Vec<FP2> = vec![];
             let mut res2_mul: Vec<u8> = vec![];
@@ -1611,8 +1627,12 @@ mod tests {
 
         const MAX_N: usize = 500;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut p1s: Vec<ECP> = vec![];
             let mut res2: Vec<u8> = vec![];
@@ -1698,8 +1718,12 @@ mod tests {
 
         const MAX_N: usize = 250;
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            };
 
             let mut p2s: Vec<ECP2> = vec![];
             let mut res2: Vec<u8> = vec![];
@@ -1795,11 +1819,15 @@ mod tests {
     fn test_bls12381_pairing_check_many_points() {
         let mut rnd = get_rnd();
 
-        const MAX_N: usize = 10;
+        const MAX_N: usize = 105;
         let r = Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string());
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N + 1;
+        for i in 0..10 {
+            let n: usize = if i == 0 {
+                MAX_N
+            } else {
+                (thread_rng().next_u32() as usize) % MAX_N
+            } + 1;
 
             let mut scalars_1: Vec<Big> = vec![];
             let mut scalars_2: Vec<Big> = vec![];
