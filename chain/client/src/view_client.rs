@@ -280,7 +280,7 @@ impl ViewClientActor {
             let cps: Vec<AccountId> = shard_ids
                 .iter()
                 .map(|&shard_id| {
-                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id).unwrap();
                     let cp = epoch_info.get_validator(cp).account_id().clone();
                     cp
                 })

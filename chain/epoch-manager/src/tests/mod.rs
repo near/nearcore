@@ -1131,7 +1131,7 @@ fn test_expected_chunks_prev_block_not_produced() {
         let prev_block_info = epoch_manager.get_block_info(&prev_block).unwrap();
         let prev_height = prev_block_info.height();
         let expected_chunk_producer =
-            EpochManager::chunk_producer_from_info(&epoch_info, prev_height + 1, 0);
+            EpochManager::chunk_producer_from_info(&epoch_info, prev_height + 1, 0).unwrap();
         // test1 does not produce blocks during first epoch
         if block_producer == 0 && epoch_id == initial_epoch_id {
             expected += 1;
@@ -1473,7 +1473,8 @@ fn test_chunk_validator_kickout() {
                         &epoch_info,
                         height,
                         shard_id as u64,
-                    );
+                    )
+                    .unwrap();
                     // test1 skips chunks
                     if chunk_producer == 0 {
                         expected += 1;
