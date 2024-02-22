@@ -1647,6 +1647,15 @@ mod tests {
             }
             let res1 = decompress_p1(p1s.clone());
             assert_eq!(res1, res2);
+
+            let mut p1s: Vec<ECP> = vec![];
+            let mut res2: Vec<u8> = vec![];
+            for i in 0..n {
+                p1s.push(get_random_g1_point(&mut rnd));
+                res2.append(&mut serialize_uncompressed_g1(&p1s[i]).to_vec());
+            }
+            let res1 = decompress_p1(p1s.clone());
+            assert_eq!(res1, res2);
         }
     }
 
@@ -1739,6 +1748,15 @@ mod tests {
             let mut res2: Vec<u8> = vec![];
             for i in 0..n {
                 p2s.push(get_random_g2_curve_point(&mut rnd));
+                res2.append(&mut serialize_uncompressed_g2(&p2s[i]).to_vec());
+            }
+            let res1 = decompress_p2(p2s.clone());
+            assert_eq!(res1, res2);
+
+            let mut p2s: Vec<ECP2> = vec![];
+            let mut res2: Vec<u8> = vec![];
+            for i in 0..n {
+                p2s.push(get_random_g2_point(&mut rnd));
                 res2.append(&mut serialize_uncompressed_g2(&p2s[i]).to_vec());
             }
             let res1 = decompress_p2(p2s.clone());
