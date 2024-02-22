@@ -22,7 +22,7 @@ use near_primitives_core::version::PROTOCOL_VERSION;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
-struct OrphanWitnessTest {
+struct OrphanWitnessTestEnv {
     env: TestEnv,
     block1: Block,
     block2: Block,
@@ -36,7 +36,7 @@ struct OrphanWitnessTest {
 /// It creates two blocks (`block1` and `block2`), but doesn't pass them to `excluded_validator`.
 /// When `excluded_validator` receives a witness for the chunk belonging to `block2`, it doesn't
 /// have `block1` which is required to process the witness, so it becomes an orphaned state witness.
-fn setup_orphan_witness_test() -> OrphanWitnessTest {
+fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
     let accounts: Vec<AccountId> = (0..4).map(|i| format!("test{i}").parse().unwrap()).collect();
     let genesis = Genesis::test(accounts.clone(), accounts.len().try_into().unwrap());
     let mut env = TestEnv::builder(&genesis.config)
@@ -185,7 +185,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTest {
         env.process_shards_manager_responses_and_finish_processing_blocks(client_idx);
     }
 
-    OrphanWitnessTest {
+    OrphanWitnessTestEnv {
         env,
         block1,
         block2,
@@ -206,7 +206,7 @@ fn test_orphan_witness_valid() {
         return;
     }
 
-    let OrphanWitnessTest {
+    let OrphanWitnessTestEnv {
         mut env,
         block1,
         block2,
@@ -243,7 +243,7 @@ fn test_orphan_witness_bad_signature() {
         return;
     }
 
-    let OrphanWitnessTest { mut env, mut witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
     // Modify the witness to contain an invalid signature
@@ -267,7 +267,7 @@ fn test_orphan_witness_signature_from_wrong_peer() {
         return;
     }
 
-    let OrphanWitnessTest { mut env, mut witness, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
     // Sign the witness using another validator's key.
@@ -292,7 +292,7 @@ fn test_orphan_witness_invalid_shard_id() {
         return;
     }
 
-    let OrphanWitnessTest { mut env, mut witness, excluded_validator, chunk_producer, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, chunk_producer, .. } =
         setup_orphan_witness_test();
 
     // Set invalid shard_id in the witness header
@@ -318,7 +318,7 @@ fn test_orphan_witness_too_large() {
         return;
     }
 
-    let OrphanWitnessTest { mut env, mut witness, excluded_validator, chunk_producer, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, excluded_validator, chunk_producer, .. } =
         setup_orphan_witness_test();
 
     // Modify the witness to be larger than the allowed limit
@@ -347,8 +347,13 @@ fn test_orphan_witness_far_from_head() {
         return;
     }
 
-    let OrphanWitnessTest {
-        mut env, mut witness, chunk_producer, block1, excluded_validator, ..
+    let OrphanWitnessTestEnv {
+        mut env,
+        mut witness,
+        chunk_producer,
+        block1,
+        excluded_validator,
+        ..
     } = setup_orphan_witness_test();
 
     let bad_height = 10000;
@@ -377,7 +382,7 @@ fn test_orphan_witness_not_fully_validated() {
         return;
     }
 
-    let OrphanWitnessTest { mut env, mut witness, chunk_producer, excluded_validator, .. } =
+    let OrphanWitnessTestEnv { mut env, mut witness, chunk_producer, excluded_validator, .. } =
         setup_orphan_witness_test();
 
     // Make the witness invalid in a way that won't be detected during orphan witness validation

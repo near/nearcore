@@ -185,9 +185,9 @@ mod tests {
         match &mut witness.inner.chunk_header {
             ShardChunkHeader::V3(header) => match &mut header.inner {
                 ShardChunkHeaderInner::V2(inner) => inner.encoded_length = encoded_length,
-                _ => panic!(),
+                _ => unimplemented!(),
             },
-            _ => panic!(),
+            _ => unimplemented!(),
         }
         witness
     }
@@ -198,7 +198,7 @@ mod tests {
     }
 
     /// Assert that both Vecs are equal after sorting. It's order-independent, unlike the standard assert_eq!
-    fn assert_same(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
+    fn assert_contents(mut observed: Vec<ChunkStateWitness>, mut expected: Vec<ChunkStateWitness>) {
         let sort_comparator = |witness1: &ChunkStateWitness, witness2: &ChunkStateWitness| {
             let bytes1 = borsh::to_vec(witness1).unwrap();
             let bytes2 = borsh::to_vec(witness2).unwrap();
@@ -222,12 +222,12 @@ mod tests {
             for witness in expected {
                 print_witness_info(&witness);
             }
-            eprintln!("Observed {} witnesse:", observed.len());
+            eprintln!("Observed {} witnesses:", observed.len());
             for witness in observed {
                 print_witness_info(&witness);
             }
             eprintln!("==================");
-            panic!("assert_same failed");
+            panic!("assert_contents failed");
         }
     }
 
@@ -253,10 +253,10 @@ mod tests {
         pool.add_orphan_state_witness(witness4.clone(), 0);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_same(waiting_for_99, vec![witness1, witness2]);
+        assert_contents(waiting_for_99, vec![witness1, witness2]);
 
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_same(waiting_for_100, vec![witness3, witness4]);
+        assert_contents(waiting_for_100, vec![witness3, witness4]);
 
         assert_empty(&pool);
     }
@@ -275,7 +275,7 @@ mod tests {
             pool.add_orphan_state_witness(witness2.clone(), 0);
 
             let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
-            assert_same(waiting_for_99, vec![witness2]);
+            assert_contents(waiting_for_99, vec![witness2]);
         }
 
         // The old witness is replaced when the awaited block is different, waiting_for_block is cleaned as expected
@@ -286,10 +286,10 @@ mod tests {
             pool.add_orphan_state_witness(witness4.clone(), 0);
 
             let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
-            assert_same(waiting_for_101, vec![witness4]);
+            assert_contents(waiting_for_101, vec![witness4]);
 
             let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-            assert_same(waiting_for_100, vec![]);
+            assert_contents(waiting_for_100, vec![]);
         }
 
         assert_empty(&pool);
@@ -311,11 +311,11 @@ mod tests {
         pool.add_orphan_state_witness(witness3.clone(), 0);
 
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_same(waiting_for_100, vec![witness2, witness3]);
+        assert_contents(waiting_for_100, vec![witness2, witness3]);
 
         // witness1 should be ejected, no one is waiting for block 101
         let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
-        assert_same(waiting_for_101, vec![]);
+        assert_contents(waiting_for_101, vec![]);
 
         assert_empty(&pool);
     }
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(pool.waiting_for_block.len(), 1);
 
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_same(waiting_for_100, vec![witness2]);
+        assert_contents(waiting_for_100, vec![witness2]);
 
         assert_empty(&pool);
     }
@@ -356,7 +356,7 @@ mod tests {
         pool.add_orphan_state_witness(witness.clone(), 0);
 
         let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_same(waiting_for_99, vec![witness]);
+        assert_contents(waiting_for_99, vec![witness]);
 
         assert_empty(&pool);
     }
@@ -372,7 +372,7 @@ mod tests {
         pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
 
         let waiting = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_same(waiting, vec![]);
+        assert_contents(waiting, vec![]);
 
         assert_empty(&pool);
     }
@@ -388,7 +388,6 @@ mod tests {
         pool.add_orphan_state_witness(make_witness(100, 2, block(99), 0), 1);
         pool.add_orphan_state_witness(make_witness(101, 0, block(100), 0), 0);
         std::mem::drop(pool);
-        println!("Ok!");
     }
 
     /// A longer test scenario
@@ -423,7 +422,7 @@ mod tests {
         // Pool capacity is 5, so three witnesses at height 100 should be ejected.
         // The only surviving witness should be witness5, which was the freshest one among them
         let looking_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
-        assert_same(looking_for_99, vec![witness5]);
+        assert_contents(looking_for_99, vec![witness5]);
 
         // Let's add a few more witnesses
         let witness10 = make_witness(102, 1, block(101), 0);
@@ -435,14 +434,14 @@ mod tests {
 
         // Check that witnesses waiting for block 100 are correct
         let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_same(waiting_for_100, vec![witness7, witness8, witness9, witness11]);
+        assert_contents(waiting_for_100, vec![witness7, witness8, witness9, witness11]);
 
         // At this point the pool contains only witness12, no one should be waiting for block 101.
         let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
-        assert_same(waiting_for_101, vec![]);
+        assert_contents(waiting_for_101, vec![]);
 
         let waiting_for_77 = pool.take_state_witnesses_waiting_for_block(&block(77));
-        assert_same(waiting_for_77, vec![witness12]);
+        assert_contents(waiting_for_77, vec![witness12]);
 
         assert_empty(&pool);
     }

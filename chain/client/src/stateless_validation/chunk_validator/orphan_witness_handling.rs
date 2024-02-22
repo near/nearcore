@@ -114,7 +114,7 @@ impl Client {
         // Orphan witness is OK, save it to the pool
         tracing::debug!(target: "client", "Saving an orphaned ChunkStateWitness to orphan pool");
         self.chunk_validator.orphan_witness_pool.add_orphan_state_witness(witness, witness_size);
-        Ok(HandleOrphanWitnessOutcome::SavedTooPool)
+        Ok(HandleOrphanWitnessOutcome::SavedToPool)
     }
 
     fn partially_validate_orphan_witness_in_epoch(
@@ -193,7 +193,7 @@ impl Client {
 /// It's useful in tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleOrphanWitnessOutcome {
-    SavedTooPool,
+    SavedToPool,
     TooBig(usize),
     TooFarFromHead { head_height: BlockHeight, witness_height: BlockHeight },
 }
