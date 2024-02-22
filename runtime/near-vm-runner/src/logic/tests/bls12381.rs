@@ -2006,4 +2006,91 @@ mod tests {
             assert_eq!(res1, serialize_uncompressed_g2(&p));
         }
     }
+
+    // Memory limits tests
+    #[test]
+    #[should_panic]
+    fn test_bls12381_p1_multiexp_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; (96 + 32) * 1000];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_p2_multiexp_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; (192 + 32) * 500];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_map_fp_to_g1_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 48 * 2000];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_map_fp2_to_g2_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 96 * 1000];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_pairing_check_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 288 * 500];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_p1_decompress_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 48 * 2000];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_bls12381_p2_decompress_too_big_input() {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let buffer = vec![0u8; 96 * 1000];
+
+        let input = logic.internal_mem_write(buffer.as_slice());
+        logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+    }
 }
