@@ -1015,6 +1015,33 @@ mod tests {
             let result_point = deserialize_g2(&p_inv).unwrap();
             assert!(subgroup_check_g2(&result_point));
         }
+
+        // Random point check with library
+        for _ in 0..10 {
+            let mut p = get_random_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+
+            let p_inv = get_g2_inverse(&p_ser, &mut logic);
+
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g2(&p);
+
+            assert_eq!(p_neg_ser.to_vec(), p_inv);
+        }
+
+        // Not from G2 points
+        for _ in 0..10 {
+            let mut p = get_random_not_g2_curve_point(&mut rnd);
+            let p_ser = serialize_uncompressed_g2(&p);
+            let p_inv = get_g2_inverse(&p_ser, &mut logic);
+            p.neg();
+            let p_neg_ser = serialize_uncompressed_g2(&p);
+            assert_eq!(p_neg_ser.to_vec(), p_inv);
+        }
+
+        // -0
+        let zero_inv = get_g2_inverse(&zero, &mut logic);
+        assert_eq!(zero.to_vec(), zero_inv);
     }
 
     #[test]
