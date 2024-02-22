@@ -4,10 +4,6 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use crate::adapter::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-};
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
@@ -31,6 +27,10 @@ use near_chunks::ShardsManager;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{
+    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
+    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{

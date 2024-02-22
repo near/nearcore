@@ -31,6 +31,13 @@ pub struct FlatStateDeltaMetadata {
     pub prev_block_with_changes: Option<BlockWithChangesInfo>,
 }
 
+impl FlatStateDeltaMetadata {
+    #[inline]
+    pub fn has_changes(&self) -> bool {
+        self.prev_block_with_changes.is_none()
+    }
+}
+
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub struct KeyForFlatStateDelta {
     pub shard_uid: ShardUId,

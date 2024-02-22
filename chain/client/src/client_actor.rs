@@ -5,11 +5,6 @@
 //! Unfortunately, this is not the case today. We are in the process of refactoring ClientActor
 //! https://github.com/near/nearcore/issues/7899
 
-use crate::adapter::{
-    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
-};
 #[cfg(feature = "test_features")]
 use crate::client::AdvProduceBlocksMode;
 use crate::client::{Client, EPOCH_START_INFO_BLOCKS};
@@ -49,6 +44,11 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{
+    BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
+    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
+    StateResponse,
+};
 use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,

@@ -1,8 +1,8 @@
-use serde_json::Value;
-
+use near_async::messaging::AsyncSendError;
 use near_client_primitives::types::GetProtocolConfigError;
 use near_jsonrpc_primitives::errors::RpcParseError;
 use near_jsonrpc_primitives::types::config::{RpcProtocolConfigError, RpcProtocolConfigRequest};
+use serde_json::Value;
 
 use super::{Params, RpcFrom, RpcRequest};
 
@@ -12,8 +12,8 @@ impl RpcRequest for RpcProtocolConfigRequest {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcProtocolConfigError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcProtocolConfigError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

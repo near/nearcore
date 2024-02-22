@@ -1,9 +1,9 @@
 use assert_matches::assert_matches;
 
 use near_chain_configs::Genesis;
-use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::client::ProcessTxResponse;
 use near_parameters::{ExtCostsConfig, RuntimeConfig, RuntimeConfigStore, StorageUsageConfig};
 use near_primitives::account::id::AccountId;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};

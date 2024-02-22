@@ -8,6 +8,7 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::{ClientConfig, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::adapter::client_sender_for_network;
 use near_client::{start_client, start_view_client, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_network::actix::ActixSystem;
@@ -117,7 +118,7 @@ fn setup_network_node(
         time::Clock::real(),
         db.clone(),
         config,
-        Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
+        client_sender_for_network(client_actor, view_client_actor),
         shards_manager_adapter.as_sender(),
         genesis_id,
     )
