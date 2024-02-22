@@ -1619,6 +1619,11 @@ mod tests {
 
             assert_eq!(res1, serialize_uncompressed_g1(&p1));
         }
+
+        let zero1 = ECP::new();
+        let res1 = decompress_p1(vec![zero1.clone()]);
+
+        assert_eq!(res1, serialize_uncompressed_g1(&zero1));
     }
 
     #[test]
@@ -1710,6 +1715,11 @@ mod tests {
 
             assert_eq!(res1, serialize_uncompressed_g2(&p2));
         }
+
+        let zero2 = ECP2::new();
+        let res1 = decompress_p2(vec![zero2.clone()]);
+
+        assert_eq!(res1, serialize_uncompressed_g2(&zero2));
     }
 
     #[test]
