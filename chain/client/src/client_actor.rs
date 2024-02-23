@@ -9,6 +9,7 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use chrono::{DateTime, Utc};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::messaging::{IntoMultiSender, Sender};
 use near_async::time::Clock;
 use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest};
@@ -94,7 +95,7 @@ impl ClientActor {
             create_sync_job_scheduler::<ApplyStatePartsRequest>(sync_jobs_actor_addr.clone()),
             create_sync_job_scheduler::<BlockCatchUpRequest>(sync_jobs_actor_addr.clone()),
             create_sync_job_scheduler::<ReshardingRequest>(sync_jobs_actor_addr),
-            state_parts_arbiter,
+            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
         )?;
         Ok(Self { actions })
     }

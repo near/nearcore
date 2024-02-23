@@ -14,8 +14,8 @@ use crate::info::{display_sync_status, InfoHelper};
 use crate::sync::adapter::{SyncMessage, SyncShardInfo};
 use crate::sync::state::{StateSync, StateSyncResult};
 use crate::{metrics, StatusResponse};
-use actix::{Addr, Arbiter};
-use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
+use actix::Addr;
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
 use near_chain::chain::{
@@ -117,7 +117,7 @@ pub struct ClientActions {
     state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
     block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
     resharding_scheduler: Box<dyn Fn(ReshardingRequest)>,
-    state_parts_client_arbiter: Arbiter,
+    state_parts_future_spawner: Box<dyn FutureSpawner>,
 
     #[cfg(feature = "sandbox")]
     fastforward_delta: near_primitives::types::BlockHeightDelta,
@@ -146,7 +146,7 @@ impl ClientActions {
         state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
         block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
         resharding_scheduler: Box<dyn Fn(ReshardingRequest)>,
-        state_parts_client_arbiter: Arbiter,
+        state_parts_future_spawner: Box<dyn FutureSpawner>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
@@ -189,7 +189,7 @@ impl ClientActions {
             state_parts_task_scheduler,
             block_catch_up_scheduler,
             resharding_scheduler,
-            state_parts_client_arbiter,
+            state_parts_future_spawner,
         })
     }
 }
@@ -1386,7 +1386,7 @@ impl ClientActions {
                 &self.block_catch_up_scheduler,
                 &self.resharding_scheduler,
                 self.get_apply_chunks_done_callback(),
-                &self.state_parts_client_arbiter.handle(),
+                self.state_parts_future_spawner.as_ref(),
             ) {
                 error!(target: "client", "{:?} Error occurred during catchup for the next epoch: {:?}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), err);
             }
@@ -1615,7 +1615,7 @@ impl ClientActions {
                         shards_to_sync,
                         &self.state_parts_task_scheduler,
                         &self.resharding_scheduler,
-                        &self.state_parts_client_arbiter.handle(),
+                        self.state_parts_future_spawner.as_ref(),
                         use_colour,
                         self.client.runtime_adapter.clone(),
                     )) {

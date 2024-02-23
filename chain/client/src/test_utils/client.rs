@@ -9,6 +9,7 @@ use crate::client::ProduceChunkResult;
 use crate::Client;
 use actix_rt::{Arbiter, System};
 use itertools::Itertools;
+use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::resharding::ReshardingRequest;
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
@@ -281,7 +282,7 @@ pub fn run_catchup(
         resharding_inside_messages.write().unwrap().push(msg);
     };
     let _ = System::new();
-    let state_parts_arbiter_handle = Arbiter::new().handle();
+    let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
         client.run_catchup(
             highest_height_peers,
@@ -289,7 +290,7 @@ pub fn run_catchup(
             &block_catch_up,
             &resharding,
             Arc::new(|_| {}),
-            &state_parts_arbiter_handle,
+            &state_parts_future_spawner,
         )?;
         let mut catchup_done = true;
         for msg in block_messages.write().unwrap().drain(..) {

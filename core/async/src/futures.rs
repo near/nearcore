@@ -49,6 +49,19 @@ impl FutureSpawner for ActixFutureSpawner {
     }
 }
 
+pub struct ActixArbiterHandleFutureSpawner(pub actix::ArbiterHandle);
+
+impl FutureSpawner for ActixArbiterHandleFutureSpawner {
+    fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
+        if !self.0.spawn(f) {
+            near_o11y::tracing::error!(
+                "Failed to spawn future: {}, arbiter has exited",
+                description
+            );
+        }
+    }
+}
+
 /// Abstraction for something that can schedule something to run after.
 /// This isn't the same as just delaying a closure. Rather, it has the
 /// additional power of providing the closure a mutable reference to some

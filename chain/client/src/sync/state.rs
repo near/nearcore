@@ -24,10 +24,10 @@ use crate::metrics;
 use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
-use actix_rt::ArbiterHandle;
 use borsh::BorshDeserialize;
 use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::SendAsync;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
@@ -230,7 +230,7 @@ impl StateSync {
         now: DateTime<Utc>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         resharding_scheduler: &dyn Fn(ReshardingRequest),
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<bool, near_chain::Error> {
@@ -357,7 +357,7 @@ impl StateSync {
                     shard_sync_download,
                     highest_height_peers,
                     runtime_adapter.clone(),
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 )?;
             }
         }
@@ -533,7 +533,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), near_chain::Error> {
         let mut possible_targets = vec![];
         match self.inner {
@@ -558,7 +558,7 @@ impl StateSync {
                     sync_hash,
                     &possible_targets,
                     shard_sync_download,
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
@@ -569,7 +569,7 @@ impl StateSync {
                     shard_sync_download,
                     chain,
                     runtime_adapter,
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 );
             }
             _ => {}
@@ -586,7 +586,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         possible_targets: &[PeerId],
         new_shard_sync_download: &mut ShardSyncDownload,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) {
         let header_download = new_shard_sync_download.get_header_download_mut().unwrap();
         match &mut self.inner {
@@ -628,7 +628,7 @@ impl StateSync {
                     epoch_height,
                     &chain_id.clone(),
                     external.clone(),
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                     self.state_parts_mpsc_tx.clone(),
                 );
             }
@@ -644,7 +644,7 @@ impl StateSync {
         new_shard_sync_download: &mut ShardSyncDownload,
         chain: &Chain,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
@@ -706,7 +706,7 @@ impl StateSync {
                         semaphore.clone(),
                         external.clone(),
                         runtime_adapter.clone(),
-                        state_parts_arbiter_handle,
+                        state_parts_future_spawner,
                         self.state_parts_mpsc_tx.clone(),
                     );
                     if semaphore.available_permits() == 0 {
@@ -733,7 +733,7 @@ impl StateSync {
         tracking_shards: Vec<ShardId>,
         state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
         resharding_scheduler: &dyn Fn(ReshardingRequest),
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<StateSyncResult, near_chain::Error> {
@@ -762,7 +762,7 @@ impl StateSync {
             now,
             state_parts_task_scheduler,
             resharding_scheduler,
-            state_parts_arbiter_handle,
+            state_parts_future_spawner,
             use_colour,
             runtime_adapter,
         )?;
@@ -1129,7 +1129,7 @@ fn request_header_from_external_storage(
     epoch_height: EpochHeight,
     chain_id: &str,
     external: ExternalConnection,
-    state_parts_arbiter_handle: &ArbiterHandle,
+    state_parts_future_spawner: &dyn FutureSpawner,
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
 ) {
     if !download.run_me.swap(false, Ordering::SeqCst) {
@@ -1146,7 +1146,8 @@ fn request_header_from_external_storage(
         shard_id,
         &StateFileType::StateHeader,
     );
-    if state_parts_arbiter_handle.spawn({
+    state_parts_future_spawner.spawn(
+        "download_header_from_external_storage", 
         async move {
             let result = download_header_from_external_storage(shard_id, sync_hash, location, external).await;
             match state_parts_mpsc_tx.send(StateSyncGetFileResult {
@@ -1161,10 +1162,7 @@ fn request_header_from_external_storage(
                 },
             }
         }
-    }) == false
-    {
-        tracing::error!(target: "sync", %shard_id, "Unable to spawn download. state_parts_arbiter has died.");
-    }
+    );
 }
 
 async fn download_and_store_part_from_external_storage(
@@ -1212,7 +1210,7 @@ fn request_part_from_external_storage(
     semaphore: Arc<Semaphore>,
     external: ExternalConnection,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    state_parts_arbiter_handle: &ArbiterHandle,
+    state_parts_future_spawner: &dyn FutureSpawner,
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
 ) {
     if !download.run_me.swap(false, Ordering::SeqCst) {
@@ -1232,7 +1230,8 @@ fn request_part_from_external_storage(
 
     match semaphore.try_acquire_owned() {
         Ok(permit) => {
-            if state_parts_arbiter_handle.spawn({
+            state_parts_future_spawner.spawn(
+                "download_and_store_part_from_external_storage",
                 async move {
                     let file_type = StateFileType::StatePart { part_id, num_parts };
                     let part_id = PartId{ idx: part_id, total: num_parts };
@@ -1260,14 +1259,11 @@ fn request_part_from_external_storage(
                     }
                     drop(permit)
                 }
-            }) == false
-            {
-                tracing::error!(target: "sync", %shard_id, part_id, "Unable to spawn download. state_parts_arbiter has died.");
-            }
-        },
+            );
+        }
         Err(TryAcquireError::NoPermits) => {
             download.run_me.store(true, Ordering::SeqCst);
-        },
+        }
         Err(TryAcquireError::Closed) => {
             download.run_me.store(true, Ordering::SeqCst);
             tracing::warn!(target: "sync", %shard_id, part_id, "Failed to schedule download. Semaphore closed.");
@@ -1428,6 +1424,7 @@ mod test {
     use actix::System;
     use actix_rt::Arbiter;
     use near_actix_test_utils::run_actix;
+    use near_async::futures::ActixArbiterHandleFutureSpawner;
     use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
@@ -1512,7 +1509,7 @@ mod test {
                     vec![0],
                     &apply_parts_fn,
                     &resharding_fn,
-                    &Arbiter::new().handle(),
+                    &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),
                     false,
                     runtime,
                 )
