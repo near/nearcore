@@ -105,11 +105,12 @@ pub fn map_records<P: AsRef<Path>>(
             }
         };
     })?;
+    let default_key = crate::key_mapping::default_extra_key(secret.as_ref());
     for account_id in accounts {
         if !has_full_key.contains(&account_id) {
             records_seq.serialize_element(&StateRecord::AccessKey {
                 account_id,
-                public_key: crate::key_mapping::EXTRA_KEY.public_key(),
+                public_key: default_key.public_key(),
                 access_key: AccessKey::full_access(),
             })?;
         }

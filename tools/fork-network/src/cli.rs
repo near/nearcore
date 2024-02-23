@@ -669,7 +669,7 @@ impl ForkNetworkCommand {
                     }
                     storage_mutator.set_access_key(
                         account_id,
-                        near_mirror::key_mapping::EXTRA_KEY.public_key(),
+                        near_mirror::key_mapping::default_extra_key(None).public_key(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
