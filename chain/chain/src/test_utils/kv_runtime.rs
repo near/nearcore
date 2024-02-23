@@ -696,6 +696,10 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(vec![])
     }
 
+    /// We need to override the default implementation to make
+    /// `Chain::should_produce_state_witness_for_this_or_next_epoch` work
+    /// since `get_epoch_chunk_producers` returns empty Vec which results
+    /// in state transition data not being saved on disk.
     fn is_chunk_producer_for_epoch(
         &self,
         _epoch_id: &EpochId,

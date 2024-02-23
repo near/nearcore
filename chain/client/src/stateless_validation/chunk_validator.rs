@@ -346,16 +346,27 @@ fn validate_source_receipt_proofs(
     receipt_source_blocks: &[Block],
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
+    if receipt_source_blocks.iter().any(|block| block.header().is_genesis()) {
+        if receipt_source_blocks.len() != 1 {
+            return Err(Error::Other(
+                "Invalid chain state: receipt_source_blocks should not have any blocks alongside genesis".to_owned()
+            ));
+        }
+        if !source_receipt_proofs.is_empty() {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "genesis source_receipt_proofs should be empty, actual len is {}",
+                source_receipt_proofs.len()
+            )));
+        }
+        return Ok(vec![]);
+    }
+
     let mut receipts_to_apply = Vec::new();
     let mut expected_proofs_len = 0;
 
     // Iterate over blocks between last_chunk_block (inclusive) and last_last_chunk_block (exclusive),
     // from the newest blocks to the oldest.
     for block in receipt_source_blocks {
-        if block.header().is_genesis() {
-            assert_eq!(receipt_source_blocks.len(), 1);
-            break;
-        }
         // Collect all receipts coming from this block.
         let mut block_receipt_proofs = Vec::new();
 
