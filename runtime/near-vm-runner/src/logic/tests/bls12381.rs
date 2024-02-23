@@ -2276,4 +2276,25 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_bls12381_fp_to_g1_test_vectors() {
+        let pairing_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp_to_g1.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(pairing_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = fix_eip2537_fp(hex::decode(&record[0]).unwrap());
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let _ = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g1(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
 }
