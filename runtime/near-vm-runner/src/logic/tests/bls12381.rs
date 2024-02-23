@@ -1,4 +1,5 @@
 mod tests {
+    use std::fs;
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use amcl::bls381::big::Big;
     use amcl::bls381::bls381::core::deserialize_g1;
@@ -471,6 +472,23 @@ mod tests {
         assert_eq!(res1, res2);
 
         assert_eq!(res1, serialize_uncompressed_g2(&res3).to_vec());
+    }
+
+    fn fix_eip2537_fp(fp: Vec<u8>) -> Vec<u8> {
+        fp[16..].to_vec()
+    }
+
+
+    fn fix_eip2537_fp2(fp2: Vec<u8>) -> Vec<u8> {
+        vec![fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
+    }
+
+    fn fix_eip2537_g1(g1: Vec<u8>) -> Vec<u8> {
+        vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat()
+    }
+
+    fn fix_eip2537_g2(g2: Vec<u8>) -> Vec<u8> {
+        vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat()
     }
 
     //==== TESTS FOR G1_SUM
@@ -2228,5 +2246,34 @@ mod tests {
 
         let input = logic.internal_mem_write(buffer.as_slice());
         logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
+    }
+
+    #[test]
+    fn test_bls12381_pairing_test_vectors() {
+        let pairing_csv = fs::read("src/logic/tests/bls12381_test_vectors/pairing.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(pairing_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/384;
+            let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384 .. i * 384 + 128].to_vec()));
+                bytes_input_fix.push(fix_eip2537_g2(bytes_input[i * 384 + 128 .. (i + 1) * 384].to_vec()));
+            }
+
+            let input = logic.internal_mem_write(&bytes_input_fix.concat());
+            let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+
+            if &record[1] == "0000000000000000000000000000000000000000000000000000000000000000" {
+                assert_eq!(res, 2);
+            } else {
+                assert_eq!(res, 0);
+            }
+        }
     }
 }

@@ -18,6 +18,7 @@ blst.workspace = true
 base64.workspace = true
 bn.workspace = true
 borsh.workspace = true
+csv.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"] }
