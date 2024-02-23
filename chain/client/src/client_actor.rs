@@ -21,7 +21,6 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_client_primitives::types::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
-use near_network::client::ChunkStateWitnessMessage;
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
@@ -148,18 +147,6 @@ where
 
     fn handle(&mut self, msg: WithSpanContext<T>, ctx: &mut Context<Self>) -> Self::Result {
         self.wrap(msg, ctx, std::any::type_name::<T>(), |this, msg, _| this.actions.handle(msg))
-    }
-}
-
-// This one requires the context for further scheduling of messages, so
-// we can't use the generic wrapper above.
-impl Handler<WithSpanContext<ChunkStateWitnessMessage>> for ClientActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: WithSpanContext<ChunkStateWitnessMessage>, ctx: &mut Context<Self>) {
-        self.wrap(msg, ctx, "ChunkStateWitnessMessage", |this, msg, ctx| {
-            this.actions.handle_state_witness_message(msg, ctx)
-        })
     }
 }
 

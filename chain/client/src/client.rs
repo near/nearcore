@@ -351,6 +351,7 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
+            config.orphan_state_witness_pool_size,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -1640,6 +1641,8 @@ impl Client {
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+
+        self.process_ready_orphan_chunk_state_witnesses(&block);
     }
 
     /// Reconcile the transaction pool after processing a block.

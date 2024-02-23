@@ -4,6 +4,7 @@ use crate::EpochInfoAggregator;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
+use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -415,6 +416,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error>;
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error>;
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -430,6 +437,20 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<bool, EpochError>;
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Tries to estimate in which epoch the given height would reside.
+    /// Looks at the previous, current and next epoch around the tip
+    /// and adds them to the result if the height might be inside the epoch.
+    /// It returns a list of possible epochs instead of a single value
+    /// because sometimes it's impossible to determine the exact epoch
+    /// in which the height will be. The exact starting height of the
+    /// next epoch isn't known until it actually starts, so it's impossible
+    /// to determine the exact epoch for heights which are ahead of the tip.
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        tip: &Tip,
+        height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError>;
 
     /// Returns a vector of all hashes in the epoch ending with `last_block_info`.
     /// Only return blocks on chain of `last_block_info`.
@@ -1048,6 +1069,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_header = &state_witness.inner.chunk_header;
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        self.verify_chunk_state_witness_signature_in_epoch(state_witness, &epoch_id)
+    }
+
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let chunk_header = &state_witness.inner.chunk_header;
         let chunk_producer = epoch_manager.get_chunk_producer_info(
             &epoch_id,
             chunk_header.height_created(),
@@ -1085,6 +1116,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.will_shard_layout_change(parent_hash)
+    }
+
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        tip: &Tip,
+        height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.possible_epochs_of_height_around_tip(tip, height)
     }
 
     #[cfg(feature = "new_epoch_sync")]

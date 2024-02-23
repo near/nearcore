@@ -301,6 +301,11 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::from_millis(200))
 }
 
+pub fn default_orphan_state_witness_pool_size() -> usize {
+    // With 5 shards, a capacity of 25 witnesses allows to store 5 orphan witnesses per shard.
+    25
+}
+
 /// Config for the Chunk Distribution Network feature.
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic
@@ -443,6 +448,10 @@ pub struct ClientConfig {
     /// Nodes not participating will still function fine, but possibly with higher
     /// latency due to the need of requesting chunks over the peer-to-peer network.
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
+    /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
+    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// required block appears. This variable controls how many witnesses can be stored in the pool.
+    pub orphan_state_witness_pool_size: usize,
 }
 
 impl ClientConfig {
@@ -527,6 +536,7 @@ impl ClientConfig {
                 "produce_chunk_add_transactions_time_limit",
             ),
             chunk_distribution_network: None,
+            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
         }
     }
 }

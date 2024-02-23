@@ -1824,35 +1824,13 @@ impl ClientActionHandler<SyncMessage> for ClientActions {
     }
 }
 
-impl ClientActions {
-    pub fn handle_state_witness_message(
-        &mut self,
-        msg: ChunkStateWitnessMessage,
-        ctx: &mut dyn DelayedActionRunner<Self>,
-    ) {
-        let peer_id = msg.peer_id.clone();
-        let attempts_remaining = msg.attempts_remaining;
-        match self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
-            Err(err) => {
-                tracing::error!(target: "client", ?err, "Error processing chunk state witness");
-            }
-            Ok(Some(witness)) => {
-                if attempts_remaining > 0 {
-                    ctx.run_later(Duration::from_millis(100), move |actions, ctx| {
-                        actions.handle_state_witness_message(
-                            ChunkStateWitnessMessage {
-                                witness,
-                                peer_id,
-                                attempts_remaining: attempts_remaining - 1,
-                            },
-                            ctx,
-                        );
-                    });
-                } else {
-                    tracing::error!(target: "client", "Failed to process chunk state witness even after 5 tries due to missing parent block");
-                }
-            }
-            Ok(None) => {}
+impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: ChunkStateWitnessMessage) -> Self::Result {
+        if let Err(err) = self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
+            tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }
 }
