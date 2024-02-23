@@ -2406,4 +2406,58 @@ mod tests {
             assert_eq!(res, bytes_output);
         }
     }
+
+    #[test]
+    fn test_bls12381_g1_multiexp_test_vectors() {
+        let g1_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/g1_multiexp.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g1_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/(128 + 32);
+
+            let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fixed.push(fix_eip2537_g1(bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec()));
+                bytes_input_fixed.push(bytes_input[i * (128 + 32) + 128.. (i + 1) * (128 + 32)].to_vec().into_iter().rev().collect());
+            }
+            let input = logic.internal_mem_write(&bytes_input_fixed.concat());
+            let _ = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g1(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_multiexp_test_vectors() {
+        let g2_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/g2_multiexp.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g2_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/(256 + 32);
+
+            let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fixed.push(fix_eip2537_g2(bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec()));
+                bytes_input_fixed.push(bytes_input[i * (256 + 32) + 256.. (i + 1) * (256 + 32)].to_vec().into_iter().rev().collect());
+            }
+            let input = logic.internal_mem_write(&bytes_input_fixed.concat());
+            let _ = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g2(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
 }
