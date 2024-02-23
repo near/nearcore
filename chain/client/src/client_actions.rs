@@ -1846,22 +1846,6 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
     }
 }
 
-impl Handler<WithSpanContext<ChunkEndorsementMessage>> for ClientActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(
-        &mut self,
-        msg: WithSpanContext<ChunkEndorsementMessage>,
-        _: &mut Context<Self>,
-    ) -> Self::Result {
-        let (_span, msg) = handler_debug_span!(target: "client", msg);
-        if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
-            tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
-        }
-    }
-}
-
 /// Returns random seed sampled from the current thread
 pub fn random_seed_from_thread() -> RngSeed {
     let mut rng_seed: RngSeed = [0; 32];
