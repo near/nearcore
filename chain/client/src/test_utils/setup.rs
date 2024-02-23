@@ -185,8 +185,9 @@ pub fn setup(
     )
     .unwrap();
     let client_actor = ClientActor::new(
+        Clock::real(), // TODO: use fake clock
         client,
-        ctx.address(),
+        ctx.address().with_auto_span_context().into_multi_sender(),
         config,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,

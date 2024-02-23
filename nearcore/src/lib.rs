@@ -11,7 +11,7 @@ use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
-use near_async::time;
+use near_async::time::{self, Clock};
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
@@ -335,6 +335,7 @@ pub fn start_with_config_and_synchronization(
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
+        Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),

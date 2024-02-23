@@ -1,5 +1,5 @@
 use crate::{
-    futures::FutureSpawner,
+    futures::{FutureSpawner, FutureSpawnerExt},
     messaging::{AsyncSender, Sender},
 };
 
