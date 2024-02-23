@@ -9,6 +9,7 @@ use crate::test_utils::{
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
+use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
@@ -2823,6 +2824,7 @@ fn test_verify_chunk_state_witness() {
 #[test]
 fn test_possible_epochs_of_height_around_tip() {
     use std::str::FromStr;
+    init_test_logger();
 
     let amount_staked = 1_000_000;
     let account_id = AccountId::from_str("test1").unwrap();
@@ -2872,12 +2874,12 @@ fn test_possible_epochs_of_height_around_tip() {
     );
 
     let epoch1 = EpochId(h[0]);
-    dbg!(&epoch1);
+    tracing::info!(target: "test", ?epoch1);
 
     // Add blocks with heights 1..5, a standard epoch with no surprises
     for i in 1..=5 {
         let height = genesis_height + i as BlockHeight;
-        dbg!(height);
+        tracing::info!(target: "test", height);
         record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
@@ -2914,12 +2916,12 @@ fn test_possible_epochs_of_height_around_tip() {
     }
 
     let epoch2 = EpochId(h[5]);
-    dbg!(&epoch2);
+    tracing::info!(target: "test", ?epoch2);
 
     // Add blocks with heights 6..10, also a standard epoch with no surprises
     for i in 6..=10 {
         let height = genesis_height + i as BlockHeight;
-        dbg!(height);
+        tracing::info!(target: "test", height);
         record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,
@@ -2960,7 +2962,7 @@ fn test_possible_epochs_of_height_around_tip() {
     }
 
     let epoch3 = EpochId(h[10]);
-    dbg!(&epoch3);
+    tracing::info!(target: "test", ?epoch3);
 
     // Now there is a very long epoch with no final blocks (all odd blocks are missing)
     // For all the blocks inside this for the last final block will be block #8, as it has #9 and #10
@@ -2969,7 +2971,7 @@ fn test_possible_epochs_of_height_around_tip() {
     let last_finalized_height = genesis_height + 8;
     for i in (12..=24).filter(|i| i % 2 == 0) {
         let height = genesis_height + i as BlockHeight;
-        dbg!(height);
+        tracing::info!(target: "test", height);
         let block_info = block_info(
             h[i],
             height,
@@ -3032,7 +3034,7 @@ fn test_possible_epochs_of_height_around_tip() {
     // make block 24 final and finalize epoch2.
     for i in [25, 26] {
         let height = genesis_height + i as BlockHeight;
-        dbg!(height);
+        tracing::info!(target: "test", height);
         let block_info = block_info(
             h[i],
             height,
@@ -3095,7 +3097,7 @@ fn test_possible_epochs_of_height_around_tip() {
     let epoch4 = EpochId(h[12]);
     for i in 27..=31 {
         let height = genesis_height + i as BlockHeight;
-        dbg!(height);
+        tracing::info!(target: "test", height);
         record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
         let tip = Tip {
             height,

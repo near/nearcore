@@ -3723,6 +3723,7 @@ dependencies = [
  "near-chain-configs",
  "near-chain-primitives",
  "near-crypto",
+ "near-o11y",
  "near-primitives",
  "near-store",
  "num-rational",
