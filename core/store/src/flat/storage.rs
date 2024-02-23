@@ -255,10 +255,7 @@ impl FlatStorage {
         let mut deltas = HashMap::new();
         for delta_metadata in deltas_metadata {
             let block_hash = delta_metadata.block.hash;
-            let changes: CachedFlatStateChanges = if delta_metadata
-                .prev_block_with_changes
-                .is_none()
-            {
+            let changes: CachedFlatStateChanges = if delta_metadata.has_changes() {
                 store_helper::get_delta_changes(&store, shard_uid, block_hash)
                     .expect("failed to read flat state delta changes")
                     .unwrap_or_else(|| {

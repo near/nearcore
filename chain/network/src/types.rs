@@ -41,7 +41,7 @@ pub enum PeerType {
     Outbound,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
@@ -271,7 +271,7 @@ pub struct FullPeerInfo {
 
 /// These are the information needed for highest height peers. For these peers, we guarantee that
 /// the height and hash of the latest block are set.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighestHeightPeerInfo {
     pub peer_info: PeerInfo,
     /// Chain Id and hash of genesis block.
@@ -325,7 +325,7 @@ pub struct PeerChainInfo {
 }
 
 // Information about the connected peer that is shared with the rest of the system.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectedPeerInfo {
     pub full_peer_info: FullPeerInfo,
     /// Number of bytes we've received from the peer.
@@ -344,7 +344,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Clone, actix::MessageResponse)]
+#[derive(Debug, Clone, actix::MessageResponse, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,

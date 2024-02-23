@@ -589,6 +589,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(shard_ids)
     }
 
+    fn get_prev_shard_id(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        Ok(shard_id)
+    }
+
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
@@ -686,6 +694,18 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         tracing::warn!("not implemented, returning a dummy value");
         Ok(vec![])
+    }
+
+    /// We need to override the default implementation to make
+    /// `Chain::should_produce_state_witness_for_this_or_next_epoch` work
+    /// since `get_epoch_chunk_producers` returns empty Vec which results
+    /// in state transition data not being saved on disk.
+    fn is_chunk_producer_for_epoch(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
     }
 
     fn get_block_producer(
@@ -1046,7 +1066,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _storage: RuntimeStorageConfig,
+        storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1057,7 +1077,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
+        Ok(PreparedTransactions {
+            transactions: res,
+            limited_by: None,
+            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
+        })
     }
 
     fn apply_chunk(
@@ -1068,7 +1092,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyChunkResult, Error> {
-        assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
@@ -1216,7 +1239,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: None,
+            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
             processed_delayed_receipts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
@@ -1242,8 +1265,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
+                        0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

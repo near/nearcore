@@ -1,6 +1,5 @@
 #![allow(unused_imports)]
 
-use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
 use crate::{ClientActor, Query, ViewClientActor};
 use actix::{Addr, MailboxError, System};
@@ -8,6 +7,7 @@ use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,

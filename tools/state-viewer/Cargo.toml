@@ -56,6 +56,10 @@ testlib.workspace = true
 
 [features]
 sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-client/sandbox"]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
+]
+
 nightly = [
   "near-chain-configs/nightly",
   "near-chain/nightly",
@@ -69,6 +73,7 @@ nightly = [
   "nearcore/nightly",
   "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_nonrefundable_transfer_nep491",
   "testlib/nightly",
 ]
 nightly_protocol = [
