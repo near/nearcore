@@ -10,6 +10,7 @@ use crate::Client;
 use actix_rt::{Arbiter, System};
 use itertools::Itertools;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
+use near_async::messaging::{noop, IntoSender, Sender};
 use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
 use near_chain::resharding::ReshardingRequest;
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
@@ -270,23 +271,22 @@ pub fn run_catchup(
     client: &mut Client,
     highest_height_peers: &[HighestHeightPeerInfo],
 ) -> Result<(), Error> {
-    let f = |_| {};
     let block_messages = Arc::new(RwLock::new(vec![]));
     let block_inside_messages = block_messages.clone();
-    let block_catch_up = move |msg: BlockCatchUpRequest| {
+    let block_catch_up = Sender::from_fn(move |msg: BlockCatchUpRequest| {
         block_inside_messages.write().unwrap().push(msg);
-    };
+    });
     let resharding_messages = Arc::new(RwLock::new(vec![]));
     let resharding_inside_messages = resharding_messages.clone();
-    let resharding = move |msg: ReshardingRequest| {
+    let resharding = Sender::from_fn(move |msg: ReshardingRequest| {
         resharding_inside_messages.write().unwrap().push(msg);
-    };
+    });
     let _ = System::new();
     let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
         client.run_catchup(
             highest_height_peers,
-            &f,
+            &noop().into_sender(),
             &block_catch_up,
             &resharding,
             Arc::new(|_| {}),

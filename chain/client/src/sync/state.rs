@@ -228,8 +228,8 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -731,8 +731,8 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -956,7 +956,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         chain: &mut Chain,
         now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), near_chain::Error> {
         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
         let state_num_parts = shard_state_header.num_state_parts();
@@ -1048,7 +1048,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &Chain,
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
         chain.build_state_for_resharding_preprocessing(
@@ -1425,7 +1425,7 @@ mod test {
     use actix_rt::Arbiter;
     use near_actix_test_utils::run_actix;
     use near_async::futures::ActixArbiterHandleFutureSpawner;
-    use near_async::messaging::IntoMultiSender;
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
     use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_crypto::SecretKey;
@@ -1482,9 +1482,6 @@ mod test {
             ShardStateSyncResponseHeader::V2(internal) => internal,
         };
 
-        let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
-        let resharding_fn = move |_: ReshardingRequest| {};
-
         let secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
         let public_key = secret_key.public_key();
         let peer_id = PeerId::new(public_key);
@@ -1507,8 +1504,8 @@ mod test {
                     kv.as_ref(),
                     &[highest_height_peer_info],
                     vec![0],
-                    &apply_parts_fn,
-                    &resharding_fn,
+                    &noop().into_sender(),
+                    &noop().into_sender(),
                     &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),
                     false,
                     runtime,

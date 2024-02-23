@@ -2323,9 +2323,9 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
+        block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
+        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {

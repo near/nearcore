@@ -284,7 +284,7 @@ impl Drop for Chain {
 /// UpdateShardJob is a closure that is responsible for updating a shard for a single block.
 /// Execution context (latest blocks/chunks details) are already captured within.
 type UpdateShardJob =
-    (ShardId, Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + 'static>);
+    (ShardId, Box<dyn FnOnce(&Span) -> Result<ShardUpdateResult, Error> + Send + Sync + 'static>);
 
 /// PreprocessBlockResult is a tuple where the first element is a vector of jobs
 /// to update shards, the second element is BlockPreprocessInfo
@@ -2676,7 +2676,7 @@ impl Chain {
         shard_id: ShardId,
         sync_hash: CryptoHash,
         num_parts: u64,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), Error> {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
@@ -2684,7 +2684,7 @@ impl Chain {
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
         let state_root = shard_state_header.chunk_prev_state_root();
 
-        state_parts_task_scheduler(ApplyStatePartsRequest {
+        state_parts_task_scheduler.send(ApplyStatePartsRequest {
             runtime_adapter: self.runtime_adapter.clone(),
             shard_uid,
             state_root,
@@ -2785,7 +2785,7 @@ impl Chain {
         me: &Option<AccountId>,
         sync_hash: &CryptoHash,
         blocks_catch_up_state: &mut BlocksCatchUpState,
-        block_catch_up_scheduler: &dyn Fn(BlockCatchUpRequest),
+        block_catch_up_scheduler: &near_async::messaging::Sender<BlockCatchUpRequest>,
     ) -> Result<(), Error> {
         tracing::debug!(
             target: "catchup",
@@ -2846,7 +2846,7 @@ impl Chain {
             )?;
             metrics::SCHEDULED_CATCHUP_BLOCK.set(block.header().height() as i64);
             blocks_catch_up_state.scheduled_blocks.insert(pending_block);
-            block_catch_up_scheduler(BlockCatchUpRequest {
+            block_catch_up_scheduler.send(BlockCatchUpRequest {
                 sync_hash: *sync_hash,
                 block_hash: pending_block,
                 block_height: block.header().height(),

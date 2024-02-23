@@ -10,10 +10,8 @@ use actix_rt::{Arbiter, ArbiterHandle};
 use chrono::{DateTime, Utc};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::time::Clock;
-use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest};
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -35,7 +33,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
+use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -92,9 +90,9 @@ impl ClientActor {
             shutdown_signal,
             adv,
             config_updater,
-            create_sync_job_scheduler::<ApplyStatePartsRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<BlockCatchUpRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<ReshardingRequest>(sync_jobs_actor_addr),
+            sync_jobs_actor_addr.clone().with_auto_span_context().into_sender(),
+            sync_jobs_actor_addr.clone().with_auto_span_context().into_sender(),
+            sync_jobs_actor_addr.with_auto_span_context().into_sender(),
             Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
         )?;
         Ok(Self { actions })

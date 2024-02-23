@@ -114,9 +114,9 @@ pub struct ClientActions {
     doomslug_timer_next_attempt: near_async::time::Utc,
     sync_timer_next_attempt: near_async::time::Utc,
     sync_started: bool,
-    state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
-    block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
-    resharding_scheduler: Box<dyn Fn(ReshardingRequest)>,
+    state_parts_task_scheduler: Sender<ApplyStatePartsRequest>,
+    block_catch_up_scheduler: Sender<BlockCatchUpRequest>,
+    resharding_scheduler: Sender<ReshardingRequest>,
     state_parts_future_spawner: Box<dyn FutureSpawner>,
 
     #[cfg(feature = "sandbox")]
@@ -143,9 +143,9 @@ impl ClientActions {
         shutdown_signal: Option<broadcast::Sender<()>>,
         adv: crate::adversarial::Controls,
         config_updater: Option<ConfigUpdater>,
-        state_parts_task_scheduler: Box<dyn Fn(ApplyStatePartsRequest)>,
-        block_catch_up_scheduler: Box<dyn Fn(BlockCatchUpRequest)>,
-        resharding_scheduler: Box<dyn Fn(ReshardingRequest)>,
+        state_parts_task_scheduler: Sender<ApplyStatePartsRequest>,
+        block_catch_up_scheduler: Sender<BlockCatchUpRequest>,
+        resharding_scheduler: Sender<ReshardingRequest>,
         state_parts_future_spawner: Box<dyn FutureSpawner>,
     ) -> Result<Self, Error> {
         if let Some(vs) = &validator_signer {

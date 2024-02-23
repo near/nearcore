@@ -19,26 +19,6 @@ pub(crate) struct SyncJobsActor {
     pub(crate) client_addr: actix::Addr<ClientActor>,
 }
 
-pub(crate) fn create_sync_job_scheduler<M>(address: actix::Addr<SyncJobsActor>) -> Box<dyn Fn(M)>
-where
-    M: actix::Message + Send + 'static,
-    M::Result: Send,
-    SyncJobsActor: actix::Handler<WithSpanContext<M>>,
-{
-    Box::new(move |msg: M| {
-        if let Err(err) = address.try_send(msg.with_span_context()) {
-            match err {
-                actix::dev::SendError::Full(request) => {
-                    address.do_send(request);
-                }
-                actix::dev::SendError::Closed(_) => {
-                    tracing::error!("Can't send message to SyncJobsActor, mailbox is closed");
-                }
-            }
-        }
-    })
-}
-
 impl SyncJobsActor {
     pub(crate) const MAILBOX_CAPACITY: usize = 100;
 
