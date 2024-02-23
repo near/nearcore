@@ -119,22 +119,6 @@ impl ChunkStateWitnessInner {
 }
 
 impl ChunkStateWitness {
-    // TODO(#10502): To be used only for creating state witness when previous chunk is genesis.
-    // Clean this up once we can properly handle creating state witness for genesis chunk.
-    pub fn empty(chunk_header: ShardChunkHeader) -> Self {
-        let inner = ChunkStateWitnessInner::new(
-            chunk_header,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        );
-        ChunkStateWitness { inner, signature: Signature::default() }
-    }
-
     // Make a new dummy ChunkStateWitness for testing.
     pub fn new_dummy(
         height: BlockHeight,
@@ -157,7 +141,17 @@ impl ChunkStateWitness {
             Default::default(),
             &EmptyValidatorSigner::default(),
         ));
-        ChunkStateWitness::empty(header)
+        let inner = ChunkStateWitnessInner::new(
+            header,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        ChunkStateWitness { inner, signature: Signature::default() }
     }
 }
 
