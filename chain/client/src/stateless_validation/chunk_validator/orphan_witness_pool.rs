@@ -1,5 +1,3 @@
-use std::collections::{HashMap, HashSet};
-
 use lru::LruCache;
 use near_chain_configs::default_orphan_state_witness_pool_size;
 use near_primitives::hash::CryptoHash;
@@ -14,10 +12,6 @@ use metrics_tracker::OrphanWitnessMetricsTracker;
 /// required block arrives and the witness can be processed.
 pub struct OrphanStateWitnessPool {
     witness_cache: LruCache<(ShardId, BlockHeight), CacheEntry>,
-    /// List of orphaned witnesses that wait for this block to appear.
-    /// Maps block hash to entries in `witness_cache`.
-    /// Must be kept in sync with `witness_cache`.
-    waiting_for_block: HashMap<CryptoHash, HashSet<(ShardId, BlockHeight)>>,
 }
 
 struct CacheEntry {
@@ -29,10 +23,15 @@ impl OrphanStateWitnessPool {
     /// Create a new `OrphanStateWitnessPool` with a capacity of `cache_capacity` witnesses.
     /// The `Default` trait implementation provides reasonable defaults.
     pub fn new(cache_capacity: usize) -> Self {
-        OrphanStateWitnessPool {
-            witness_cache: LruCache::new(cache_capacity),
-            waiting_for_block: HashMap::new(),
+        if cache_capacity > 128 {
+            tracing::warn!(
+                target: "client",
+                "OrphanStateWitnessPool capacity is set to {}, which is larger than expected. \
+                OrphanStateWitnessPool uses a naive algorithm, using a large capacity might lead \
+                to performance problems.", cache_capacity);
         }
+
+        OrphanStateWitnessPool { witness_cache: LruCache::new(cache_capacity) }
     }
 
     /// Add an orphaned chunk state witness to the pool. The witness will be put in a cache and it'll
@@ -42,20 +41,13 @@ impl OrphanStateWitnessPool {
     /// it'd be possible to fill the whole cache with spam.
     /// `witness_size` is only used for metrics, it's okay to pass 0 if you don't care about the metrics.
     pub fn add_orphan_state_witness(&mut self, witness: ChunkStateWitness, witness_size: usize) {
-        if self.witness_cache.cap() == 0 {
-            // A cache with 0 capacity doesn't keep anything.
-            return;
-        }
-
         // Insert the new ChunkStateWitness into the cache
         let chunk_header = &witness.inner.chunk_header;
-        let prev_block_hash = *chunk_header.prev_block_hash();
         let cache_key = (chunk_header.shard_id(), chunk_header.height_created());
         let metrics_tracker = OrphanWitnessMetricsTracker::new(&witness, witness_size);
         let cache_entry = CacheEntry { witness, _metrics_tracker: metrics_tracker };
         if let Some((_, ejected_entry)) = self.witness_cache.push(cache_key, cache_entry) {
-            // If another witness has been ejected from the cache due to capacity limit,
-            // then remove the ejected witness from `waiting_for_block` to keep them in sync
+            // Another witness has been ejected from the cache due to capacity limit
             let header = &ejected_entry.witness.inner.chunk_header;
             tracing::debug!(
                 target: "client",
@@ -65,25 +57,6 @@ impl OrphanStateWitnessPool {
                 ejected_witness_prev_block = ?header.prev_block_hash(),
                 "Ejecting an orphaned ChunkStateWitness from the cache due to capacity limit. It will not be processed."
             );
-            self.remove_from_waiting_for_block(&ejected_entry.witness);
-        }
-
-        // Add the new orphaned state witness to `waiting_for_block`
-        self.waiting_for_block
-            .entry(prev_block_hash)
-            .or_insert_with(|| HashSet::new())
-            .insert(cache_key);
-    }
-
-    fn remove_from_waiting_for_block(&mut self, witness: &ChunkStateWitness) {
-        let chunk_header = &witness.inner.chunk_header;
-        let waiting_set = self
-            .waiting_for_block
-            .get_mut(chunk_header.prev_block_hash())
-            .expect("Every ejected witness must have a corresponding entry in waiting_for_block.");
-        waiting_set.remove(&(chunk_header.shard_id(), chunk_header.height_created()));
-        if waiting_set.is_empty() {
-            self.waiting_for_block.remove(chunk_header.prev_block_hash());
         }
     }
 
@@ -93,17 +66,19 @@ impl OrphanStateWitnessPool {
         &mut self,
         prev_block: &CryptoHash,
     ) -> Vec<ChunkStateWitness> {
-        let Some(waiting) = self.waiting_for_block.remove(prev_block) else {
-            return Vec::new();
-        };
+        let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
+        for (cache_key, cache_entry) in self.witness_cache.iter() {
+            if cache_entry.witness.inner.chunk_header.prev_block_hash() == prev_block {
+                to_remove.push(*cache_key);
+            }
+        }
         let mut result = Vec::new();
-        for (shard_id, height) in waiting {
-            // Remove this witness from `witness_cache` to keep them in sync
-            let entry = self.witness_cache.pop(&(shard_id, height)).expect(
-                "Every entry in waiting_for_block must have a corresponding witness in the cache",
-            );
-
-            result.push(entry.witness);
+        for cache_key in to_remove {
+            let ready_witness = self
+                .witness_cache
+                .pop(&cache_key)
+                .expect("The cache contains this entry, a moment ago it was iterated over");
+            result.push(ready_witness.witness);
         }
         result
     }
@@ -236,10 +211,9 @@ mod tests {
         }
     }
 
-    // Check that the pool is empty, all witnesses have been removed from both fields
+    // Check that the pool is empty, all witnesses have been removed
     fn assert_empty(pool: &OrphanStateWitnessPool) {
-        assert!(pool.witness_cache.is_empty());
-        assert!(pool.waiting_for_block.is_empty());
+        assert_eq!(pool.witness_cache.len(), 0);
     }
 
     /// Basic functionality - inserting witnesses and fetching them works as expected
@@ -321,32 +295,6 @@ mod tests {
         // witness1 should be ejected, no one is waiting for block 101
         let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
         assert_contents(waiting_for_101, vec![]);
-
-        assert_empty(&pool);
-    }
-
-    /// When a witness is ejected from the cache, it should also be removed from the corresponding waiting_for_block set.
-    /// But it's not enough to remove it from the set, if the set has become empty we must also remove the set itself
-    /// from `waiting_for_block`. Otherwise `waiting_for_block` would have a constantly increasing amount of empty sets,
-    /// which would cause a memory leak.
-    #[test]
-    fn empty_waiting_sets_cleared_on_ejection() {
-        let mut pool = OrphanStateWitnessPool::new(1);
-
-        let witness1 = make_witness(100, 1, block(99), 0);
-        pool.add_orphan_state_witness(witness1, 0);
-
-        // When witness2 is added to the pool witness1 gets ejected from the cache (capacity is set to 1).
-        // When this happens the set of witness waiting for block 99 will become empty. Then this empty set should
-        // be removed from `waiting_for_block`, otherwise there'd be a memory leak.
-        let witness2 = make_witness(100, 2, block(100), 0);
-        pool.add_orphan_state_witness(witness2.clone(), 0);
-
-        // waiting_for_block contains only one entry, list of witnesses waiting for block 100.
-        assert_eq!(pool.waiting_for_block.len(), 1);
-
-        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
-        assert_contents(waiting_for_100, vec![witness2]);
 
         assert_empty(&pool);
     }
