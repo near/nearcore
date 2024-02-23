@@ -16,8 +16,6 @@ use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use actix_rt::ArbiterHandle;
-use chrono::DateTime;
-use chrono::Utc;
 use itertools::Itertools;
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
@@ -182,7 +180,7 @@ pub struct Client {
 
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<DateTime<Utc>>,
+    pub last_time_sync_block_requested: Option<near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,

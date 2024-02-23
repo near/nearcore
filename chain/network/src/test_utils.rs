@@ -8,7 +8,7 @@ use actix::{Actor, ActorContext, Context, Handler};
 use futures::{future, Future, FutureExt};
 use near_async::messaging::{CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;

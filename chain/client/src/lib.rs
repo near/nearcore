@@ -10,7 +10,7 @@ pub use near_client_primitives::types::{
 
 pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
-pub use crate::client_actor::NetworkAdversarialMessage;
+pub use crate::client_actions::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::config_updater::ConfigUpdater;
 pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::{
@@ -29,6 +29,7 @@ pub mod adversarial;
 mod chunk_distribution_network;
 mod chunk_inclusion_tracker;
 mod client;
+pub mod client_actions;
 mod client_actor;
 mod config_updater;
 pub mod debug;

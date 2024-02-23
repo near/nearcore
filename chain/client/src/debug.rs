@@ -16,7 +16,7 @@ use near_client_primitives::{
     types::StatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
