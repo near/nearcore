@@ -292,6 +292,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         )))
     }
 
+    fn is_chunk_producer_for_epoch(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(self.get_epoch_chunk_producers(epoch_id)?.iter().any(|v| v.account_id() == account_id))
+    }
+
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
     fn epoch_sync_init_epoch_manager(
         &self,

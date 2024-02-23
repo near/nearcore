@@ -1029,7 +1029,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
+        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id)?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1556,8 +1556,12 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> ValidatorId {
-        epoch_info.sample_chunk_producer(height, shard_id)
+    ) -> Result<ValidatorId, EpochError> {
+        epoch_info.sample_chunk_producer(height, shard_id).ok_or_else(|| {
+            EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {shard_id} for height {height}"
+            ))
+        })
     }
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.

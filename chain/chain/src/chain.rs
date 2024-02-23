@@ -78,8 +78,8 @@ use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::{ExecutionOutcomeWithIdAndProof, SignedTransaction};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
-    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, MerkleHash, NumBlocks,
-    ShardId, StateRoot,
+    AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash,
+    NumBlocks, ShardId, StateRoot,
 };
 use near_primitives::unwrap_or_return;
 #[cfg(feature = "new_epoch_sync")]
@@ -458,14 +458,7 @@ impl Chain {
                         genesis.hash(),
                         &epoch_manager
                             .shard_id_to_uid(chunk_header.shard_id(), &EpochId::default())?,
-                        ChunkExtra::new(
-                            state_root,
-                            CryptoHash::default(),
-                            vec![],
-                            0,
-                            chain_genesis.gas_limit,
-                            0,
-                        ),
+                        Self::create_genesis_chunk_extra(state_root, chain_genesis.gas_limit),
                     );
                 }
 
@@ -575,6 +568,29 @@ impl Chain {
 
     pub fn get_last_time_head_updated(&self) -> Instant {
         self.last_time_head_updated
+    }
+
+    fn create_genesis_chunk_extra(state_root: &StateRoot, gas_limit: Gas) -> ChunkExtra {
+        ChunkExtra::new(state_root, CryptoHash::default(), vec![], 0, gas_limit, 0)
+    }
+
+    pub fn genesis_chunk_extra(&self, shard_id: ShardId) -> Result<ChunkExtra, Error> {
+        let shard_index = shard_id as usize;
+        let state_root = *get_genesis_state_roots(self.chain_store.store())?
+            .ok_or_else(|| Error::Other("genesis state roots do not exist in the db".to_owned()))?
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis state root does not exist for shard {shard_index}"))
+            })?;
+        let gas_limit = self
+            .genesis
+            .chunks()
+            .get(shard_index)
+            .ok_or_else(|| {
+                Error::Other(format!("genesis chunk does not exist for shard {shard_index}"))
+            })?
+            .gas_limit();
+        Ok(Self::create_genesis_chunk_extra(&state_root, gas_limit))
     }
 
     /// Creates a light client block for the last final block from perspective of some other block
@@ -3257,11 +3273,9 @@ impl Chain {
             // Chunk validation not enabled yet.
             return Ok(false);
         }
-        let mut all_chunk_producers = self.epoch_manager.get_epoch_chunk_producers(epoch_id)?;
-        all_chunk_producers
-            .extend(self.epoch_manager.get_epoch_chunk_producers(&next_epoch_id)?.into_iter());
-        let mut chunk_producer_accounts = all_chunk_producers.iter().map(|v| v.account_id());
-        Ok(me.as_ref().map_or(false, |a| chunk_producer_accounts.contains(a)))
+        let Some(account_id) = me.as_ref() else { return Ok(false) };
+        Ok(self.epoch_manager.is_chunk_producer_for_epoch(epoch_id, account_id)?
+            || self.epoch_manager.is_chunk_producer_for_epoch(&next_epoch_id, account_id)?)
     }
 
     /// Creates jobs which will update shards for the given block and incoming
