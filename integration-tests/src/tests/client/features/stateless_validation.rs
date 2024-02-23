@@ -1,7 +1,7 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::network::PeerId;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessInner};
 use near_primitives::validator_signer::EmptyValidatorSigner;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
@@ -347,7 +347,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = 1000000000;
 
-    let shard_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
         previous_block,
         Default::default(),
         Default::default(),
@@ -363,7 +363,19 @@ fn test_chunk_state_witness_bad_shard_id() {
         Default::default(),
         &EmptyValidatorSigner::default(),
     ));
-    let witness = ChunkStateWitness::empty(shard_header);
+    let witness = ChunkStateWitness {
+        inner: ChunkStateWitnessInner::new(
+            chunk_header,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        ),
+        signature: Default::default(),
+    };
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");

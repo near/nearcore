@@ -865,6 +865,8 @@ pub enum EpochError {
     },
     /// Error selecting validators for a chunk.
     ChunkValidatorSelectionError(String),
+    /// Error selecting chunk producer for a shard.
+    ChunkProducerSelectionError(String),
 }
 
 impl std::error::Error for EpochError {}
@@ -892,6 +894,9 @@ impl Display for EpochError {
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "Error selecting validators for a chunk: {}", err)
             }
+            EpochError::ChunkProducerSelectionError(err) => {
+                write!(f, "Error selecting chunk producer: {}", err)
+            }
         }
     }
 }
@@ -914,6 +919,9 @@ impl Debug for EpochError {
             }
             EpochError::ChunkValidatorSelectionError(err) => {
                 write!(f, "ChunkValidatorSelectionError({})", err)
+            }
+            EpochError::ChunkProducerSelectionError(err) => {
+                write!(f, "ChunkProducerSelectionError({})", err)
             }
         }
     }

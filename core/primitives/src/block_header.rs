@@ -746,6 +746,11 @@ impl BlockHeader {
     }
 
     #[inline]
+    pub fn is_genesis(&self) -> bool {
+        self.prev_hash() == &CryptoHash::default()
+    }
+
+    #[inline]
     pub fn hash(&self) -> &CryptoHash {
         match self {
             BlockHeader::BlockHeaderV1(header) => &header.hash,

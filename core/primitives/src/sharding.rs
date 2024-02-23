@@ -311,6 +311,11 @@ impl ShardChunkHeader {
     }
 
     #[inline]
+    pub fn is_genesis(&self) -> bool {
+        self.prev_block_hash() == &CryptoHash::default()
+    }
+
+    #[inline]
     pub fn encoded_merkle_root(&self) -> CryptoHash {
         match self {
             Self::V1(header) => header.inner.encoded_merkle_root,
