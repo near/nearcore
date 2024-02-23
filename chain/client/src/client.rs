@@ -1,7 +1,7 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use crate::adapter::ProcessTxResponse;
+use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
@@ -16,8 +16,6 @@ use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use actix_rt::ArbiterHandle;
-use chrono::DateTime;
-use chrono::Utc;
 use itertools::Itertools;
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
@@ -52,6 +50,7 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::ProcessTxResponse;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -181,7 +180,7 @@ pub struct Client {
 
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<DateTime<Utc>>,
+    pub last_time_sync_block_requested: Option<near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
@@ -190,6 +189,9 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+
+    // Optional value used for the Chunk Distribution Network Feature.
+    chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
 
 impl Client {
@@ -349,7 +351,9 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
+            config.orphan_state_witness_pool_size,
         );
+        let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -389,6 +393,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
+            chunk_distribution_network,
         })
     }
 
@@ -843,15 +848,11 @@ impl Client {
         let prepared_transactions =
             self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
-        let prepared_transactions = PreparedTransactions {
-            transactions: Self::maybe_insert_invalid_transaction(
-                prepared_transactions.transactions,
-                prev_block_hash,
-                self.produce_invalid_tx_in_chunks,
-            ),
-            limited_by: prepared_transactions.limited_by,
-            storage_proof: prepared_transactions.storage_proof,
-        };
+        let prepared_transactions = Self::maybe_insert_invalid_transaction(
+            prepared_transactions,
+            prev_block_hash,
+            self.produce_invalid_tx_in_chunks,
+        );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
@@ -939,12 +940,12 @@ impl Client {
 
     #[cfg(feature = "test_features")]
     fn maybe_insert_invalid_transaction(
-        mut txs: Vec<SignedTransaction>,
+        mut txs: PreparedTransactions,
         prev_block_hash: CryptoHash,
         insert: bool,
-    ) -> Vec<SignedTransaction> {
+    ) -> PreparedTransactions {
         if insert {
-            txs.push(SignedTransaction::new(
+            txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new(
                     "test".parse().unwrap(),
@@ -954,6 +955,9 @@ impl Client {
                     prev_block_hash,
                 ),
             ));
+            if txs.storage_proof.is_none() {
+                txs.storage_proof = Some(Default::default());
+            }
         }
         txs
     }
@@ -1637,6 +1641,8 @@ impl Client {
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+
+        self.process_ready_orphan_chunk_state_witnesses(&block);
     }
 
     /// Reconcile the transaction pool after processing a block.
@@ -1789,8 +1795,22 @@ impl Client {
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
+
+        let chunk_header = encoded_chunk.cloned_header();
+        if let Some(chunk_distribution) = &self.chunk_distribution_network {
+            if chunk_distribution.enabled() {
+                let partial_chunk = partial_chunk.clone();
+                let mut thread_local_client = chunk_distribution.clone();
+                near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                        error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
+                    }
+                });
+            }
+        }
+
         self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
@@ -1811,6 +1831,25 @@ impl Client {
             ?blocks_missing_chunks,
             ?orphans_missing_chunks)
         .entered();
+        if let Some(chunk_distribution) = &self.chunk_distribution_network {
+            if chunk_distribution.enabled() {
+                return crate::chunk_distribution_network::request_missing_chunks(
+                    blocks_missing_chunks,
+                    orphans_missing_chunks,
+                    chunk_distribution.clone(),
+                    &mut self.chain.blocks_delay_tracker,
+                    &self.shards_manager_adapter,
+                );
+            }
+        }
+        self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+    }
+
+    fn p2p_request_missing_chunks(
+        &mut self,
+        blocks_missing_chunks: Vec<BlockMissingChunks>,
+        orphans_missing_chunks: Vec<OrphanMissingChunks>,
+    ) {
         let now = StaticClock::utc();
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {

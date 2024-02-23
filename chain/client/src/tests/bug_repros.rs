@@ -11,12 +11,12 @@ use near_async::messaging::CanSend;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use rand::{thread_rng, Rng};
 
-use crate::adapter::{BlockApproval, BlockResponse, ProcessTxRequest};
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::GetBlock;
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{BlockApproval, BlockResponse, ProcessTxRequest};
 use near_network::types::NetworkRequests::PartialEncodedChunkMessage;
 use near_network::types::PeerInfo;
 use near_network::types::{
@@ -65,6 +65,7 @@ fn repro_1183() {
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(move |_, _account_id: _, msg: &PeerManagerMessageRequest| {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     let mut last_block = last_block.write().unwrap();
@@ -191,6 +192,7 @@ fn test_sync_from_archival_node() {
             vec![true, false, false, false],
             vec![false, true, true, true],
             false,
+            None,
             Box::new(
                 move |conns,
                       _,
@@ -294,6 +296,7 @@ fn test_long_gap_between_blocks() {
             vec![false, false],
             vec![true, true],
             false,
+            None,
             Box::new(
                 move |conns,
                       _,

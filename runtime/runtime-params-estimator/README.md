@@ -4,22 +4,40 @@ Use this tool to measure the running time of elementary runtime operations that 
 
 1. Run the estimator
     ```bash
-    cargo run --release --package runtime-params-estimator --features required --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 --metric time
+    cargo run --release --package runtime-params-estimator --features required \
+        --bin runtime-params-estimator -- --accounts-num 20000 --additional-accounts-num 200000 \
+        --iters 1 --warmup-iters 1 --metric time
     ```
 
-    With the given parameters above estimator will run relatively fast.
-    Note the `--metric time` flag: it instructs the estimator to use wall-clock time for estimation, which is quick, but highly variable between runs and physical machines.
-    To get more robust estimates, use these arguments:
+    With the given parameters above estimator will run relatively fast. Note the `--metric time`
+    flag: it instructs the estimator to use wall-clock time for estimation, which is quick, but
+    highly variable between runs and physical machines.
+
+    To get more robust estimates, replace the arguments that follow `--` with these:
 
     ```bash
     --accounts-num 20000 --additional-accounts-num 200000 --iters 1 --warmup-iters 1 \
       --docker --metric icount
     ```
 
-    This will run and build the estimator inside a docker container, using QEMU to precisely count the number of executed instructions.
+    This will run and build the estimator inside a docker container, using QEMU to precisely count
+    the number of executed instructions.
+
+    Alternatively you can skip docker during the development and iterate as such (actual production
+    estimations should still utilize docker to ensure reproducibility):
+
+    ```
+    cargo build --profile=dev-release -p runtime-params-estimator --features required
+    qemu-x86 -cpu Westmere-v1 -plugin file=./emu-cost/counter_plugin/libcounter.so ../../target/dev-release/runtime-params-estimator $ARGS
+    ```
+
+    You can also significantly reduce the number of accounts in most of the cases.
+
+    ---
 
     We will be using different parameters to do the actual parameter estimation.
-    The instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the real data.
+    The instructions in [`emu-cost/README.md`](./emu-cost/README.md) should be followed to get the
+    real data.
 
 2. The result of the estimator run is the `costs-$timestamp$.txt` file, which contains human-readable representation of the costs.
    It can be compared with `costs.txt` file in the repository, which contains the current costs we are using.
@@ -43,9 +61,9 @@ Example:
 ```
 cargo run -p runtime-params-estimator -- replay my_trace.log cache-stats
   GET   193 Block  193 BlockHeader  101 BlockHeight  100 BlockInfo  2 BlockMisc
-        11 CachedContractCode  98 ChunkExtra  95 Chunks  4 EpochInfo  
-        98 IncomingReceipts  30092 State  
-  SET   1 CachedContractCode  
+        11 CachedContractCode  98 ChunkExtra  95 Chunks  4 EpochInfo
+        98 IncomingReceipts  30092 State
+  SET   1 CachedContractCode
   DB GET        30987 requests for a total of 391093512 B
   DB SET            1 requests for a total of 10379357 B
   STORAGE READ  153001 requests for a total of  2523227 B

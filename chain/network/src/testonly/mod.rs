@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use super::actix;
-pub mod fake_client;
 pub mod stream;
 
 pub type Rng = rand_xorshift::XorShiftRng;

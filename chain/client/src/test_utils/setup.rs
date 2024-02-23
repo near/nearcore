@@ -4,23 +4,21 @@
 
 use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
-use crate::adapter::{
-    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
-};
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
 use chrono::DateTime;
 use chrono::Utc;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{CanSend, IntoSender, LateBoundSender, Sender};
+use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-use near_chain_configs::{ClientConfig, MutableConfigValue, ReshardingConfig};
+use near_chain_configs::{
+    ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
+};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::shards_manager_actor::start_shards_manager;
@@ -29,6 +27,10 @@ use near_chunks::ShardsManager;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{
+    AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
+    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{BlockInfo, PeerChainInfo};
 use near_network::types::{
@@ -81,6 +83,7 @@ pub fn setup(
     transaction_validity_period: NumBlocks,
     genesis_time: DateTime<Utc>,
     ctx: &Context<ClientActor>,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
@@ -125,16 +128,20 @@ pub fn setup(
 
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry = TelemetryActor::default().start();
-    let config = ClientConfig::test(
-        skip_sync_wait,
-        min_block_prod_time,
-        max_block_prod_time,
-        num_validator_seats,
-        archive,
-        true,
-        epoch_sync_enabled,
-        state_sync_enabled,
-    );
+    let config = {
+        let mut base = ClientConfig::test(
+            skip_sync_wait,
+            min_block_prod_time,
+            max_block_prod_time,
+            num_validator_seats,
+            archive,
+            true,
+            epoch_sync_enabled,
+            state_sync_enabled,
+        );
+        base.chunk_distribution_network = chunk_distribution_config;
+        base
+    };
 
     let adv = crate::adversarial::Controls::default();
 
@@ -158,10 +165,10 @@ pub fn setup(
         store,
         config.chunk_request_retry_period,
     );
-    let shards_manager_adapter = Arc::new(shards_manager_addr.with_auto_span_context());
+    let shards_manager_adapter = shards_manager_addr.with_auto_span_context();
 
     let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
+        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client = Client::new(
         config.clone(),
         chain_genesis,
@@ -170,7 +177,7 @@ pub fn setup(
         state_sync_adapter,
         runtime,
         network_adapter.clone(),
-        shards_manager_adapter.as_sender(),
+        shards_manager_adapter.clone().into_sender(),
         Some(signer.clone()),
         enable_doomslug,
         TEST_SEED,
@@ -178,8 +185,9 @@ pub fn setup(
     )
     .unwrap();
     let client_actor = ClientActor::new(
+        Clock::real(), // TODO: use fake clock
         client,
-        ctx.address(),
+        ctx.address().with_auto_span_context().into_multi_sender(),
         config,
         PeerId::new(PublicKey::empty(KeyType::ED25519)),
         network_adapter,
@@ -191,7 +199,7 @@ pub fn setup(
         None,
     )
     .unwrap();
-    (genesis_block, client_actor, view_client_addr, shards_manager_adapter.into())
+    (genesis_block, client_actor, view_client_addr, shards_manager_adapter.into_multi_sender())
 }
 
 pub fn setup_only_view(
@@ -315,7 +323,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     >,
     transaction_validity_period: NumBlocks,
 ) -> ActorHandlesForTesting {
-    let network_adapter = Arc::new(LateBoundSender::default());
+    let network_adapter = LateBoundSender::new();
     let mut vca: Option<Addr<ViewClientActor>> = None;
     let mut sma: Option<ShardsManagerAdapterForTest> = None;
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
@@ -331,10 +339,11 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             false,
             false,
             true,
-            network_adapter.clone().into(),
+            network_adapter.as_multi_sender(),
             transaction_validity_period,
             StaticClock::utc(),
             ctx,
+            None,
         );
         vca = Some(view_client_addr);
         sma = Some(shards_manager_adapter);
@@ -434,6 +443,7 @@ pub fn setup_mock_all_validators(
     archive: Vec<bool>,
     epoch_sync_enabled: Vec<bool>,
     check_block_stats: bool,
+    chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
     peer_manager_mock: Box<
         dyn FnMut(
             // Peer validators
@@ -484,6 +494,7 @@ pub fn setup_mock_all_validators(
         let hash_to_height1 = hash_to_height.clone();
         let archive1 = archive.clone();
         let epoch_sync_enabled1 = epoch_sync_enabled.clone();
+        let chunk_distribution_config1 = chunk_distribution_config.clone();
         let client_addr = ClientActor::create(|ctx| {
             let client_addr = ctx.address();
             let _account_id = account_id.clone();
@@ -855,10 +866,11 @@ pub fn setup_mock_all_validators(
                 archive1[index],
                 epoch_sync_enabled1[index],
                 false,
-                Arc::new(pm).into(),
+                pm.into_multi_sender(),
                 10000,
                 genesis_time,
                 ctx,
+                chunk_distribution_config1,
             );
             view_client_addr_slot = Some(view_client_addr);
             shards_manager_adapter_slot = Some(shards_manager_adapter);
@@ -945,7 +957,7 @@ pub fn setup_client_with_runtime(
     );
     config.epoch_length = chain_genesis.epoch_length;
     let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
+        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let mut client = Client::new(
         config,
         chain_genesis,
@@ -1047,17 +1059,9 @@ pub fn setup_synchronous_shards_manager(
     SynchronousShardsManagerAdapter::new(shards_manager)
 }
 
-/// A combined trait bound for both the client side and network side of the ShardsManager API.
-#[derive(Clone, derive_more::AsRef)]
+/// A multi-sender for both the client and network parts of the ShardsManager API.
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct ShardsManagerAdapterForTest {
     pub client: Sender<ShardsManagerRequestFromClient>,
     pub network: Sender<ShardsManagerRequestFromNetwork>,
-}
-
-impl<A: CanSend<ShardsManagerRequestFromClient> + CanSend<ShardsManagerRequestFromNetwork>>
-    From<Arc<A>> for ShardsManagerAdapterForTest
-{
-    fn from(arc: Arc<A>) -> Self {
-        Self { client: arc.as_sender(), network: arc.as_sender() }
-    }
 }

@@ -504,8 +504,8 @@ def redownload_neard(nodes, binary_url):
     pmap(
         lambda node: node.machine.
         run('sudo -u ubuntu -i',
-            input='wget -O /home/ubuntu/neard {}; chmod +x /home/ubuntu/neard'.
-            format(binary_url)), nodes)
+            input='wget -O /home/ubuntu/neard "{}"; chmod +x /home/ubuntu/neard'
+            .format(binary_url)), nodes)
 
 
 # Check /home/ubuntu/neard.upgrade to see whether the amend-genesis command is

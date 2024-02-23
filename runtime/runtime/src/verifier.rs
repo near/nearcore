@@ -54,11 +54,13 @@ pub fn check_storage_stake(
     let available_amount = account
         .amount()
         .checked_add(account.locked())
+        .and_then(|amount| amount.checked_add(account.nonrefundable()))
         .ok_or_else(|| {
             format!(
-                "Account's amount {} and locked {} overflow addition",
+                "Account's amount {}, locked {}, and non-refundable {} overflow addition",
                 account.amount(),
-                account.locked()
+                account.locked(),
+                account.nonrefundable(),
             )
         })
         .map_err(StorageStakingError::StorageError)?;
@@ -397,6 +399,10 @@ pub fn validate_action(
         Action::DeployContract(a) => validate_deploy_contract_action(limit_config, a),
         Action::FunctionCall(a) => validate_function_call_action(limit_config, a),
         Action::Transfer(_) => Ok(()),
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        Action::NonrefundableStorageTransfer(_) => {
+            check_feature_enabled(ProtocolFeature::NonRefundableBalance, current_protocol_version)
+        }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),
         Action::DeleteKey(_) => Ok(()),
@@ -524,6 +530,21 @@ fn validate_delete_action(action: &DeleteAccountAction) -> Result<(), ActionsVal
     }
 
     Ok(())
+}
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+fn check_feature_enabled(
+    feature: ProtocolFeature,
+    current_protocol_version: ProtocolVersion,
+) -> Result<(), ActionsValidationError> {
+    if feature.protocol_version() <= current_protocol_version {
+        Ok(())
+    } else {
+        Err(ActionsValidationError::UnsupportedProtocolFeature {
+            protocol_feature: format!("{feature:?}"),
+            version: feature.protocol_version(),
+        })
+    }
 }
 
 fn truncate_string(s: &str, limit: usize) -> String {

@@ -102,6 +102,19 @@ pub fn total_send_fees(
                     receiver_id.get_account_type(),
                 )
             }
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            // TODO(nonrefundable) Before stabilizing, consider using separate gas cost parameters
+            // for non-refundable and regular transfers.
+            NonrefundableStorageTransfer(_) => {
+                // Account for implicit account creation
+                transfer_send_fee(
+                    fees,
+                    sender_is_receiver,
+                    config.wasm_config.implicit_account_creation,
+                    config.wasm_config.eth_implicit_accounts,
+                    receiver_id.get_account_type(),
+                )
+            }
             Stake(_) => fees.fee(ActionCosts::stake).send_fee(sender_is_receiver),
             AddKey(add_key_action) => match &add_key_action.access_key.permission {
                 AccessKeyPermission::FunctionCall(call_perm) => {
@@ -189,6 +202,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
         Transfer(_) => {
+            // Account for implicit account creation
+            transfer_exec_fee(
+                fees,
+                config.wasm_config.implicit_account_creation,
+                config.wasm_config.eth_implicit_accounts,
+                receiver_id.get_account_type(),
+            )
+        }
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        NonrefundableStorageTransfer(_) => {
             // Account for implicit account creation
             transfer_exec_fee(
                 fees,
