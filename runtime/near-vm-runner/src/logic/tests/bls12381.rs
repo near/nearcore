@@ -2363,4 +2363,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_bls12381_g1_mul_test_vectors() {
+        let g1_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/g1_mul.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g1_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let bytes_input = vec![fix_eip2537_g1(bytes_input[..128].to_vec()), bytes_input[128..].to_vec().into_iter().rev().collect()].concat();
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let _ = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g1(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_mul_test_vectors() {
+        let g2_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/g2_mul.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g2_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let bytes_input = vec![fix_eip2537_g2(bytes_input[..256].to_vec()), bytes_input[256..].to_vec().into_iter().rev().collect()].concat();
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let _ = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g2(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
 }
