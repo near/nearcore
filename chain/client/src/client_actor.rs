@@ -80,9 +80,6 @@ impl ClientActor {
                 SyncJobsActor { client_addr: self_addr_clone }
             },
         );
-        if let Some(vs) = &validator_signer {
-            tracing::info!(target: "client", "Starting validator node: {}", vs.validator_id());
-        }
         let actions = ClientActions::new(
             clock,
             client,
