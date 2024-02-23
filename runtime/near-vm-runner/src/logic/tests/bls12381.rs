@@ -2341,4 +2341,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_bls12381_g2_add_test_vectors() {
+        let g2_add_csv = fs::read("src/logic/tests/bls12381_test_vectors/g2_add.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g2_add_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let bytes_input = vec![vec![0u8], fix_eip2537_g2(bytes_input[..256].to_vec()), vec![0u8], fix_eip2537_g2(bytes_input[256..].to_vec())].concat();
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let _ = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
+            let res = logic.registers().get_for_free(0).unwrap().to_vec();
+
+            let bytes_output = fix_eip2537_g2(hex::decode(&record[1]).unwrap());
+            assert_eq!(res, bytes_output);
+        }
+    }
+
 }
