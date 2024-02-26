@@ -3,6 +3,7 @@ from messages.tx import Receipt, SignedTransaction
 
 
 class Block:
+
     def header(self):
         if self.enum == 'BlockV1':
             return self.BlockV1.header
@@ -37,20 +38,25 @@ class BlockV2:
 class BlockV3:
     pass
 
+
 class BlockV4:
     pass
+
 
 class BlockBody:
     pass
 
+
 class BlockBodyV1:
     pass
+
 
 class BlockBodyV2:
     pass
 
 
 class BlockHeader:
+
     def inner_lite(self):
         if self.enum == 'BlockHeaderV4':
             return self.BlockHeaderV4.inner_lite
@@ -314,10 +320,8 @@ block_schema = [
     ],
     [
         BlockBody, {
-            'kind':
-                'enum',
-            'field':
-                'enum',
+            'kind': 'enum',
+            'field': 'enum',
             'values': [
                 ['V1', BlockBodyV1],
                 ['V2', BlockBodyV2],
@@ -347,10 +351,13 @@ block_schema = [
                 ['challenges', [()]],  # TODO
                 ['vrf_value', [32]],
                 ['vrf_proof', [64]],
-                ['chunk_endorsements', [[{
-                    'kind': 'option',
-                    'type': Signature
-                }]]],
+                [
+                    'chunk_endorsements',
+                    [[{
+                        'kind': 'option',
+                        'type': Signature
+                    }]]
+                ],
             ]
         }
     ],
