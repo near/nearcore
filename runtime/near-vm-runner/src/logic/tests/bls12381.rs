@@ -528,7 +528,9 @@ mod tests {
             $deserialize:ident,
             $subgroup_check:ident,
             $test_bls12381_sum_not_g_points:ident,
-            $get_random_not_g_curve_point:ident
+            $get_random_not_g_curve_point:ident,
+            $test_bls12381_sum_inverse:ident,
+            $get_inverse:ident
         ) => {
             #[test]
             fn $test_bls12381_sum_edge_cases() {
@@ -655,78 +657,78 @@ mod tests {
                    assert_eq!(library_sum.to_vec(), got1);
                 }
             }
+
+            #[test]
+            fn $test_bls12381_sum_inverse() {
+                let mut rnd = get_rnd();
+
+                let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                zero[0] = 64;
+
+                for _ in 0..10 {
+                    let p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    // P - P = - P + P = 0
+                    let got1 = $get_sum(1, &p_ser, 0, &p_ser);
+                    let got2 = $get_sum(0, &p_ser, 1, &p_ser);
+                    assert_eq!(got1, got2);
+                    assert_eq!(got1, zero.to_vec());
+
+                    // -(-P)
+                    let p_inv = $get_inverse(&p_ser);
+                    let p_inv_inv = $get_inverse(p_inv.as_slice());
+
+                    assert_eq!(p_ser.to_vec(), p_inv_inv);
+                }
+
+                // P in G => -P in G
+                for _ in 0..10 {
+                    let p = $get_random_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    let p_inv = $get_inverse(&p_ser);
+
+                    let result_point = $deserialize(&p_inv).unwrap();
+                    assert!($subgroup_check(&result_point));
+                }
+
+                // Random point check with library
+                for _ in 0..10 {
+                    let mut p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    let p_inv = $get_inverse(&p_ser);
+
+                    p.neg();
+                    let p_neg_ser = $serialize_uncompressed(&p);
+
+                    assert_eq!(p_neg_ser.to_vec(), p_inv);
+                }
+
+                // Not from G points
+                for _ in 0..10 {
+                    let mut p = $get_random_not_g_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    let p_inv = $get_inverse(&p_ser);
+
+                    p.neg();
+
+                    let p_neg_ser = $serialize_uncompressed(&p);
+
+                    assert_eq!(p_neg_ser.to_vec(), p_inv);
+                }
+
+                // -0
+                let zero_inv = $get_inverse(&zero);
+                assert_eq!(zero.to_vec(), zero_inv);
+           }
         }
     }
 
-    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point);
-    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point);
-
-    #[test]
-    fn test_bls12381_p1_sum_inverse() {
-        let mut rnd = get_rnd();
-
-        let mut zero: [u8; 96] = [0; 96];
-        zero[0] = 64;
-
-        for _ in 0..10 {
-            let p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            // P - P = - P + P = 0
-            let got1 = get_g1_sum(1, &p_ser, 0, &p_ser);
-            let got2 = get_g1_sum(0, &p_ser, 1, &p_ser);
-            assert_eq!(got1, got2);
-            assert_eq!(got1, zero.to_vec());
-
-            // -(-P)
-            let p_inv = get_g1_inverse(&p_ser);
-            let p_inv_inv = get_g1_inverse(p_inv.as_slice());
-
-            assert_eq!(p_ser.to_vec(), p_inv_inv);
-        }
-
-        // P in G1 => -P in G1
-        for _ in 0..10 {
-            let p = get_random_g1_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let p_inv = get_g1_inverse(&p_ser);
-
-            let result_point = deserialize_g1(&p_inv).unwrap();
-            assert!(subgroup_check_g1(&result_point));
-        }
-
-        // Random point check with library
-        for _ in 0..10 {
-            let mut p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let p_inv = get_g1_inverse(&p_ser);
-
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g1(&p);
-
-            assert_eq!(p_neg_ser.to_vec(), p_inv);
-        }
-
-        // Not from G1 points
-        for _ in 0..10 {
-            let mut p = get_random_not_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let p_inv = get_g1_inverse(&p_ser);
-
-            p.neg();
-
-            let p_neg_ser = serialize_uncompressed_g1(&p);
-
-            assert_eq!(p_neg_ser.to_vec(), p_inv);
-        }
-
-        // -0
-        let zero_inv = get_g1_inverse(&zero);
-        assert_eq!(zero.to_vec(), zero_inv);
-    }
+    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point, test_bls12381_p1_sum_inverse, get_g1_inverse);
+    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point, test_bls12381_p2_sum_inverse, get_g2_inverse);
 
     #[test]
     fn test_bls12381_p1_sum_many_points() {
@@ -879,72 +881,6 @@ mod tests {
     }
 
     //==== TESTS FOR G2_SUM
-
-    #[test]
-    fn test_bls12381_p2_sum_inverse() {
-        const POINT_LEN: usize = 192;
-
-        let mut rnd = get_rnd();
-
-        let mut zero: [u8; POINT_LEN] = [0; POINT_LEN];
-        zero[0] |= 0x40;
-
-        for _ in 0..10 {
-            let p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            // P - P = - P + P = 0
-            let got1 = get_g2_sum(1, &p_ser, 0, &p_ser);
-            let got2 = get_g2_sum(0, &p_ser, 1, &p_ser);
-            assert_eq!(got1, got2);
-            assert_eq!(got1, zero.to_vec());
-
-            // -(-P)
-            let p_inv = get_g2_inverse(&p_ser);
-            let p_inv_inv = get_g2_inverse(p_inv.as_slice());
-
-            assert_eq!(p_ser.to_vec(), p_inv_inv);
-        }
-
-        // P in G2 => -P in G2
-        for _ in 0..10 {
-            let p = get_random_g2_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let p_inv = get_g2_inverse(&p_ser);
-
-            let result_point = deserialize_g2(&p_inv).unwrap();
-            assert!(subgroup_check_g2(&result_point));
-        }
-
-        // Random point check with library
-        for _ in 0..10 {
-            let mut p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let p_inv = get_g2_inverse(&p_ser);
-
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g2(&p);
-
-            assert_eq!(p_neg_ser.to_vec(), p_inv);
-        }
-
-        // Not from G2 points
-        for _ in 0..10 {
-            let mut p = get_random_not_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-            let p_inv = get_g2_inverse(&p_ser);
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g2(&p);
-            assert_eq!(p_neg_ser.to_vec(), p_inv);
-        }
-
-        // -0
-        let zero_inv = get_g2_inverse(&zero);
-        assert_eq!(zero.to_vec(), zero_inv);
-    }
-
     #[test]
     fn test_bls12381_p2_sum_many_points() {
         const POINT_LEN: usize = 192;
