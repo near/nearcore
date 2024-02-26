@@ -62,6 +62,9 @@ pub struct LoopCheckCommand {
     // address of RPC server to retrieve latest block, epoch information
     #[clap(long)]
     rpc_server_addr: Option<String>,
+    // Loop interval in seconds
+    #[clap(long, default_value = "60")]
+    interval: u64,
 }
 
 #[derive(clap::Parser)]
@@ -173,6 +176,7 @@ impl LoopCheckCommand {
             gcs_bucket,
             &rpc_client,
             &self.prometheus_addr,
+            self.interval,
         );
 
         tracing::info!("run_loop_all_shards finished");
@@ -274,6 +278,7 @@ fn run_loop_all_shards(
     gcs_bucket: Option<String>,
     rpc_client: &JsonRpcClient,
     prometheus_addr: &str,
+    loop_interval: u64,
 ) -> anyhow::Result<()> {
     let mut last_check_status =
         HashMap::<ShardId, anyhow::Result<StatePartsDumpCheckStatus>>::new();
@@ -287,10 +292,10 @@ fn run_loop_all_shards(
             sys.block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
-                "get_processing_epoch_information errs out with {}. sleeping for 60s.",
+                "get_processing_epoch_information errs out with {}. sleeping for {loop_interval}s.",
                 err
             );
-            sleep(Duration::from_secs(60));
+            sleep(Duration::from_secs(loop_interval));
             continue;
         }
         let dump_check_iter_info = dump_check_iter_info_res?;
@@ -309,8 +314,10 @@ fn run_loop_all_shards(
                 Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
                     tracing::info!(epoch_height, "last one was done.");
                     if *epoch_height >= dump_check_iter_info.epoch_height {
-                        tracing::info!("current height was already checked. sleeping for 60s.");
-                        sleep(Duration::from_secs(60));
+                        tracing::info!(
+                            "current height was already checked. sleeping for {loop_interval}s."
+                        );
+                        sleep(Duration::from_secs(loop_interval));
                         continue;
                     }
 
