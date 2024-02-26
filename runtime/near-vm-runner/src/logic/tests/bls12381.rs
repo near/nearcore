@@ -535,7 +535,10 @@ mod tests {
             $MAX_N:expr,
             $get_g_sum_many_points:ident,
             $check_multipoint_g_sum:ident,
-            $point_type:ident
+            $point_type:ident,
+            $get_g_multiexp_many_points:ident,
+            $test_bls12381_crosscheck_sum_and_multiexp:ident,
+            $MAX_N_MULTIEXP:expr
         ) => {
             #[test]
             fn $test_bls12381_sum_edge_cases() {
@@ -762,31 +765,29 @@ mod tests {
                     assert!($subgroup_check(&sum));
                 }
             }
-        }
-    }
 
-    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point, test_bls12381_p1_sum_inverse, get_g1_inverse, test_bls12381_p1_sum_many_points, 676, get_g1_sum_many_points, check_multipoint_g1_sum, ECP);
-    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point, test_bls12381_p2_sum_inverse, get_g2_inverse, test_bls12381_p2_sum_many_points, 338, get_g2_sum_many_points, check_multipoint_g2_sum, ECP2);
+            #[test]
+            fn $test_bls12381_crosscheck_sum_and_multiexp() {
+               let mut rnd = get_rnd();
 
-    #[test]
-    fn test_bls12381_p1_crosscheck_sum_and_multiexp() {
-        let mut rnd = get_rnd();
+               for _ in 0..10 {
+                  let n: usize = (thread_rng().next_u32() as usize) % $MAX_N_MULTIEXP;
 
-        const MAX_N: usize = 500;
+                  let mut points: Vec<(u8, $point_type)> = vec![];
+                  for _ in 0..n {
+                      points.push((rnd.getbyte() % 2, $get_random_g_point(&mut rnd)));
+                  }
 
-        for _ in 0..10 {
-            let n: usize = (thread_rng().next_u32() as usize) % MAX_N;
-
-            let mut points: Vec<(u8, ECP)> = vec![];
-            for _ in 0..n {
-                points.push((rnd.getbyte() % 2, get_random_g1_point(&mut rnd)));
+                  let res1 = $get_g_sum_many_points(&points);
+                  let res2 = $get_g_multiexp_many_points(&points);
+                  assert_eq!(res1, res2);
+               }
             }
-
-            let res1 = get_g1_sum_many_points(&points);
-            let res2 = get_g1_multiexp_many_points(&points);
-            assert_eq!(res1, res2);
         }
     }
+
+    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point, test_bls12381_p1_sum_inverse, get_g1_inverse, test_bls12381_p1_sum_many_points, 676, get_g1_sum_many_points, check_multipoint_g1_sum, ECP, get_g1_multiexp_many_points, test_bls12381_p1_crosscheck_sum_and_multiexp, 500);
+    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point, test_bls12381_p2_sum_inverse, get_g2_inverse, test_bls12381_p2_sum_many_points, 338, get_g2_sum_many_points, check_multipoint_g2_sum, ECP2, get_g2_multiexp_many_points, test_bls12381_p2_crosscheck_sum_and_multiexp, 250);
 
     #[test]
     #[should_panic]
@@ -884,23 +885,6 @@ mod tests {
     }
 
     //==== TESTS FOR G2_SUM
-
-    #[test]
-    fn test_bls12381_p2_crosscheck_sum_and_multiexp() {
-        let mut rnd = get_rnd();
-
-        for n in 0..10 {
-            let mut points: Vec<(u8, ECP2)> = vec![];
-            for _ in 0..n {
-                points.push((rnd.getbyte() % 2, get_random_g2_point(&mut rnd)));
-            }
-
-            let res1 = get_g2_sum_many_points(&points);
-            let res2 = get_g2_multiexp_many_points(&points);
-            assert_eq!(res1, res2);
-        }
-    }
-
     #[test]
     #[should_panic]
     fn test_bls12381_p2_sum_incorrect_length() {
