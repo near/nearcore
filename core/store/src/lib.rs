@@ -757,6 +757,7 @@ pub fn set_delayed_receipt(
 pub fn get_yielded_promise_indices(
     trie: &dyn TrieAccess,
 ) -> Result<YieldedPromiseQueueIndices, StorageError> {
+    assert!(cfg!(feature = "yield_resume"));
     Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
 }
 
@@ -764,6 +765,7 @@ pub fn set_yielded_promise_indices(
     state_update: &mut TrieUpdate,
     yielded_promise_indices: &YieldedPromiseQueueIndices,
 ) {
+    assert!(cfg!(feature = "yield_resume"));
     set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
 }
 
@@ -775,6 +777,8 @@ pub fn set_yielded_promise(
     data_id: CryptoHash,
     expires_at: BlockHeight,
 ) {
+    assert!(cfg!(feature = "yield_resume"));
+
     set(state_update, TrieKey::YieldedPromise { data_id }, &YieldedPromise { account_id });
 
     set(
@@ -792,10 +796,12 @@ pub fn get_yielded_promise(
     trie: &dyn TrieAccess,
     data_id: CryptoHash,
 ) -> Result<Option<YieldedPromise>, StorageError> {
+    assert!(cfg!(feature = "yield_resume"));
     get(trie, &TrieKey::YieldedPromise { data_id })
 }
 
 pub fn remove_yielded_promise(state_update: &mut TrieUpdate, data_id: CryptoHash) {
+    assert!(cfg!(feature = "yield_resume"));
     state_update.remove(TrieKey::YieldedPromise { data_id })
 }
 
