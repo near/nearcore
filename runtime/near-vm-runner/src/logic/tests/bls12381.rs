@@ -484,11 +484,21 @@ mod tests {
     }
 
     fn fix_eip2537_g1(g1: Vec<u8>) -> Vec<u8> {
-        vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat()
+        let mut res = vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat();
+        if res == vec![0; 192] {
+            res[0] |= 0x40;
+        }
+
+        return res;
     }
 
     fn fix_eip2537_g2(g2: Vec<u8>) -> Vec<u8> {
-        vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat()
+        let mut res = vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat();
+        if res == vec![0; 192] {
+            res[0] |= 0x40;
+        }
+
+        return res;
     }
 
     //==== TESTS FOR G1_SUM
