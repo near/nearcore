@@ -333,7 +333,8 @@ impl PrepareHotCmd {
         tracing::info!(target : "prepare-hot", "Opening hot and cold.");
         let hot_store = storage.get_hot_store();
         let cold_store = storage.get_cold_store();
-        let cold_store = cold_store.ok_or_else(|| anyhow::anyhow!("The cold store is not configured!"))?;
+        let cold_store =
+            cold_store.ok_or_else(|| anyhow::anyhow!("The cold store is not configured!"))?;
 
         tracing::info!(target : "prepare-hot", "Opening rpc.");
         // Open the rpc_storage using the near_config with the path swapped.
@@ -424,8 +425,8 @@ impl PrepareHotCmd {
         let cold_head_hash = cold_head.last_block_hash;
         let cold_head_block_info =
             rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_head_hash.as_ref())?;
-        let cold_head_block_info =
-            cold_head_block_info.ok_or_else(|| anyhow::anyhow!("Cold head block info is not in rpc db"))?;
+        let cold_head_block_info = cold_head_block_info
+            .ok_or_else(|| anyhow::anyhow!("Cold head block info is not in rpc db"))?;
         let cold_epoch_first_block = *cold_head_block_info.epoch_first_block();
         let cold_epoch_first_block_info =
             rpc_store.get_ser::<BlockInfo>(DBCol::BlockInfo, cold_epoch_first_block.as_ref())?;
@@ -480,10 +481,9 @@ impl StateRootSelector {
                     storage
                         .get_hot_store()
                         .get(DBCol::BlockHeight, &height_key)?
-                        .ok_or_else(|| anyhow::anyhow!(
-                            "Failed to find block hash for height {:?}",
-                            height
-                        ))?
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Failed to find block hash for height {:?}", height)
+                        })?
                         .as_slice()
                         .to_vec()
                 };
@@ -498,10 +498,9 @@ impl StateRootSelector {
                                 DBCol::Chunks,
                                 chunk.chunk_hash().as_bytes(),
                             )?
-                            .ok_or_else(|| anyhow::anyhow!(
-                                "Failed to find Chunk: {:?}",
-                                chunk.chunk_hash()
-                            ))?
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Failed to find Chunk: {:?}", chunk.chunk_hash())
+                            })?
                             .take_header()
                             .prev_state_root(),
                     );
@@ -581,8 +580,9 @@ struct CheckStateRootCmd {
 
 impl CheckStateRootCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
-        let cold_store =
-            storage.get_cold_store().ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let hashes = self.state_root_selector.get_hashes(storage, &cold_store)?;
         for hash in hashes.iter() {
