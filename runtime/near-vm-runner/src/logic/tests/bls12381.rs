@@ -21,6 +21,8 @@ mod tests {
     use rand::thread_rng;
     use rand::RngCore;
 
+    const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+
     fn get_random_g1_point(rnd: &mut RAND) -> ECP {
         let r: Big = Big::random(rnd);
         let g: ECP = ECP::generator();
@@ -837,7 +839,7 @@ mod tests {
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = get_random_g1_curve_point(&mut rnd);
         let mut ybig = p.gety();
-        ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        ybig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_uncompressed_g1(&p);
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
@@ -1200,7 +1202,7 @@ mod tests {
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = get_random_g2_curve_point(&mut rnd);
         let mut yabig = p.gety().geta();
-        yabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        yabig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_uncompressed_g2(&p);
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
 
@@ -1340,7 +1342,7 @@ mod tests {
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = get_random_g1_curve_point(&mut rnd);
         let mut ybig = p.gety();
-        ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        ybig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_uncompressed_g1(&p);
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
@@ -1488,7 +1490,7 @@ mod tests {
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = get_random_g2_curve_point(&mut rnd);
         let mut yabig = p.gety().geta();
-        yabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        yabig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_uncompressed_g2(&p);
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
 
@@ -1576,7 +1578,7 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let p = hex::decode("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab").unwrap();
+        let p = hex::decode(P.to_string()).unwrap();
 
         let input = logic.internal_mem_write(p.as_slice());
         let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
@@ -1643,7 +1645,7 @@ mod tests {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
-        let p = hex::decode("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab").unwrap();
+        let p = hex::decode(P.to_string()).unwrap();
 
         let input = logic.internal_mem_write(vec![p.clone(), vec![0u8; 48]].concat().as_slice());
         let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
@@ -1759,7 +1761,7 @@ mod tests {
         //Point with a coordinate larger than 'p'.
         let p = get_random_g1_curve_point(&mut rnd);
         let mut xbig = p.getx();
-        xbig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        xbig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_g1(&p);
         xbig.to_byte_array(&mut p_ser[0..48], 0);
         p_ser[0] |= 0x80;
@@ -1861,7 +1863,7 @@ mod tests {
         //Point with a coordinate larger than 'p'.
         let p = get_random_g2_curve_point(&mut rnd);
         let mut xabig = p.getx().geta();
-        xabig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        xabig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_g2(&p);
         xabig.to_byte_array(&mut p_ser[0..96], 48);
 
@@ -1937,7 +1939,7 @@ mod tests {
         let mut rnd = get_rnd();
 
         const MAX_N: usize = 105;
-        let r = Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string());
+        let r = Big::from_string(P.to_string());
 
         for i in 0..10 {
             let n: usize = if i == 0 {
@@ -2046,7 +2048,7 @@ mod tests {
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = get_random_g1_curve_point(&mut rnd);
         let mut ybig = p.gety();
-        ybig.add(&Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".to_string()));
+        ybig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_uncompressed_g1(&p);
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
@@ -2246,6 +2248,7 @@ mod tests {
     }
 
 
+    // EIP-2537 tests
     #[test]
     #[should_panic]
     fn test_bls12381_p2_decompress_too_big_input() {
@@ -2510,8 +2513,6 @@ mod tests {
                 continue;
             }
 
-            println!("{:?}", bytes_input_raw);
-
             let bytes_input = fix_eip2537_fp(bytes_input_raw);
 
             let input = logic.internal_mem_write(&bytes_input);
@@ -2592,5 +2593,4 @@ mod tests {
             assert_eq!(res, 1);
         }
     }
-
 }
