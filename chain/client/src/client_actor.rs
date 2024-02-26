@@ -33,6 +33,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
+use crate::sync_jobs_actions::SyncJobsActions;
 use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
@@ -75,7 +76,12 @@ impl ClientActor {
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { client_addr: self_addr_clone }
+                SyncJobsActor {
+                    actions: SyncJobsActions::new(
+                        self_addr_clone.with_auto_span_context().into_multi_sender(),
+                        ctx.address().with_auto_span_context().into_multi_sender(),
+                    ),
+                }
             },
         );
         let actions = ClientActions::new(
@@ -86,13 +92,11 @@ impl ClientActor {
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor,
+            telemetry_actor.with_auto_span_context().into_sender(),
             shutdown_signal,
             adv,
             config_updater,
-            sync_jobs_actor_addr.clone().with_auto_span_context().into_sender(),
-            sync_jobs_actor_addr.clone().with_auto_span_context().into_sender(),
-            sync_jobs_actor_addr.with_auto_span_context().into_sender(),
+            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
             Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
         )?;
         Ok(Self { actions })

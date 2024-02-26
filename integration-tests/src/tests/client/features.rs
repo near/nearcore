@@ -21,6 +21,7 @@ mod nonrefundable_transfer;
 mod orphan_chunk_state_witness;
 mod restore_receipts_after_fix_apply_chunks;
 mod restrict_tla;
+mod simple_test_loop_example;
 mod stateless_validation;
 mod wallet_contract;
 mod zero_balance_account;
