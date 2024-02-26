@@ -2470,4 +2470,127 @@ mod tests {
             assert_eq!(res, bytes_output);
         }
     }
+
+    #[test]
+    fn test_bls12381_pairing_error_test_vectors() {
+        let pairing_csv = fs::read("src/logic/tests/bls12381_test_vectors/pairing_error.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(pairing_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/384;
+            let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384 .. i * 384 + 128].to_vec()));
+                bytes_input_fix.push(fix_eip2537_g2(bytes_input[i * 384 + 128 .. (i + 1) * 384].to_vec()));
+            }
+
+            let input = logic.internal_mem_write(&bytes_input_fix.concat());
+            let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+            assert_eq!(res, 1);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_fp_to_g1_error_test_vectors() {
+        let fp_to_g1_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp_to_g1_error.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(fp_to_g1_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input_raw = hex::decode(&record[0]).unwrap();
+            if bytes_input_raw[0..16] != vec![0; 16] {
+                continue;
+            }
+
+            println!("{:?}", bytes_input_raw);
+
+            let bytes_input = fix_eip2537_fp(bytes_input_raw);
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
+
+            assert_eq!(res, 1);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_fp2_to_g2_error_test_vectors() {
+        let fp2_to_g2_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp2_to_g2_error.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(fp2_to_g2_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input_raw = hex::decode(&record[0]).unwrap();
+            if bytes_input_raw[0..16] != vec![0; 16] {
+                continue;
+            }
+            let bytes_input = fix_eip2537_fp2(bytes_input_raw);
+
+            let input = logic.internal_mem_write(&bytes_input);
+            let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
+            assert_eq!(res, 1);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g1_multiexp_error_test_vectors() {
+        let g1_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g1_error.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g1_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/(128 + 32);
+
+            let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fixed.push(fix_eip2537_g1(bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec()));
+                bytes_input_fixed.push(bytes_input[i * (128 + 32) + 128.. (i + 1) * (128 + 32)].to_vec().into_iter().rev().collect());
+            }
+            let input = logic.internal_mem_write(&bytes_input_fixed.concat());
+            let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
+
+            assert_eq!(res, 1);
+        }
+    }
+
+    #[test]
+    fn test_bls12381_g2_multiexp_error_test_vectors() {
+        let g2_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g2_error.csv").unwrap();
+        let mut reader = csv::Reader::from_reader(g2_mul_csv.as_slice());
+        for record in reader.records() {
+            let record = record.unwrap();
+
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+
+            let bytes_input = hex::decode(&record[0]).unwrap();
+            let k = bytes_input.len()/(256 + 32);
+
+            let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
+            for i in 0..k {
+                bytes_input_fixed.push(fix_eip2537_g2(bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec()));
+                bytes_input_fixed.push(bytes_input[i * (256 + 32) + 256.. (i + 1) * (256 + 32)].to_vec().into_iter().rev().collect());
+            }
+            let input = logic.internal_mem_write(&bytes_input_fixed.concat());
+            let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
+
+            assert_eq!(res, 1);
+        }
+    }
+
 }
