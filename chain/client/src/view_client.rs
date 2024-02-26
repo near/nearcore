@@ -33,7 +33,7 @@ use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
     StateResponseInfo, StateResponseInfoV2,
 };
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;

@@ -5,14 +5,14 @@ use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_produce_chunk_add_transactions_time_limit,
-    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
-    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
-    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
-    default_tx_routing_height_horizon, default_view_client_threads,
-    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
-    ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
-    MutableConfigValue, ReshardingConfig, StateSyncConfig,
+    default_log_summary_period, default_orphan_state_witness_pool_size,
+    default_produce_chunk_add_transactions_time_limit, default_state_sync,
+    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
+    default_sync_height_threshold, default_sync_step_period, default_transaction_pool_size_limit,
+    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
+    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
+    ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
+    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig, StateSyncConfig,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -322,6 +322,10 @@ pub struct Config {
     /// latency due to the need of requesting chunks over the peer-to-peer network.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
+    /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
+    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// required block appears. This variable controls how many witnesses can be stored in the pool.
+    pub orphan_state_witness_pool_size: usize,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -367,6 +371,7 @@ impl Default for Config {
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
+            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
         }
     }
 }
@@ -681,6 +686,7 @@ impl NearConfig {
                     "produce_chunk_add_transactions_time_limit",
                 ),
                 chunk_distribution_network: config.chunk_distribution_network,
+                orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
             },
             network_config: NetworkConfig::new(
                 config.network,

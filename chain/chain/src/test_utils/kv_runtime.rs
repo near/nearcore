@@ -13,6 +13,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -954,6 +955,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        _state_witness: &ChunkStateWitness,
+        _epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -1000,6 +1009,14 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_layout = self.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
+    }
+
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        _tip: &Tip,
+        _height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        unimplemented!();
     }
 
     #[cfg(feature = "new_epoch_sync")]

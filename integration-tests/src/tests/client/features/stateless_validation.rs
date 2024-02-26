@@ -1,8 +1,6 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::network::PeerId;
-use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessInner};
-use near_primitives::validator_signer::EmptyValidatorSigner;
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_store::test_utils::create_test_store;
 use nearcore::config::GenesisExt;
 use rand::rngs::StdRng;
@@ -14,7 +12,6 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::block::Tip;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
@@ -169,7 +166,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             let _ = env.clients[0].process_tx(tx, false, false);
         }
 
-        let block_producer = get_block_producer(&env, &tip, 1);
+        let block_producer = env.get_block_producer_at_offset(&tip, 1);
         tracing::debug!(
             target: "stateless_validation",
             "Producing block at height {} by {}", tip.height + 1, block_producer
@@ -241,17 +238,6 @@ fn test_chunk_validation_low_missing_chunks() {
 #[test]
 fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81);
-}
-
-/// Returns the block producer for the height of head + height_offset.
-fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountId {
-    let client = &env.clients[0];
-    let epoch_manager = &client.epoch_manager;
-    let parent_hash = &head.last_block_hash;
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-    let height = head.height + height_offset;
-    let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
-    block_producer
 }
 
 #[test]
@@ -346,36 +332,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     // Create a dummy ChunkStateWitness with an invalid shard_id
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = 1000000000;
-
-    let chunk_header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
-        previous_block,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        upper_height,
-        invalid_shard_id,
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        Default::default(),
-        &EmptyValidatorSigner::default(),
-    ));
-    let witness = ChunkStateWitness {
-        inner: ChunkStateWitnessInner::new(
-            chunk_header,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            Default::default(),
-        ),
-        signature: Default::default(),
-    };
+    let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");

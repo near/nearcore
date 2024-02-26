@@ -117,7 +117,6 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 pub struct ChunkStateWitnessMessage {
     pub witness: ChunkStateWitness,
     pub peer_id: PeerId,
-    pub attempts_remaining: usize,
 }
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]

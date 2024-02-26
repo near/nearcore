@@ -44,6 +44,20 @@ impl<Data, Event> LoopEventHandler<Data, Event> {
         })
     }
 
+    pub fn new_with_drop(
+        handler: impl FnMut(Event, &mut Data, &LoopHandlerContext<Event>) -> Result<(), Event> + 'static,
+        ok_to_drop: impl Fn(&Event) -> bool + 'static,
+    ) -> Self {
+        Self {
+            inner: Box::new(LoopEventHandlerImplByFunction {
+                initial_event: None,
+                handler: Box::new(handler),
+                ok_to_drop: Box::new(ok_to_drop),
+                context: None,
+            }),
+        }
+    }
+
     /// Like new(), but additionally sends an initial event with an initial
     /// delay. See periodic_interval() for why this is useful.
     pub fn new_with_initial_event(

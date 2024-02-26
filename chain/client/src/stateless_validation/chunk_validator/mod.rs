@@ -1,3 +1,6 @@
+pub mod orphan_witness_handling;
+pub mod orphan_witness_pool;
+
 use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
@@ -31,6 +34,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
+use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -53,6 +57,7 @@ pub struct ChunkValidator {
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    orphan_witness_pool: OrphanStateWitnessPool,
 }
 
 impl ChunkValidator {
@@ -62,6 +67,7 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+        orphan_witness_pool_size: usize,
     ) -> Self {
         Self {
             my_signer,
@@ -69,6 +75,7 @@ impl ChunkValidator {
             network_sender,
             runtime_adapter,
             chunk_endorsement_tracker,
+            orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
         }
     }
 
@@ -639,14 +646,40 @@ impl Client {
         witness: ChunkStateWitness,
         peer_id: PeerId,
         processing_done_tracker: Option<ProcessingDoneTracker>,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
+    ) -> Result<(), Error> {
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
-        if self.chain.get_block(prev_block_hash).is_err() {
-            return Ok(Some(witness));
+        let prev_block = match self.chain.get_block(prev_block_hash) {
+            Ok(block) => block,
+            Err(Error::DBNotFoundErr(_)) => {
+                // Previous block isn't available at the moment, add this witness to the orphan pool.
+                self.handle_orphan_state_witness(witness)?;
+                return Ok(());
+            }
+            Err(err) => return Err(err),
+        };
+        self.process_chunk_state_witness_with_prev_block(
+            witness,
+            peer_id,
+            &prev_block,
+            processing_done_tracker,
+        )
+    }
+
+    pub fn process_chunk_state_witness_with_prev_block(
+        &mut self,
+        witness: ChunkStateWitness,
+        peer_id: PeerId,
+        prev_block: &Block,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        if witness.inner.chunk_header.prev_block_hash() != prev_block.hash() {
+            return Err(Error::Other(format!(
+                "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
+                witness.inner.chunk_header.prev_block_hash(),
+                prev_block.hash()
+            )));
         }
 
-        // TODO(#10265): If the previous block does not exist, we should
-        // queue this (similar to orphans) to retry later.
         let result = self.chunk_validator.start_validating_chunk(
             witness,
             &self.chain,
@@ -661,6 +694,6 @@ impl Client {
                 },
             ));
         }
-        result.map(|_| None)
+        result
     }
 }

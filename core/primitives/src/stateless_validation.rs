@@ -1,13 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::challenge::PartialState;
-use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
+use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
-use crate::validator_signer::ValidatorSigner;
+use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::{AccountId, Balance};
+use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
@@ -115,6 +115,43 @@ impl ChunkStateWitnessInner {
             new_transactions_validation_state,
             signature_differentiator: "ChunkStateWitness".to_owned(),
         }
+    }
+}
+
+impl ChunkStateWitness {
+    // Make a new dummy ChunkStateWitness for testing.
+    pub fn new_dummy(
+        height: BlockHeight,
+        shard_id: ShardId,
+        prev_block_hash: CryptoHash,
+    ) -> ChunkStateWitness {
+        let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
+            prev_block_hash,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            height,
+            shard_id,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            &EmptyValidatorSigner::default(),
+        ));
+        let inner = ChunkStateWitnessInner::new(
+            header,
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+            Default::default(),
+        );
+        ChunkStateWitness { inner, signature: Signature::default() }
     }
 }
 

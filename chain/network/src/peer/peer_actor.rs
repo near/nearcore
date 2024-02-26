@@ -38,7 +38,7 @@ use lru::LruCache;
 use near_async::messaging::SendAsync;
 use near_async::time;
 use near_crypto::Signature;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
@@ -1012,11 +1012,7 @@ impl PeerActor {
             RoutedMessageBody::ChunkStateWitness(witness) => {
                 network_state
                     .client
-                    .send_async(ChunkStateWitnessMessage {
-                        witness,
-                        peer_id,
-                        attempts_remaining: 5,
-                    })
+                    .send_async(ChunkStateWitnessMessage { witness, peer_id })
                     .await
                     .ok();
                 None

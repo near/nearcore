@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
@@ -9,6 +9,7 @@ use crate::Client;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
+use near_chain::types::Tip;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::GenesisConfig;
 use near_chain_primitives::error::QueryError;
@@ -29,11 +30,11 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::sharding::PartialEncodedChunk;
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
@@ -46,6 +47,9 @@ use once_cell::sync::OnceCell;
 use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
+
+/// Timeout used in tests that wait for a specific chunk endorsement to appear
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -382,6 +386,43 @@ impl TestEnv {
         self.propagate_chunk_endorsements(allow_errors);
     }
 
+    /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
+    /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
+    /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
+    pub fn wait_for_chunk_endorsement(
+        &mut self,
+        client_idx: usize,
+        chunk_hash: &ChunkHash,
+    ) -> Result<ChunkEndorsement, TimeoutError> {
+        let start_time = Instant::now();
+        let network_adapter = self.network_adapters[client_idx].clone();
+        loop {
+            let mut endorsement_opt = None;
+            network_adapter.handle_filtered(|request| {
+                match &request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
+                    ) if endorsement.chunk_hash() == chunk_hash => {
+                        endorsement_opt = Some(endorsement.clone());
+                    }
+                    _ => {}
+                };
+                Some(request)
+            });
+
+            if let Some(endorsement) = endorsement_opt {
+                return Ok(endorsement);
+            }
+
+            let elapsed_since_start = start_time.elapsed();
+            if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
+                return Err(TimeoutError(elapsed_since_start));
+            }
+
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
         let signer =
@@ -553,6 +594,42 @@ impl TestEnv {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
     }
 
+    /// Returns the index of client with the given [`AccoountId`].
+    pub fn get_client_index(&self, account_id: &AccountId) -> usize {
+        self.account_indices.index(account_id)
+    }
+
+    /// Get block producer responsible for producing the block at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_block_producer_at_offset(&self, head: &Tip, height_offset: u64) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+    }
+
+    /// Get chunk producer responsible for producing the chunk at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_chunk_producer_at_offset(
+        &self,
+        head: &Tip,
+        height_offset: u64,
+        shard_id: ShardId,
+    ) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
+    }
+
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
         self.clients[idx].runtime_adapter.get_protocol_config(&epoch_id).unwrap().runtime_config
     }
@@ -685,3 +762,7 @@ impl AccountIndices {
         &mut container[self.0[account_id]]
     }
 }
+
+#[derive(thiserror::Error, Debug)]
+#[error("Timed out after {0:?}")]
+pub struct TimeoutError(Duration);

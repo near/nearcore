@@ -9,7 +9,9 @@ use crate::test_utils::{
     record_with_block_info, reward, setup_default_epoch_manager, setup_epoch_manager, stake,
     DEFAULT_TOTAL_SUPPLY,
 };
+use near_o11y::testonly::init_test_logger;
 use near_primitives::account::id::AccountIdRef;
+use near_primitives::block::Tip;
 use near_primitives::challenge::SlashedValidator;
 use near_primitives::epoch_manager::EpochConfig;
 use near_primitives::hash::hash;
@@ -2808,4 +2810,335 @@ fn test_verify_chunk_state_witness() {
     chunk_state_witness.signature =
         bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner).0;
     assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+}
+
+/// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()
+/// gives the correct results at each step.
+/// Some of the blocks are missing to make the test more interesting.
+/// The blocks present in each epoch are:
+/// Epoch(111): genesis
+/// Epoch(111): 1, 2, 3, 4, 5
+///     epoch1: 6, 7, 8, 9, 10
+///     epoch2: 12, 14, 16, 18, 20, 22, 24, 25, 26
+///     epoch3: 27, 28, 29, 30, 31
+///     epoch4: 32+
+#[test]
+fn test_possible_epochs_of_height_around_tip() {
+    use std::str::FromStr;
+    init_test_logger();
+
+    let amount_staked = 1_000_000;
+    let account_id = AccountId::from_str("test1").unwrap();
+    let validators = vec![(account_id, amount_staked)];
+    let h = hash_range(50);
+
+    let genesis_epoch = EpochId(CryptoHash::default());
+
+    let epoch_length = 5;
+    let mut epoch_manager = setup_default_epoch_manager(validators, epoch_length, 1, 2, 2, 90, 60);
+
+    // Add the genesis block with height 1000
+    let genesis_height = 1000;
+    record_block(&mut epoch_manager, CryptoHash::default(), h[0], genesis_height, vec![]);
+
+    let genesis_tip = Tip {
+        height: genesis_height,
+        last_block_hash: h[0],
+        prev_block_hash: CryptoHash::default(),
+        epoch_id: genesis_epoch.clone(),
+        next_epoch_id: genesis_epoch.clone(),
+    };
+
+    assert_eq!(
+        epoch_manager.possible_epochs_of_height_around_tip(&genesis_tip, 0).unwrap(),
+        vec![]
+    );
+    assert_eq!(
+        epoch_manager
+            .possible_epochs_of_height_around_tip(&genesis_tip, genesis_height - 1)
+            .unwrap(),
+        vec![]
+    );
+    assert_eq!(
+        epoch_manager.possible_epochs_of_height_around_tip(&genesis_tip, genesis_height).unwrap(),
+        vec![genesis_epoch.clone()]
+    );
+    assert_eq!(
+        epoch_manager
+            .possible_epochs_of_height_around_tip(&genesis_tip, genesis_height + 1)
+            .unwrap(),
+        vec![genesis_epoch.clone()]
+    );
+    assert_eq!(
+        epoch_manager.possible_epochs_of_height_around_tip(&genesis_tip, 10000000).unwrap(),
+        vec![genesis_epoch.clone()]
+    );
+
+    let epoch1 = EpochId(h[0]);
+    tracing::info!(target: "test", ?epoch1);
+
+    // Add blocks with heights 1..5, a standard epoch with no surprises
+    for i in 1..=5 {
+        let height = genesis_height + i as BlockHeight;
+        tracing::info!(target: "test", height);
+        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        let tip = Tip {
+            height,
+            last_block_hash: h[i],
+            prev_block_hash: h[i - 1],
+            epoch_id: genesis_epoch.clone(),
+            next_epoch_id: epoch1.clone(),
+        };
+        assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height).unwrap(),
+            vec![genesis_epoch.clone()]
+        );
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 1).unwrap(),
+            vec![genesis_epoch.clone()]
+        );
+        for h in 1..=5 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h as BlockHeight)
+                    .unwrap(),
+                vec![genesis_epoch.clone()]
+            );
+        }
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 6).unwrap(),
+            vec![genesis_epoch.clone(), epoch1.clone()]
+        );
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, 1000000).unwrap(),
+            vec![genesis_epoch.clone(), epoch1.clone()]
+        );
+    }
+
+    let epoch2 = EpochId(h[5]);
+    tracing::info!(target: "test", ?epoch2);
+
+    // Add blocks with heights 6..10, also a standard epoch with no surprises
+    for i in 6..=10 {
+        let height = genesis_height + i as BlockHeight;
+        tracing::info!(target: "test", height);
+        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        let tip = Tip {
+            height,
+            last_block_hash: h[i],
+            prev_block_hash: h[i - 1],
+            epoch_id: epoch1.clone(),
+            next_epoch_id: epoch2.clone(),
+        };
+        assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height).unwrap(),
+            vec![]
+        );
+        for h in 1..=5 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![genesis_epoch.clone()]
+            );
+        }
+        for h in 6..=10 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h as BlockHeight)
+                    .unwrap(),
+                vec![epoch1.clone()]
+            );
+        }
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 11).unwrap(),
+            vec![epoch1.clone(), epoch2.clone()]
+        );
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, 1000000).unwrap(),
+            vec![epoch1.clone(), epoch2.clone()]
+        );
+    }
+
+    let epoch3 = EpochId(h[10]);
+    tracing::info!(target: "test", ?epoch3);
+
+    // Now there is a very long epoch with no final blocks (all odd blocks are missing)
+    // For all the blocks inside this for the last final block will be block #8, as it has #9 and #10
+    // on top of it.
+    let last_final_block_hash = h[8];
+    let last_finalized_height = genesis_height + 8;
+    for i in (12..=24).filter(|i| i % 2 == 0) {
+        let height = genesis_height + i as BlockHeight;
+        tracing::info!(target: "test", height);
+        let block_info = block_info(
+            h[i],
+            height,
+            last_finalized_height,
+            last_final_block_hash,
+            h[i - 2],
+            h[12],
+            vec![],
+            DEFAULT_TOTAL_SUPPLY,
+        );
+        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        let tip = Tip {
+            height,
+            last_block_hash: h[i],
+            prev_block_hash: h[i - 2],
+            epoch_id: epoch2.clone(),
+            next_epoch_id: epoch3.clone(),
+        };
+        for h in 0..=5 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![]
+            );
+        }
+        for h in 6..=10 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch1.clone()]
+            );
+        }
+        // Block 11 isn't in any epoch. Block 10 was the last of the previous epoch and block 12
+        // is the first one of the new epoch. Block 11 was skipped and doesn't belong to any epoch.
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 11).unwrap(),
+            vec![]
+        );
+        for h in 12..17 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch2.clone()]
+            );
+        }
+        for h in 17..=24 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch2.clone(), epoch3.clone()]
+            );
+        }
+    }
+
+    // Finally there are two consecutive blocks on top of block 24 which
+    // make block 24 final and finalize epoch2.
+    for i in [25, 26] {
+        let height = genesis_height + i as BlockHeight;
+        tracing::info!(target: "test", height);
+        let block_info = block_info(
+            h[i],
+            height,
+            if i == 26 { genesis_height + 24 } else { last_finalized_height },
+            if i == 26 { h[24] } else { last_final_block_hash },
+            h[i - 1],
+            h[12],
+            vec![],
+            DEFAULT_TOTAL_SUPPLY,
+        );
+        epoch_manager.record_block_info(block_info, [0; 32]).unwrap().commit().unwrap();
+        let tip = Tip {
+            height,
+            last_block_hash: h[i],
+            prev_block_hash: h[i - 1],
+            epoch_id: epoch2.clone(),
+            next_epoch_id: epoch3.clone(),
+        };
+        for h in 0..=5 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![]
+            );
+        }
+        for h in 6..=10 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch1.clone()]
+            );
+        }
+        // Block 11 isn't in any epoch. Block 10 was the last of the previous epoch and block 12
+        // is the first one of the new epoch. Block 11 was skipped and doesn't belong to any epoch.
+        assert_eq!(
+            epoch_manager.possible_epochs_of_height_around_tip(&tip, genesis_height + 11).unwrap(),
+            vec![]
+        );
+        for h in 12..17 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch2.clone()]
+            );
+        }
+        for h in 17..=26 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch2.clone(), epoch3.clone()]
+            );
+        }
+    }
+
+    // One more epoch without surprises to make sure that the previous weird epoch is handled correctly
+    let epoch4 = EpochId(h[12]);
+    for i in 27..=31 {
+        let height = genesis_height + i as BlockHeight;
+        tracing::info!(target: "test", height);
+        record_block(&mut epoch_manager, h[i - 1], h[i], height, vec![]);
+        let tip = Tip {
+            height,
+            last_block_hash: h[i],
+            prev_block_hash: h[i - 1],
+            epoch_id: epoch3.clone(),
+            next_epoch_id: epoch4.clone(),
+        };
+        assert_eq!(epoch_manager.possible_epochs_of_height_around_tip(&tip, 0).unwrap(), vec![]);
+        for h in 0..=11 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![]
+            );
+        }
+        for h in 12..=26 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch2.clone()]
+            );
+        }
+        for h in 27..=31 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch3.clone()]
+            );
+        }
+        for h in 32..40 {
+            assert_eq!(
+                epoch_manager
+                    .possible_epochs_of_height_around_tip(&tip, genesis_height + h)
+                    .unwrap(),
+                vec![epoch3.clone(), epoch4.clone()]
+            );
+        }
+    }
 }

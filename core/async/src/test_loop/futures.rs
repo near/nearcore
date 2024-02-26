@@ -1,4 +1,5 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use crate::futures::DelayedActionRunner;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
@@ -93,5 +94,52 @@ impl FutureSpawner for TestLoopFutureSpawner {
             description: description.to_string(),
         });
         self.send(task);
+    }
+}
+
+/// Represents an action that was scheduled to run later, by using
+/// `DelayedActionRunner::run_later`.
+pub struct TestLoopDelayedActionEvent<T>(
+    Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+);
+
+impl<T> Debug for TestLoopDelayedActionEvent<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DelayedAction").finish()
+    }
+}
+
+/// An event handler that handles only `TestLoopDelayedActionEvent`s, by
+/// running the action encapsulated in the event.
+pub fn drive_delayed_action_runners<T>() -> LoopEventHandler<T, TestLoopDelayedActionEvent<T>> {
+    LoopEventHandler::new_with_drop(
+        |event, data, ctx| {
+            let mut runner = TestLoopDelayedActionRunner { sender: ctx.sender.clone() };
+            (event.0)(data, &mut runner);
+            Ok(())
+        },
+        |_| {
+            // Delayed actions are usually used for timers, so let's just say
+            // it's OK to drop them at the end of the test. It would be hard
+            // to distinguish what sort of delayed action was being scheduled
+            // anyways.
+            true
+        },
+    )
+}
+
+/// `DelayedActionRunner` that schedules the action to be run later by the
+/// TestLoop event loop.
+pub struct TestLoopDelayedActionRunner<T> {
+    pub(crate) sender: DelaySender<TestLoopDelayedActionEvent<T>>,
+}
+
+impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
+    fn run_later_boxed(
+        &mut self,
+        dur: std::time::Duration,
+        f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+    ) {
+        self.sender.send_with_delay(TestLoopDelayedActionEvent(f), dur.try_into().unwrap());
     }
 }
