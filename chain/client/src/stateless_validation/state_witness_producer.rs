@@ -3,6 +3,7 @@ use near_async::messaging::{CanSend, IntoSender};
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::contract_violation;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
 use near_primitives::hash::{hash, CryptoHash};
@@ -102,7 +103,12 @@ impl Client {
             // With stateless validation chunk producer uses recording reads when validating transactions.
             // The storage proof must be available here.
             transactions_storage_proof.ok_or_else(|| {
-                Error::Other("Missing storage proof for transactions validation".to_owned())
+                let msg = "Missing storage proof for transactions validation";
+                contract_violation!(
+                    target: "stateless_validation",
+                    "{}", msg
+                );
+                Error::Other(msg.to_owned())
             })?
         };
 
@@ -153,9 +159,14 @@ impl Client {
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(main_block, shard_id),
                 )?
-                .ok_or_else(|| Error::Other(format!(
-                    "Missing main transition state proof for block {main_block} and shard {shard_id}"
-                )))?;
+                .ok_or_else(|| {
+                    let msg = format!("Missing main transition state proof for block {main_block} and shard {shard_id}");
+                    contract_violation!(
+                        target: "stateless_validation",
+                        "{}", msg
+                    );
+                    Error::Other(msg)
+                })?;
             (base_state, receipts_hash)
         };
         let main_transition = ChunkStateTransition {
@@ -171,9 +182,16 @@ impl Client {
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
                 )?
-                .ok_or_else(|| Error::Other(format!(
-                    "Missing implicit transition state proof for block {block_hash} and shard {shard_id}"
-                )))?;
+                .ok_or_else(|| {
+                    let msg = format!(
+                        "Missing implicit transition state proof for block {block_hash} and shard {shard_id}"
+                    );
+                    contract_violation!(
+                        target: "stateless_validation",
+                        "{}", msg
+                    );
+                    Error::Other(msg)}
+                )?;
             implicit_transitions.push(ChunkStateTransition {
                 block_hash: *block_hash,
                 base_state,

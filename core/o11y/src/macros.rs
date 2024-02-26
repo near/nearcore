@@ -42,6 +42,28 @@ macro_rules! handler_trace_span {
     };
 }
 
+/// A macro to indicate non-fatal contract violation in the code.
+/// It is intended to be used in situations that should not happen
+/// such as some kind of invalid state or programmatic error, but not
+/// severe enough to crash production node with panic. Ideally we
+/// should aim at avoiding such situations in the first place with
+/// proper types, but in reality we have many implicit expectations 
+/// in our codebase and this macro should help highlighting those.
+/// The effects are as follows:
+/// * log an error to ensure the issue is reflected in node's logs
+/// * panic if in debug mode to uncover the underlying issue as soon
+///   as possible, achieved with `debug_assert!`
+#[macro_export]
+macro_rules! contract_violation {
+    (target: $target:expr, $($arg:tt)*) => {
+        tracing::error!(
+            target: $target,
+            $($arg)*
+        );
+        debug_assert!(false, $($arg)*);
+    }
+}
+
 /// For internal use by `handler_span!`.
 /// Given 'abc::bcd::cde' returns 'cde'.
 /// Given 'abc' returns 'abc'.
