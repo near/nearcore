@@ -108,6 +108,8 @@ clone_on_copy = "deny"
 derivable_impls = "deny"
 redundant_clone = "deny"
 len_zero = "deny"
+or_fun_call = "deny"
+unnecessary_lazy_evaluations = "deny"
 
 
 [workspace.dependencies]

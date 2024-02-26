@@ -383,7 +383,7 @@ pub(crate) fn dump_state(
     let home_dir = PathBuf::from(&home_dir);
 
     if stream {
-        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let output_dir = file.unwrap_or_else(|| home_dir.join("output"));
         let records_path = output_dir.join("records.json");
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -406,7 +406,7 @@ pub(crate) fn dump_state(
             None,
             change_config,
         );
-        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        let output_file = file.unwrap_or_else(|| home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
     }
@@ -609,7 +609,7 @@ pub(crate) fn print_chain(
                         .get_block_producer(&epoch_id, header.height())
                         .map(|account_id| account_id.to_string())
                         .ok()
-                        .unwrap_or("error".to_owned());
+                        .unwrap_or_else(|| "error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
@@ -627,7 +627,7 @@ pub(crate) fn print_chain(
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
                             .map(|account_id| account_id.to_string())
-                            .unwrap_or("CP Unknown".to_owned());
+                            .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
@@ -670,7 +670,7 @@ pub(crate) fn print_chain(
             let block_producer = epoch_manager
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
-                .unwrap_or("error".to_owned());
+                .unwrap_or_else(|_| "error".to_owned());
             println!(
                 "{: >3} {} | {: >10}",
                 height,

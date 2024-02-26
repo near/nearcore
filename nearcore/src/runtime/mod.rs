@@ -99,7 +99,12 @@ impl NightshadeRuntime {
         let state_snapshot_config = StateSnapshotConfig {
             state_snapshot_type,
             home_dir: home_dir.to_path_buf(),
-            hot_store_path: config.config.store.path.clone().unwrap_or(PathBuf::from("data")),
+            hot_store_path: config
+                .config
+                .store
+                .path
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("data")),
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
             compaction_enabled,
         };

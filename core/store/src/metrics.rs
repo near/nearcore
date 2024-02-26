@@ -638,10 +638,10 @@ mod test {
         tracing::debug!("int_gauges {int_gauges:#?}");
 
         let hot_gauge = int_gauges.get(&hot_gauge_name);
-        let hot_gauge = hot_gauge.ok_or(anyhow::anyhow!("hot gauge is missing"))?;
+        let hot_gauge = hot_gauge.ok_or_else(|| anyhow::anyhow!("hot gauge is missing"))?;
 
         let cold_gauge = int_gauges.get(&cold_gauge_name);
-        let cold_gauge = cold_gauge.ok_or(anyhow::anyhow!("cold gauge is missing"))?;
+        let cold_gauge = cold_gauge.ok_or_else(|| anyhow::anyhow!("cold gauge is missing"))?;
 
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);

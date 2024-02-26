@@ -91,7 +91,7 @@ impl ReceiptManager {
         for (data_id, receipt_index) in input_data_ids.iter().zip(receipt_indices.into_iter()) {
             self.action_receipts
                 .get_mut(receipt_index as usize)
-                .ok_or_else(|| HostError::InvalidReceiptIndex { receipt_index })?
+                .ok_or(HostError::InvalidReceiptIndex { receipt_index })?
                 .1
                 .output_data_receivers
                 .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
