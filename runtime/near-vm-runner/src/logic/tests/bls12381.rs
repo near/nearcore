@@ -516,70 +516,83 @@ mod tests {
     }
 
     //==== TESTS FOR G1_SUM
+    macro_rules! test_bls12381_sum_edge_cases {
+        (
+            $test_name:ident,
+            $POINT_LEN:expr,
+            $get_sum:ident,
+            $get_random_point:ident,
+            $get_random_curve_point:ident,
+            $serialize_uncompressed:ident
+        ) => {
+            #[test]
+            fn $test_name() {
+                // 0 + 0
+                let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                zero[0] = 64;
+                let got = $get_sum(0, & zero, 0, & zero);
+                assert_eq!(zero.to_vec(), got);
 
-    #[test]
-    fn test_bls12381_p1_sum_edge_cases() {
-        // 0 + 0
-        let mut zero: [u8; 96] = [0; 96];
-        zero[0] = 64;
-        let got = get_g1_sum(0, &zero, 0, &zero);
-        assert_eq!(zero.to_vec(), got);
+                // 0 + P = P + 0 = P
+                let mut rnd = get_rnd();
+                for _ in 0..10 {
+                    let p = $get_random_point( & mut rnd);
+                    let p_ser = $serialize_uncompressed( & p);
 
-        // 0 + P = P + 0 = P
-        let mut rnd = get_rnd();
-        for _ in 0..10 {
-            let p = get_random_g1_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
+                    let got = $get_sum(0, & zero, 0, & p_ser);
+                    assert_eq!(p_ser.to_vec(), got);
 
-            let got = get_g1_sum(0, &zero, 0, &p_ser);
-            assert_eq!(p_ser.to_vec(), got);
+                    let got = $get_sum(0, & p_ser, 0, &zero);
+                    assert_eq!(p_ser.to_vec(), got);
+                }
 
-            let got = get_g1_sum(0, &p_ser, 0, &zero);
-            assert_eq!(p_ser.to_vec(), got);
-        }
+                // P + (-P) = (-P) + P =  0
+                for _ in 0..10 {
+                    let mut p = $get_random_curve_point( & mut rnd);
+                    let p_ser = $serialize_uncompressed( & p);
 
-        // P + (-P) = (-P) + P =  0
-        for _ in 0..10 {
-            let mut p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
+                    p.neg();
+                    let p_neg_ser = $serialize_uncompressed( & p);
 
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g1(&p);
+                    let got = $get_sum(0, & p_neg_ser, 0, & p_ser);
+                    assert_eq!(zero.to_vec(), got);
 
-            let got = get_g1_sum(0, &p_neg_ser, 0, &p_ser);
-            assert_eq!(zero.to_vec(), got);
+                    let got = $get_sum(0, & p_ser, 0, & p_neg_ser);
+                    assert_eq!(zero.to_vec(), got);
+                }
 
-            let got = get_g1_sum(0, &p_ser, 0, &p_neg_ser);
-            assert_eq!(zero.to_vec(), got);
-        }
+                // P + P
+                for _ in 0..10 {
+                    let p = $get_random_curve_point( & mut rnd);
+                    let p_ser = $serialize_uncompressed( & p);
 
-        // P + P
-        for _ in 0..10 {
-            let p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
+                    let pmul2 = p.mul( & Big::from_bytes( & [2]));
+                    let pmul2_ser = $serialize_uncompressed( & pmul2);
 
-            let pmul2 = p.mul(&Big::from_bytes(&[2]));
-            let pmul2_ser = serialize_uncompressed_g1(&pmul2);
+                    let got = $get_sum(0, & p_ser, 0, &p_ser);
+                    assert_eq!(pmul2_ser.to_vec(), got);
+                }
 
-            let got = get_g1_sum(0, &p_ser, 0, &p_ser);
-            assert_eq!(pmul2_ser.to_vec(), got);
-        }
+                // P + (-(P + P))
+                for _ in 0..10 {
+                    let mut p = $get_random_curve_point( & mut rnd);
+                    let p_ser = $serialize_uncompressed( & p);
 
-        // P + (-(P + P))
-        for _ in 0..10 {
-            let mut p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
+                    let mut pmul2 = p.mul( & Big::from_bytes( & [2]));
+                    pmul2.neg();
+                    let pmul2_neg_ser = $serialize_uncompressed( & pmul2);
 
-            let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
-            pmul2.neg();
-            let pmul2_neg_ser = serialize_uncompressed_g1(&pmul2);
-
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g1(&p);
-            let got = get_g1_sum(0, &p_ser, 0, &pmul2_neg_ser);
-            assert_eq!(p_neg_ser.to_vec(), got);
+                    p.neg();
+                    let p_neg_ser = $serialize_uncompressed( & p);
+                    let got = $get_sum(0, & p_ser, 0, & pmul2_neg_ser);
+                    assert_eq!(p_neg_ser.to_vec(), got);
+                }
+            }
         }
     }
+
+    test_bls12381_sum_edge_cases!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1);
+    test_bls12381_sum_edge_cases!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2);
 
     #[test]
     fn test_bls12381_p1_sum() {
@@ -862,73 +875,6 @@ mod tests {
     }
 
     //==== TESTS FOR G2_SUM
-    #[test]
-    fn test_bls12381_p2_sum_edge_cases() {
-        const POINT_LEN: usize = 192;
-
-        // 0 + 0
-        let mut zero: [u8; POINT_LEN] = [0; POINT_LEN];
-        zero[0] = 64;
-        let got = get_g2_sum(0, &zero, 0, &zero);
-        assert_eq!(zero.to_vec(), got);
-
-        // 0 + P = P + 0 = P
-        let mut rnd = get_rnd();
-        for _ in 0..10 {
-            let p = get_random_g2_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let got = get_g2_sum(0, &zero, 0, &p_ser);
-            assert_eq!(p_ser.to_vec(), got);
-
-            let got = get_g2_sum(0, &p_ser, 0, &zero);
-            assert_eq!(p_ser.to_vec(), got);
-        }
-
-        // P + (-P) = (-P) + P =  0
-        for _ in 0..10 {
-            let mut p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            p.neg();
-            let p_neg_ser = serialize_uncompressed_g2(&p);
-
-            let got = get_g2_sum(0, &p_neg_ser, 0, &p_ser);
-            assert_eq!(zero.to_vec(), got);
-
-            let got = get_g2_sum(0, &p_ser, 0, &p_neg_ser);
-            assert_eq!(zero.to_vec(), got);
-        }
-
-        // P + P&mutg1
-        for _ in 0..10 {
-            let p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let pmul2 = p.mul(&Big::from_bytes(&[2]));
-            let pmul2_ser = serialize_uncompressed_g2(&pmul2);
-
-            let got = get_g2_sum(0, &p_ser, 0, &p_ser);
-            assert_eq!(pmul2_ser.to_vec(), got);
-        }
-
-        // P + (-(P + P))
-        for _ in 0..10 {
-            let mut p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
-            pmul2.neg();
-            let pmul2_neg_ser = serialize_uncompressed_g2(&pmul2);
-
-            p.neg();
-
-            let p_neg_ser = serialize_uncompressed_g2(&p);
-            let got = get_g2_sum(0, &p_ser, 0, &pmul2_neg_ser);
-            assert_eq!(p_neg_ser.to_vec(), got);
-        }
-    }
-
     #[test]
     fn test_bls12381_p2_sum() {
         for _ in 0..100 {
