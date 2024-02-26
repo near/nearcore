@@ -1121,7 +1121,7 @@ impl ChainStoreAccess for ChainStore {
         } else {
             self.store
                 .get_ser(DBCol::BlockMisc, TAIL_KEY)
-                .map(|option| option.unwrap_or_else(|| self.genesis_height))
+                .map(|option| option.unwrap_or(self.genesis_height))
                 .map_err(|e| e.into())
         }
     }
@@ -1130,14 +1130,14 @@ impl ChainStoreAccess for ChainStore {
     fn chunk_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 
     fn fork_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, FORK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 

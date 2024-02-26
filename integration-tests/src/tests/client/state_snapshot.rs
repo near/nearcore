@@ -167,7 +167,7 @@ fn verify_make_snapshot(
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
         .parent()
-        .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
+        .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
     let parent_path_result = std::fs::read_dir(parent_path)?;
     if vec![parent_path_result.filter_map(Result::ok)].len() > 1 {
         return Err(anyhow::Error::msg(

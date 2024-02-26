@@ -150,7 +150,7 @@ impl BlocksDelayTracker {
                         let chunk_hash = chunk.chunk_hash();
                         self.chunks
                             .entry(chunk_hash.clone())
-                            .or_insert(ChunkTrackingStats::new(chunk));
+                            .or_insert_with(|| ChunkTrackingStats::new(chunk));
                         self.floating_chunks.remove(&chunk_hash);
                         Some(chunk_hash)
                     } else {
