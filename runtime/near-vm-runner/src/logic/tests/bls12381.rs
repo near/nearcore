@@ -516,17 +516,22 @@ mod tests {
     }
 
     //==== TESTS FOR G1_SUM
-    macro_rules! test_bls12381_sum_edge_cases {
+    macro_rules! test_bls12381_sum {
         (
-            $test_name:ident,
+            $test_bls12381_sum_edge_cases:ident,
             $POINT_LEN:expr,
             $get_sum:ident,
             $get_random_point:ident,
             $get_random_curve_point:ident,
-            $serialize_uncompressed:ident
+            $serialize_uncompressed:ident,
+            $test_bls12381_sum:ident,
+            $deserialize:ident,
+            $subgroup_check:ident,
+            $test_bls12381_sum_not_g_points:ident,
+            $get_random_not_g_curve_point:ident
         ) => {
             #[test]
-            fn $test_name() {
+            fn $test_bls12381_sum_edge_cases() {
                 // 0 + 0
                 let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
                 zero[0] = 64;
@@ -588,74 +593,73 @@ mod tests {
                     assert_eq!(p_neg_ser.to_vec(), got);
                 }
             }
+
+            #[test]
+            fn $test_bls12381_sum() {
+                let mut rnd = get_rnd();
+
+                for _ in 0..100 {
+                    let mut p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    let q = $get_random_curve_point(&mut rnd);
+                    let q_ser = $serialize_uncompressed(&q);
+
+                    // P + Q = Q + P
+                    let got1 = $get_sum(0, &p_ser, 0, &q_ser);
+                    let got2 = $get_sum(0, &q_ser, 0, &p_ser);
+                    assert_eq!(got1, got2);
+
+                    // compare with library results
+                    p.add(&q);
+                    let library_sum = $serialize_uncompressed(&p);
+
+                    assert_eq!(library_sum.to_vec(), got1);
+                }
+
+                for _ in 0..100 {
+                   let p = $get_random_point(&mut rnd);
+                   let p_ser = $serialize_uncompressed(&p);
+
+                   let q = $get_random_point(&mut rnd);
+                   let q_ser = $serialize_uncompressed(&q);
+
+                   let got1 = $get_sum(0, &p_ser, 0, &q_ser);
+
+                   let result_point = $deserialize(&got1).unwrap();
+                   assert!($subgroup_check(&result_point));
+                }
+            }
+
+            #[test]
+            fn $test_bls12381_sum_not_g_points() {
+                let mut rnd = get_rnd();
+
+                //points not from G
+                for _ in 0..100 {
+                    let mut p = $get_random_not_g_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
+
+                    let q = $get_random_not_g_curve_point(&mut rnd);
+                    let q_ser = $serialize_uncompressed(&q);
+
+                    // P + Q = Q + P
+                    let got1 = $get_sum(0, &p_ser, 0, &q_ser);
+                    let got2 = $get_sum(0, &q_ser, 0, &p_ser);
+                    assert_eq!(got1, got2);
+
+                    // compare with library results
+                   p.add(&q);
+                   let library_sum = $serialize_uncompressed(&p);
+
+                   assert_eq!(library_sum.to_vec(), got1);
+                }
+            }
         }
     }
 
-    test_bls12381_sum_edge_cases!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1);
-    test_bls12381_sum_edge_cases!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2);
-
-    #[test]
-    fn test_bls12381_p1_sum() {
-        let mut rnd = get_rnd();
-
-        for _ in 0..100 {
-            let mut p = get_random_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let q = get_random_g1_curve_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g1(&q);
-
-            // P + Q = Q + P
-            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser);
-            let got2 = get_g1_sum(0, &q_ser, 0, &p_ser);
-            assert_eq!(got1, got2);
-
-            // compare with library results
-            p.add(&q);
-            let library_sum = serialize_uncompressed_g1(&p);
-
-            assert_eq!(library_sum.to_vec(), got1);
-        }
-
-        // generate points from G1
-        for _ in 0..100 {
-            let p = get_random_g1_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let q = get_random_g1_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g1(&q);
-
-            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser);
-
-            let result_point = deserialize_g1(&got1).unwrap();
-            assert!(subgroup_check_g1(&result_point));
-        }
-    }
-
-    #[test]
-    fn test_bls12381_p1_sum_not_g1_points() {
-        let mut rnd = get_rnd();
-
-        //points not from G1
-        for _ in 0..100 {
-            let mut p = get_random_not_g1_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g1(&p);
-
-            let q = get_random_not_g1_curve_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g1(&q);
-
-            // P + Q = Q + P
-            let got1 = get_g1_sum(0, &p_ser, 0, &q_ser);
-            let got2 = get_g1_sum(0, &q_ser, 0, &p_ser);
-            assert_eq!(got1, got2);
-
-            // compare with library results
-            p.add(&q);
-            let library_sum = serialize_uncompressed_g1(&p);
-
-            assert_eq!(library_sum.to_vec(), got1);
-        }
-    }
+    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point);
+    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point);
 
     #[test]
     fn test_bls12381_p1_sum_inverse() {
@@ -875,70 +879,6 @@ mod tests {
     }
 
     //==== TESTS FOR G2_SUM
-    #[test]
-    fn test_bls12381_p2_sum() {
-        for _ in 0..100 {
-            let mut rnd = get_rnd();
-
-            let mut p = get_random_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let q = get_random_g2_curve_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g2(&q);
-
-            // P + Q = Q + P
-            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser);
-            let got2 = get_g2_sum(0, &q_ser, 0, &p_ser);
-            assert_eq!(got1, got2);
-
-            // compare with library results
-            p.add(&q);
-            let library_sum = serialize_uncompressed_g2(&p);
-
-            assert_eq!(library_sum.to_vec(), got1);
-        }
-
-        // generate points from G2
-        for _ in 0..100 {
-            let mut rnd = get_rnd();
-
-            let p = get_random_g2_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let q = get_random_g2_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g2(&q);
-
-            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser);
-
-            let result_point = deserialize_g2(&got1).unwrap();
-            assert!(subgroup_check_g2(&result_point));
-        }
-    }
-
-    #[test]
-    fn test_bls12381_p2_sum_not_g2_points() {
-        //points not from G2
-        for _ in 0..100 {
-            let mut rnd = get_rnd();
-
-            let mut p = get_random_not_g2_curve_point(&mut rnd);
-            let p_ser = serialize_uncompressed_g2(&p);
-
-            let q = get_random_not_g2_curve_point(&mut rnd);
-            let q_ser = serialize_uncompressed_g2(&q);
-
-            // P + Q = Q + P
-            let got1 = get_g2_sum(0, &p_ser, 0, &q_ser);
-            let got2 = get_g2_sum(0, &q_ser, 0, &p_ser);
-            assert_eq!(got1, got2);
-
-            // compare with library results
-            p.add(&q);
-            let library_sum = serialize_uncompressed_g2(&p);
-
-            assert_eq!(library_sum.to_vec(), got1);
-        }
-    }
 
     #[test]
     fn test_bls12381_p2_sum_inverse() {
