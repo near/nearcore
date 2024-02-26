@@ -134,8 +134,9 @@ pub fn state_dump_redis(
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
-    let redis_client =
-        redis::Client::open(env::var("REDIS_HOST").unwrap_or("redis://127.0.0.1/".to_string()))?;
+    let redis_client = redis::Client::open(
+        env::var("REDIS_HOST").unwrap_or_else(|_| "redis://127.0.0.1/".to_string()),
+    )?;
     let mut redis_connection = redis_client.get_connection()?;
 
     let block_height = last_block_header.height();

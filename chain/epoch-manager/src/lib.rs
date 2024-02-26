@@ -475,7 +475,7 @@ impl EpochManager {
             }
             let block_stats = block_validator_tracker
                 .get(&(i as u64))
-                .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 })
+                .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
             let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
             for (_, tracker) in chunk_validator_tracker.iter() {
@@ -1362,7 +1362,7 @@ impl EpochManager {
                         let block_stats = aggregator
                             .block_tracker
                             .get(&(validator_id as u64))
-                            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                            .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
                         let mut chunks_produced_by_shard: HashMap<ShardId, NumBlocks> =

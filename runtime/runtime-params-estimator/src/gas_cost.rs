@@ -333,7 +333,8 @@ fn least_squares_method_gas_cost_pos_neg(
                 ys.iter().all(|y| y.time_ns.is_some() || y.to_gas() == 0),
                 "least square expects homogenous data"
             );
-            let time_ys = ys.iter().map(|y| y.time_ns.unwrap_or(0.into())).collect::<Vec<_>>();
+            let time_ys =
+                ys.iter().map(|y| y.time_ns.unwrap_or_else(|| 0.into())).collect::<Vec<_>>();
             let (pos, neg) = crate::least_squares::time_measurement_least_squares(xs, &time_ys);
             pos_base.time_ns = Some(pos.0);
             pos_factor.time_ns = Some(pos.1);

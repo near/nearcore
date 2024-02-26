@@ -49,7 +49,7 @@ impl EpochSyncCommand {
             .store
             .path
             .clone()
-            .unwrap_or(PathBuf::from("data"))
+            .unwrap_or_else(|| PathBuf::from("data"))
             .join("epoch-sync-snapshot");
         let snapshot_path = home_dir.join(store_path_addition.clone());
 
@@ -244,7 +244,7 @@ fn get_hash_to_prev_hash_from_block_info(
     storage: &NodeStorage,
 ) -> anyhow::Result<HashMap<CryptoHash, CryptoHash>> {
     let mut hash_to_prev_hash = HashMap::new();
-    let store = storage.get_split_store().unwrap_or(storage.get_hot_store());
+    let store = storage.get_split_store().unwrap_or_else(|| storage.get_hot_store());
     for result in store.iter(DBCol::BlockInfo) {
         let (_, value) = result?;
         let block_info =

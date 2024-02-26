@@ -208,8 +208,8 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
@@ -440,8 +440,8 @@ impl ForkNetworkCommand {
     /// Deletes `~/.near/data/fork-snapshot/data`.
     /// Moves `~/.near/genesis.json.backup` to `~/.near/genesis.json`.
     fn reset(self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
         let fork_snapshot_path = store_path.join("fork-snapshot/data");
         if !Path::new(&fork_snapshot_path).exists() {

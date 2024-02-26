@@ -486,7 +486,7 @@ impl<'a> DBOpener<'a> {
     /// given home_dir as base directory for resolving relative paths.
     fn new(home_dir: &std::path::Path, config: &'a StoreConfig, temp: Temperature) -> Self {
         let path = if temp == Temperature::Hot { "data" } else { "cold-data" };
-        let path = config.path.as_deref().unwrap_or(std::path::Path::new(path));
+        let path = config.path.as_deref().unwrap_or_else(|| std::path::Path::new(path));
         let path = home_dir.join(path);
         Self { path, config, temp }
     }

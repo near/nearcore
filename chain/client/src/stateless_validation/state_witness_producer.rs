@@ -99,8 +99,11 @@ impl Client {
         let new_transactions_validation_state = if new_transactions.is_empty() {
             PartialState::default()
         } else {
-            // With stateless validation chunk producer uses recording reads when validating transactions. The storage proof must be available here.
-            transactions_storage_proof.expect("Missing storage proof for transactions validation")
+            // With stateless validation chunk producer uses recording reads when validating transactions.
+            // The storage proof must be available here.
+            transactions_storage_proof.ok_or_else(|| {
+                Error::Other("Missing storage proof for transactions validation".to_owned())
+            })?
         };
 
         let source_receipt_proofs =
@@ -150,7 +153,7 @@ impl Client {
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(main_block, shard_id),
                 )?
-                .ok_or(Error::Other(format!(
+                .ok_or_else(|| Error::Other(format!(
                     "Missing main transition state proof for block {main_block} and shard {shard_id}"
                 )))?;
             (base_state, receipts_hash)
@@ -168,7 +171,7 @@ impl Client {
                     near_store::DBCol::StateTransitionData,
                     &near_primitives::utils::get_block_shard_id(block_hash, shard_id),
                 )?
-                .ok_or(Error::Other(format!(
+                .ok_or_else(|| Error::Other(format!(
                     "Missing implicit transition state proof for block {block_hash} and shard {shard_id}"
                 )))?;
             implicit_transitions.push(ChunkStateTransition {

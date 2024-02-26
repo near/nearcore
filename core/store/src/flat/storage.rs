@@ -198,7 +198,7 @@ impl FlatStorageInner {
                 .deltas
                 .get(&new_head)
                 // BlockNotSupported error kind will be handled gracefully.
-                .ok_or(self.create_block_not_supported_error(&new_head))?
+                .ok_or_else(|| self.create_block_not_supported_error(&new_head))?
                 .metadata;
             new_head = match metadata.prev_block_with_changes {
                 None => {
