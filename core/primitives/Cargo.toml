@@ -47,7 +47,6 @@ near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-vm-runner.workspace = true
 near-parameters.workspace = true
-near-log-utils.workspace = true
 
 [features]
 sandbox = []

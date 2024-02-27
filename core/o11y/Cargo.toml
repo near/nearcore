@@ -6,7 +6,8 @@ edition.workspace = true
 description = "Observability helpers for the near codebase"
 repository.workspace = true
 license.workspace = true
-publish = true
+#There are no plans to publish this crate in the near future, don't set this to true.
+publish = false
 
 [lints]
 workspace = true
