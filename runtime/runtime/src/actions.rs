@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
@@ -29,8 +29,9 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
-    StorageError, TrieUpdate,
+    get_access_key, get_code, get_yielded_promise_indices, remove_access_key, remove_account,
+    set_access_key, set_code, set_yielded_promise, set_yielded_promise_indices, StorageError,
+    TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -289,7 +290,7 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        let new_receipts: Vec<_> = receipt_manager
+        let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
             .map(|(receiver_id, receipt)| Receipt {
@@ -308,6 +309,38 @@ pub(crate) fn action_function_call(
                 }),
             })
             .collect();
+
+        // Create data receipts for resumed yields
+        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|(data_id, data)| {
+            Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
+            }
+        }));
+
+        // Update trie state for newly created yields
+        let mut yielded_promise_indices =
+            get_yielded_promise_indices(state_update).unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+
+        for (account_id, yielded_data_id) in receipt_manager.yielded_data_ids.iter() {
+            set_yielded_promise(
+                state_update,
+                &mut yielded_promise_indices,
+                account_id.clone(),
+                *yielded_data_id,
+                apply_state.block_height
+                    + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+            );
+        }
+
+        if yielded_promise_indices != initial_yielded_promise_indices {
+            set_yielded_promise_indices(state_update, &yielded_promise_indices);
+        }
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);

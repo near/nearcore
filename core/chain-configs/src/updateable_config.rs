@@ -29,7 +29,8 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
         S: Serializer,
     {
         let to_string_result = serde_json::to_string(&self.value);
-        let value_str = to_string_result.unwrap_or("unable to serialize the value".to_string());
+        let value_str =
+            to_string_result.unwrap_or_else(|_| "unable to serialize the value".to_string());
         serializer.serialize_str(&value_str)
     }
 }

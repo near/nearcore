@@ -267,7 +267,7 @@ impl Chain {
         let block_hash = *block.hash();
         if !self.orphans.contains(block.hash()) {
             self.orphans.add(
-                Orphan { block, provenance, added: added.unwrap_or(StaticClock::instant()) },
+                Orphan { block, provenance, added: added.unwrap_or_else(StaticClock::instant) },
                 requested_missing_chunks,
             );
         }

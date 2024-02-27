@@ -2999,6 +2999,11 @@ impl Chain {
         }
         chain_store_update.remove_state_sync_info(*epoch_first_block);
 
+        // Remove all stored split state changes for resharding once catchup is completed.
+        // We only remove these after the catchup is completed to ensure that restarting the node
+        // in the middle of the catchup does not lead to the split state already being deleted from prior run
+        chain_store_update.remove_all_state_changes_for_resharding();
+
         chain_store_update.commit()?;
 
         for hash in affected_blocks.iter() {

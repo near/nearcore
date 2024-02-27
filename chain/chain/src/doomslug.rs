@@ -347,7 +347,8 @@ impl DoomslugApprovalsTrackersAtHeight {
             .min()
             .map(|ts| {
                 chrono::Utc::now()
-                    - chrono::Duration::from_std(ts.elapsed()).unwrap_or(chrono::Duration::days(1))
+                    - chrono::Duration::from_std(ts.elapsed())
+                        .unwrap_or_else(|_| chrono::Duration::days(1))
             });
         ApprovalAtHeightStatus { approvals, ready_at: threshold_approval }
     }

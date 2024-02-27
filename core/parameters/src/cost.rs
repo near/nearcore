@@ -130,6 +130,11 @@ impl ExtCostsConfig {
             ExtCosts::alt_bn128_pairing_check_element => 5_102_000_000_000,
             ExtCosts::alt_bn128_g1_sum_base => 3_000_000_000,
             ExtCosts::alt_bn128_g1_sum_element => 5_000_000_000,
+            // TODO(yield/resume): replicate fees here after estimation
+            ExtCosts::yield_create_base => 300_000_000_000_000,
+            ExtCosts::yield_create_byte => 300_000_000_000_000,
+            ExtCosts::yield_resume_base => 300_000_000_000_000,
+            ExtCosts::yield_resume_byte => 300_000_000_000_000,
         }
         .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
@@ -221,6 +226,10 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_element = 58,
     ed25519_verify_base = 59,
     ed25519_verify_byte = 60,
+    yield_create_base = 61,
+    yield_create_byte = 62,
+    yield_resume_base = 63,
+    yield_resume_byte = 64,
 }
 
 // Type of an action, used in fees logic.
@@ -329,6 +338,10 @@ impl ExtCosts {
             ExtCosts::alt_bn128_pairing_check_element => Parameter::WasmAltBn128PairingCheckElement,
             ExtCosts::alt_bn128_g1_sum_base => Parameter::WasmAltBn128G1SumBase,
             ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
+            ExtCosts::yield_create_base => Parameter::WasmYieldCreateBase,
+            ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
+            ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
+            ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeBase,
         }
     }
 }

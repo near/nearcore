@@ -477,7 +477,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
 
 impl RunningInfo {
     fn get_node(&self, node_id: usize) -> anyhow::Result<&NodeHandle> {
-        self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
+        self.nodes[node_id].as_ref().ok_or_else(|| anyhow!("node is down"))
     }
     fn stop_node(&mut self, node_id: usize) {
         tracing::debug!("stopping {node_id}");

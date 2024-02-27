@@ -19,6 +19,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+    YieldedPromise, YieldedPromiseQueueIndices,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -35,7 +36,7 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
@@ -765,9 +766,9 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id = create_receipt_id_from_receipt(
+                let receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
@@ -786,9 +787,9 @@ impl Runtime {
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
-                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
+                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -1499,8 +1500,68 @@ impl Runtime {
             prefetcher.clear();
         }
 
+        // Resolve timed-out yielded promises
+        let mut yielded_promise_indices: YieldedPromiseQueueIndices =
+            get(&state_update, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+        let mut new_receipt_index: usize = 0;
+
+        while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
+            let queue_entry_key =
+                TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
+
+            let (data_id, expires_at): (CryptoHash, BlockHeight) =
+                get(&state_update, &queue_entry_key)?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Yielded promise queue entry #{} should be in the state",
+                        yielded_promise_indices.first_index
+                    ))
+                })?;
+
+            // Queue entries are ordered by expires_at
+            if expires_at > apply_state.block_height {
+                break;
+            }
+
+            // Check if the yielded promise still needs to be resolved
+            let yielded_promise_key = TrieKey::YieldedPromise { data_id };
+            if let Some(yielded_promise) =
+                get::<YieldedPromise>(&state_update, &yielded_promise_key)?
+            {
+                // Deliver a DataReceipt without any data to resolve the timed-out yield
+                let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
+
+                let new_receipt_id = create_receipt_id_from_receipt_id(
+                    apply_state.current_protocol_version,
+                    &data_id,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                    new_receipt_index,
+                );
+                new_receipt_index += 1;
+
+                outgoing_receipts.push(Receipt {
+                    predecessor_id: yielded_promise.account_id.clone(),
+                    receiver_id: yielded_promise.account_id,
+                    receipt_id: new_receipt_id,
+                    receipt: new_receipt,
+                });
+
+                state_update.remove(yielded_promise_key);
+            }
+
+            state_update.remove(queue_entry_key);
+            // Math checked above: first_index is less than next_available_index
+            yielded_promise_indices.first_index += 1;
+        }
+        metrics.yield_timeouts_done(total_gas_burnt, total_compute_usage);
+
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
+        }
+
+        if yielded_promise_indices != initial_yielded_promise_indices {
+            set(&mut state_update, TrieKey::YieldedPromiseQueueIndices, &yielded_promise_indices);
         }
 
         check_balance(

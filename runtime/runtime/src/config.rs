@@ -38,23 +38,23 @@ pub fn safe_gas_price_inflated(
     let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
     // Rounding up
     let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
-    inflated_gas_price.to_u128().ok_or_else(|| IntegerOverflowError {})
+    inflated_gas_price.to_u128().ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
-    gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| IntegerOverflowError {})
+    gas_price.checked_mul(Balance::from(gas)).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 #[macro_export]

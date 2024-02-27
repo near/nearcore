@@ -136,6 +136,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let vm_config_free = {
         let mut cfg = vm_config_gas.clone();
         cfg.make_free();
+        cfg.enable_all_features();
         cfg
     };
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");

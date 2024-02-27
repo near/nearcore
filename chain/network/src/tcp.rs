@@ -83,8 +83,9 @@ impl Stream {
     }
 
     pub async fn connect(peer_info: &PeerInfo, tier: Tier) -> anyhow::Result<Stream> {
-        let addr =
-            peer_info.addr.ok_or(anyhow!("Trying to connect to peer with no public address"))?;
+        let addr = peer_info
+            .addr
+            .ok_or_else(|| anyhow!("Trying to connect to peer with no public address"))?;
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
         // dropped, in which case the default TCP timeout is applied. That's

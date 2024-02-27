@@ -43,7 +43,7 @@ impl EpochManager {
         Ok(aggregator
             .block_tracker
             .get(&validator_id)
-            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+            .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
             .clone())
     }
 }
