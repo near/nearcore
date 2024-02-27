@@ -401,7 +401,7 @@ impl<'a> ChainUpdate<'a> {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;
                 }
             }
-            ShardUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
+            ShardBlockUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
                 self.process_resharding_results(
                     block,
                     &shard_uid,
