@@ -849,6 +849,7 @@ fn test_clear_old_data_fixed_height() {
 /// Test that `gc_blocks_limit` works properly
 #[test]
 #[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[allow(unreachable_code)]
 fn test_clear_old_data_too_many_heights() {
     // TODO(#10634): panics on `clear_data` -> `clear_resharding_data` ->
     // `MockEpochManager::is_next_block_epoch_start` apparently because
