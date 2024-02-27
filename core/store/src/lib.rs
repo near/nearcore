@@ -757,7 +757,6 @@ pub fn set_delayed_receipt(
 pub fn get_yielded_promise_indices(
     trie: &dyn TrieAccess,
 ) -> Result<YieldedPromiseQueueIndices, StorageError> {
-    assert!(cfg!(feature = "yield_resume"));
     Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
 }
 
