@@ -1939,26 +1939,28 @@ impl From<Receipt> for ReceiptView {
             receiver_id: receipt.receiver_id,
             receipt_id: receipt.receipt_id,
             receipt: match receipt.receipt {
-                ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
-                    signer_id: action_receipt.signer_id,
-                    signer_public_key: action_receipt.signer_public_key,
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: action_receipt
-                        .output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver| DataReceiverView {
-                            data_id: data_receiver.data_id,
-                            receiver_id: data_receiver.receiver_id,
-                        })
-                        .collect(),
-                    input_data_ids: action_receipt
-                        .input_data_ids
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    actions: action_receipt.actions.into_iter().map(Into::into).collect(),
-                },
-                ReceiptEnum::Data(data_receipt) => {
+                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                    ReceiptEnumView::Action {
+                        signer_id: action_receipt.signer_id,
+                        signer_public_key: action_receipt.signer_public_key,
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: action_receipt
+                            .output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver| DataReceiverView {
+                                data_id: data_receiver.data_id,
+                                receiver_id: data_receiver.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: action_receipt
+                            .input_data_ids
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        actions: action_receipt.actions.into_iter().map(Into::into).collect(),
+                    }
+                }
+                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
                     ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
                 }
             },

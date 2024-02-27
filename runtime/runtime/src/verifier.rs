@@ -295,10 +295,12 @@ pub(crate) fn validate_receipt(
     })?;
 
     match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             validate_action_receipt(limit_config, action_receipt, current_protocol_version)
         }
-        ReceiptEnum::Data(data_receipt) => validate_data_receipt(limit_config, data_receipt),
+        ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+            validate_data_receipt(limit_config, data_receipt)
+        }
     }
 }
 

@@ -899,7 +899,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
-            ReceiptEnum::Data(ref data_receipt) => {
+            ReceiptEnum::Data(ref data_receipt) | ReceiptEnum::PromiseResume(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -985,7 +985,8 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt) => {
+            ReceiptEnum::Action(ref action_receipt)
+            | ReceiptEnum::PromiseYield(ref action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.

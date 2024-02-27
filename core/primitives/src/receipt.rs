@@ -127,6 +127,8 @@ impl Receipt {
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
+    PromiseYield(ActionReceipt),
+    PromiseResume(DataReceipt),
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`

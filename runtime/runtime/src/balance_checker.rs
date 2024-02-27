@@ -38,7 +38,7 @@ fn receipt_cost(
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
     Ok(match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !receipt.predecessor_id.is_system() {
                 let mut total_gas = safe_add_gas(
@@ -55,7 +55,7 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::Data(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -173,8 +173,10 @@ pub(crate) fn check_balance(
         .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Some(Ok((account_id.clone(), receipt.receipt_id))),
-                ReceiptEnum::Data(data_receipt) => {
+                ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => {
+                    Some(Ok((account_id.clone(), receipt.receipt_id)))
+                }
+                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
                     let result = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {

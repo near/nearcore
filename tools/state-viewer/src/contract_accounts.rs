@@ -328,7 +328,8 @@ fn try_find_actions_spawned_by_receipt(
                         ContractAccountError::MissingOutgoingReceipt(*outgoing_receipt_id)
                     })?;
                     match outgoing_receipt.receipt {
-                        ReceiptEnum::Action(action_receipt) => {
+                        ReceiptEnum::Action(action_receipt)
+                        | ReceiptEnum::PromiseYield(action_receipt) => {
                             for action in &action_receipt.actions {
                                 let action_type = match action {
                                     Action::CreateAccount(_) => ActionType::CreateAccount,
@@ -353,7 +354,7 @@ fn try_find_actions_spawned_by_receipt(
                                     .insert(action_type);
                             }
                         }
-                        ReceiptEnum::Data(_) => {
+                        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
                             entry
                                 .actions
                                 .get_or_insert_with(Default::default)
