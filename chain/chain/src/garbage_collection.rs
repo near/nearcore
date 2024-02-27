@@ -152,6 +152,7 @@ impl Chain {
 
         // Canonical Chain Clearing
         for height in tail + 1..gc_stop_height {
+            println!("GC HEIGHT {}", height);
             if gc_blocks_remaining == 0 {
                 return Ok(());
             }

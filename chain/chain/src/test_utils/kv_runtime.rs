@@ -142,6 +142,7 @@ impl MockEpochManager {
         vs: ValidatorSchedule,
         epoch_length: u64,
     ) -> Arc<Self> {
+        println!("ADD {}", CryptoHash::default());
         let map_with_default_hash1 = HashMap::from([(CryptoHash::default(), EpochId::default())]);
         let map_with_default_hash2 = HashMap::from([(CryptoHash::default(), 0)]);
         let map_with_default_hash3 = HashMap::from([(EpochId::default(), 0)]);
@@ -238,6 +239,7 @@ impl MockEpochManager {
         let mut epoch_start_map = self.epoch_start.write().unwrap();
 
         let prev_prev_hash = *prev_block_header.prev_hash();
+        println!("GET {}", prev_prev_hash);
         let prev_epoch = hash_to_epoch.get(&prev_prev_hash);
         let prev_next_epoch = hash_to_next_epoch.get(&prev_prev_hash).unwrap();
         let prev_valset = match prev_epoch {
