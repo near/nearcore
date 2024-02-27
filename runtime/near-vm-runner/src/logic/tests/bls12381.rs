@@ -22,6 +22,7 @@ mod tests {
     use std::fs;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+    const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
 
     struct G1Operations;
     struct G2Operations;
@@ -958,7 +959,8 @@ mod tests {
             $bls12381_multiexp:ident,
             $test_bls12381_multiexp_mul:ident,
             $test_bls12381_multiexp_many_points: ident,
-            $test_bls12381_multiexp_incorrect_input: ident
+            $test_bls12381_multiexp_incorrect_input: ident,
+            $test_bls12381_multiexp_invariants_checks: ident
         ) => {
             #[test]
             fn $test_bls12381_multiexp_mul() {
@@ -1074,6 +1076,46 @@ mod tests {
                 let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
             }
+
+            #[test]
+            fn $test_bls12381_multiexp_invariants_checks() {
+                let mut zero1: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                zero1[0] |= 0x40;
+
+                let mut rnd = get_rnd();
+                let r = Big::from_string(R.to_string());
+
+                for _ in 0..10 {
+                    let p = $GOperations::get_random_g_point(&mut rnd);
+
+                    // group_order * P = 0
+                    let res = $get_multiexp(&vec![(r.clone(), p.clone())]);
+                    assert_eq!(res.as_slice(), zero1);
+
+                    let mut scalar = Big::random(&mut rnd);
+                    scalar.mod2m(32 * 7);
+
+                    // (scalar + group_order) * P = scalar * P
+                    let res1 = $get_multiexp(&vec![(scalar.clone(), p.clone())]);
+                    scalar.add(&r);
+                    let res2 = $get_multiexp(&vec![(scalar.clone(), p.clone())]);
+                    assert_eq!(res1, res2);
+
+                    // P + P + ... + P = N * P
+                    let n = rnd.getbyte();
+                    let res1 = $get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
+                    let res2 = $get_multiexp(&vec![(Big::new_int(n.clone() as isize), p.clone())]);
+                    assert_eq!(res1, res2);
+
+                    // 0 * P = 0
+                    let res1 = $get_multiexp(&vec![(Big::new_int(0), p.clone())]);
+                    assert_eq!(res1, zero1);
+
+                    // 1 * P = P
+                    let res1 = $get_multiexp(&vec![(Big::new_int(1), p.clone())]);
+                    assert_eq!(res1, $serialize_uncompressed(&p));
+                }
+            }
         };
     }
 
@@ -1089,7 +1131,8 @@ mod tests {
         bls12381_p1_multiexp,
         test_bls12381_p1_multiexp_mul,
         test_bls12381_p1_multiexp_many_points,
-        test_bls12381_p1_multiexp_incorrect_input
+        test_bls12381_p1_multiexp_incorrect_input,
+        test_bls12381_p1_multiexp_invariants_checks
     );
     test_bls12381_multiexp!(
         G2Operations,
@@ -1103,7 +1146,8 @@ mod tests {
         bls12381_p2_multiexp,
         test_bls12381_p2_multiexp_mul,
         test_bls12381_p2_multiexp_many_points,
-        test_bls12381_p2_multiexp_incorrect_input
+        test_bls12381_p2_multiexp_incorrect_input,
+        test_bls12381_p2_multiexp_invariants_checks
     );
 
     #[test]
@@ -1722,91 +1766,7 @@ mod tests {
         let decompress_p2_res = G2Operations::decompress_p(vec![]);
         assert_eq!(decompress_p2_res.len(), 0);
     }
-
-    #[test]
-    fn test_bls12381_p1_multiexp_invariants_checks() {
-        let mut zero1: [u8; 96] = [0; 96];
-        zero1[0] |= 0x40;
-
-        let mut rnd = get_rnd();
-        let r = Big::from_string(
-            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string(),
-        );
-
-        for _ in 0..10 {
-            let p = G1Operations::get_random_g_point(&mut rnd);
-
-            // group_order * P = 0
-            let res = get_g1_multiexp(&vec![(r.clone(), p.clone())]);
-            assert_eq!(res.as_slice(), zero1);
-
-            let mut scalar = Big::random(&mut rnd);
-            scalar.mod2m(32 * 7);
-
-            // (scalar + group_order) * P = scalar * P
-            let res1 = get_g1_multiexp(&vec![(scalar.clone(), p.clone())]);
-            scalar.add(&r);
-            let res2 = get_g1_multiexp(&vec![(scalar.clone(), p.clone())]);
-            assert_eq!(res1, res2);
-
-            // P + P + ... + P = N * P
-            let n = rnd.getbyte();
-            let res1 = get_g1_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
-            let res2 = get_g1_multiexp(&vec![(Big::new_int(n.clone() as isize), p.clone())]);
-            assert_eq!(res1, res2);
-
-            // 0 * P = 0
-            let res1 = get_g1_multiexp(&vec![(Big::new_int(0), p.clone())]);
-            assert_eq!(res1, zero1);
-
-            // 1 * P = P
-            let res1 = get_g1_multiexp(&vec![(Big::new_int(1), p.clone())]);
-            assert_eq!(res1, serialize_uncompressed_g1(&p));
-        }
-    }
-
-    #[test]
-    fn test_bls12381_p2_multiexp_invariants_checks() {
-        let mut zero2: [u8; 192] = [0; 192];
-        zero2[0] |= 0x40;
-
-        let mut rnd = get_rnd();
-        let r = Big::from_string(
-            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string(),
-        );
-
-        for _ in 0..10 {
-            let p = G2Operations::get_random_g_point(&mut rnd);
-
-            // group_order * P = 0
-            let res = get_g2_multiexp(&vec![(r.clone(), p.clone())]);
-            assert_eq!(res.as_slice(), zero2);
-
-            let mut scalar = Big::random(&mut rnd);
-            scalar.mod2m(32 * 7);
-
-            // (scalar + group_order) * P = scalar * P
-            let res1 = get_g2_multiexp(&vec![(scalar.clone(), p.clone())]);
-            scalar.add(&r);
-            let res2 = get_g2_multiexp(&vec![(scalar.clone(), p.clone())]);
-            assert_eq!(res1, res2);
-
-            // P + P + ... + P = N * P
-            let n = rnd.getbyte();
-            let res1 = get_g2_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
-            let res2 = get_g2_multiexp(&vec![(Big::new_int(n.clone() as isize), p.clone())]);
-            assert_eq!(res1, res2);
-
-            //0 * P = O
-            let res1 = get_g2_multiexp(&vec![(Big::new_int(0), p.clone())]);
-            assert_eq!(res1, zero2);
-
-            // 1 * P = P
-            let res1 = get_g2_multiexp(&vec![(Big::new_int(1), p.clone())]);
-            assert_eq!(res1, serialize_uncompressed_g2(&p));
-        }
-    }
-
+    
     #[test]
     fn test_bls12381_pairing_test_vectors() {
         let pairing_csv = fs::read("src/logic/tests/bls12381_test_vectors/pairing.csv").unwrap();
