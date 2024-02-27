@@ -1829,7 +1829,7 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
 
     #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessMessage) -> Self::Result {
-        if let Err(err) = self.client.process_chunk_state_witness(msg.witness, msg.peer_id, None) {
+        if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
     }

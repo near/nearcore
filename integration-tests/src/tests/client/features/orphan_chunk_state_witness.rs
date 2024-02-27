@@ -9,7 +9,6 @@ use near_crypto::Signature;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::merkle::{Direction, MerklePathItem};
-use near_primitives::network::PeerId;
 use near_primitives::sharding::{
     ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardProof,
@@ -147,7 +146,6 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
                 env.client(account_id)
                     .process_chunk_state_witness(
                         state_witness.clone(),
-                        PeerId::random(),
                         Some(processing_done_tracker),
                     )
                     .unwrap();
@@ -218,9 +216,7 @@ fn test_orphan_witness_valid() {
 
     // `excluded_validator` receives witness for chunk belonging to `block2`, but it doesn't have `block1`.
     // The witness should become an orphaned witness and it should be saved to the orphan pool.
-    env.client(&excluded_validator)
-        .process_chunk_state_witness(witness, PeerId::random(), None)
-        .unwrap();
+    env.client(&excluded_validator).process_chunk_state_witness(witness, None).unwrap();
 
     let block_processed = env
         .client(&excluded_validator)
@@ -249,10 +245,8 @@ fn test_orphan_witness_bad_signature() {
     // Modify the witness to contain an invalid signature
     witness.signature = Signature::default();
 
-    let error = env
-        .client(&excluded_validator)
-        .process_chunk_state_witness(witness, PeerId::random(), None)
-        .unwrap_err();
+    let error =
+        env.client(&excluded_validator).process_chunk_state_witness(witness, None).unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
     assert!(error_message.contains("invalid signature"));
@@ -274,10 +268,8 @@ fn test_orphan_witness_signature_from_wrong_peer() {
     // Only witnesses from the chunk producer that produced this witness should be accepted.
     resign_witness(&mut witness, env.client(&excluded_validator));
 
-    let error = env
-        .client(&excluded_validator)
-        .process_chunk_state_witness(witness, PeerId::random(), None)
-        .unwrap_err();
+    let error =
+        env.client(&excluded_validator).process_chunk_state_witness(witness, None).unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
     assert!(error_message.contains("invalid signature"));
@@ -300,10 +292,8 @@ fn test_orphan_witness_invalid_shard_id() {
     resign_witness(&mut witness, env.client(&chunk_producer));
 
     // The witness should be rejected
-    let error = env
-        .client(&excluded_validator)
-        .process_chunk_state_witness(witness, PeerId::random(), None)
-        .unwrap_err();
+    let error =
+        env.client(&excluded_validator).process_chunk_state_witness(witness, None).unwrap_err();
     let error_message = format!("{error}").to_lowercase();
     tracing::info!(target:"test", "Error message: {}", error_message);
     assert!(error_message.contains("shard"));
@@ -398,9 +388,7 @@ fn test_orphan_witness_not_fully_validated() {
     // The witness should be accepted and saved into the pool, even though it's invalid.
     // There is no way to fully validate an orphan witness, so this is the correct behavior.
     // The witness will later be fully validated when the required block arrives.
-    env.client(&excluded_validator)
-        .process_chunk_state_witness(witness, PeerId::random(), None)
-        .unwrap();
+    env.client(&excluded_validator).process_chunk_state_witness(witness, None).unwrap();
 }
 
 fn modify_witness_header_inner(
