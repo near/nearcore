@@ -7,7 +7,6 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
@@ -149,7 +148,7 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
-    let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+    let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }

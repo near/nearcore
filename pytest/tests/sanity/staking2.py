@@ -95,6 +95,7 @@ def doit(seq=[]):
                           ["block_producer_kickout_threshold", 40],
                           ["chunk_producer_kickout_threshold", 40]], {
                               0: {
+                                  "tracked_shards": [0],
                                   "view_client_throttle_period": {
                                       "secs": 0,
                                       "nanos": 0
@@ -107,6 +108,7 @@ def doit(seq=[]):
                                   }
                               },
                               1: {
+                                  "tracked_shards": [0],
                                   "view_client_throttle_period": {
                                       "secs": 0,
                                       "nanos": 0
