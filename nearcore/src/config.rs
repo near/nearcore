@@ -259,6 +259,8 @@ pub struct Config {
     pub tracked_shard_schedule: Option<Vec<Vec<ShardId>>>,
     #[serde(skip_serializing_if = "is_false")]
     pub archive: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub validator_minimal_store: bool,
     /// If save_trie_changes is not set it will get inferred from the `archive` field as follows:
     /// save_trie_changes = !archive
     /// save_trie_changes should be set to true iff
@@ -339,6 +341,7 @@ impl Default for Config {
             tracked_shards: vec![],
             tracked_shard_schedule: None,
             archive: false,
+            validator_minimal_store: false,
             save_trie_changes: None,
             log_summary_style: LogSummaryStyle::Colored,
             log_summary_period: default_log_summary_period(),
@@ -648,6 +651,7 @@ impl NearConfig {
                 tracked_shards: config.tracked_shards,
                 tracked_shard_schedule: config.tracked_shard_schedule.unwrap_or(vec![]),
                 archive: config.archive,
+                validator_minimal_store: config.validator_minimal_store,
                 save_trie_changes: config.save_trie_changes.unwrap_or(!config.archive),
                 log_summary_style: config.log_summary_style,
                 gc: config.gc,

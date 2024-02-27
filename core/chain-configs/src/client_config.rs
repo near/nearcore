@@ -379,6 +379,8 @@ pub struct ClientConfig {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     pub save_trie_changes: bool,
+    /// Save only the data necessary for validation.
+    pub validator_minimal_store: bool,
     /// Number of threads for ViewClientActor pool.
     pub view_client_threads: usize,
     /// Run Epoch Sync on the start.
@@ -479,6 +481,7 @@ impl ClientConfig {
             tracked_shard_schedule: vec![],
             archive,
             save_trie_changes,
+            validator_minimal_store: false,
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,

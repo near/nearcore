@@ -406,6 +406,10 @@ pub(super) struct RunCmd {
     /// archival node, it cannot be run in non-archival mode.
     #[clap(long)]
     archive: bool,
+    /// Configure node to operate in a mode where only the data critical for
+    /// the validation process is stored.
+    #[clap(long)]
+    validator_minimal_store: bool,
     /// Set the boot nodes to bootstrap network from.
     #[clap(long)]
     boot_nodes: Option<String>,
@@ -508,6 +512,9 @@ impl RunCmd {
         }
         if self.archive {
             near_config.client_config.archive = true;
+        }
+        if self.validator_minimal_store {
+            near_config.client_config.validator_minimal_store = true;
         }
         if self.max_gas_burnt_view.is_some() {
             near_config.client_config.max_gas_burnt_view = self.max_gas_burnt_view;
