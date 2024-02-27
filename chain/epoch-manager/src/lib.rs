@@ -749,7 +749,7 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(&current_hash)? {
-            if block_info.prev_hash() == &CryptoHash::default() {
+            if block_info.is_genesis() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals_iter().len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
@@ -764,7 +764,7 @@ impl EpochManager {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
                 let mut is_epoch_start = false;
-                if prev_block_info.prev_hash() == &CryptoHash::default() {
+                if prev_block_info.is_genesis() {
                     // This is first real block, starts the new epoch.
                     *block_info.epoch_id_mut() = EpochId::default();
                     *block_info.epoch_first_block_mut() = current_hash;
@@ -1567,7 +1567,7 @@ impl EpochManager {
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        if block_info.prev_hash() == &CryptoHash::default() {
+        if block_info.is_genesis() {
             return Ok(true);
         }
         let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
@@ -1854,10 +1854,9 @@ impl EpochManager {
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
-            let prev_hash = *block_info.prev_hash();
             let different_epoch = &epoch_id != block_info.epoch_id();
 
-            if different_epoch || prev_hash == CryptoHash::default() {
+            if different_epoch || block_info.is_genesis() {
                 // We’ve reached the beginning of an epoch or a genesis block
                 // without seeing self.epoch_info_aggregator.last_block_hash.
                 // This implies self.epoch_info_aggregator.last_block_hash
@@ -1867,6 +1866,7 @@ impl EpochManager {
                 break (aggregator, true);
             }
 
+            let prev_hash = *block_info.prev_hash();
             let prev_info = self.get_block_info(&prev_hash)?;
             let prev_height = prev_info.height();
             let prev_epoch = prev_info.epoch_id().clone();

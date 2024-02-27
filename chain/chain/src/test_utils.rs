@@ -256,7 +256,7 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
         }
     });
     for header in headers {
-        if header.prev_hash() == &CryptoHash::default() {
+        if header.is_genesis() {
             // Genesis block.
             debug!("{: >3} {}", header.height(), format_hash(*header.hash()));
         } else {
