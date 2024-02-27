@@ -13,6 +13,7 @@ use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
@@ -2013,6 +2014,152 @@ impl<'a> VMLogic<'a> {
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
+    }
+
+    /// Creates a promise that will execute a method on the current account with given arguments
+    /// and gas. The created promise will have a special data dependency which can be submitted
+    /// using `promise_yield_resume` within `yield_num_blocks`.
+    ///
+    /// Writes the unique token used to call `promise_yield_resume` to register `register_id`.
+    /// Only the current account is permitted to make the matching call to `promise_yield_resume`.
+    ///
+    /// # Errors
+    ///
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` point outside
+    /// the memory of the guest or host returns `MemoryAccessViolation`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    ///
+    /// # Cost
+    ///
+    /// The following fees are charged:
+    ///
+    /// * `base` fee;
+    /// * `yield_create_base` fee;
+    /// * `yield_create_byte` for each byte of `method_name` and `arguments`;
+    /// * Fees for reading the `method_name` and `arguments`;
+    /// * Fees for writing the Data ID to the output register;
+    /// * Fees for setting up the receipt.
+    pub fn promise_yield_create(
+        &mut self,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: Gas,
+        gas_weight: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_yield_create".to_string(),
+            }
+            .into());
+        }
+        self.gas_counter.pay_base(yield_create_base)?;
+
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
+
+        // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        self.gas_counter.pay_per(yield_create_byte, num_bytes)?;
+        // Prepay gas for the callback so that it cannot be used for this execution any longer.
+        self.gas_counter.prepay_gas(gas)?;
+
+        // Here we are creating a receipt with a single data dependency which will then be
+        // resolved by the resume call.
+        self.pay_gas_for_new_receipt(true, &[true])?;
+        let (new_receipt_idx, data_id) =
+            self.ext.yield_create_action_receipt(self.context.current_account_id.clone())?;
+
+        let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        self.ext.append_action_function_call_weight(
+            new_receipt_idx,
+            method_name,
+            arguments,
+            0,
+            gas,
+            GasWeight(gas_weight),
+        )?;
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            *data_id.as_bytes(),
+        )?;
+        Ok(new_promise_idx)
+    }
+
+    /// Submits the data for a promise which is awaiting its value. See `promise_yield_create`.
+    ///
+    /// # Errors
+    ///
+    /// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`.
+    /// * If a malformed data id is passed, returns `DataIdMalformed`.
+    /// * If an unexpected data id is passed, returns `YieldedPromiseNotFound`.
+    /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`.
+    /// * If called as view function returns `ProhibitedInView`.
+    ///
+    /// # Cost
+    ///
+    /// The following fees are charged:
+    ///
+    /// * `base` fee;
+    /// * `yield_resume_base` fee;
+    /// * `yield_resume_byte` for each byte of `payload`;
+    /// * Fees for reading the `data_id`;
+    /// * Fees for writing the Data ID to the output register;
+    /// * Fees for setting up the receipt.
+    ///
+    pub fn promise_yield_resume(
+        &mut self,
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> Result<(), VMLogicError> {
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_submit_data".to_string(),
+            }
+            .into());
+        }
+        self.gas_counter.pay_base(yield_resume_base)?;
+        self.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+
+        let data_id = get_memory_or_register!(self, data_id_ptr, data_id_len)?;
+        let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
+        let payload_len = payload.len() as u64;
+        if payload_len > self.config.limit_config.max_yield_payload_size {
+            return Err(HostError::YieldPayloadLength {
+                length: payload_len,
+                limit: self.config.limit_config.max_yield_payload_size,
+            }
+            .into());
+        }
+
+        let data_id: [_; CryptoHash::LENGTH] =
+            (&*data_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
+        let data_id = CryptoHash(data_id);
+        let payload = payload.into_owned();
+
+        self.ext.yield_submit_data_receipt(data_id, payload)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the

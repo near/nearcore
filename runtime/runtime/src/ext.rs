@@ -6,8 +6,11 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_data_id;
 use near_primitives::version::ProtocolVersion;
-use near_store::{get_code, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
-use near_vm_runner::logic::errors::{AnyError, VMLogicError};
+use near_store::{
+    get_code, get_yielded_promise, remove_yielded_promise, KeyLookupMode, TrieUpdate,
+    TrieUpdateValuePtr,
+};
+use near_vm_runner::logic::errors::{AnyError, HostError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
@@ -209,6 +212,46 @@ impl<'a> External for RuntimeExt<'a> {
             .take(receipt_indices.len())
             .collect();
         self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
+    }
+
+    fn yield_create_action_receipt(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
+        let input_data_id = self.generate_data_id();
+        self.receipt_manager
+            .create_yielded_action_receipt(input_data_id, receiver_id)
+            .map(|receipt_index| (receipt_index, input_data_id))
+    }
+
+    fn yield_submit_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError> {
+        // If the yielded promise was created by a previous transaction, we'll find it in the trie
+        if let Some(yielded_promise) =
+            get_yielded_promise(self.trie_update, data_id).map_err(wrap_storage_error)?
+        {
+            // Yields are only resumable by the account which created them
+            if yielded_promise.account_id != *self.account_id {
+                return Err(
+                    HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into()
+                );
+            }
+
+            remove_yielded_promise(self.trie_update, data_id);
+            return self.receipt_manager.create_data_receipt(data_id, data);
+        }
+
+        // If the yielded promise was created by the current transaction, we'll find it in the
+        // receipt manager. In such case we erase it from `yielded_data_ids` as there is no longer
+        // a need to store it as pending in the trie and enqueue a timeout for it.
+        if self.receipt_manager.yielded_data_ids.remove(&(self.account_id.clone(), data_id)) {
+            return self.receipt_manager.create_data_receipt(data_id, data);
+        }
+
+        Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into())
     }
 
     fn append_action_create_account(

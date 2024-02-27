@@ -22,10 +22,13 @@ use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
+use near_primitives::receipt::{
+    DelayedReceiptIndices, Receipt, ReceivedData, YieldedPromise, YieldedPromiseQueueEntry,
+    YieldedPromiseQueueIndices,
+};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::ContractCode;
 
@@ -749,6 +752,56 @@ pub fn set_delayed_receipt(
         .next_available_index
         .checked_add(1)
         .expect("Next available index for delayed receipt exceeded the integer limit");
+}
+
+pub fn get_yielded_promise_indices(
+    trie: &dyn TrieAccess,
+) -> Result<YieldedPromiseQueueIndices, StorageError> {
+    Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
+}
+
+pub fn set_yielded_promise_indices(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &YieldedPromiseQueueIndices,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+    set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
+}
+
+// Records the yielded promise and appends it to the yielded promises queue.
+pub fn set_yielded_promise(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &mut YieldedPromiseQueueIndices,
+    account_id: AccountId,
+    data_id: CryptoHash,
+    expires_at: BlockHeight,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+
+    set(state_update, TrieKey::YieldedPromise { data_id }, &YieldedPromise { account_id });
+
+    set(
+        state_update,
+        TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
+        &YieldedPromiseQueueEntry { data_id, expires_at },
+    );
+    yielded_promise_indices.next_available_index = yielded_promise_indices
+        .next_available_index
+        .checked_add(1)
+        .expect("Next available index for yielded promise exceeded the integer limit");
+}
+
+pub fn get_yielded_promise(
+    trie: &dyn TrieAccess,
+    data_id: CryptoHash,
+) -> Result<Option<YieldedPromise>, StorageError> {
+    assert!(cfg!(feature = "yield_resume"));
+    get(trie, &TrieKey::YieldedPromise { data_id })
+}
+
+pub fn remove_yielded_promise(state_update: &mut TrieUpdate, data_id: CryptoHash) {
+    assert!(cfg!(feature = "yield_resume"));
+    state_update.remove(TrieKey::YieldedPromise { data_id })
 }
 
 pub fn set_access_key(

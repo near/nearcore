@@ -234,6 +234,24 @@ imports! {
         beneficiary_id_ptr: u64
     ] -> []>,
     // #######################
+    // # Promise API yield/resume #
+    // #######################
+    #[yield_resume_host_functions] promise_yield_create<[
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        register_id: u64
+    ] -> [u64]>,
+    #[yield_resume_host_functions] promise_yield_resume<[
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64
+    ] -> []>,
+    // #######################
     // # Promise API results #
     // #######################
     promise_results_count<[] -> [u64]>,
