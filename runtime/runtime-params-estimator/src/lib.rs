@@ -254,7 +254,9 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
+    #[cfg(feature = "yield_create")]
     (Cost::YieldCreateBase, yield_create_base),
+    #[cfg(feature = "yield_create")]
     (Cost::YieldCreateByte, yield_create_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
@@ -1259,11 +1261,13 @@ fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
+#[cfg(feature = "yield_create")]
 fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
     let result = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
     dbg!(result).0
 }
 
+#[cfg(feature = "yield_create")]
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
     let total_cost =
