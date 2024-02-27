@@ -950,8 +950,6 @@ mod tests {
             $GOperations:ident,
             $POINT_LEN:expr,
             $serialize_uncompressed:ident,
-            $deserialize:ident,
-            $subgroup_check:ident,
             $MAX_N:expr,
             $point_type:ident,
             $get_sum_many_points:ident,
@@ -991,6 +989,29 @@ mod tests {
                     assert_eq!(res1, $serialize_uncompressed(&res2));
                 }
             }
+
+            #[test]
+            fn $test_bls12381_multiexp_many_points() {
+                let mut rnd = get_rnd();
+
+                for i in 0..10 {
+                    let n: usize =
+                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
+
+                    let mut res2 = $point_type::new();
+
+                    let mut points: Vec<(Big, $point_type)> = vec![];
+                    for i in 0..n {
+                        let mut scalar = Big::random(&mut rnd);
+                        scalar.mod2m(32 * 8);
+                        points.push((scalar, $GOperations::get_random_curve_point(&mut rnd)));
+                        res2.add(&points[i].1.mul(&points[i].0));
+                    }
+
+                    let res1 = $get_multiexp(&points);
+                    assert_eq!(res1, $serialize_uncompressed(&res2));
+                }
+            }
         };
     }
 
@@ -998,9 +1019,7 @@ mod tests {
         G1Operations,
         96,
         serialize_uncompressed_g1,
-        deserialize_g1,
-        subgroup_check_g1,
-        676,
+        500,
         ECP,
         get_g1_sum_many_points,
         get_g1_multiexp_small,
@@ -1013,9 +1032,7 @@ mod tests {
         G2Operations,
         192,
         serialize_uncompressed_g2,
-        deserialize_g2,
-        subgroup_check_g2,
-        339,
+        250,
         ECP2,
         get_g2_sum_many_points,
         get_g2_multiexp_small,
@@ -1024,30 +1041,6 @@ mod tests {
         test_bls12381_p2_multiexp_many_points,
         test_bls12381_p1_multiexp_incorrect_input
     );
-
-    #[test]
-    fn test_bls12381_p1_multiexp_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 500;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut res2 = ECP::new();
-
-            let mut points: Vec<(Big, ECP)> = vec![];
-            for i in 0..n {
-                let mut scalar = Big::random(&mut rnd);
-                scalar.mod2m(32 * 8);
-                points.push((scalar, G1Operations::get_random_curve_point(&mut rnd)));
-                res2.add(&points[i].1.mul(&points[i].0));
-            }
-
-            let res1 = get_g1_multiexp(&points);
-            assert_eq!(res1, serialize_uncompressed_g1(&res2));
-        }
-    }
 
     #[test]
     fn test_bls12381_p1_multiexp_incorrect_input() {
@@ -1115,31 +1108,6 @@ mod tests {
             logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
         let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
-    }
-
-    // Tests for P2 multiplication
-    #[test]
-    fn test_bls12381_p2_multiexp_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 250;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut res2 = ECP2::new();
-
-            let mut points: Vec<(Big, ECP2)> = vec![];
-            for i in 0..n {
-                let mut scalar = Big::random(&mut rnd);
-                scalar.mod2m(32 * 8);
-                points.push((scalar, G2Operations::get_random_curve_point(&mut rnd)));
-                res2.add(&points[i].1.mul(&points[i].0));
-            }
-
-            let res1 = get_g2_multiexp(&points);
-            assert_eq!(res1, serialize_uncompressed_g2(&res2));
-        }
     }
 
     #[test]
