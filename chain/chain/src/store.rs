@@ -1441,8 +1441,7 @@ pub struct ChainStoreUpdate<'a> {
 
     // All state changes made by a chunk, this is only used for resharding.
     add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
-    remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
-
+    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1468,7 +1467,7 @@ impl<'a> ChainStoreUpdate<'a> {
             largest_target_height: None,
             trie_changes: vec![],
             add_state_changes_for_resharding: HashMap::new(),
-            remove_state_changes_for_resharding: HashSet::new(),
+            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -2089,15 +2088,8 @@ impl<'a> ChainStoreUpdate<'a> {
         assert!(prev.is_none());
     }
 
-    pub fn remove_state_changes_for_resharding(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-    ) {
-        // We should not remove state changes for the same chunk twice
-        let value_not_present =
-            self.remove_state_changes_for_resharding.insert((block_hash, shard_id));
-        assert!(value_not_present);
+    pub fn remove_all_state_changes_for_resharding(&mut self) {
+        self.remove_all_state_changes_for_resharding = true;
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2534,11 +2526,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_resharding.drain() {
-            store_update.delete(
-                DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
-            );
+
+        if self.remove_all_state_changes_for_resharding {
+            store_update.delete_all(DBCol::StateChangesForSplitStates);
         }
 
         let mut affected_catchup_blocks = HashSet::new();
