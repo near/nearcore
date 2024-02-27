@@ -2291,7 +2291,7 @@ impl Chain {
             }
             Err(e) => match e {
                 Error::DBNotFoundErr(_) => {
-                    if block_header.prev_hash() == &CryptoHash::default() {
+                    if block_header.is_genesis() {
                         (None, None, 0)
                     } else {
                         return Err(e);

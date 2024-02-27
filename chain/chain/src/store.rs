@@ -1992,13 +1992,13 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = *header.prev_hash();
-        if prev_hash == CryptoHash::default() {
+        if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
         } else {
-            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
+            let prev_hash = header.prev_hash();
+            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
             let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(prev_hash);
+            new_merkle_tree.insert(*prev_hash);
             self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
         Ok(())
