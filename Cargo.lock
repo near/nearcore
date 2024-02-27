@@ -3425,6 +3425,7 @@ dependencies = [
  "serde_json",
  "time",
  "tokio",
+ "tokio-util 0.7.2",
 ]
 
 [[package]]
