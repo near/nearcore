@@ -539,7 +539,6 @@ mod tests {
             $get_g_multiexp_many_points:ident,
             $test_bls12381_crosscheck_sum_and_multiexp:ident,
             $MAX_N_MULTIEXP:expr,
-            $test_bls12381_sum_incorrect_length:ident,
             $bls12381_sum:ident,
             $test_bls12381_sum_incorrect_input:ident
         ) => {
@@ -788,18 +787,6 @@ mod tests {
             }
 
             #[test]
-            #[should_panic]
-            fn $test_bls12381_sum_incorrect_length() {
-                let mut logic_builder = VMLogicBuilder::default();
-                let mut logic = logic_builder.build();
-
-                let buffer = vec![0u8; $POINT_LEN];
-
-                let input = logic.internal_mem_write(buffer.as_slice());
-                logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-            }
-
-            #[test]
             fn $test_bls12381_sum_incorrect_input() {
                 let mut rnd = get_rnd();
 
@@ -885,7 +872,6 @@ mod tests {
         get_g1_multiexp_many_points,
         test_bls12381_p1_crosscheck_sum_and_multiexp,
         500,
-        test_bls12381_p1_sum_incorrect_length,
         bls12381_p1_sum,
         test_bls12381_p1_sum_incorrect_input
     );
@@ -911,7 +897,6 @@ mod tests {
         get_g2_multiexp_many_points,
         test_bls12381_p2_crosscheck_sum_and_multiexp,
         250,
-        test_bls12381_p2_sum_incorrect_length,
         bls12381_p2_sum,
         test_bls12381_p2_sum_incorrect_input
     );
@@ -920,6 +905,7 @@ mod tests {
     macro_rules! test_bls12381_memory_limit {
         (
             $test_bls12381_too_big_input:ident,
+            $test_bls12381_incorrect_length:ident,
             $INPUT_SIZE:expr,
             $MAX_N:expr,
             $func_name:ident
@@ -936,17 +922,29 @@ mod tests {
                 let input = logic.internal_mem_write(buffer.as_slice());
                 logic.$func_name(input.len, input.ptr, 0).unwrap();
             }
+
+            #[test]
+            #[should_panic]
+            fn $test_bls12381_incorrect_length() {
+                let mut logic_builder = VMLogicBuilder::default();
+                let mut logic = logic_builder.build();
+
+                let buffer = vec![0u8; $INPUT_SIZE - 1];
+
+                let input = logic.internal_mem_write(buffer.as_slice());
+                logic.$func_name(input.len, input.ptr, 0).unwrap();
+            }
         }
     }
 
-    test_bls12381_memory_limit!(test_bls12381_p1_sum_too_big_input, 97, 676, bls12381_p1_sum);
-    test_bls12381_memory_limit!(test_bls12381_p2_sum_too_big_input, 193, 340, bls12381_p2_sum);
-    test_bls12381_memory_limit!(test_bls12381_p1_multiexp_too_big_input, 128, 600, bls12381_p1_multiexp);
-    test_bls12381_memory_limit!(test_bls12381_p2_multiexp_too_big_input, 224, 300, bls12381_p2_multiexp);
-    test_bls12381_memory_limit!(test_bls12381_map_fp_to_g1_too_big_input, 48, 1500, bls12381_map_fp_to_g1);
-    test_bls12381_memory_limit!(test_bls12381_map_fp2_to_g2_too_big_input, 96, 700, bls12381_map_fp2_to_g2);
-    test_bls12381_memory_limit!(test_bls12381_p1_decompress_too_big_input, 48, 1500, bls12381_p1_decompress);
-    test_bls12381_memory_limit!(test_bls12381_p2_decompress_too_big_input, 96, 700, bls12381_p2_decompress);
+    test_bls12381_memory_limit!(test_bls12381_p1_sum_too_big_input, test_bls12381_p1_sum_incorrect_length, 97, 676, bls12381_p1_sum);
+    test_bls12381_memory_limit!(test_bls12381_p2_sum_too_big_input, test_bls12381_p2_sum_incorrect_length, 193, 340, bls12381_p2_sum);
+    test_bls12381_memory_limit!(test_bls12381_p1_multiexp_too_big_input, test_bls12381_p1_multiexp_incorrect_length, 128, 600, bls12381_p1_multiexp);
+    test_bls12381_memory_limit!(test_bls12381_p2_multiexp_too_big_input, test_bls12381_p2_multiexp_incorrect_length, 224, 300, bls12381_p2_multiexp);
+    test_bls12381_memory_limit!(test_bls12381_map_fp_to_g1_too_big_input, test_bls12381_map_fp_to_g1_incorrect_length, 48, 1500, bls12381_map_fp_to_g1);
+    test_bls12381_memory_limit!(test_bls12381_map_fp2_to_g2_too_big_input, test_bls12381_map_f2_to_g2_incorrect_length, 96, 700, bls12381_map_fp2_to_g2);
+    test_bls12381_memory_limit!(test_bls12381_p1_decompress_too_big_input, test_bls12381_p1_decompress_incorrect_length, 48, 1500, bls12381_p1_decompress);
+    test_bls12381_memory_limit!(test_bls12381_p2_decompress_too_big_input, test_bls12381_p2_decompress_incorrect_length, 96, 700, bls12381_p2_decompress);
 
     #[test]
     #[should_panic]
@@ -1122,16 +1120,6 @@ mod tests {
         assert_eq!(res, 1);
     }
 
-    #[test]
-    #[should_panic]
-    fn test_bls12381_p1_multiexp_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 129].as_slice());
-        logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-    }
-
     // Tests for P2 multiplication
     #[test]
     fn test_bls12381_p2_multiexp_mul() {
@@ -1186,16 +1174,6 @@ mod tests {
             let res1 = get_g2_multiexp(&points);
             assert_eq!(res1, serialize_uncompressed_g2(&res2));
         }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bls12381_p2_multiexp_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 225].as_slice());
-        logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
@@ -1326,16 +1304,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_bls12381_map_fp_to_g1_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 49].as_slice());
-        logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
-    }
-
-    #[test]
     fn test_bls12381_map_fp_to_g1_incorrect_input() {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -1386,16 +1354,6 @@ mod tests {
             let res1 = map_fp2_to_g2(fps);
             assert_eq!(res1, res2_mul);
         }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bls12381_map_fp2_to_g2_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 97].as_slice());
-        logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
@@ -1467,16 +1425,6 @@ mod tests {
             let res1 = decompress_p1(p1s.clone());
             assert_eq!(res1, res2);
         }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bls12381_p1_decompress_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 49].as_slice());
-        logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
@@ -1619,16 +1567,6 @@ mod tests {
         let input = logic.internal_mem_write(p_ser.as_slice());
         let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_bls12381_p2_decompress_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 97].as_slice());
-        logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
     }
 
     #[test]
