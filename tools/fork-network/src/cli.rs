@@ -165,9 +165,6 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        if !near_config.config.store.flat_storage_creation_enabled {
-            panic!("Flat storage must be enabled");
-        }
         near_config.config.store.state_snapshot_enabled = false;
 
         match &self.command {
