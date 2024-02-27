@@ -1,5 +1,4 @@
 mod tests {
-    use std::fs;
     use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
     use amcl::bls381::big::Big;
     use amcl::bls381::bls381::core::deserialize_g1;
@@ -20,6 +19,7 @@ mod tests {
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use rand::RngCore;
+    use std::fs;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
 
@@ -492,13 +492,13 @@ mod tests {
         fp[16..].to_vec()
     }
 
-
     fn fix_eip2537_fp2(fp2: Vec<u8>) -> Vec<u8> {
         vec![fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
     }
 
     fn fix_eip2537_g1(g1: Vec<u8>) -> Vec<u8> {
-        let mut res = vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat();
+        let mut res =
+            vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat();
         if res == vec![0; 192] {
             res[0] |= 0x40;
         }
@@ -507,7 +507,8 @@ mod tests {
     }
 
     fn fix_eip2537_g2(g2: Vec<u8>) -> Vec<u8> {
-        let mut res = vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat();
+        let mut res =
+            vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat();
         if res == vec![0; 192] {
             res[0] |= 0x40;
         }
@@ -548,61 +549,61 @@ mod tests {
                 // 0 + 0
                 let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
                 zero[0] = 64;
-                let got = $get_sum(0, & zero, 0, & zero);
+                let got = $get_sum(0, &zero, 0, &zero);
                 assert_eq!(zero.to_vec(), got);
 
                 // 0 + P = P + 0 = P
                 let mut rnd = get_rnd();
                 for _ in 0..10 {
-                    let p = $get_random_g_point( & mut rnd);
-                    let p_ser = $serialize_uncompressed( & p);
+                    let p = $get_random_g_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
 
-                    let got = $get_sum(0, & zero, 0, & p_ser);
+                    let got = $get_sum(0, &zero, 0, &p_ser);
                     assert_eq!(p_ser.to_vec(), got);
 
-                    let got = $get_sum(0, & p_ser, 0, &zero);
+                    let got = $get_sum(0, &p_ser, 0, &zero);
                     assert_eq!(p_ser.to_vec(), got);
                 }
 
                 // P + (-P) = (-P) + P =  0
                 for _ in 0..10 {
-                    let mut p = $get_random_curve_point( & mut rnd);
-                    let p_ser = $serialize_uncompressed( & p);
+                    let mut p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
 
                     p.neg();
-                    let p_neg_ser = $serialize_uncompressed( & p);
+                    let p_neg_ser = $serialize_uncompressed(&p);
 
-                    let got = $get_sum(0, & p_neg_ser, 0, & p_ser);
+                    let got = $get_sum(0, &p_neg_ser, 0, &p_ser);
                     assert_eq!(zero.to_vec(), got);
 
-                    let got = $get_sum(0, & p_ser, 0, & p_neg_ser);
+                    let got = $get_sum(0, &p_ser, 0, &p_neg_ser);
                     assert_eq!(zero.to_vec(), got);
                 }
 
                 // P + P
                 for _ in 0..10 {
-                    let p = $get_random_curve_point( & mut rnd);
-                    let p_ser = $serialize_uncompressed( & p);
+                    let p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
 
-                    let pmul2 = p.mul( & Big::from_bytes( & [2]));
-                    let pmul2_ser = $serialize_uncompressed( & pmul2);
+                    let pmul2 = p.mul(&Big::from_bytes(&[2]));
+                    let pmul2_ser = $serialize_uncompressed(&pmul2);
 
-                    let got = $get_sum(0, & p_ser, 0, &p_ser);
+                    let got = $get_sum(0, &p_ser, 0, &p_ser);
                     assert_eq!(pmul2_ser.to_vec(), got);
                 }
 
                 // P + (-(P + P))
                 for _ in 0..10 {
-                    let mut p = $get_random_curve_point( & mut rnd);
-                    let p_ser = $serialize_uncompressed( & p);
+                    let mut p = $get_random_curve_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
 
-                    let mut pmul2 = p.mul( & Big::from_bytes( & [2]));
+                    let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
                     pmul2.neg();
-                    let pmul2_neg_ser = $serialize_uncompressed( & pmul2);
+                    let pmul2_neg_ser = $serialize_uncompressed(&pmul2);
 
                     p.neg();
-                    let p_neg_ser = $serialize_uncompressed( & p);
-                    let got = $get_sum(0, & p_ser, 0, & pmul2_neg_ser);
+                    let p_neg_ser = $serialize_uncompressed(&p);
+                    let got = $get_sum(0, &p_ser, 0, &pmul2_neg_ser);
                     assert_eq!(p_neg_ser.to_vec(), got);
                 }
             }
@@ -631,16 +632,16 @@ mod tests {
                 }
 
                 for _ in 0..100 {
-                   let p = $get_random_g_point(&mut rnd);
-                   let p_ser = $serialize_uncompressed(&p);
+                    let p = $get_random_g_point(&mut rnd);
+                    let p_ser = $serialize_uncompressed(&p);
 
-                   let q = $get_random_g_point(&mut rnd);
-                   let q_ser = $serialize_uncompressed(&q);
+                    let q = $get_random_g_point(&mut rnd);
+                    let q_ser = $serialize_uncompressed(&q);
 
-                   let got1 = $get_sum(0, &p_ser, 0, &q_ser);
+                    let got1 = $get_sum(0, &p_ser, 0, &q_ser);
 
-                   let result_point = $deserialize(&got1).unwrap();
-                   assert!($subgroup_check(&result_point));
+                    let result_point = $deserialize(&got1).unwrap();
+                    assert!($subgroup_check(&result_point));
                 }
             }
 
@@ -662,10 +663,10 @@ mod tests {
                     assert_eq!(got1, got2);
 
                     // compare with library results
-                   p.add(&q);
-                   let library_sum = $serialize_uncompressed(&p);
+                    p.add(&q);
+                    let library_sum = $serialize_uncompressed(&p);
 
-                   assert_eq!(library_sum.to_vec(), got1);
+                    assert_eq!(library_sum.to_vec(), got1);
                 }
             }
 
@@ -734,7 +735,7 @@ mod tests {
                 // -0
                 let zero_inv = $get_inverse(&zero);
                 assert_eq!(zero.to_vec(), zero_inv);
-           }
+            }
 
             #[test]
             fn $test_bls12381_sum_many_points() {
@@ -748,8 +749,8 @@ mod tests {
                 assert_eq!(zero.to_vec(), res);
 
                 for _ in 0..100 {
-                   let n: usize = (thread_rng().next_u32() as usize) % $MAX_N;
-                   $check_multipoint_g_sum(n, &mut rnd);
+                    let n: usize = (thread_rng().next_u32() as usize) % $MAX_N;
+                    $check_multipoint_g_sum(n, &mut rnd);
                 }
 
                 $check_multipoint_g_sum($MAX_N - 1, &mut rnd);
@@ -771,20 +772,20 @@ mod tests {
 
             #[test]
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
-               let mut rnd = get_rnd();
+                let mut rnd = get_rnd();
 
-               for _ in 0..10 {
-                  let n: usize = (thread_rng().next_u32() as usize) % $MAX_N_MULTIEXP;
+                for _ in 0..10 {
+                    let n: usize = (thread_rng().next_u32() as usize) % $MAX_N_MULTIEXP;
 
-                  let mut points: Vec<(u8, $point_type)> = vec![];
-                  for _ in 0..n {
-                      points.push((rnd.getbyte() % 2, $get_random_g_point(&mut rnd)));
-                  }
+                    let mut points: Vec<(u8, $point_type)> = vec![];
+                    for _ in 0..n {
+                        points.push((rnd.getbyte() % 2, $get_random_g_point(&mut rnd)));
+                    }
 
-                  let res1 = $get_g_sum_many_points(&points);
-                  let res2 = $get_g_multiexp_many_points(&points);
-                  assert_eq!(res1, res2);
-               }
+                    let res1 = $get_g_sum_many_points(&points);
+                    let res2 = $get_g_multiexp_many_points(&points);
+                    assert_eq!(res1, res2);
+                }
             }
 
             #[test]
@@ -835,7 +836,8 @@ mod tests {
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] |= 0x80;
 
-                let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+                let input =
+                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
                 let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
 
@@ -844,7 +846,8 @@ mod tests {
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[95] ^= 0x01;
 
-                let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+                let input =
+                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
                 let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
 
@@ -853,15 +856,66 @@ mod tests {
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] ^= 0x20;
 
-                let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
+                let input =
+                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
                 let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
             }
-        }
+        };
     }
 
-    test_bls12381_sum!(test_bls12381_p1_sum_edge_cases, 96, get_g1_sum, get_random_g1_point, get_random_g1_curve_point, serialize_uncompressed_g1, test_bls12381_p1_sum, deserialize_g1, subgroup_check_g1, test_bls12381_p1_sum_not_g1_points, get_random_not_g1_curve_point, test_bls12381_p1_sum_inverse, get_g1_inverse, test_bls12381_p1_sum_many_points, 676, get_g1_sum_many_points, check_multipoint_g1_sum, ECP, get_g1_multiexp_many_points, test_bls12381_p1_crosscheck_sum_and_multiexp, 500, test_bls12381_p1_sum_incorrect_length, bls12381_p1_sum, test_bls12381_p1_sum_incorrect_input);
-    test_bls12381_sum!(test_bls12381_p2_sum_edge_cases, 192, get_g2_sum, get_random_g2_point, get_random_g2_curve_point, serialize_uncompressed_g2, test_bls12381_p2_sum, deserialize_g2, subgroup_check_g2, test_bls12381_p2_sum_not_g2_points, get_random_not_g2_curve_point, test_bls12381_p2_sum_inverse, get_g2_inverse, test_bls12381_p2_sum_many_points, 338, get_g2_sum_many_points, check_multipoint_g2_sum, ECP2, get_g2_multiexp_many_points, test_bls12381_p2_crosscheck_sum_and_multiexp, 250, test_bls12381_p2_sum_incorrect_length, bls12381_p2_sum, test_bls12381_p2_sum_incorrect_input);
+    test_bls12381_sum!(
+        test_bls12381_p1_sum_edge_cases,
+        96,
+        get_g1_sum,
+        get_random_g1_point,
+        get_random_g1_curve_point,
+        serialize_uncompressed_g1,
+        test_bls12381_p1_sum,
+        deserialize_g1,
+        subgroup_check_g1,
+        test_bls12381_p1_sum_not_g1_points,
+        get_random_not_g1_curve_point,
+        test_bls12381_p1_sum_inverse,
+        get_g1_inverse,
+        test_bls12381_p1_sum_many_points,
+        676,
+        get_g1_sum_many_points,
+        check_multipoint_g1_sum,
+        ECP,
+        get_g1_multiexp_many_points,
+        test_bls12381_p1_crosscheck_sum_and_multiexp,
+        500,
+        test_bls12381_p1_sum_incorrect_length,
+        bls12381_p1_sum,
+        test_bls12381_p1_sum_incorrect_input
+    );
+    test_bls12381_sum!(
+        test_bls12381_p2_sum_edge_cases,
+        192,
+        get_g2_sum,
+        get_random_g2_point,
+        get_random_g2_curve_point,
+        serialize_uncompressed_g2,
+        test_bls12381_p2_sum,
+        deserialize_g2,
+        subgroup_check_g2,
+        test_bls12381_p2_sum_not_g2_points,
+        get_random_not_g2_curve_point,
+        test_bls12381_p2_sum_inverse,
+        get_g2_inverse,
+        test_bls12381_p2_sum_many_points,
+        338,
+        get_g2_sum_many_points,
+        check_multipoint_g2_sum,
+        ECP2,
+        get_g2_multiexp_many_points,
+        test_bls12381_p2_crosscheck_sum_and_multiexp,
+        250,
+        test_bls12381_p2_sum_incorrect_length,
+        bls12381_p2_sum,
+        test_bls12381_p2_sum_incorrect_input
+    );
 
     #[test]
     fn test_bls12381_error_g1_encoding() {
@@ -967,11 +1021,7 @@ mod tests {
         const MAX_N: usize = 500;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut res2 = ECP::new();
 
@@ -1105,11 +1155,7 @@ mod tests {
         const MAX_N: usize = 250;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut res2 = ECP2::new();
 
@@ -1245,11 +1291,7 @@ mod tests {
         const MAX_N: usize = 500;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut fps: Vec<FP> = vec![];
             let mut res2_mul: Vec<u8> = vec![];
@@ -1312,11 +1354,7 @@ mod tests {
         const MAX_N: usize = 250;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut fps: Vec<FP2> = vec![];
             let mut res2_mul: Vec<u8> = vec![];
@@ -1378,7 +1416,6 @@ mod tests {
             assert_eq!(res1[0..48], res1_neg[0..48]);
             assert_ne!(res1[48..], res1_neg[48..]);
             assert_eq!(res1_neg, serialize_uncompressed_g1(&p1_neg));
-
         }
 
         let zero1 = ECP::new();
@@ -1394,11 +1431,7 @@ mod tests {
         const MAX_N: usize = 500;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut p1s: Vec<ECP> = vec![];
             let mut res2: Vec<u8> = vec![];
@@ -1506,11 +1539,7 @@ mod tests {
         const MAX_N: usize = 250;
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            };
+            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
 
             let mut p2s: Vec<ECP2> = vec![];
             let mut res2: Vec<u8> = vec![];
@@ -1622,9 +1651,18 @@ mod tests {
             let p1_neg = p1.mul(&Big::new_int(-1));
             let p2_neg = p2.mul(&Big::new_int(-1));
 
-            assert_eq!(pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]), 2);
+            assert_eq!(
+                pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]),
+                0
+            );
+            assert_eq!(
+                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]),
+                0
+            );
+            assert_eq!(
+                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]),
+                2
+            );
 
             let mut s1 = Big::random(&mut rnd);
             s1.mod2m(32 * 8);
@@ -1632,9 +1670,21 @@ mod tests {
             let mut s2 = Big::random(&mut rnd);
             s2.mod2m(32 * 8);
 
-            assert_eq!(pairing_check(vec![p1.mul(&s1), p1_neg.mul(&s2)], vec![p2.mul(&s2), p2.mul(&s1)]), 0);
-            assert_eq!(pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2.mul(&s2), p2_neg.mul(&s1)]), 0);
-            assert_eq!(pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2_neg.mul(&s2), p2_neg.mul(&s1)]), 2);
+            assert_eq!(
+                pairing_check(vec![p1.mul(&s1), p1_neg.mul(&s2)], vec![p2.mul(&s2), p2.mul(&s1)]),
+                0
+            );
+            assert_eq!(
+                pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2.mul(&s2), p2_neg.mul(&s1)]),
+                0
+            );
+            assert_eq!(
+                pairing_check(
+                    vec![p1.mul(&s1), p1.mul(&s2)],
+                    vec![p2_neg.mul(&s2), p2_neg.mul(&s1)]
+                ),
+                2
+            );
         }
     }
 
@@ -1646,11 +1696,8 @@ mod tests {
         let r = Big::from_string(P.to_string());
 
         for i in 0..10 {
-            let n: usize = if i == 0 {
-                MAX_N
-            } else {
-                (thread_rng().next_u32() as usize) % MAX_N
-            } + 1;
+            let n: usize =
+                if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N } + 1;
 
             let mut scalars_1: Vec<Big> = vec![];
             let mut scalars_2: Vec<Big> = vec![];
@@ -1802,7 +1849,9 @@ mod tests {
         zero1[0] |= 0x40;
 
         let mut rnd = get_rnd();
-        let r = Big::from_string("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string());
+        let r = Big::from_string(
+            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string(),
+        );
 
         for _ in 0..10 {
             let p = get_random_g1_point(&mut rnd);
@@ -1836,14 +1885,15 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_bls12381_p2_multiexp_invariants_checks() {
         let mut zero2: [u8; 192] = [0; 192];
         zero2[0] |= 0x40;
 
         let mut rnd = get_rnd();
-        let r = Big::from_string("73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string());
+        let r = Big::from_string(
+            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001".to_string(),
+        );
 
         for _ in 0..10 {
             let p = get_random_g2_point(&mut rnd);
@@ -1926,7 +1976,6 @@ mod tests {
         logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
     }
 
-
     #[test]
     #[should_panic]
     fn test_bls12381_pairing_check_too_big_input() {
@@ -1950,7 +1999,6 @@ mod tests {
         let input = logic.internal_mem_write(buffer.as_slice());
         logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
     }
-
 
     // EIP-2537 tests
     #[test]
@@ -1976,11 +2024,12 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/384;
+            let k = bytes_input.len() / 384;
             let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384 .. i * 384 + 128].to_vec()));
-                bytes_input_fix.push(fix_eip2537_g2(bytes_input[i * 384 + 128 .. (i + 1) * 384].to_vec()));
+                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384..i * 384 + 128].to_vec()));
+                bytes_input_fix
+                    .push(fix_eip2537_g2(bytes_input[i * 384 + 128..(i + 1) * 384].to_vec()));
             }
 
             let input = logic.internal_mem_write(&bytes_input_fix.concat());
@@ -2017,7 +2066,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_fp2_to_g2_test_vectors() {
-        let fp2_to_g2_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp2_to_g2.csv").unwrap();
+        let fp2_to_g2_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/fp2_to_g2.csv").unwrap();
         let mut reader = csv::Reader::from_reader(fp2_to_g2_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2047,7 +2097,13 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let bytes_input = vec![vec![0u8], fix_eip2537_g1(bytes_input[..128].to_vec()), vec![0u8], fix_eip2537_g1(bytes_input[128..].to_vec())].concat();
+            let bytes_input = vec![
+                vec![0u8],
+                fix_eip2537_g1(bytes_input[..128].to_vec()),
+                vec![0u8],
+                fix_eip2537_g1(bytes_input[128..].to_vec()),
+            ]
+            .concat();
 
             let input = logic.internal_mem_write(&bytes_input);
             let _ = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
@@ -2069,7 +2125,13 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let bytes_input = vec![vec![0u8], fix_eip2537_g2(bytes_input[..256].to_vec()), vec![0u8], fix_eip2537_g2(bytes_input[256..].to_vec())].concat();
+            let bytes_input = vec![
+                vec![0u8],
+                fix_eip2537_g2(bytes_input[..256].to_vec()),
+                vec![0u8],
+                fix_eip2537_g2(bytes_input[256..].to_vec()),
+            ]
+            .concat();
 
             let input = logic.internal_mem_write(&bytes_input);
             let _ = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
@@ -2091,7 +2153,11 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let bytes_input = vec![fix_eip2537_g1(bytes_input[..128].to_vec()), bytes_input[128..].to_vec().into_iter().rev().collect()].concat();
+            let bytes_input = vec![
+                fix_eip2537_g1(bytes_input[..128].to_vec()),
+                bytes_input[128..].to_vec().into_iter().rev().collect(),
+            ]
+            .concat();
 
             let input = logic.internal_mem_write(&bytes_input);
             let _ = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
@@ -2113,7 +2179,11 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let bytes_input = vec![fix_eip2537_g2(bytes_input[..256].to_vec()), bytes_input[256..].to_vec().into_iter().rev().collect()].concat();
+            let bytes_input = vec![
+                fix_eip2537_g2(bytes_input[..256].to_vec()),
+                bytes_input[256..].to_vec().into_iter().rev().collect(),
+            ]
+            .concat();
 
             let input = logic.internal_mem_write(&bytes_input);
             let _ = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
@@ -2135,12 +2205,20 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/(128 + 32);
+            let k = bytes_input.len() / (128 + 32);
 
             let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fixed.push(fix_eip2537_g1(bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec()));
-                bytes_input_fixed.push(bytes_input[i * (128 + 32) + 128.. (i + 1) * (128 + 32)].to_vec().into_iter().rev().collect());
+                bytes_input_fixed.push(fix_eip2537_g1(
+                    bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec(),
+                ));
+                bytes_input_fixed.push(
+                    bytes_input[i * (128 + 32) + 128..(i + 1) * (128 + 32)]
+                        .to_vec()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
             let input = logic.internal_mem_write(&bytes_input_fixed.concat());
             let _ = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
@@ -2162,12 +2240,20 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/(256 + 32);
+            let k = bytes_input.len() / (256 + 32);
 
             let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fixed.push(fix_eip2537_g2(bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec()));
-                bytes_input_fixed.push(bytes_input[i * (256 + 32) + 256.. (i + 1) * (256 + 32)].to_vec().into_iter().rev().collect());
+                bytes_input_fixed.push(fix_eip2537_g2(
+                    bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec(),
+                ));
+                bytes_input_fixed.push(
+                    bytes_input[i * (256 + 32) + 256..(i + 1) * (256 + 32)]
+                        .to_vec()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
             let input = logic.internal_mem_write(&bytes_input_fixed.concat());
             let _ = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
@@ -2180,7 +2266,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_pairing_error_test_vectors() {
-        let pairing_csv = fs::read("src/logic/tests/bls12381_test_vectors/pairing_error.csv").unwrap();
+        let pairing_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/pairing_error.csv").unwrap();
         let mut reader = csv::Reader::from_reader(pairing_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2189,11 +2276,12 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/384;
+            let k = bytes_input.len() / 384;
             let mut bytes_input_fix: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384 .. i * 384 + 128].to_vec()));
-                bytes_input_fix.push(fix_eip2537_g2(bytes_input[i * 384 + 128 .. (i + 1) * 384].to_vec()));
+                bytes_input_fix.push(fix_eip2537_g1(bytes_input[i * 384..i * 384 + 128].to_vec()));
+                bytes_input_fix
+                    .push(fix_eip2537_g2(bytes_input[i * 384 + 128..(i + 1) * 384].to_vec()));
             }
 
             let input = logic.internal_mem_write(&bytes_input_fix.concat());
@@ -2204,7 +2292,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_fp_to_g1_error_test_vectors() {
-        let fp_to_g1_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp_to_g1_error.csv").unwrap();
+        let fp_to_g1_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/fp_to_g1_error.csv").unwrap();
         let mut reader = csv::Reader::from_reader(fp_to_g1_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2228,7 +2317,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_fp2_to_g2_error_test_vectors() {
-        let fp2_to_g2_csv = fs::read("src/logic/tests/bls12381_test_vectors/fp2_to_g2_error.csv").unwrap();
+        let fp2_to_g2_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/fp2_to_g2_error.csv").unwrap();
         let mut reader = csv::Reader::from_reader(fp2_to_g2_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2250,7 +2340,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_g1_multiexp_error_test_vectors() {
-        let g1_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g1_error.csv").unwrap();
+        let g1_mul_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g1_error.csv").unwrap();
         let mut reader = csv::Reader::from_reader(g1_mul_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2259,12 +2350,20 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/(128 + 32);
+            let k = bytes_input.len() / (128 + 32);
 
             let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fixed.push(fix_eip2537_g1(bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec()));
-                bytes_input_fixed.push(bytes_input[i * (128 + 32) + 128.. (i + 1) * (128 + 32)].to_vec().into_iter().rev().collect());
+                bytes_input_fixed.push(fix_eip2537_g1(
+                    bytes_input[i * (128 + 32)..i * (128 + 32) + 128].to_vec(),
+                ));
+                bytes_input_fixed.push(
+                    bytes_input[i * (128 + 32) + 128..(i + 1) * (128 + 32)]
+                        .to_vec()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
             let input = logic.internal_mem_write(&bytes_input_fixed.concat());
             let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
@@ -2275,7 +2374,8 @@ mod tests {
 
     #[test]
     fn test_bls12381_g2_multiexp_error_test_vectors() {
-        let g2_mul_csv = fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g2_error.csv").unwrap();
+        let g2_mul_csv =
+            fs::read("src/logic/tests/bls12381_test_vectors/multiexp_g2_error.csv").unwrap();
         let mut reader = csv::Reader::from_reader(g2_mul_csv.as_slice());
         for record in reader.records() {
             let record = record.unwrap();
@@ -2284,12 +2384,20 @@ mod tests {
             let mut logic = logic_builder.build();
 
             let bytes_input = hex::decode(&record[0]).unwrap();
-            let k = bytes_input.len()/(256 + 32);
+            let k = bytes_input.len() / (256 + 32);
 
             let mut bytes_input_fixed: Vec<Vec<u8>> = vec![];
             for i in 0..k {
-                bytes_input_fixed.push(fix_eip2537_g2(bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec()));
-                bytes_input_fixed.push(bytes_input[i * (256 + 32) + 256.. (i + 1) * (256 + 32)].to_vec().into_iter().rev().collect());
+                bytes_input_fixed.push(fix_eip2537_g2(
+                    bytes_input[i * (256 + 32)..i * (256 + 32) + 256].to_vec(),
+                ));
+                bytes_input_fixed.push(
+                    bytes_input[i * (256 + 32) + 256..(i + 1) * (256 + 32)]
+                        .to_vec()
+                        .into_iter()
+                        .rev()
+                        .collect(),
+                );
             }
             let input = logic.internal_mem_write(&bytes_input_fixed.concat());
             let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();

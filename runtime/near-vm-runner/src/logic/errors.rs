@@ -171,7 +171,9 @@ pub enum HostError {
         result_idx: u64,
     },
     /// Accessed invalid register id
-    InvalidRegisterId { register_id: u64 },
+    InvalidRegisterId {
+        register_id: u64,
+    },
     /// Accessed memory outside the bounds
     MemoryAccessViolation,
     /// VM Logic returned an invalid receipt index
@@ -482,7 +484,7 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
-            BLS12381InvalidInput { msg} => write!(f, "BLS12-381 invalid input: {}", msg),
+            BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
         }
     }
 }
