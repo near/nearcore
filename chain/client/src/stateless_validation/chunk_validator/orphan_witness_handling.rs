@@ -10,7 +10,6 @@ use bytesize::ByteSize;
 use itertools::Itertools;
 use near_chain::Block;
 use near_chain_primitives::Error;
-use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, EpochId};
 use std::ops::Range;
@@ -173,12 +172,9 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
-                witness,
-                PeerId::random(), // TODO: Should peer_id even be here? https://github.com/near/stakewars-iv/issues/17
-                new_block,
-                None,
-            ) {
+            if let Err(err) =
+                self.process_chunk_state_witness_with_prev_block(witness, new_block, None)
+            {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }

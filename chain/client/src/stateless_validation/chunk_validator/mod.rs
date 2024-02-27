@@ -5,7 +5,7 @@ use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
-use near_async::messaging::{CanSend, Sender};
+use near_async::messaging::Sender;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -19,11 +19,10 @@ use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest, ReasonForBan};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
@@ -88,7 +87,6 @@ impl ChunkValidator {
         &self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
-        peer_id: PeerId,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
@@ -146,14 +144,6 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    if let Error::InvalidChunkStateWitness(_) = &err {
-                        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::BanPeer {
-                                peer_id,
-                                ban_reason: ReasonForBan::BadChunkStateWitness,
-                            },
-                        ));
-                    }
                     tracing::error!("Failed to validate chunk: {:?}", err);
                 }
             }
@@ -644,7 +634,6 @@ impl Client {
     pub fn process_chunk_state_witness(
         &mut self,
         witness: ChunkStateWitness,
-        peer_id: PeerId,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
@@ -659,7 +648,6 @@ impl Client {
         };
         self.process_chunk_state_witness_with_prev_block(
             witness,
-            peer_id,
             &prev_block,
             processing_done_tracker,
         )
@@ -668,7 +656,6 @@ impl Client {
     pub fn process_chunk_state_witness_with_prev_block(
         &mut self,
         witness: ChunkStateWitness,
-        peer_id: PeerId,
         prev_block: &Block,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
@@ -680,20 +667,6 @@ impl Client {
             )));
         }
 
-        let result = self.chunk_validator.start_validating_chunk(
-            witness,
-            &self.chain,
-            peer_id.clone(),
-            processing_done_tracker,
-        );
-        if let Err(Error::InvalidChunkStateWitness(_)) = &result {
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::BanPeer {
-                    peer_id,
-                    ban_reason: ReasonForBan::BadChunkStateWitness,
-                },
-            ));
-        }
-        result
+        self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
     }
 }
