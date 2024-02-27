@@ -156,8 +156,9 @@ impl Client {
     }
 
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
-    // for this block. This function takes the ready witnesses out of the orhan pool and process them.
-    pub fn process_ready_orphan_chunk_state_witnesses(&mut self, new_block: &Block) {
+    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
+    /// It also removes old witnesses (below final height) from the orphan pool to save memory.
+    pub fn process_ready_orphan_witnesses_and_clean_old(&mut self, new_block: &Block) {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
@@ -178,6 +179,25 @@ impl Client {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }
+
+        // Remove all orphan witnesses that are below the last final block of the new block.
+        // They won't be used, so we can remove them from the pool to save memory.
+        let last_final_block =
+            match self.chain.get_block_header(new_block.header().last_final_block()) {
+                Ok(block_header) => block_header,
+                Err(err) => {
+                    tracing::error!(
+                        target: "client",
+                        last_final_block = ?new_block.header().last_final_block(),
+                        ?err,
+                        "Error getting last final block of the new block"
+                    );
+                    return;
+                }
+            };
+        self.chunk_validator
+            .orphan_witness_pool
+            .remove_witnesses_below_final_height(last_final_block.height());
     }
 }
 
