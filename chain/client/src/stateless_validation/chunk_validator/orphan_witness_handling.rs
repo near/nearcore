@@ -158,7 +158,7 @@ impl Client {
 
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
     // for this block. This function takes the ready witnesses out of the orhan pool and process them.
-    pub fn process_ready_orphan_chunk_state_witnesses(&mut self, new_block: &Block) {
+    pub fn process_ready_orphan_witnesses_and_clean_old(&mut self, new_block: &Block) {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
