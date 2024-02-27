@@ -30,7 +30,9 @@ use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
 };
-use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
+use nearcore::{
+    load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt, NEAR_BASE,
+};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::collections::HashSet;

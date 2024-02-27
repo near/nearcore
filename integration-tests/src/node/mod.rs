@@ -15,9 +15,7 @@ use near_primitives::types::{AccountId, Balance, NumSeats};
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::views::AccountView;
 use near_vm_runner::ContractCode;
-use nearcore::config::{
-    create_testnet_configs, create_testnet_configs_from_seeds, Config, GenesisExt,
-};
+use nearcore::config::{create_testnet_configs, create_testnet_configs_from_seeds, Config};
 use nearcore::NearConfig;
 use testlib::runtime_utils::{alice_account, bob_account};
 

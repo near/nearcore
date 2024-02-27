@@ -11,7 +11,7 @@ use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::transaction::SignedTransaction;
 use near_store::{genesis::initialize_genesis_state, test_utils::create_test_store};
-use nearcore::{config::GenesisExt, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
 use testlib::fees_utils::FeeHelper;
 
 use near_primitives::types::EpochId;

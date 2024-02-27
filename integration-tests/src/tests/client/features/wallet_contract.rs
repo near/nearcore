@@ -21,7 +21,7 @@ use near_primitives_core::{
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use nearcore::{config::GenesisExt, test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
+use nearcore::{test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use rlp::RlpStream;
 use testlib::runtime_utils::{alice_account, bob_account, carol_account};

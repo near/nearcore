@@ -13,7 +13,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
 use testlib::runtime_utils::{alice_account, bob_account};
 

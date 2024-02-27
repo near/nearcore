@@ -6,7 +6,6 @@ use near_o11y::testonly::init_test_logger;
 use near_store::test_utils::create_test_store;
 use near_store::Store;
 use near_undo_block::undo_block;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::sync::Arc;
 

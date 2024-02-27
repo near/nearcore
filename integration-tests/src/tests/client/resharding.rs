@@ -28,7 +28,6 @@ use near_store::metadata::DbKind;
 use near_store::test_utils::{gen_account, gen_unique_accounts};
 use near_store::trie::SnapshotError;
 use near_store::{DBCol, ShardUId};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use rand::rngs::StdRng;

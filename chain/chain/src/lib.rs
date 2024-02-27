@@ -24,6 +24,7 @@ pub mod migrations;
 pub mod missing_chunks;
 pub mod orphan;
 pub mod resharding;
+pub mod runtime;
 mod state_request_tracker;
 pub mod state_snapshot_actor;
 mod stateless_validation;

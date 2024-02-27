@@ -311,7 +311,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
     use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
     use nearcore::test_utils::TestEnvNightshadeSetupExt;

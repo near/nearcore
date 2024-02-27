@@ -15,7 +15,6 @@ use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::TrieNodesCount;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn process_transaction(
