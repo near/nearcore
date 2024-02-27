@@ -88,6 +88,7 @@ members = [
     "tools/themis",
     "tools/undo-block",
     "utils/config",
+    "utils/log-assert",
     "utils/fmt",
     "utils/mainnet-res",
     "utils/near-cache",
@@ -210,6 +211,7 @@ near-epoch-sync-tool = { path = "tools/epoch-sync"}
 near-flat-storage = { path = "tools/flat-storage" }
 near-fork-network = { path = "tools/fork-network" }
 near-fmt = { path = "utils/fmt" }
+near-log-utils = { path = "utils/log-assert"}
 near-indexer = { path = "chain/indexer" }
 near-indexer-primitives = { path = "chain/indexer-primitives" }
 near-jsonrpc = { path = "chain/jsonrpc" }

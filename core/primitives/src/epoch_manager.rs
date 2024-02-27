@@ -1251,7 +1251,7 @@ pub mod epoch_sync {
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_o11y::log_assert;
+    use near_log_utils::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 

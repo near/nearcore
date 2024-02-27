@@ -3948,6 +3948,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "near-log-utils"
+version = "0.0.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "near-mainnet-res"
 version = "0.0.0"
 dependencies = [
@@ -4179,7 +4186,7 @@ dependencies = [
  "itertools",
  "near-crypto",
  "near-fmt",
- "near-o11y",
+ "near-log-utils",
  "near-parameters",
  "near-primitives-core",
  "near-rpc-error-macro",

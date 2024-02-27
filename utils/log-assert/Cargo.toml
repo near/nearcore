@@ -1,0 +1,16 @@
+[package]
+name = "near-log-utils"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Macros for conditional logging and assertion, offering error handling and diagnostics in both debug and release builds"
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing.workspace = true
