@@ -3,6 +3,7 @@ use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
     ReshardingResults, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
+use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -178,7 +179,7 @@ pub fn apply_new_chunk(
     .entered();
     let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(chunk_header.chunk_hash().0);
+    let _timer = CryptoHashTimer::new(Clock::real(), chunk_header.chunk_hash().0);
     let storage_config = RuntimeStorageConfig {
         state_root: chunk_header.prev_state_root(),
         use_flat_storage: true,

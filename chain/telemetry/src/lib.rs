@@ -7,21 +7,21 @@ use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::static_clock::StaticClock;
 use std::ops::Sub;
-use std::time::{Duration, Instant};
+use time::{Duration, Instant};
 
 /// Timeout for establishing connection.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
     #[serde(default = "default_reporting_interval")]
-    pub reporting_interval: std::time::Duration,
+    pub reporting_interval: Duration,
 }
 
-fn default_reporting_interval() -> std::time::Duration {
-    std::time::Duration::from_secs(10)
+fn default_reporting_interval() -> Duration {
+    Duration::seconds(10)
 }
 
 impl Default for TelemetryConfig {
@@ -75,7 +75,7 @@ impl TelemetryActor {
             config,
             client,
             // Let the node report telemetry info at the startup.
-            last_telemetry_update: std::time::Instant::now().sub(reporting_interval),
+            last_telemetry_update: Instant::now().sub(reporting_interval),
         }
     }
 }
@@ -92,7 +92,7 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
         let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
         tracing::debug!(target: "client", ?msg);
         let now = StaticClock::instant();
-        if now.duration_since(self.last_telemetry_update) < self.config.reporting_interval {
+        if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one
             // request per `self.config.reporting_interval`.
             return;

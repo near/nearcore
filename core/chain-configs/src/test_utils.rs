@@ -1,4 +1,5 @@
 use near_primitives::static_clock::StaticClock;
+use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
 
@@ -7,7 +8,7 @@ use crate::GenesisConfig;
 impl GenesisConfig {
     pub fn test() -> Self {
         GenesisConfig {
-            genesis_time: StaticClock::utc(),
+            genesis_time: from_timestamp(StaticClock::utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
             gas_limit: 10u64.pow(15),
             min_gas_price: 0,

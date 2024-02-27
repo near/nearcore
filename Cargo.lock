@@ -2359,6 +2359,7 @@ dependencies = [
  "borsh 1.0.0",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -3508,6 +3509,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smart-default",
+ "time",
  "tracing",
 ]
 
@@ -3515,10 +3517,10 @@ dependencies = [
 name = "near-chain-primitives"
 version = "0.0.0"
 dependencies = [
- "chrono",
  "near-crypto",
  "near-primitives",
  "thiserror",
+ "time",
  "tracing",
 ]
 
@@ -3636,6 +3638,7 @@ dependencies = [
  "serde_json",
  "strum",
  "thiserror",
+ "time",
  "tracing",
  "yansi",
 ]
@@ -3924,6 +3927,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "time",
 ]
 
 [[package]]
@@ -3973,6 +3977,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -4346,6 +4351,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -4386,6 +4392,7 @@ dependencies = [
  "openssl",
  "serde",
  "serde_json",
+ "time",
  "tracing",
 ]
 

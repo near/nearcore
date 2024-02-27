@@ -1,5 +1,5 @@
-use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
+use near_async::time::{Duration, Utc};
 use near_chain::Chain;
 use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
@@ -24,7 +24,7 @@ pub struct BlockSyncRequest {
     // Head of the chain at the time of the last requests.
     head: CryptoHash,
     // When the last requests were made.
-    when: DateTime<Utc>,
+    when: Utc,
 }
 
 /// Helper to track block syncing.

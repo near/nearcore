@@ -1,12 +1,6 @@
 mod kv_runtime;
 mod validator_schedule;
 
-use chrono::{DateTime, Utc};
-use near_chain_configs::GenesisConfig;
-use num_rational::Ratio;
-use std::cmp::Ordering;
-use std::sync::Arc;
-
 pub use self::kv_runtime::account_id_to_shard_id;
 pub use self::kv_runtime::KeyValueRuntime;
 pub use self::kv_runtime::MockEpochManager;
@@ -17,6 +11,8 @@ use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
+use near_async::time::Utc;
+use near_chain_configs::GenesisConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
@@ -29,6 +25,9 @@ use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
 use near_store::DBCol;
+use num_rational::Ratio;
+use std::cmp::Ordering;
+use std::sync::Arc;
 use tracing::debug;
 
 pub fn get_chain() -> Chain {
@@ -188,7 +187,7 @@ pub fn setup_with_validators_and_start_time(
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-    start_time: DateTime<Utc>,
+    start_time: Utc,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =

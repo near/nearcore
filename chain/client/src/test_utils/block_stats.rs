@@ -1,10 +1,9 @@
-use std::cmp::max;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-
+use near_async::time::{Duration, Instant};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
+use std::cmp::max;
+use std::collections::HashMap;
 use tracing::info;
 
 pub struct BlockStats {
@@ -73,8 +72,8 @@ impl BlockStats {
 
     pub fn check_stats(&mut self, force: bool) {
         let now = StaticClock::instant();
-        let diff = now.duration_since(self.last_check);
-        if !force && diff.lt(&Duration::from_secs(60)) {
+        let diff = now - self.last_check;
+        if !force && diff < Duration::seconds(60) {
             return;
         }
         self.last_check = now;

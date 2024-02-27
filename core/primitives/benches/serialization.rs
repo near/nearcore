@@ -69,7 +69,7 @@ fn create_block() -> Block {
         &signer,
         CryptoHash::default(),
         CryptoHash::default(),
-        None,
+        StaticClock::utc(),
     )
 }
 

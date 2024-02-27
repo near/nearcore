@@ -12,8 +12,8 @@ publish = true
 workspace = true
 
 [dependencies]
-chrono.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tracing.workspace = true
 
 near-primitives.workspace = true

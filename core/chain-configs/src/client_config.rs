@@ -9,9 +9,9 @@ use std::cmp::{max, min};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
+use time::Duration;
 
-pub const TEST_STATE_SYNC_TIMEOUT: u64 = 5;
+pub const TEST_STATE_SYNC_TIMEOUT: i64 = 5;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum LogSummaryStyle {
@@ -206,31 +206,31 @@ impl Default for ReshardingConfig {
         // extra load on the node as possible.
         Self {
             batch_size: bytesize::ByteSize::kb(500),
-            batch_delay: Duration::from_millis(100),
-            retry_delay: Duration::from_secs(10),
-            initial_delay: Duration::from_secs(0),
+            batch_delay: Duration::milliseconds(100),
+            retry_delay: Duration::seconds(10),
+            initial_delay: Duration::seconds(0),
             // The snapshot typically is available within a minute from the
             // epoch start. Set the default higher in case we need to wait for
             // state sync.
-            max_poll_time: Duration::from_secs(2 * 60 * 60), // 2 hours
+            max_poll_time: Duration::seconds(2 * 60 * 60), // 2 hours
         }
     }
 }
 
 pub fn default_header_sync_initial_timeout() -> Duration {
-    Duration::from_secs(10)
+    Duration::seconds(10)
 }
 
 pub fn default_header_sync_progress_timeout() -> Duration {
-    Duration::from_secs(2)
+    Duration::seconds(2)
 }
 
 pub fn default_header_sync_stall_ban_timeout() -> Duration {
-    Duration::from_secs(120)
+    Duration::seconds(120)
 }
 
 pub fn default_state_sync_timeout() -> Duration {
-    Duration::from_secs(60)
+    Duration::seconds(60)
 }
 
 pub fn default_header_sync_expected_height_per_second() -> u64 {
@@ -238,11 +238,11 @@ pub fn default_header_sync_expected_height_per_second() -> u64 {
 }
 
 pub fn default_sync_check_period() -> Duration {
-    Duration::from_secs(10)
+    Duration::seconds(10)
 }
 
 pub fn default_sync_step_period() -> Duration {
-    Duration::from_millis(10)
+    Duration::milliseconds(10)
 }
 
 pub fn default_sync_height_threshold() -> u64 {
@@ -274,11 +274,11 @@ pub fn default_view_client_threads() -> usize {
 }
 
 pub fn default_log_summary_period() -> Duration {
-    Duration::from_secs(10)
+    Duration::seconds(10)
 }
 
 pub fn default_view_client_throttle_period() -> Duration {
-    Duration::from_secs(30)
+    Duration::seconds(30)
 }
 
 pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
@@ -298,7 +298,7 @@ pub fn default_enable_multiline_logging() -> Option<bool> {
 }
 
 pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
-    Some(Duration::from_millis(200))
+    Some(Duration::milliseconds(200))
 }
 
 pub fn default_orphan_state_witness_pool_size() -> usize {
@@ -476,35 +476,35 @@ impl ClientConfig {
             chain_id: "unittest".to_string(),
             rpc_addr: Some("0.0.0.0:3030".to_string()),
             expected_shutdown: MutableConfigValue::new(None, "expected_shutdown"),
-            block_production_tracking_delay: Duration::from_millis(std::cmp::max(
+            block_production_tracking_delay: Duration::milliseconds(std::cmp::max(
                 10,
                 min_block_prod_time / 5,
-            )),
-            min_block_production_delay: Duration::from_millis(min_block_prod_time),
-            max_block_production_delay: Duration::from_millis(max_block_prod_time),
-            max_block_wait_delay: Duration::from_millis(3 * min_block_prod_time),
+            ) as i64),
+            min_block_production_delay: Duration::milliseconds(min_block_prod_time as i64),
+            max_block_production_delay: Duration::milliseconds(max_block_prod_time as i64),
+            max_block_wait_delay: Duration::milliseconds(3 * min_block_prod_time as i64),
             skip_sync_wait,
-            sync_check_period: Duration::from_millis(100),
-            sync_step_period: Duration::from_millis(10),
+            sync_check_period: Duration::milliseconds(100),
+            sync_step_period: Duration::milliseconds(10),
             sync_height_threshold: 1,
-            header_sync_initial_timeout: Duration::from_secs(10),
-            header_sync_progress_timeout: Duration::from_secs(2),
-            header_sync_stall_ban_timeout: Duration::from_secs(30),
-            state_sync_timeout: Duration::from_secs(TEST_STATE_SYNC_TIMEOUT),
+            header_sync_initial_timeout: Duration::seconds(10),
+            header_sync_progress_timeout: Duration::seconds(2),
+            header_sync_stall_ban_timeout: Duration::seconds(30),
+            state_sync_timeout: Duration::seconds(TEST_STATE_SYNC_TIMEOUT),
             header_sync_expected_height_per_second: 1,
             min_num_peers: 1,
-            log_summary_period: Duration::from_secs(10),
+            log_summary_period: Duration::seconds(10),
             produce_empty_blocks: true,
             epoch_length: 10,
             num_block_producer_seats,
-            ttl_account_id_router: Duration::from_secs(60 * 60),
+            ttl_account_id_router: Duration::seconds(60 * 60),
             block_fetch_horizon: 50,
-            catchup_step_period: Duration::from_millis(100),
+            catchup_step_period: Duration::milliseconds(100),
             chunk_request_retry_period: min(
-                Duration::from_millis(100),
-                Duration::from_millis(min_block_prod_time / 5),
+                Duration::milliseconds(100),
+                Duration::milliseconds(min_block_prod_time as i64 / 5),
             ),
-            doosmslug_step_period: Duration::from_millis(100),
+            doosmslug_step_period: Duration::milliseconds(100),
             block_header_fetch_horizon: 50,
             gc: GCConfig { gc_blocks_limit: 100, ..GCConfig::default() },
             tracked_accounts: vec![],
@@ -515,13 +515,13 @@ impl ClientConfig {
             log_summary_style: LogSummaryStyle::Colored,
             view_client_threads: 1,
             epoch_sync_enabled,
-            view_client_throttle_period: Duration::from_secs(1),
+            view_client_throttle_period: Duration::seconds(1),
             trie_viewer_state_size_limit: None,
             max_gas_burnt_view: None,
             enable_statistics_export: true,
             client_background_migration_threads: 1,
             flat_storage_creation_enabled: true,
-            flat_storage_creation_period: Duration::from_secs(1),
+            flat_storage_creation_period: Duration::seconds(1),
             state_sync_enabled,
             state_sync: StateSyncConfig::default(),
             transaction_pool_size_limit: None,

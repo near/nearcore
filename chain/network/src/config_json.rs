@@ -1,9 +1,9 @@
 use crate::network_protocol::PeerAddr;
 use crate::stun;
-use std::time::Duration;
+use near_async::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
+pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;
 
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
@@ -23,7 +23,7 @@ fn default_ideal_connections_hi() -> u32 {
 }
 /// Peers which last message is was within this period of time are considered active recent peers.
 fn default_peer_recent_time_window() -> Duration {
-    Duration::from_secs(600)
+    Duration::seconds(600)
 }
 /// Number of peers to keep while removing a connection.
 /// Used to avoid disconnecting from peers we have been connected since long time.
@@ -37,15 +37,15 @@ fn default_archival_peer_connections_lower_bound() -> u32 {
 }
 /// Time to persist Accounts Id in the router without removing them in seconds.
 fn default_ttl_account_id_router() -> Duration {
-    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
+    Duration::seconds(TTL_ACCOUNT_ID_ROUTER)
 }
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
-    Duration::from_secs(5)
+    Duration::seconds(5)
 }
 /// Period to update the list of peers we connect to.
 fn default_monitor_peers_max_period() -> Duration {
-    Duration::from_secs(60)
+    Duration::seconds(60)
 }
 /// Maximum number of peer states to keep in memory.
 fn default_peer_states_cache_size() -> u32 {
@@ -57,7 +57,7 @@ fn default_snapshot_hosts_cache_size() -> u32 {
 }
 /// Remove peers that we didn't hear about for this amount of time.
 fn default_peer_expiration_duration() -> Duration {
-    Duration::from_secs(7 * 24 * 60 * 60)
+    Duration::seconds(7 * 24 * 60 * 60)
 }
 
 /// This is a list of public STUN servers provided by Google,
@@ -205,7 +205,7 @@ fn default_tier1_enable_outbound() -> bool {
 }
 
 fn default_tier1_connect_interval() -> Duration {
-    Duration::from_secs(60)
+    Duration::seconds(60)
 }
 
 fn default_tier1_new_connections_per_attempt() -> u64 {
@@ -296,11 +296,11 @@ impl Default for Config {
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
-            handshake_timeout: Duration::from_secs(20),
+            handshake_timeout: Duration::seconds(20),
             skip_sync_wait: false,
             peer_states_cache_size: default_peer_states_cache_size(),
             snapshot_hosts_cache_size: default_snapshot_hosts_cache_size(),
-            ban_window: Duration::from_secs(3 * 60 * 60),
+            ban_window: Duration::seconds(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),

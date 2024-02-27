@@ -1,6 +1,7 @@
 use crate::rocksdb_metrics::export_stats_as_metrics;
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
+use near_async::time::Duration;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
@@ -559,13 +560,13 @@ fn export_store_stats(store: &Store, temperature: Temperature) {
 
 pub fn spawn_db_metrics_loop(
     storage: &NodeStorage,
-    period: std::time::Duration,
+    period: Duration,
 ) -> anyhow::Result<ArbiterHandle> {
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
     let db_metrics_arbiter = actix_rt::Arbiter::new();
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period);
+    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let hot_store = storage.get_hot_store();
@@ -588,14 +589,11 @@ pub fn spawn_db_metrics_loop(
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
-
-    use actix;
-
     use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DbKind, DB_VERSION};
     use crate::test_utils::create_test_node_storage_with_cold;
-
+    use actix;
+    use near_async::time::Duration;
     use near_o11y::testonly::init_test_logger;
 
     use super::spawn_db_metrics_loop;
@@ -606,7 +604,7 @@ mod test {
 
     async fn test_db_metrics_loop_impl() -> anyhow::Result<()> {
         let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
-        let period = Duration::from_millis(100);
+        let period = Duration::milliseconds(100);
 
         let handle = spawn_db_metrics_loop(&storage, period)?;
 
@@ -622,7 +620,7 @@ mod test {
         hot.set_store_statistics(hot_stats);
         cold.set_store_statistics(cold_stats);
 
-        actix::clock::sleep(period).await;
+        actix::clock::sleep(period.unsigned_abs()).await;
         for _ in 0..10 {
             let int_gauges = crate::rocksdb_metrics::get_int_gauges();
 
@@ -631,7 +629,7 @@ mod test {
             if has_hot_gauge && has_cold_gauge {
                 break;
             }
-            actix::clock::sleep(period / 10).await;
+            actix::clock::sleep(period.unsigned_abs() / 10).await;
         }
 
         let int_gauges = crate::rocksdb_metrics::get_int_gauges();

@@ -7,6 +7,7 @@ use crate::{
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
+use near_async::time::{Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -63,13 +64,12 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
-const REQUEST_WAIT_TIME: u64 = 1000;
+const REQUEST_WAIT_TIME: i64 = 1000;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -170,7 +170,7 @@ impl ViewClientActor {
     fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
         let now = StaticClock::instant();
         let need_request = match cache.get(&key) {
-            Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
+            Some(time) => now - *time > Duration::milliseconds(REQUEST_WAIT_TIME),
             None => true,
         };
         if need_request {
@@ -574,7 +574,7 @@ impl ViewClientActor {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
         let now = StaticClock::instant();
         while let Some(&instant) = cache.front() {
-            if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
+            if now - instant > self.config.view_client_throttle_period {
                 cache.pop_front();
             } else {
                 // Assume that time is linear. While in different threads there might be some small differences,

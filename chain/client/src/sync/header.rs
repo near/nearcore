@@ -1,5 +1,5 @@
-use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
+use near_async::time::{Duration, Utc};
 use near_chain::{Chain, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
 use near_network::types::PeerManagerMessageRequest;
@@ -11,7 +11,6 @@ use near_primitives::types::BlockHeight;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::cmp::min;
-use std::time::Duration as TimeDuration;
 use tracing::{debug, warn};
 
 /// Maximum number of block headers send over the network.
@@ -25,7 +24,7 @@ pub const NS_PER_SECOND: u128 = 1_000_000_000;
 /// Progress of downloading the currently requested batch of headers.
 struct BatchProgress {
     /// An intermediate timeout by which a certain number of headers is expected.
-    timeout: DateTime<Utc>,
+    timeout: Utc,
     /// Height expected at the moment of `timeout`.
     expected_height: BlockHeight,
     /// Header head height at the moment this batch was requested.
@@ -46,7 +45,7 @@ pub struct HeaderSync {
     syncing_peer: Option<HighestHeightPeerInfo>,
 
     /// When the stalling was first detected.
-    stalling_ts: Option<DateTime<Utc>>,
+    stalling_ts: Option<Utc>,
 
     /// How much time to wait after initial header sync.
     initial_timeout: Duration,
@@ -64,9 +63,9 @@ pub struct HeaderSync {
 impl HeaderSync {
     pub fn new(
         network_adapter: PeerManagerAdapter,
-        initial_timeout: TimeDuration,
-        progress_timeout: TimeDuration,
-        stall_ban_timeout: TimeDuration,
+        initial_timeout: Duration,
+        progress_timeout: Duration,
+        stall_ban_timeout: Duration,
         expected_height_per_second: u64,
     ) -> Self {
         HeaderSync {
@@ -79,9 +78,9 @@ impl HeaderSync {
             },
             syncing_peer: None,
             stalling_ts: None,
-            initial_timeout: Duration::from_std(initial_timeout).unwrap(),
-            progress_timeout: Duration::from_std(progress_timeout).unwrap(),
-            stall_ban_timeout: Duration::from_std(stall_ban_timeout).unwrap(),
+            initial_timeout: initial_timeout,
+            progress_timeout: progress_timeout,
+            stall_ban_timeout: stall_ban_timeout,
             expected_height_per_second,
         }
     }
@@ -159,8 +158,7 @@ impl HeaderSync {
         time_delta: Duration,
     ) -> BlockHeight {
         (old_height as u128
-            + (time_delta.num_nanoseconds().unwrap() as u128
-                * self.expected_height_per_second as u128
+            + (time_delta.whole_nanoseconds() as u128 * self.expected_height_per_second as u128
                 / NS_PER_SECOND)) as u64
     }
 
@@ -293,8 +291,8 @@ impl HeaderSync {
         &self,
         current_height: BlockHeight,
         expected_height: BlockHeight,
-        now: DateTime<Utc>,
-        timeout: DateTime<Utc>,
+        now: Utc,
+        timeout: Utc,
     ) -> bool {
         if now <= timeout {
             self.compute_expected_height(current_height, timeout - now) >= expected_height
@@ -372,26 +370,31 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
-    use std::thread;
-
     use near_async::messaging::IntoMultiSender;
+    use near_async::time::Duration;
     use near_chain::test_utils::{
         process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
     };
+    use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance};
+    use near_client_primitives::types::SyncStatus;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
+    use near_network::types::{
+        BlockInfo, FullPeerInfo, HighestHeightPeerInfo, NetworkRequests, PeerInfo,
+    };
     use near_primitives::block::{Approval, Block, GenesisId};
-    use near_primitives::network::PeerId;
-    use near_primitives::test_utils::TestBlockBuilder;
-
-    use super::*;
-    use near_network::types::{BlockInfo, FullPeerInfo, PeerInfo};
     use near_primitives::merkle::PartialMerkleTree;
+    use near_primitives::network::PeerId;
+    use near_primitives::static_clock::StaticClock;
+    use near_primitives::test_utils::TestBlockBuilder;
     use near_primitives::types::EpochId;
     use near_primitives::version::PROTOCOL_VERSION;
     use num_rational::Ratio;
+    use std::sync::Arc;
+    use std::thread;
+
+    use crate::sync::header::{get_locator_ordinals, HeaderSync, MAX_BLOCK_HEADERS};
 
     #[test]
     fn test_get_locator_ordinals() {
@@ -438,9 +441,9 @@ mod test {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             mock_adapter.as_multi_sender(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
         let (mut chain, _, _, signer) = setup();
@@ -524,9 +527,9 @@ mod test {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             mock_adapter.as_multi_sender(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
         let (mut chain, _, _, signer) = setup();
@@ -634,9 +637,9 @@ mod test {
         // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
             network_adapter.as_multi_sender(),
-            TimeDuration::from_secs(1),
-            TimeDuration::from_secs(1),
-            TimeDuration::from_secs(3),
+            Duration::seconds(1),
+            Duration::seconds(1),
+            Duration::seconds(3),
             25,
         );
 
@@ -689,7 +692,7 @@ mod test {
 
             last_added_block_ord += 3;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            thread::sleep(std::time::Duration::from_millis(500));
         }
         // 6 blocks / second is fast enough, we should not have banned the peer
         assert!(network_adapter.requests.read().unwrap().is_empty());
@@ -711,7 +714,7 @@ mod test {
 
             last_added_block_ord += 2;
 
-            thread::sleep(TimeDuration::from_millis(500));
+            thread::sleep(std::time::Duration::from_millis(500));
         }
         // This time the peer should be banned, because 4 blocks/s is not fast enough
         let ban_peer = network_adapter.requests.write().unwrap().pop_back().unwrap();
@@ -728,9 +731,9 @@ mod test {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
             mock_adapter.as_multi_sender(),
-            TimeDuration::from_secs(10),
-            TimeDuration::from_secs(2),
-            TimeDuration::from_secs(120),
+            Duration::seconds(10),
+            Duration::seconds(2),
+            Duration::seconds(120),
             1_000_000_000,
         );
 
@@ -790,7 +793,7 @@ mod test {
                 &*signers2[0],
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
-                None,
+                StaticClock::utc(),
             );
             block_merkle_tree.insert(*block.hash());
             chain2.process_block_header(block.header(), &mut Vec::new()).unwrap(); // just to validate

@@ -3,7 +3,6 @@
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::ClientActor;
 use actix::{Context, Handler};
-
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
@@ -470,7 +469,7 @@ impl ClientActor {
                             processing_time_ms: CryptoHashTimer::get_timer_value(
                                 chunk.chunk_hash().0,
                             )
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         })
                         .collect(),
                     None => vec![],
@@ -487,7 +486,7 @@ impl ClientActor {
                         is_on_canonical_chain,
                         chunks,
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         block_timestamp: block_header.raw_timestamp(),
                         gas_price_ratio: block_header.next_gas_price() as f64
                             / initial_gas_price as f64,
@@ -705,11 +704,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(
-                    chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
-                        .unwrap(),
-                    chrono::Utc,
-                ),
+                timestamp: d.timestamp,
             })
             .collect(),
         tier1_connections: network_info

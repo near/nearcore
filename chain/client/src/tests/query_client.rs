@@ -1,17 +1,14 @@
-use actix::System;
-use futures::{future, FutureExt};
-use near_async::messaging::IntoMultiSender;
-use near_chain::test_utils::ValidatorSchedule;
-use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::test_utils::create_test_signer;
-use std::time::Duration;
-
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
     TxStatus,
 };
+use actix::System;
+use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::IntoMultiSender;
+use near_async::time::{Duration, Utc};
+use near_chain::test_utils::ValidatorSchedule;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::{
@@ -22,14 +19,14 @@ use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkRequests, NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
 };
-
-use chrono::Utc;
 use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
+use near_primitives::merkle::PartialMerkleTree;
+use near_primitives::static_clock::StaticClock;
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId};
-use near_primitives::utils::to_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{QueryRequest, QueryResponseKind};
 use num_rational::Ratio;
@@ -98,10 +95,10 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                StaticClock::utc(),
             );
             next_block.mut_header().get_mut().inner_lite.timestamp =
-                to_timestamp(next_block.header().timestamp() + chrono::Duration::seconds(60));
+                (next_block.header().timestamp() + Duration::seconds(60)).unix_timestamp() as u64;
             next_block.mut_header().resign(&signer);
 
             actix::spawn(
@@ -175,7 +172,7 @@ fn test_execution_outcome_for_chunk() {
                 .unwrap();
             assert!(matches!(res, ProcessTxResponse::ValidTx));
 
-            actix::clock::sleep(Duration::from_millis(500)).await;
+            actix::clock::sleep(std::time::Duration::from_millis(500)).await;
             let block_hash = actor_handles
                 .view_client_actor
                 .send(
@@ -227,10 +224,10 @@ fn test_state_request() {
             true,
             MockPeerManagerAdapter::default().into_multi_sender(),
             100,
-            Utc::now(),
+            Utc::now_utc(),
         );
         actix::spawn(async move {
-            actix::clock::sleep(Duration::from_millis(500)).await;
+            actix::clock::sleep(std::time::Duration::from_millis(500)).await;
             let block_hash = view_client
                 .send(GetBlock(BlockReference::BlockId(BlockId::Height(0))).with_span_context())
                 .await
@@ -255,7 +252,7 @@ fn test_state_request() {
                 .await
                 .unwrap();
             assert!(res.is_none());
-            actix::clock::sleep(Duration::from_secs(40)).await;
+            actix::clock::sleep(std::time::Duration::from_secs(40)).await;
             let res = view_client
                 .send(StateRequestHeader { shard_id: 0, sync_hash: block_hash }.with_span_context())
                 .await

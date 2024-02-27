@@ -25,10 +25,10 @@ use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
 use borsh::BorshDeserialize;
-use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::SendAsync;
+use near_async::time::{Duration, Utc};
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
 use near_chain::resharding::ReshardingRequest;
@@ -60,7 +60,6 @@ use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Duration as TimeDuration;
 use tokio::sync::{Semaphore, TryAcquireError};
 use tracing::info;
 
@@ -73,7 +72,7 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: i64 = 300;
 
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
@@ -85,7 +84,7 @@ pub enum StateSyncResult {
 struct PendingRequestStatus {
     /// Number of parts that are in progress (we requested them from a given peer but didn't get the answer yet).
     missing_parts: usize,
-    wait_until: DateTime<Utc>,
+    wait_until: Utc,
 }
 
 impl PendingRequestStatus {
@@ -159,7 +158,7 @@ pub struct StateSync {
 impl StateSync {
     pub fn new(
         network_adapter: PeerManagerAdapter,
-        timeout: TimeDuration,
+        timeout: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         catchup: bool,
@@ -176,7 +175,11 @@ impl StateSync {
             }) => {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region, .. } => {
-                        let bucket = create_bucket_readonly(&bucket, &region, timeout);
+                        let bucket = create_bucket_readonly(
+                            &bucket,
+                            &region,
+                            timeout.max(Duration::ZERO).unsigned_abs(),
+                        );
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
                         }
@@ -203,7 +206,6 @@ impl StateSync {
                 }
             }
         };
-        let timeout = Duration::from_std(timeout).unwrap();
         let (tx, rx) = channel::<StateSyncGetFileResult>();
         StateSync {
             inner,
@@ -227,7 +229,7 @@ impl StateSync {
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
-        now: DateTime<Utc>,
+        now: Utc,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
         resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         state_parts_future_spawner: &dyn FutureSpawner,
@@ -337,7 +339,7 @@ impl StateSync {
                 tracing::warn!(
                     target: "sync",
                     %shard_id,
-                    timeout_sec = self.timeout.num_seconds(),
+                    timeout_sec = self.timeout.whole_seconds(),
                     "State sync didn't download the state, sending StateRequest again");
                 tracing::debug!(
                     target: "sync",
@@ -852,7 +854,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &Chain,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
         let download = &mut shard_sync_download.downloads[0];
         // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
@@ -896,7 +898,7 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> (bool, bool) {
         // Step 2 - download all the parts (each part is usually around 1MB).
         let mut download_timeout = false;
@@ -955,7 +957,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
-        now: DateTime<Utc>,
+        now: Utc,
         state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), near_chain::Error> {
         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
@@ -993,7 +995,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> Result<(), near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
@@ -1443,7 +1445,7 @@ mod test {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
             mock_peer_manager.as_multi_sender(),
-            TimeDuration::from_secs(1),
+            Duration::seconds(1),
             "chain_id",
             &SyncConfig::Peers,
             false,

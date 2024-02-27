@@ -27,18 +27,16 @@
 ///     some_production_function();
 /// }
 /// ```
-use chrono;
-use chrono::DateTime;
-use chrono::Utc;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::default::Default;
-use std::time::Instant;
+use time::Instant;
+use time::OffsetDateTime as Utc;
 
 #[derive(Default)]
 struct MockClockPerState {
     /// List of timestamps, we will return one timestamp for each call of `Clock::utc()`.
-    utc_list: VecDeque<DateTime<Utc>>,
+    utc_list: VecDeque<Utc>,
     /// List of timestamps, we will return one timestamp to each call of `Clock::instant()`.
     instant_list: VecDeque<Instant>,
     /// Number of times `Clock::utc()` method was called since we started mocking.
@@ -69,7 +67,7 @@ pub struct MockClockGuard {}
 
 impl MockClockGuard {
     /// Adds timestamp to queue, it will be returned in `Self::utc()`.
-    pub fn add_utc(&self, mock_date: DateTime<chrono::Utc>) {
+    pub fn add_utc(&self, mock_date: Utc) {
         MockClockPerThread::with(|clock| match &mut clock.mock {
             Some(clock) => {
                 clock.utc_list.push_back(mock_date);
@@ -163,7 +161,7 @@ impl StaticClock {
 
     /// This methods gets current time as `std::Instant`
     /// unless it's mocked, then returns time added by `Self::add_instant(...)`
-    pub fn utc() -> DateTime<chrono::Utc> {
+    pub fn utc() -> Utc {
         MockClockPerThread::with(|clock| match &mut clock.mock {
             Some(clock) => {
                 clock.utc_call_count += 1;
@@ -175,7 +173,7 @@ impl StaticClock {
                     }
                 }
             }
-            None => chrono::Utc::now(),
+            None => Utc::now_utc(),
         })
     }
 }

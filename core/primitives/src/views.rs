@@ -39,7 +39,6 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
@@ -51,6 +50,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 use strum::IntoEnumIterator;
+use time::OffsetDateTime as Utc;
 use validator_stake_view::ValidatorStakeView;
 
 /// A view of the account
@@ -351,11 +351,11 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    pub latest_block_time: DateTime<chrono::Utc>,
+    pub latest_block_time: Utc,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    pub earliest_block_time: Option<DateTime<chrono::Utc>>,
+    pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
 }
@@ -407,7 +407,7 @@ pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
     pub account_key: PublicKey,
-    pub timestamp: DateTime<chrono::Utc>,
+    pub timestamp: Utc,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -588,9 +588,7 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
-    pub received_timestamp: DateTime<chrono::Utc>,
-    /// Timestamp when block was received.
-    //pub received_timestamp: DateTime<chrono::Utc>,
+    pub received_timestamp: Utc,
     /// Time (in ms) between when the block was first received and when it was processed
     pub in_progress_ms: u128,
     /// Time (in ms) that the block spent in the orphan pool. If the block was never put in the
@@ -655,9 +653,9 @@ pub struct ChunkProcessingInfo {
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
-    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
+    pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
@@ -667,11 +665,11 @@ pub struct ChunkProcessingInfo {
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
-    pub received_time: Option<DateTime<chrono::Utc>>,
+    pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
-    pub forwarded_received_time: Option<DateTime<chrono::Utc>>,
+    pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
-    pub chunk_received_time: Option<DateTime<chrono::Utc>>,
+    pub chunk_received_time: Option<Utc>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

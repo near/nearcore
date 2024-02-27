@@ -6,12 +6,10 @@ use super::block_stats::BlockStats;
 use super::peer_manager_mock::PeerManagerMock;
 use crate::{start_view_client, Client, ClientActor, SyncAdapter, SyncStatus, ViewClientActor};
 use actix::{Actor, Addr, AsyncContext, Context};
-use chrono::DateTime;
-use chrono::Utc;
 use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
-use near_async::time::Clock;
+use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
@@ -58,14 +56,13 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
 
 pub const TEST_SEED: RngSeed = [3; 32];
 
 /// min block production time in milliseconds
-pub const MIN_BLOCK_PROD_TIME: Duration = Duration::from_millis(100);
+pub const MIN_BLOCK_PROD_TIME: Duration = Duration::milliseconds(100);
 /// max block production time in milliseconds
-pub const MAX_BLOCK_PROD_TIME: Duration = Duration::from_millis(200);
+pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
@@ -81,7 +78,7 @@ pub fn setup(
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
-    genesis_time: DateTime<Utc>,
+    genesis_time: Utc,
     ctx: &Context<ClientActor>,
     chunk_distribution_config: Option<ChunkDistributionNetworkConfig>,
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
@@ -170,6 +167,7 @@ pub fn setup(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client = Client::new(
+        Clock::real(), // TODO: use fake clock
         config.clone(),
         chain_genesis,
         epoch_manager,
@@ -215,7 +213,7 @@ pub fn setup_only_view(
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
-    genesis_time: DateTime<Utc>,
+    genesis_time: Utc,
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
@@ -333,8 +331,8 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             10,
             account_id,
             skip_sync_wait,
-            MIN_BLOCK_PROD_TIME.as_millis() as u64,
-            MAX_BLOCK_PROD_TIME.as_millis() as u64,
+            MIN_BLOCK_PROD_TIME.whole_milliseconds() as u64,
+            MAX_BLOCK_PROD_TIME.whole_milliseconds() as u64,
             enable_doomslug,
             false,
             false,
@@ -959,6 +957,7 @@ pub fn setup_client_with_runtime(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let mut client = Client::new(
+        Clock::real(), // TODO: use fake clock
         config,
         chain_genesis,
         epoch_manager,

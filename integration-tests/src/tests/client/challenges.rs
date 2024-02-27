@@ -17,6 +17,7 @@ use near_primitives::num_rational::Ratio;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::sharding::{EncodedShardChunk, ReedSolomonWrapper};
 use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -114,7 +115,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        StaticClock::utc(),
     );
     let epoch_id = b1.header().epoch_id().clone();
     let valid_challenge = Challenge::produce(
@@ -429,7 +430,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        StaticClock::utc(),
     );
 
     let challenge_body =

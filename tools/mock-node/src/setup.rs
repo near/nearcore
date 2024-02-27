@@ -73,7 +73,7 @@ fn setup_mock_peer(
             mock_listen_addr,
             chain_id,
             archival,
-            block_production_delay,
+            block_production_delay.unsigned_abs(),
             num_shards,
             network_start_height,
             network_config,

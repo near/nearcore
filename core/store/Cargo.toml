@@ -40,6 +40,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-crypto.workspace = true
 near-fmt.workspace = true

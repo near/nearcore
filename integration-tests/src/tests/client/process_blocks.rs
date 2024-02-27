@@ -9,6 +9,7 @@ use futures::{future, FutureExt};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::messaging::Sender;
+use near_async::time::Duration;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
@@ -47,6 +48,7 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner, ShardCh
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::transaction::{
@@ -56,7 +58,6 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
-use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -345,7 +346,7 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                StaticClock::utc(),
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -430,7 +431,7 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                StaticClock::utc(),
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -644,7 +645,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                StaticClock::utc(),
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
@@ -1061,7 +1062,7 @@ fn test_time_attack() {
     let genesis = client.chain.get_block_by_height(0).unwrap();
     let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
-        to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
+        (b1.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos() as u64;
     b1.mut_header().resign(signer.as_ref());
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();

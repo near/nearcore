@@ -1,6 +1,7 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use near_async::time::Duration;
 use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
@@ -33,7 +34,7 @@ use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
     NumShards, ShardId,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
+use near_primitives::utils::{from_timestamp, generate_random_string, get_num_seats_per_shard};
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -46,7 +47,6 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(test)]
 use tempfile::tempdir;
 use tracing::{info, warn};
@@ -64,26 +64,26 @@ pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
 /// Block production tracking delay.
-pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
+pub const BLOCK_PRODUCTION_TRACKING_DELAY: i64 = 100;
 
 /// Expected block production time in ms.
-pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
+pub const MIN_BLOCK_PRODUCTION_DELAY: i64 = 600;
 
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
-pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_300;
-pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: u64 = 1_000;
+pub const MAINNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 1_300;
+pub const TESTNET_MIN_BLOCK_PRODUCTION_DELAY: i64 = 1_000;
 
 /// Maximum time to delay block production without approvals is ms.
-pub const MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_000;
+pub const MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_000;
 
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
-pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 3_000;
-pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: u64 = 2_500;
+pub const MAINNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 3_000;
+pub const TESTNET_MAX_BLOCK_PRODUCTION_DELAY: i64 = 2_500;
 
 /// Maximum time until skipping the previous block is ms.
-pub const MAX_BLOCK_WAIT_DELAY: u64 = 6_000;
+pub const MAX_BLOCK_WAIT_DELAY: i64 = 6_000;
 
 /// Horizon at which instead of fetching block, fetch full state.
 const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
@@ -92,13 +92,14 @@ const BLOCK_FETCH_HORIZON: BlockHeightDelta = 50;
 const BLOCK_HEADER_FETCH_HORIZON: BlockHeightDelta = 50;
 
 /// Time between check to perform catchup.
-const CATCHUP_STEP_PERIOD: u64 = 100;
+const CATCHUP_STEP_PERIOD: i64 = 100;
 
 /// Time between checking to re-request chunks.
-const CHUNK_REQUEST_RETRY_PERIOD: u64 = 400;
+const CHUNK_REQUEST_RETRY_PERIOD: i64 = 400;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta =
+    ((5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY) as u64;
 
 /// Criterion for kicking out block producers.
 pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
@@ -107,8 +108,8 @@ pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
 
 /// Fast mode constants for testing/developing.
-pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
-pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
+pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: i64 = 120;
+pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: i64 = 500;
 pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
 /// Expected number of blocks per year
@@ -157,7 +158,7 @@ pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
 pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 fn default_doomslug_step_period() -> Duration {
-    Duration::from_millis(100)
+    Duration::milliseconds(100)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -214,15 +215,17 @@ impl Default for Consensus {
     fn default() -> Self {
         Consensus {
             min_num_peers: 3,
-            block_production_tracking_delay: Duration::from_millis(BLOCK_PRODUCTION_TRACKING_DELAY),
-            min_block_production_delay: Duration::from_millis(MIN_BLOCK_PRODUCTION_DELAY),
-            max_block_production_delay: Duration::from_millis(MAX_BLOCK_PRODUCTION_DELAY),
-            max_block_wait_delay: Duration::from_millis(MAX_BLOCK_WAIT_DELAY),
+            block_production_tracking_delay: Duration::milliseconds(
+                BLOCK_PRODUCTION_TRACKING_DELAY,
+            ),
+            min_block_production_delay: Duration::milliseconds(MIN_BLOCK_PRODUCTION_DELAY),
+            max_block_production_delay: Duration::milliseconds(MAX_BLOCK_PRODUCTION_DELAY),
+            max_block_wait_delay: Duration::milliseconds(MAX_BLOCK_WAIT_DELAY),
             produce_empty_blocks: true,
             block_fetch_horizon: BLOCK_FETCH_HORIZON,
             block_header_fetch_horizon: BLOCK_HEADER_FETCH_HORIZON,
-            catchup_step_period: Duration::from_millis(CATCHUP_STEP_PERIOD),
-            chunk_request_retry_period: Duration::from_millis(CHUNK_REQUEST_RETRY_PERIOD),
+            catchup_step_period: Duration::milliseconds(CATCHUP_STEP_PERIOD),
+            chunk_request_retry_period: Duration::milliseconds(CHUNK_REQUEST_RETRY_PERIOD),
             header_sync_initial_timeout: default_header_sync_initial_timeout(),
             header_sync_progress_timeout: default_header_sync_progress_timeout(),
             header_sync_stall_ban_timeout: default_header_sync_stall_ban_timeout(),
@@ -385,7 +388,7 @@ fn default_cold_store_initial_migration_batch_size() -> usize {
 }
 
 fn default_cold_store_initial_migration_loop_sleep_duration() -> Duration {
-    Duration::from_secs(30)
+    Duration::seconds(30)
 }
 
 fn default_num_cold_store_read_threads() -> usize {
@@ -393,7 +396,7 @@ fn default_num_cold_store_read_threads() -> usize {
 }
 
 fn default_cold_store_loop_sleep_duration() -> Duration {
-    Duration::from_secs(1)
+    Duration::seconds(1)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -533,7 +536,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: StaticClock::utc(),
+            genesis_time: from_timestamp(StaticClock::utc().unix_timestamp_nanos() as u64),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -671,7 +674,7 @@ impl NearConfig {
                 enable_statistics_export: config.store.enable_statistics_export,
                 client_background_migration_threads: 8,
                 flat_storage_creation_enabled: false,
-                flat_storage_creation_period: Duration::from_secs(1),
+                flat_storage_creation_period: Duration::seconds(1),
                 state_sync_enabled: config.state_sync_enabled,
                 state_sync: config.state_sync.unwrap_or_default(),
                 transaction_pool_size_limit: config.transaction_pool_size_limit,
@@ -909,22 +912,22 @@ fn set_block_production_delay(chain_id: &str, fast: bool, config: &mut Config) {
     match chain_id {
         near_primitives::chains::MAINNET => {
             config.consensus.min_block_production_delay =
-                Duration::from_millis(MAINNET_MIN_BLOCK_PRODUCTION_DELAY);
+                Duration::milliseconds(MAINNET_MIN_BLOCK_PRODUCTION_DELAY);
             config.consensus.max_block_production_delay =
-                Duration::from_millis(MAINNET_MAX_BLOCK_PRODUCTION_DELAY);
+                Duration::milliseconds(MAINNET_MAX_BLOCK_PRODUCTION_DELAY);
         }
         near_primitives::chains::TESTNET => {
             config.consensus.min_block_production_delay =
-                Duration::from_millis(TESTNET_MIN_BLOCK_PRODUCTION_DELAY);
+                Duration::milliseconds(TESTNET_MIN_BLOCK_PRODUCTION_DELAY);
             config.consensus.max_block_production_delay =
-                Duration::from_millis(TESTNET_MAX_BLOCK_PRODUCTION_DELAY);
+                Duration::milliseconds(TESTNET_MAX_BLOCK_PRODUCTION_DELAY);
         }
         _ => {
             if fast {
                 config.consensus.min_block_production_delay =
-                    Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+                    Duration::milliseconds(FAST_MIN_BLOCK_PRODUCTION_DELAY);
                 config.consensus.max_block_production_delay =
-                    Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+                    Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
             }
         }
     }
@@ -1116,7 +1119,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: StaticClock::utc(),
+                genesis_time: from_timestamp(StaticClock::utc().unix_timestamp_nanos() as u64),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -1189,8 +1192,8 @@ pub fn create_testnet_configs_from_seeds(
     for i in 0..seeds.len() {
         let mut config = Config::default();
         config.rpc.get_or_insert(Default::default()).enable_debug_rpc = true;
-        config.consensus.min_block_production_delay = Duration::from_millis(600);
-        config.consensus.max_block_production_delay = Duration::from_millis(2000);
+        config.consensus.min_block_production_delay = Duration::milliseconds(600);
+        config.consensus.max_block_production_delay = Duration::milliseconds(2000);
         if local_ports {
             config.network.addr = if i == 0 {
                 first_node_addr.to_string()
@@ -1468,9 +1471,9 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     config.network.addr = addr.to_string();
     config.set_rpc_addr(tcp::ListenerAddr::reserve_for_test());
     config.consensus.min_block_production_delay =
-        Duration::from_millis(FAST_MIN_BLOCK_PRODUCTION_DELAY);
+        Duration::milliseconds(FAST_MIN_BLOCK_PRODUCTION_DELAY);
     config.consensus.max_block_production_delay =
-        Duration::from_millis(FAST_MAX_BLOCK_PRODUCTION_DELAY);
+        Duration::milliseconds(FAST_MAX_BLOCK_PRODUCTION_DELAY);
     let (signer, validator_signer) = if seed.is_empty() {
         let signer =
             Arc::new(InMemorySigner::from_random("node".parse().unwrap(), KeyType::ED25519));

@@ -2,6 +2,7 @@ use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
 use near_async::messaging::Sender;
+use near_async::time::Instant;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
@@ -27,7 +28,6 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
-use std::time::Instant;
 use sysinfo::{get_current_pid, set_open_files_limit, Pid, ProcessExt, System, SystemExt};
 use tracing::info;
 
@@ -89,7 +89,7 @@ impl InfoHelper {
             telemetry_sender,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
-            boot_time_seconds: StaticClock::utc().timestamp(),
+            boot_time_seconds: StaticClock::utc().unix_timestamp(),
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
@@ -395,10 +395,11 @@ impl InfoHelper {
         ));
 
         let avg_bls = (self.num_blocks_processed as f64)
-            / (self.started.elapsed().as_millis() as f64)
+            / (self.started.elapsed().whole_milliseconds() as f64)
             * 1000.0;
-        let avg_gas_used =
-            ((self.gas_used as f64) / (self.started.elapsed().as_millis() as f64) * 1000.0) as u64;
+        let avg_gas_used = ((self.gas_used as f64)
+            / (self.started.elapsed().whole_milliseconds() as f64)
+            * 1000.0) as u64;
         let blocks_info_log =
             Some(format!(" {:.2} bps {}", avg_bls, PrettyNumber::gas_per_sec(avg_gas_used)));
 
@@ -517,10 +518,14 @@ impl InfoHelper {
                 num_peers: network_info.num_connected_peers,
                 block_production_tracking_delay: client_config
                     .block_production_tracking_delay
-                    .as_secs_f64(),
-                min_block_production_delay: client_config.min_block_production_delay.as_secs_f64(),
-                max_block_production_delay: client_config.max_block_production_delay.as_secs_f64(),
-                max_block_wait_delay: client_config.max_block_wait_delay.as_secs_f64(),
+                    .as_seconds_f64(),
+                min_block_production_delay: client_config
+                    .min_block_production_delay
+                    .as_seconds_f64(),
+                max_block_production_delay: client_config
+                    .max_block_production_delay
+                    .as_seconds_f64(),
+                max_block_wait_delay: client_config.max_block_wait_delay.as_seconds_f64(),
             },
             extra_info: serde_json::to_string(&extra_telemetry_info(client_config)).unwrap(),
         };
@@ -581,10 +586,10 @@ impl InfoHelper {
 
 fn extra_telemetry_info(client_config: &ClientConfig) -> serde_json::Value {
     serde_json::json!({
-        "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_secs_f64(),
-        "min_block_production_delay":  client_config.min_block_production_delay.as_secs_f64(),
-        "max_block_production_delay": client_config.max_block_production_delay.as_secs_f64(),
-        "max_block_wait_delay": client_config.max_block_wait_delay.as_secs_f64(),
+        "block_production_tracking_delay":  client_config.block_production_tracking_delay.as_seconds_f64(),
+        "min_block_production_delay":  client_config.min_block_production_delay.as_seconds_f64(),
+        "max_block_production_delay": client_config.max_block_production_delay.as_seconds_f64(),
+        "max_block_wait_delay": client_config.max_block_wait_delay.as_seconds_f64(),
     })
 }
 

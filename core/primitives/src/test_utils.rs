@@ -1,11 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use near_crypto::vrf::Value;
-use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::account::id::AccountIdRef;
-use near_primitives_core::types::ProtocolVersion;
-
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
@@ -16,6 +8,7 @@ use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
+use crate::static_clock::StaticClock;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -25,6 +18,12 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_crypto::vrf::Value;
+use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::id::AccountIdRef;
+use near_primitives_core::types::ProtocolVersion;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
@@ -463,7 +462,7 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
-            None,
+            StaticClock::utc(),
         )
     }
 }

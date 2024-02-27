@@ -11,6 +11,7 @@ use near_primitives::block::Approval;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::num_rational::{Ratio, Rational32};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -81,7 +82,7 @@ pub fn add_blocks(
             signer,
             next_bp_hash,
             block_merkle_tree.root(),
-            None,
+            StaticClock::utc(),
         );
         block_merkle_tree.insert(*block.hash());
         let _ = client.do_send(

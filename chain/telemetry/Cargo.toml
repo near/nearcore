@@ -19,6 +19,7 @@ once_cell.workspace = true
 openssl.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+time.workspace = true
 tracing.workspace = true
 
 near-o11y.workspace = true

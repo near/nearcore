@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 smart-default.workspace = true
+time.workspace = true
 tracing.workspace = true
 
 near-crypto.workspace = true

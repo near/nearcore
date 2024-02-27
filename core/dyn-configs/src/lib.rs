@@ -68,7 +68,7 @@ impl UpdateableConfigLoader {
     }
 
     fn update_metrics() {
-        metrics::CONFIG_RELOAD_TIMESTAMP.set(StaticClock::utc().timestamp());
+        metrics::CONFIG_RELOAD_TIMESTAMP.set(StaticClock::utc().unix_timestamp());
         metrics::CONFIG_RELOADS.inc();
     }
 }

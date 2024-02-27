@@ -1,34 +1,31 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::types::RuntimeAdapter;
 use borsh::BorshDeserialize;
 use enum_map::Enum;
+use near_async::time::{Duration, Instant};
+use near_chain_configs::GenesisConfig;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use strum::IntoEnumIterator;
-use tracing::warn;
-
-use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
+use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use strum::IntoEnumIterator;
+use tracing::warn;
 use validate::StoreValidatorError;
-
-use crate::types::RuntimeAdapter;
-use near_primitives::shard_layout::get_block_shard_uid_rev;
-use near_primitives::static_clock::StaticClock;
 
 mod validate;
 
@@ -76,7 +73,7 @@ pub struct StoreValidator {
     runtime: Arc<dyn RuntimeAdapter>,
     store: Store,
     inner: StoreValidatorCache,
-    timeout: Option<u64>,
+    timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
 
@@ -109,7 +106,7 @@ impl StoreValidator {
             tests: 0,
         }
     }
-    pub fn set_timeout(&mut self, timeout: u64) {
+    pub fn set_timeout(&mut self, timeout: i64) {
         self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
@@ -314,7 +311,7 @@ impl StoreValidator {
                 _ => {}
             }
             if let Some(timeout) = self.timeout {
-                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                     return Ok(());
                 }
             }
@@ -337,7 +334,7 @@ impl StoreValidator {
                 self.process_error(e, col.to_string(), col)
             }
             if let Some(timeout) = self.timeout {
-                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                     warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
                     return;
                 }
@@ -345,7 +342,7 @@ impl StoreValidator {
         }
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
-            if self.start_time.elapsed() > Duration::from_millis(timeout) {
+            if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                 warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
             }

@@ -4,6 +4,7 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time::Duration;
 use near_chain_configs::Genesis;
 use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
@@ -17,7 +18,6 @@ use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// One client is in front, another must sync to it before they can produce blocks.
 #[test]
@@ -141,11 +141,11 @@ fn sync_state_stake_change() {
         let mut near1 = load_test_config("test1", port1, genesis.clone());
         near1.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test2", *port2)]);
         near1.client_config.min_num_peers = 0;
-        near1.client_config.min_block_production_delay = Duration::from_millis(200);
+        near1.client_config.min_block_production_delay = Duration::milliseconds(200);
         near1.client_config.epoch_sync_enabled = false;
         let mut near2 = load_test_config("test2", port2, genesis.clone());
         near2.network_config.peer_store.boot_nodes = convert_boot_nodes(vec![("test1", *port1)]);
-        near2.client_config.min_block_production_delay = Duration::from_millis(200);
+        near2.client_config.min_block_production_delay = Duration::milliseconds(200);
         near2.client_config.min_num_peers = 1;
         near2.client_config.skip_sync_wait = false;
         near2.client_config.epoch_sync_enabled = false;
