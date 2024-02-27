@@ -1,6 +1,6 @@
 use crate::accounts_data::{AccountDataCache, AccountDataError};
 use crate::announce_accounts::AnnounceAccountCache;
-use crate::client;
+use crate::client::ClientSenderForNetwork;
 use crate::concurrency::demux;
 use crate::concurrency::runtime::Runtime;
 use crate::config;
@@ -8,11 +8,10 @@ use crate::network_protocol::{
     Edge, EdgeState, PartialEdgeInfo, PeerIdOrHash, PeerInfo, PeerMessage, RawRoutedMessage,
     RoutedMessageBody, RoutedMessageV2, SignedAccountData, SnapshotHostInfo,
 };
+use crate::peer::peer_actor::ClosingReason;
 use crate::peer::peer_actor::PeerActor;
-use crate::peer::peer_actor::{ClosingReason, ConnectionClosedEvent};
 use crate::peer_manager::connection;
 use crate::peer_manager::connection_store;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::peer_manager::peer_store;
 use crate::private_actix::RegisterPeerError;
 use crate::routing::route_back_cache::RouteBackCache;
@@ -98,7 +97,7 @@ pub(crate) struct NetworkState {
     pub created_at: time::Instant,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
-    pub client: Arc<dyn client::Client>,
+    pub client: ClientSenderForNetwork,
     pub shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
 
     /// Network-related info about the chain.
@@ -166,7 +165,7 @@ impl NetworkState {
         peer_store: peer_store::PeerStore,
         config: config::VerifiedConfig,
         genesis_id: GenesisId,
-        client: Arc<dyn client::Client>,
+        client: ClientSenderForNetwork,
         shards_manager_adapter: Sender<ShardsManagerRequestFromNetwork>,
         whitelist_nodes: Vec<WhitelistNode>,
     ) -> Self {
@@ -304,7 +303,7 @@ impl NetworkState {
             match conn.tier {
                 tcp::Tier::T1 => {
                     if conn.peer_type == PeerType::Inbound {
-                        if !this.config.tier1.as_ref().map_or(false, |c| c.enable_inbound) {
+                        if !this.config.tier1.as_ref().is_some_and(|c| c.enable_inbound) {
                             return Err(RegisterPeerError::Tier1InboundDisabled);
                         }
                         // Allow for inbound TIER1 connections only directly from a TIER1 peers.
@@ -358,7 +357,7 @@ impl NetworkState {
         self: &Arc<Self>,
         clock: &time::Clock,
         conn: &Arc<connection::Connection>,
-        stream_id: tcp::StreamId,
+        _stream_id: tcp::StreamId,
         reason: ClosingReason,
     ) {
         let this = self.clone();
@@ -406,9 +405,15 @@ impl NetworkState {
                 this.pending_reconnect.lock().push(conn.peer_info.clone());
             }
 
-            this.config
-                .event_sink
-                .push(Event::ConnectionClosed(ConnectionClosedEvent { stream_id, reason }));
+            #[cfg(test)]
+            this.config.event_sink.send(
+                crate::peer_manager::peer_manager_actor::Event::ConnectionClosed(
+                    crate::peer::peer_actor::ConnectionClosedEvent {
+                        stream_id: _stream_id,
+                        reason,
+                    },
+                ),
+            );
         });
     }
 

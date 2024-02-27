@@ -1,7 +1,9 @@
 # A library with the common constants and functions for testing resharding.
 
+# TODO(resharding) The resharding V2 is now stabilized so the V1 code is no
+# longer exercised and can be removed.
 V1_PROTOCOL_VERSION = 48
-V2_PROTOCOL_VERSION = 135
+V2_PROTOCOL_VERSION = 64
 
 V0_SHARD_LAYOUT = {
     "V0": {
@@ -141,7 +143,7 @@ def get_epoch_offset(binary_protocol_version):
 def get_client_config_changes(num_nodes, initial_delay=None):
     single = {
         "tracked_shards": [0],
-        "state_split_config": {
+        "resharding_config": {
             "batch_size": 1000000,
             # don't throttle resharding
             "batch_delay": {
@@ -156,7 +158,7 @@ def get_client_config_changes(num_nodes, initial_delay=None):
         }
     }
     if initial_delay is not None:
-        single["state_split_config"]["initial_delay"] = {
+        single["resharding_config"]["initial_delay"] = {
             "secs": initial_delay,
             "nanos": 0
         }

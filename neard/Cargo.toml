@@ -27,7 +27,6 @@ rayon.workspace = true
 rlimit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shell-escape.workspace = true
 thiserror.workspace = true
 tikv-jemallocator.workspace = true
 tokio.workspace = true
@@ -74,13 +73,12 @@ no_cache = ["nearcore/no_cache"]
 rosetta_rpc = ["nearcore/rosetta_rpc"]
 json_rpc = ["nearcore/json_rpc"]
 protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking_threshold"]
+protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
+yield_resume = ["nearcore/yield_resume"]
 
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_staking_threshold",
-  "serialize_all_state_changes",
   "near-chain-configs/nightly",
   "near-client/nightly",
   "near-database-tool/nightly",
@@ -97,6 +95,11 @@ nightly = [
   "near-store/nightly",
   "near-undo-block/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
+  "protocol_feature_fix_staking_threshold",
+  "protocol_feature_nonrefundable_transfer_nep491",
+  "serialize_all_state_changes",
+  "yield_resume",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",
@@ -115,6 +118,10 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "near-undo-block/nightly_protocol",
   "nearcore/nightly_protocol",
+]
+statelessnet_protocol = [
+  "nearcore/statelessnet_protocol",
+  "near-primitives/statelessnet_protocol",
 ]
 
 calimero_zero_storage = [

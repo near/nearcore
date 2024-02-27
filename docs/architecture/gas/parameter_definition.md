@@ -1,17 +1,17 @@
 # Parameter Definitions
 
 Gas parameters are a subset of runtime parameters that are defined in
-[core/primitives/res/runtime_configs/parameters.yaml](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.yaml).
+[runtime_configs/parameters.yaml](../../../core/parameters/res/runtime_configs/parameters.yaml).
 **IMPORTANT:** This is not the final list of parameters, it contains the base
 values which can be overwritten per protocol version. For example,
-[53.yaml](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/53.yaml)
+[53.yaml](../../../core/parameters/res/runtime_configs/53.yaml)
 changes several parameters starting from version 53. You can see the final list
 of parameters in
-[core/primitives/res/runtime_configs/parameters.snap](https://github.com/near/nearcore/blob/master/core/primitives/res/runtime_configs/parameters.snap).
+[runtime_configs/parameters.snap](../../../core/parameters/res/runtime_configs/parameters.snap).
 This file is automatically updated whenever any of the parameters changes. To
 see all parameter values for a specific version, check out the list of JSON
 snapshots generated in this directory:
-[core/primitives/src/runtime/snapshots](https://github.com/near/nearcore/blob/master/core/primitives/src/runtime/snapshots).
+[parameters/src/snapshots](../../../core/parameters/src/snapshots).
 
 ## Using Parameters in Code
 

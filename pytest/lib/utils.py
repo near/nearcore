@@ -1,4 +1,3 @@
-import atexit
 import base58
 import hashlib
 import json
@@ -7,7 +6,6 @@ import pathlib
 import random
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -112,6 +110,10 @@ class LogTracker:
     def check(self, pattern: str) -> bool:
         """Check whether the pattern can be found in the logs."""
         return pattern in self._read_file()
+
+    def check_re(self, pattern: str) -> bool:
+        """Check whether the regex pattern can be found in the logs."""
+        return re.search(pattern, self._read_file()) != None
 
     def reset(self) -> None:
         """Resets log offset to beginning of the file."""

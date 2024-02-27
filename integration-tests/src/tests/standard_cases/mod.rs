@@ -1,32 +1,32 @@
-use std::sync::Arc;
-
 mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
+use near_parameters::{ActionCosts, ExtCosts};
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
-use near_primitives::config::{ActionCosts, ExtCosts};
 use near_primitives::errors::{
     ActionError, ActionErrorKind, FunctionCallError, InvalidAccessKeyError, InvalidTxError,
     MethodResolveError, TxExecutionError,
 };
 use near_primitives::hash::{hash, CryptoHash};
-use near_primitives::types::{AccountId, Balance, TrieNodesCount};
+use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::views::{
     AccessKeyView, AccountView, ExecutionMetadataView, FinalExecutionOutcomeView,
     FinalExecutionStatus,
 };
+use near_store::trie::TrieNodesCount;
 use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use std::sync::Arc;
 
 use crate::node::Node;
 use crate::user::User;
+use near_parameters::RuntimeConfig;
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::runtime::config::RuntimeConfig;
 use near_primitives::test_utils;
 use near_primitives::transaction::{Action, DeployContractAction, FunctionCallAction};
 use testlib::fees_utils::FeeHelper;
@@ -330,7 +330,7 @@ pub fn test_send_money(node: impl Node) {
     );
 }
 
-pub fn transfer_tokens_implicit_account(node: impl Node, public_key: PublicKey) {
+pub fn transfer_tokens_to_implicit_account(node: impl Node, public_key: PublicKey) {
     let account_id = &node.account_id().unwrap();
     let node_user = node.user();
     let root = node_user.get_state_root();
@@ -419,10 +419,7 @@ pub fn trying_to_create_implicit_account(node: impl Node, public_key: PublicKey)
         .unwrap();
 
     let create_account_fee = fee_helper.cfg().fee(ActionCosts::create_account).send_fee(false);
-    let add_access_key_fee = fee_helper
-        .cfg()
-        .fee(near_primitives::config::ActionCosts::add_full_access_key)
-        .send_fee(false);
+    let add_access_key_fee = fee_helper.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
 
     let cost = match receiver_id.get_account_type() {
         AccountType::NearImplicitAccount => {
@@ -753,7 +750,7 @@ pub fn test_add_existing_key(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::AddKeyAlreadyExists {
                     account_id: account_id.clone(),
-                    public_key: node.signer().public_key()
+                    public_key: node.signer().public_key().into()
                 }
             }
             .into()
@@ -805,7 +802,7 @@ pub fn test_delete_key_not_owned(node: impl Node) {
                 index: Some(0),
                 kind: ActionErrorKind::DeleteKeyDoesNotExist {
                     account_id: account_id.clone(),
-                    public_key: signer2.public_key.clone()
+                    public_key: signer2.public_key.clone().into()
                 }
             }
             .into()
@@ -843,7 +840,7 @@ pub fn test_delete_key_last(node: impl Node) {
                     InvalidTxError::InvalidAccessKeyError(
                         InvalidAccessKeyError::AccessKeyNotFound {
                             account_id: account_id.clone(),
-                            public_key: node.signer().public_key(),
+                            public_key: node.signer().public_key().into(),
                         },
                     )
                 ))

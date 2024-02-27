@@ -5,15 +5,14 @@
 
 use crate::node::{Node, RuntimeNode};
 use crate::tests::standard_cases::fee_helper;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{KeyType, PublicKey, Signer};
+use near_parameters::ActionCosts;
 use near_primitives::account::{
     id::AccountType, AccessKey, AccessKeyPermission, FunctionCallPermission,
 };
 use near_primitives::checked_feature;
-use near_primitives::config::ActionCosts;
 use near_primitives::errors::{
     ActionError, ActionErrorKind, ActionsValidationError, InvalidAccessKeyError, InvalidTxError,
     TxExecutionError,
@@ -58,10 +57,7 @@ fn exec_meta_transaction(
         Genesis::test(vec![validator, user.clone(), receiver.clone(), relayer.clone()], 1);
     genesis.config.epoch_length = 1000;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let tx = env.meta_tx_from_actions(actions, user, relayer, receiver);
 
@@ -281,7 +277,7 @@ fn meta_tx_near_transfer() {
     let node = RuntimeNode::new(&relayer);
     let fee_helper = fee_helper(&node);
 
-    let amount = nearcore::NEAR_BASE;
+    let amount = NEAR_BASE;
     let actions = vec![Action::Transfer(TransferAction { deposit: amount })];
     let tx_cost = fee_helper.transfer_cost();
     check_meta_tx_no_fn_call(&node, actions, tx_cost, amount, sender, relayer, receiver);
@@ -837,7 +833,7 @@ fn meta_tx_create_and_use_implicit_account(new_account: AccountId) {
     // Check the account doesn't exist, yet. We will attempt creating it.
     node.view_account(&new_account).expect_err("account already exists");
 
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = NEAR_BASE;
     let actions = vec![
         Action::Transfer(TransferAction { deposit: initial_amount }),
         Action::DeployContract(DeployContractAction { code: ft_contract().to_vec() }),
@@ -887,7 +883,12 @@ fn meta_tx_create_implicit_account(new_account: AccountId) {
     node.view_account(&new_account).expect_err("account already exists");
 
     let fee_helper = fee_helper(&node);
-    let initial_amount = nearcore::NEAR_BASE;
+    let initial_amount = match new_account.get_account_type() {
+        AccountType::NearImplicitAccount => NEAR_BASE,
+        // ETH-implicit accounts fit within zero-balance account limit.
+        AccountType::EthImplicitAccount => 0u128,
+        AccountType::NamedAccount => panic!("must be implicit"),
+    };
     let actions = vec![Action::Transfer(TransferAction { deposit: initial_amount })];
 
     let tx_cost = match new_account.get_account_type() {

@@ -4,8 +4,8 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_chain::Provenance;
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess};
-use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -90,14 +90,8 @@ fn test_continuous_epoch_sync_info_population() {
     let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     let mut last_epoch_id = EpochId::default();
@@ -116,13 +110,13 @@ fn test_continuous_epoch_sync_info_population() {
             continue;
         }
         let last_final_header =
-            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+            env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
             let epoch_id = last_epoch_id.clone();
 
             tracing::debug!("Checking epoch: {:?}", &epoch_id);
-            assert!(env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).is_ok());
+            assert!(env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).is_ok());
             tracing::debug!("OK");
         }
 
@@ -248,14 +242,8 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
     let max_height = epoch_length * 4 + 3;
 
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-
     genesis.config.epoch_length = epoch_length;
-    let mut chain_genesis = ChainGenesis::test();
-    chain_genesis.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let mut last_hash = *env.clients[0].chain.genesis().hash();
     let mut last_epoch_id = EpochId::default();
@@ -274,13 +262,13 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             continue;
         }
         let last_final_header =
-            env.clients[0].chain.store().get_block_header(last_final_hash).unwrap();
+            env.clients[0].chain.chain_store().get_block_header(last_final_hash).unwrap();
 
         if *last_final_header.epoch_id() != last_epoch_id {
             let epoch_id = last_epoch_id.clone();
 
             let epoch_sync_info =
-                env.clients[0].chain.store().get_epoch_sync_info(&epoch_id).unwrap();
+                env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id).unwrap();
 
             tracing::debug!("Checking epoch sync info: {:?}", &epoch_sync_info);
 
@@ -289,7 +277,7 @@ fn test_epoch_sync_data_hash_from_epoch_sync_info() {
             for hash in &epoch_sync_info.headers_to_save {
                 let block_info = env.clients[0]
                     .chain
-                    .store()
+                    .chain_store()
                     .store()
                     .get_ser::<BlockInfo>(DBCol::BlockInfo, hash.as_ref())
                     .unwrap()
@@ -333,11 +321,10 @@ fn test_node_after_simulated_sync() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
 
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .real_stores()
         .use_state_snapshots()
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -372,7 +359,8 @@ fn test_node_after_simulated_sync() {
     while epoch_id1 != epoch_id0 {
         tracing::debug!("Syncing epoch {:?}", epoch_id1);
 
-        let epoch_sync_data = env.clients[0].chain.store().get_epoch_sync_info(&epoch_id1).unwrap();
+        let epoch_sync_data =
+            env.clients[0].chain.chain_store().get_epoch_sync_info(&epoch_id1).unwrap();
         env.clients[1].chain.validate_and_record_epoch_sync_info(&epoch_sync_data).unwrap();
 
         epoch_id1 = env.clients[1]
@@ -399,7 +387,7 @@ fn test_node_after_simulated_sync() {
     // Do "state sync" for the last epoch
     // write last block of prev epoch
     {
-        let mut store_update = env.clients[1].chain.store().store().store_update();
+        let mut store_update = env.clients[1].chain.chain_store().store().store_update();
 
         let mut last_block = &blocks[0];
         for block in &blocks {

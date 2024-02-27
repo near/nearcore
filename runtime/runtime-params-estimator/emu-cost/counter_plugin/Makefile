@@ -1,14 +1,14 @@
-
-# compile with
-# make QEMU_DIR=/host/qemu && cp libcounter.so /host/qemu-linux/plugins/
-# run with
+# Dependencies: pkg-config, glib-2.0, qemu
+# Compile: make && cp libcounter.so /host/qemu-linux/plugins/
+# Run with
 # /host/qemu-linux/bin/qemu-x86_64 -d plugin -plugin file=/host/qemu-linux/plugins/libcounter.so,arg="on_every_close"  /bin/ls
 
+QEMU ?= $(shell which qemu-x86_64)
+QEMU_INCLUDE ?= $(dir $(QEMU))/../include
 CFLAGS += -fPIC
-CFLAGS += -I$(QEMU_DIR)/include/qemu -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include
+CFLAGS += -I$(QEMU_INCLUDE) $(shell pkg-config --cflags glib-2.0)
 # COUNTER_PLUGIN = /host/nearcore/runtime/runtime-params-estimator/emu-cost/counter_plugin/libcounter.so
 #QEMU=/host/qemu-linux/bin/qemu-x86_64
-QEMU=./qemu-x86_64
 COUNTER_PLUGIN=./libcounter.so
 
 all: libcounter.so

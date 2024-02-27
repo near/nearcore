@@ -504,7 +504,7 @@ impl WrappedTrieChanges {
             );
 
             // Resharding changes must not be finalized, however they may be introduced here when we are
-            // evaluating changes for split state in process_split_state function
+            // evaluating changes for resharding in process_resharding_results function
             change_with_trie_key
                 .changes
                 .retain(|change| change.cause != StateChangeCause::Resharding);

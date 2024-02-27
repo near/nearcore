@@ -8,9 +8,9 @@ use crate::logic::Config;
 use crate::logic::{
     CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
 };
-use crate::VMKind;
 use crate::{imports, prepare, ContractCode};
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use wasmtime::ExternType::Func;
@@ -18,7 +18,7 @@ use wasmtime::{Engine, Linker, Memory, MemoryType, Module, Store};
 
 type Caller = wasmtime::Caller<'static, ()>;
 thread_local! {
-    pub(crate) static CALLER: RefCell<Option<Caller>> = RefCell::new(None);
+    pub(crate) static CALLER: RefCell<Option<Caller>> = const { RefCell::new(None) };
 }
 pub struct WasmtimeMemory(Memory);
 

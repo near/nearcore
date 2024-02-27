@@ -1,9 +1,9 @@
 use actix_web::{web, App, HttpServer};
 use anyhow::anyhow;
 use borsh::BorshDeserialize;
-use near_client::sync::external::{create_bucket_readonly, ExternalConnection};
 use near_client::sync::external::{
-    external_storage_location, external_storage_location_directory, get_num_parts_from_filename,
+    create_bucket_readonly, external_storage_location, external_storage_location_directory,
+    get_num_parts_from_filename, ExternalConnection, StateFileType,
 };
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
@@ -14,7 +14,7 @@ use near_primitives::types::{
 use near_primitives::views::BlockView;
 use near_store::Trie;
 use nearcore::state_sync::extract_part_id_from_part_file_name;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -49,7 +49,7 @@ pub struct StatePartsDumpCheckCommand {
 pub enum StatePartsDumpCheckSubCommand {
     /// Download and validate the state parts given the epoch_id, epoch_height, state_root and shard_id
     SingleCheck(SingleCheckCommand),
-    /// Runs an infinite loop to download and validate state parts of all 4 shards for each epoch when it becomes available
+    /// Runs an infinite loop to download and validate state parts of all shards for each epoch when it becomes available
     LoopCheck(LoopCheckCommand),
 }
 
@@ -259,11 +259,8 @@ fn run_loop_all_shards(
     rpc_client: &JsonRpcClient,
     prometheus_addr: &str,
 ) -> anyhow::Result<()> {
-    let mut last_check_status_vec = vec![];
-    for _ in 0..4 {
-        last_check_status_vec
-            .push(Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 }));
-    }
+    let mut last_check_status =
+        HashMap::<ShardId, anyhow::Result<StatePartsDumpCheckStatus>>::new();
 
     let mut is_prometheus_server_up: bool = false;
 
@@ -281,21 +278,24 @@ fn run_loop_all_shards(
             continue;
         }
         let dump_check_iter_info = dump_check_iter_info_res?;
-
-        for shard_id in 0..4 as usize {
+        let num_shards = dump_check_iter_info.state_roots.len();
+        for shard_id in 0..num_shards as u64 {
             tracing::info!(shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
-            match last_check_status_vec[shard_id] {
+            let status = last_check_status
+                .get(&shard_id)
+                .unwrap_or(&Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 }));
+            match status {
                 Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
                     tracing::info!(epoch_height, "last one was done.");
-                    if epoch_height >= dump_check_iter_info.epoch_height {
+                    if *epoch_height >= dump_check_iter_info.epoch_height {
                         tracing::info!("current height was already checked. sleeping for 60s.");
                         sleep(Duration::from_secs(60));
                         continue;
                     }
 
                     tracing::info!("current height was not already checked, will start checking.");
-                    if dump_check_iter_info.epoch_height > epoch_height + 1 {
+                    if dump_check_iter_info.epoch_height > *epoch_height + 1 {
                         tracing::info!("there is a skip between last done epoch at epoch height: {epoch_height}, and latest available epoch at {}", dump_check_iter_info.epoch_height);
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
@@ -305,16 +305,16 @@ fn run_loop_all_shards(
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(0);
                     }
-                    reset_num_parts_metrics(&chain_id, shard_id as u64);
+                    reset_num_parts_metrics(&chain_id, shard_id);
                 }
                 Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
                     tracing::info!(epoch_height, "last one was waiting.");
-                    if dump_check_iter_info.epoch_height > epoch_height {
+                    if dump_check_iter_info.epoch_height > *epoch_height {
                         tracing::info!("last one was never finished. There is a skip between last waiting epoch at epoch height {epoch_height}, and latest available epoch at {}", dump_check_iter_info.epoch_height);
                         crate::metrics::STATE_SYNC_DUMP_CHECK_HAS_SKIPPED_EPOCH
                             .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
                             .set(1);
-                        reset_num_parts_metrics(&chain_id, shard_id as u64);
+                        reset_num_parts_metrics(&chain_id, shard_id);
                     } else {
                         // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedly
                         tracing::info!("last one was waiting. Latest epoch is the same as last one waiting. Will recheck the same epoch at epoch_height: {}", epoch_height);
@@ -322,7 +322,7 @@ fn run_loop_all_shards(
                 }
                 Err(_) => {
                     tracing::info!("last one errored out, will start check from the latest epoch");
-                    reset_num_parts_metrics(&chain_id, shard_id as u64);
+                    reset_num_parts_metrics(&chain_id, shard_id);
                 }
             }
 
@@ -331,7 +331,7 @@ fn run_loop_all_shards(
             let s3_bucket = s3_bucket.clone();
             let s3_region = s3_region.clone();
             let gcs_bucket = gcs_bucket.clone();
-            last_check_status_vec[shard_id] = sys.block_on(async move {
+            let new_status = sys.block_on(async move {
                 if !is_prometheus_server_up {
                     let server = HttpServer::new(move || {
                         App::new().service(
@@ -352,7 +352,7 @@ fn run_loop_all_shards(
                     dump_check_iter_info.epoch_id,
                     dump_check_iter_info.epoch_height,
                     shard_id as u64,
-                    dump_check_iter_info.state_roots[shard_id],
+                    dump_check_iter_info.state_roots[shard_id as usize],
                     root_dir,
                     s3_bucket,
                     s3_region,
@@ -360,6 +360,7 @@ fn run_loop_all_shards(
                 )
                 .await
             });
+            last_check_status.insert(shard_id, new_status);
             is_prometheus_server_up = true;
         }
     }
@@ -462,10 +463,15 @@ async fn run_single_check(
         gcs_bucket.clone(),
     );
 
-    let directory_path =
-        external_storage_location_directory(&chain_id, &epoch_id, epoch_height, shard_id);
+    let directory_path = external_storage_location_directory(
+        &chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
     tracing::info!(directory_path, "the storage location for the state parts being checked:");
-    let part_file_names = external.list_state_parts(shard_id, &directory_path).await?;
+    let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     if part_file_names.is_empty() {
         return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
     }
@@ -568,7 +574,7 @@ async fn process_part_with_3_retries(
         let chain_id = chain_id.clone();
         let epoch_id = epoch_id.clone();
         let external = external.clone();
-        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_part().await somehow waits forever
+        // timeout is needed to deal with edge cases where process_part awaits forever, i.e. the get_file().await somehow waits forever
         // this is set to a long duration because the timer for each task, i.e. process_part, starts when the task is started, i.e. tokio::spawn is called,
         // and counts actual time instead of CPU time.
         // The bottom line is this timeout * MAX_RETRIES > time it takes for all parts to be processed, which is typically < 30 mins on monitoring nodes
@@ -622,9 +628,10 @@ async fn process_part(
     external: ExternalConnection,
 ) -> anyhow::Result<()> {
     tracing::info!(part_id, "process_part started.");
+    let file_type = StateFileType::StatePart { part_id, num_parts };
     let location =
-        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, part_id, num_parts);
-    let part = external.get_part(shard_id, &location).await?;
+        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+    let part = external.get_file(shard_id, &location, &file_type).await?;
     let is_part_valid = validate_state_part(&state_root, PartId::new(part_id, num_parts), &part);
     if is_part_valid {
         crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_VALID
@@ -656,12 +663,10 @@ async fn get_processing_epoch_information(
     let latest_epoch_height = latest_epoch_response.epoch_height;
     let prev_epoch_last_block_response =
         get_previous_epoch_last_block_response(rpc_client, latest_epoch_id).await?;
-    let shard_ids: Vec<usize> = (0..4).collect();
-    // state roots ordered by shard_id
-    let prev_epoch_state_roots: Vec<CryptoHash> = shard_ids
-        .iter()
-        .map(|&shard_id| prev_epoch_last_block_response.chunks[shard_id].prev_state_root)
-        .collect();
+    let mut chunks = prev_epoch_last_block_response.chunks;
+    chunks.sort_by(|c1, c2| c1.shard_id.cmp(&c2.shard_id));
+    let prev_epoch_state_roots: Vec<CryptoHash> =
+        chunks.iter().map(|chunk| chunk.prev_state_root).collect();
 
     Ok(DumpCheckIterInfo {
         epoch_id: EpochId(latest_epoch_id),

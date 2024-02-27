@@ -1,14 +1,13 @@
 use assert_matches::assert_matches;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use near_vm_runner::VMKind;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
@@ -35,9 +34,7 @@ fn test_deploy_cost_increased() {
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
-            .real_epoch_managers(&genesis.config)
+        TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],

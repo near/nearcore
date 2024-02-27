@@ -344,7 +344,8 @@ pub(super) struct InitCmd {
 fn check_release_build(chain: &str) {
     let is_release_build = option_env!("NEAR_RELEASE_BUILD") == Some("release")
         && !cfg!(feature = "nightly")
-        && !cfg!(feature = "nightly_protocol");
+        && !cfg!(feature = "nightly_protocol")
+        && !cfg!(feature = "statelessnet_protocol");
     if !is_release_build
         && [near_primitives::chains::MAINNET, near_primitives::chains::TESTNET].contains(&chain)
     {
@@ -556,6 +557,7 @@ impl RunCmd {
                 cold_store_loop_handle,
                 state_sync_dump_handle,
                 flat_state_migration_handle,
+                resharding_handle,
                 ..
             } = nearcore::start_with_config_and_synchronization(
                 home_dir,
@@ -582,6 +584,7 @@ impl RunCmd {
             if let Some(handle) = state_sync_dump_handle {
                 handle.stop()
             }
+            resharding_handle.stop();
             flat_state_migration_handle.stop();
             futures::future::join_all(rpc_servers.iter().map(|(name, server)| async move {
                 server.stop(true).await;

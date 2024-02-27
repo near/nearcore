@@ -1,9 +1,10 @@
 use crate::config::Config;
 use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::vm_estimator::create_context;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
+use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::ContractCode;
@@ -14,7 +15,7 @@ pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
     let mut ys1 = vec![];
     let mut xs2 = vec![];
     let mut ys2 = vec![];
-    for depth in vec![1, 10, 20, 30, 50, 100, 200, 1000] {
+    for depth in [1, 10, 20, 30, 50, 100, 200, 1000] {
         {
             // Here we test gas metering costs for forward branch cases.
             let nested_contract = make_deeply_nested_blocks_contact(depth);
@@ -135,6 +136,7 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let vm_config_free = {
         let mut cfg = vm_config_gas.clone();
         cfg.make_free();
+        cfg.enable_all_features();
         cfg
     };
     let runtime = vm_kind.runtime(vm_config_gas).expect("runtime has not been enabled");

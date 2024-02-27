@@ -1,7 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance, ShardId};
+use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
@@ -11,7 +11,23 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 
-pub use near_vm_runner::logic::DataReceiver;
+/// The outgoing (egress) data which will be transformed
+/// to a `DataReceipt` to be sent to a `receipt.receiver`
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct DataReceiver {
+    pub data_id: CryptoHash,
+    pub receiver_id: AccountId,
+}
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
@@ -202,6 +218,37 @@ impl DelayedReceiptIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
     }
+}
+
+/// Stores indices for a persistent queue for yielded promises.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromiseQueueIndices {
+    // First inclusive index in the queue.
+    pub first_index: u64,
+    // Exclusive end index of the queue
+    pub next_available_index: u64,
+}
+
+impl YieldedPromiseQueueIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
+}
+
+/// Entries in the queue of yielded promises.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromiseQueueEntry {
+    /// The `data_id` used to identify the awaited input data
+    pub data_id: CryptoHash,
+    /// The block height before which the data must be submitted
+    pub expires_at: BlockHeight,
+}
+
+/// Information related to a yielded promise.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromise {
+    /// The account on which the yielded promise was created
+    pub account_id: AccountId,
 }
 
 /// Map of shard to list of receipts to send to it.

@@ -1,15 +1,13 @@
 #![allow(unused_imports)]
 
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
-
+use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
+use crate::{ClientActor, Query, ViewClientActor};
 use actix::{Addr, MailboxError, System};
 use futures::{future, FutureExt};
-
 use near_actix_test_utils::run_actix;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{ProcessTxRequest, ProcessTxResponse};
 use near_network::types::PeerInfo;
 use near_network::types::{
     NetworkResponses, PeerManagerMessageRequest, PeerManagerMessageResponse,
@@ -21,10 +19,9 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockReference};
 use near_primitives::views::QueryResponseKind::ViewAccount;
 use near_primitives::views::{QueryRequest, QueryResponse};
-
-use crate::adapter::{ProcessTxRequest, ProcessTxResponse};
-use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting, BlockStats};
-use crate::{ClientActor, Query, ViewClientActor};
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
@@ -58,6 +55,7 @@ fn test_keyvalue_runtime_balances() {
             vec![false; validators.len()],
             vec![true; validators.len()],
             false,
+            None,
             Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                 (NetworkResponses::NoResponse.into(), true)
             }),
@@ -460,6 +458,7 @@ fn test_cross_shard_tx_common(
             vec![true; validators.len()],
             vec![false; validators.len()],
             true,
+            None,
             Box::new(move |_, _account_id: _, _msg: &PeerManagerMessageRequest| {
                 (PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse), true)
             }),

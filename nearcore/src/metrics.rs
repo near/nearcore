@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn test_get_postponed_receipt_count() {
         // no postponed receipts
-        let count = get_postponed_receipt_count_for_trie(create_trie(&vec![])).unwrap();
+        let count = get_postponed_receipt_count_for_trie(create_trie(&[])).unwrap();
         assert_eq!(count, 0);
 
         // one postponed receipts
@@ -329,8 +329,7 @@ mod tests {
             create_item(&[col::POSTPONED_RECEIPT, 1]),
             create_item(&[col::POSTPONED_RECEIPT, 2]),
             create_item(&[col::POSTPONED_RECEIPT, 3]),
-            create_item(&[col::DELAYED_RECEIPT_INDICES, 1]),
-            create_item(&[col::DELAYED_RECEIPT, 1]),
+            create_item(&[col::DELAYED_RECEIPT_OR_INDICES, 1]),
             create_item(&[col::CONTRACT_DATA, 1]),
         ];
         let count = get_postponed_receipt_count_for_trie(create_trie(&items)).unwrap();

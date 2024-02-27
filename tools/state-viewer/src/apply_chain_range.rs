@@ -1,6 +1,9 @@
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::{ApplyTransactionResult, RuntimeAdapter, RuntimeStorageConfig};
+use near_chain::types::{
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, RuntimeAdapter,
+    RuntimeStorageConfig,
+};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
@@ -227,22 +230,21 @@ fn apply_block_from_range(
             }
         }
         runtime_adapter
-            .apply_transactions(
-                shard_id,
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                height,
-                block.header().raw_timestamp(),
-                block.header().prev_hash(),
-                block.hash(),
+                ApplyChunkShardContext {
+                    shard_id,
+                    last_validator_proposals: chunk_inner.prev_validator_proposals(),
+                    gas_limit: chunk_inner.gas_limit(),
+                    is_new_chunk: true,
+                    is_first_block_with_chunk_of_version,
+                },
+                ApplyChunkBlockContext::from_header(
+                    block.header(),
+                    prev_block.header().next_gas_price(),
+                ),
                 &receipts,
                 chunk.transactions(),
-                chunk_inner.prev_validator_proposals(),
-                prev_block.header().next_gas_price(),
-                chunk_inner.gas_limit(),
-                block.header().challenges_result(),
-                *block.header().random_value(),
-                true,
-                is_first_block_with_chunk_of_version,
             )
             .unwrap()
     } else {
@@ -252,27 +254,26 @@ fn apply_block_from_range(
         prev_chunk_extra = Some(chunk_extra.clone());
 
         runtime_adapter
-            .apply_transactions(
-                shard_id,
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                block.header().height(),
-                block.header().raw_timestamp(),
-                block.header().prev_hash(),
-                block.hash(),
+                ApplyChunkShardContext {
+                    shard_id,
+                    last_validator_proposals: chunk_extra.validator_proposals(),
+                    gas_limit: chunk_extra.gas_limit(),
+                    is_new_chunk: false,
+                    is_first_block_with_chunk_of_version: false,
+                },
+                ApplyChunkBlockContext::from_header(
+                    block.header(),
+                    block.header().next_gas_price(),
+                ),
                 &[],
                 &[],
-                chunk_extra.validator_proposals(),
-                block.header().next_gas_price(),
-                chunk_extra.gas_limit(),
-                block.header().challenges_result(),
-                *block.header().random_value(),
-                false,
-                false,
             )
             .unwrap()
     };
 
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
     let chunk_extra = ChunkExtra::new(
         &apply_result.new_root,
         outcome_root,
@@ -450,7 +451,7 @@ mod test {
     use std::io::{Read, Seek, SeekFrom};
     use std::path::Path;
 
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::Provenance;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -482,10 +483,7 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder(&genesis.config)
             .validator_seats(2)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager])

@@ -19,7 +19,6 @@ use crate::version::{
 
 use near_crypto::{ED25519PublicKey, Secp256K1PublicKey};
 use near_primitives_core::account::id::{AccountId, AccountType};
-use near_vm_runner::ContractCode;
 
 use std::mem::size_of;
 use std::ops::Deref;
@@ -239,18 +238,18 @@ pub fn create_receipt_id_from_transaction(
     )
 }
 
-/// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
+/// Creates a new Receipt ID from a given receipt id, a block hash and a new receipt index.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_receipt_id_from_receipt(
+pub fn create_receipt_id_from_receipt_id(
     protocol_version: ProtocolVersion,
-    receipt: &Receipt,
+    receipt_id: &CryptoHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     receipt_index: usize,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &receipt.receipt_id,
+        receipt_id,
         prev_block_hash,
         block_hash,
         receipt_index as u64,
@@ -469,12 +468,6 @@ where
     T: serde::Serialize,
 {
     Serializable(object)
-}
-
-// TODO(eth-implicit) Replace this function (and wat dependency) with a real Wallet Contract implementation.
-pub fn wallet_contract_placeholder() -> ContractCode {
-    let code = wat::parse_str(r#"(module (func (export "main")))"#);
-    ContractCode::new(code.unwrap().to_vec(), None)
 }
 
 /// From `near-account-id` version `1.0.0-alpha.2`, `is_implicit` returns true for ETH-implicit accounts.

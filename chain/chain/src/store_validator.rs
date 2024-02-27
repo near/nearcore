@@ -395,12 +395,12 @@ mod tests {
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
+        let mut genesis = GenesisConfig::default();
+        genesis.genesis_height = 0;
+        let chain_genesis = ChainGenesis::new(&genesis);
         let epoch_manager = MockEpochManager::new(store.clone(), chain_genesis.epoch_length);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = KeyValueRuntime::new(store.clone(), epoch_manager.as_ref());
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
         let chain = Chain::new(
             epoch_manager.clone(),
             shard_tracker.clone(),
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn test_io_error() {
         let (chain, mut sv) = init();
-        let mut store_update = chain.store().store().store_update();
+        let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::Block).is_ok());
         // Use `set_raw` to ruthlessly override block data with some garbage,
         // simulating IO error.
@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_db_corruption() {
         let (chain, mut sv) = init();
-        let mut store_update = chain.store().store().store_update();
+        let mut store_update = chain.chain_store().store().store_update();
         assert!(sv.validate_col(DBCol::TrieChanges).is_ok());
         store_update.set_ser::<[u8]>(DBCol::TrieChanges, "567".as_ref(), &[123]).unwrap();
         store_update.commit().unwrap();

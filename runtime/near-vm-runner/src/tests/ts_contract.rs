@@ -1,16 +1,17 @@
+use super::test_vm_config;
 use crate::logic::errors::{FunctionCallError, HostError};
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::types::ReturnData;
-use crate::logic::{Config, External, StorageGetMode};
-use crate::ContractCode;
-use near_primitives_core::runtime::fees::RuntimeFeesConfig;
-
+use crate::logic::{External, StorageGetMode};
+use crate::runner::VMKindExt;
 use crate::tests::{create_context, with_vm_variants};
-use crate::vm_kind::VMKind;
+use crate::ContractCode;
+use near_parameters::vm::VMKind;
+use near_parameters::RuntimeFeesConfig;
 
 #[test]
 pub fn test_ts_contract() {
-    let config = Config::test();
+    let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
         let mut fake_external = MockedExternal::new();

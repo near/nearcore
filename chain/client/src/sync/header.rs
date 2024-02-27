@@ -97,6 +97,7 @@ impl HeaderSync {
         highest_height_peers: &[HighestHeightPeerInfo],
     ) -> Result<(), near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "HeaderSync").entered();
+        let head = chain.head()?;
         let header_head = chain.header_head()?;
 
         // Check if we need to start a new request for a batch of header.
@@ -132,11 +133,7 @@ impl HeaderSync {
 
         // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
         // This number has no other functional value.
-        let start_height = match &sync_status {
-            SyncStatus::HeaderSync { start_height, .. } => *start_height,
-            SyncStatus::BlockSync { start_height, .. } => *start_height,
-            _ => chain.head()?.height,
-        };
+        let start_height = sync_status.start_height().unwrap_or(head.height);
 
         sync_status.update(SyncStatus::HeaderSync {
             start_height,
@@ -238,6 +235,7 @@ impl HeaderSync {
                                 if now > *stalling_ts + self.stall_ban_timeout
                                     && *highest_height == peer.highest_block_height
                                 {
+                                    // This message is used in sync_ban.py test. Consider checking there as well if you change it.
                                     // The peer is one of the peers with the highest height, but we consider the peer stalling.
                                     warn!(target: "sync", "Sync: ban a peer: {}, for not providing enough headers. Peer's height:  {}", peer.peer_info, peer.highest_block_height);
                                     // Ban the peer, which blocks all interactions with the peer for some time.
@@ -335,7 +333,7 @@ impl HeaderSync {
     // why we stop at the final block is because the consensus guarantees us that the final
     // blocks observed by all nodes are on the same fork.
     fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let store = chain.store();
+        let store = chain.chain_store();
         let tip = store.header_head()?;
         // We could just get the ordinal from the header, but it's off by one: #8177.
         let tip_ordinal = store.get_block_merkle_tree(&tip.last_block_hash)?.size();
@@ -377,6 +375,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
+    use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils::{
         process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
     };
@@ -438,7 +437,7 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -524,7 +523,7 @@ mod test {
     fn test_sync_headers_fork_from_final_block() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -634,7 +633,7 @@ mod test {
 
         // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
-            network_adapter.clone().into(),
+            network_adapter.as_multi_sender(),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(3),
@@ -728,7 +727,7 @@ mod test {
     fn test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -765,6 +764,7 @@ mod test {
                 this_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
+                vec![vec![]; last_block.chunks().len()],
                 epoch_id,
                 next_epoch_id,
                 None,

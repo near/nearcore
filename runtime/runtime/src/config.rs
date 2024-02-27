@@ -2,14 +2,12 @@
 
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
-use near_primitives_core::config::ActionCosts;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
 // Just re-exporting RuntimeConfig for backwards compatibility.
+use near_parameters::{transfer_exec_fee, transfer_send_fee, ActionCosts, RuntimeConfig};
 pub use near_primitives::num_rational::Rational32;
-pub use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::fees::{transfer_exec_fee, transfer_send_fee};
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
 
@@ -40,23 +38,23 @@ pub fn safe_gas_price_inflated(
     let denom = BigUint::from(*inflation_base.denom() as usize).pow(inflation_exponent as u32);
     // Rounding up
     let inflated_gas_price: BigUint = (numer * gas_price + &denom - 1u8) / denom;
-    inflated_gas_price.to_u128().ok_or_else(|| IntegerOverflowError {})
+    inflated_gas_price.to_u128().ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_gas_to_balance(gas_price: Balance, gas: Gas) -> Result<Balance, IntegerOverflowError> {
-    gas_price.checked_mul(Balance::from(gas)).ok_or_else(|| IntegerOverflowError {})
+    gas_price.checked_mul(Balance::from(gas)).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_gas(a: Gas, b: Gas) -> Result<Gas, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_balance(a: Balance, b: Balance) -> Result<Balance, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 pub fn safe_add_compute(a: Compute, b: Compute) -> Result<Compute, IntegerOverflowError> {
-    a.checked_add(b).ok_or_else(|| IntegerOverflowError {})
+    a.checked_add(b).ok_or(IntegerOverflowError {})
 }
 
 #[macro_export]
@@ -95,6 +93,19 @@ pub fn total_send_fees(
                         * num_bytes
             }
             Transfer(_) => {
+                // Account for implicit account creation
+                transfer_send_fee(
+                    fees,
+                    sender_is_receiver,
+                    config.wasm_config.implicit_account_creation,
+                    config.wasm_config.eth_implicit_accounts,
+                    receiver_id.get_account_type(),
+                )
+            }
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            // TODO(nonrefundable) Before stabilizing, consider using separate gas cost parameters
+            // for non-refundable and regular transfers.
+            NonrefundableStorageTransfer(_) => {
                 // Account for implicit account creation
                 transfer_send_fee(
                     fees,
@@ -191,6 +202,16 @@ pub fn exec_fee(config: &RuntimeConfig, action: &Action, receiver_id: &AccountId
                 + fees.fee(ActionCosts::function_call_byte).exec_fee() * num_bytes
         }
         Transfer(_) => {
+            // Account for implicit account creation
+            transfer_exec_fee(
+                fees,
+                config.wasm_config.implicit_account_creation,
+                config.wasm_config.eth_implicit_accounts,
+                receiver_id.get_account_type(),
+            )
+        }
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        NonrefundableStorageTransfer(_) => {
             // Account for implicit account creation
             transfer_exec_fee(
                 fees,

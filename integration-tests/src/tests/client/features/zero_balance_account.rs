@@ -1,17 +1,13 @@
 use assert_matches::assert_matches;
 
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
-use near_client::adapter::ProcessTxResponse;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
+use near_network::client::ProcessTxResponse;
+use near_parameters::{ExtCostsConfig, RuntimeConfig, RuntimeConfigStore, StorageUsageConfig};
 use near_primitives::account::id::AccountId;
 use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermission};
-use near_primitives::config::ExtCostsConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidTxError, TxExecutionError};
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
-use near_primitives::runtime::fees::StorageUsageConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::Action::AddKey;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteKeyAction, SignedTransaction};
@@ -55,10 +51,7 @@ fn test_zero_balance_account_creation() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version();
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();
@@ -136,8 +129,7 @@ fn test_zero_balance_account_add_key() {
     };
     runtime_config.wasm_config.ext_costs = ExtCostsConfig::test();
     let runtime_config_store = RuntimeConfigStore::with_one_config(runtime_config);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
         .build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
@@ -255,10 +247,7 @@ fn test_zero_balance_account_upgrade() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = ProtocolFeature::ZeroBalanceAccount.protocol_version() - 1;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let new_account_id: AccountId = "hello.test0".parse().unwrap();

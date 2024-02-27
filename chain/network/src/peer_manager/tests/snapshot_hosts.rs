@@ -1,4 +1,3 @@
-use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::MAX_SHARDS_PER_SNAPSHOT_HOST_INFO;
@@ -10,6 +9,7 @@ use crate::testonly::{make_rng, AsSet as _};
 use crate::types::NetworkRequests;
 use crate::types::PeerManagerMessageRequest;
 use crate::types::PeerMessage;
+use crate::{network_protocol::testonly as data, peer::testonly::PeerHandle};
 use near_async::time;
 use near_crypto::SecretKey;
 use near_o11y::testonly::init_test_logger;
@@ -48,6 +48,25 @@ fn take_sync_snapshot_msg(event: crate::peer::testonly::Event) -> Option<SyncSna
             PeerMessage::SyncSnapshotHosts(msg),
         )) => Some(msg),
         _ => None,
+    }
+}
+
+/// Receives events from the given PeerHandle until the desired target_info is found
+/// Ignores infos defined in allowed_ignorable_infos. Any other unexpected info will trigger a panic.
+async fn wait_for_host_info(
+    peer: &mut PeerHandle,
+    target_info: &SnapshotHostInfo,
+    allowed_ignorable_infos: &[Arc<SnapshotHostInfo>],
+) {
+    loop {
+        let msg = peer.events.recv_until(take_sync_snapshot_msg).await;
+        for info in msg.hosts {
+            if info.as_ref() == target_info {
+                return;
+            } else if !allowed_ignorable_infos.contains(&info) {
+                panic!("wait_for_host_info: received unexpected SnapshotHostInfo: {:?}", info);
+            }
+        }
     }
 }
 
@@ -174,7 +193,7 @@ async fn invalid_signature_not_broadcast() {
     let ok_info_b = make_snapshot_host_info(&peer1_config.node_id(), &peer1_config.node_key, rng);
 
     let invalid_message = PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts {
-        hosts: vec![ok_info_a, invalid_info, ok_info_b],
+        hosts: vec![ok_info_a.clone(), invalid_info, ok_info_b.clone()],
     });
     peer1.send(invalid_message).await;
 
@@ -186,10 +205,11 @@ async fn invalid_signature_not_broadcast() {
         .send(PeerMessage::SyncSnapshotHosts(SyncSnapshotHosts { hosts: vec![info2.clone()] }))
         .await;
 
-    tracing::info!(target:"test", "Make sure that only the valid message is broadcast.");
+    tracing::info!(target:"test", "Make sure that only the valid messages are broadcast.");
 
-    let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
-    assert_eq!(msg.hosts, vec![info2]);
+    // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
+    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
 /// Test that a SnapshotHostInfo message with more shards than allowed isn't broadcast by PeerManager.
@@ -258,23 +278,9 @@ async fn too_many_shards_not_broadcast() {
 
     tracing::info!(target:"test", "Make sure that only valid messages are broadcast.");
 
-    loop {
-        let msg = peer2.events.recv_until(take_sync_snapshot_msg).await;
-        for info in msg.hosts {
-            if info == info2 {
-                return; // Received the expected message - end the test
-            }
-
-            // Even though `ok_info_a` and `ok_info_b` were sent in an invalid message,
-            // they were themselevs valid so the PeerManager can optionally accept them
-            // and broadcast them to other peers. This is an expected behavior, let's filter them out here.
-            if info == ok_info_a || info == ok_info_b {
-                continue;
-            }
-
-            panic!("Unexpected host info received: {:#?}", info);
-        }
-    }
+    // Wait until peer2 receives info2. Ignore ok_info_a and ok_info_b,
+    // as the PeerManager could accept and broadcast them despite the neighbouring invalid_info.
+    wait_for_host_info(&mut peer2, &info2, &[ok_info_a, ok_info_b]).await;
 }
 
 /// Test that SyncSnapshotHosts message is propagated between many PeerManager instances.

@@ -8,13 +8,12 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
+use near_parameters::{RuntimeConfig, RuntimeConfigStore};
 use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
@@ -209,8 +208,8 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
@@ -237,7 +236,7 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
         let head = store.get_ser::<Tip>(DBCol::BlockMisc, FINAL_HEAD_KEY)?.unwrap();
         let shard_layout = epoch_manager.get_shard_layout(&head.epoch_id)?;
-        let all_shard_uids = shard_layout.get_shard_uids();
+        let all_shard_uids: Vec<_> = shard_layout.shard_uids().collect();
         let num_shards = all_shard_uids.len();
         // Flat state can be at different heights for different shards.
         // That is fine, we'll simply lookup state root for each .
@@ -441,8 +440,8 @@ impl ForkNetworkCommand {
     /// Deletes `~/.near/data/fork-snapshot/data`.
     /// Moves `~/.near/genesis.json.backup` to `~/.near/genesis.json`.
     fn reset(self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
         let fork_snapshot_path = store_path.join("fork-snapshot/data");
         if !Path::new(&fork_snapshot_path).exists() {
@@ -667,7 +666,7 @@ impl ForkNetworkCommand {
                     }
                     storage_mutator.set_access_key(
                         account_id,
-                        near_mirror::key_mapping::EXTRA_KEY.public_key(),
+                        near_mirror::key_mapping::default_extra_key(None).public_key(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
@@ -750,8 +749,10 @@ impl ForkNetworkCommand {
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
+                    0,
                     CryptoHash::default(),
                     storage_bytes,
+                    PROTOCOL_VERSION,
                 ),
             )?;
             storage_mutator.set_access_key(

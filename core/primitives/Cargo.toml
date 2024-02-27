@@ -22,6 +22,7 @@ derive_more.workspace = true
 easy-ext.workspace = true
 enum-map.workspace = true
 hex.workspace = true
+itertools.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
 primitive-types.workspace = true
@@ -39,7 +40,6 @@ strum.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
-wat.workspace = true
 
 near-crypto.workspace = true
 near-fmt.workspace = true
@@ -47,6 +47,7 @@ near-o11y.workspace = true
 near-primitives-core.workspace = true
 near-rpc-error-macro.workspace = true
 near-vm-runner.workspace = true
+near-parameters.workspace = true
 
 [features]
 sandbox = []
@@ -54,23 +55,32 @@ dump_errors_schema = ["near-rpc-error-macro/dump_errors_schema"]
 protocol_feature_fix_staking_threshold = ["near-primitives-core/protocol_feature_fix_staking_threshold"]
 protocol_feature_fix_contract_loading_cost = ["near-primitives-core/protocol_feature_fix_contract_loading_cost"]
 protocol_feature_reject_blocks_with_outdated_protocol_version = ["near-primitives-core/protocol_feature_reject_blocks_with_outdated_protocol_version"]
+protocol_feature_nonrefundable_transfer_nep491 = ["near-primitives-core/protocol_feature_nonrefundable_transfer_nep491"]
 nightly = [
+  "near-fmt/nightly",
+  "near-o11y/nightly",
+  "near-parameters/nightly",
+  "near-primitives-core/nightly",
+  "near-vm-runner/nightly",
   "nightly_protocol",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
+  "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
-  "near-fmt/nightly",
-  "near-o11y/nightly",
-  "near-primitives-core/nightly",
-  "near-vm-runner/nightly",
 ]
 
 nightly_protocol = [
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
+  "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
   "near-vm-runner/nightly_protocol",
 ]
+
+statelessnet_protocol = [
+  "near-primitives-core/statelessnet_protocol",
+]
+
 new_epoch_sync = []
 
 
@@ -80,6 +90,7 @@ calimero_zero_storage = []
 assert_matches.workspace = true
 bencher.workspace = true
 insta.workspace = true
+expect-test.workspace = true
 
 [[bench]]
 name = "serialization"

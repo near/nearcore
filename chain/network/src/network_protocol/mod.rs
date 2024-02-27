@@ -7,6 +7,8 @@ mod peer;
 mod proto_conv;
 mod state_sync;
 pub use edge::*;
+use near_primitives::stateless_validation::ChunkEndorsement;
+use near_primitives::stateless_validation::ChunkStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -115,7 +117,7 @@ pub struct AccountData {
 /// Wrapper of the AccountData which adds metadata to it.
 /// It allows to decide which AccountData is newer (authoritative)
 /// and discard the older versions.
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct VersionedAccountData {
     /// The wrapped account data.
     pub data: AccountData,
@@ -216,7 +218,7 @@ impl AccountKeySignedPayload {
 // TODO(gprusak): this is effectively immutable, and we always pass it around
 // in an Arc, so the Arc can be moved inside (except that constructing malformed
 // SignedAccountData for tests may get a little tricky).
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
     // Serialized and signed AccountData.
@@ -504,26 +506,13 @@ impl PeerMessage {
 pub enum RoutedMessageBody {
     BlockApproval(Approval),
     ForwardTx(SignedTransaction),
-
     TxStatusRequest(AccountId, CryptoHash),
     TxStatusResponse(FinalExecutionOutcomeView),
-
     /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryRequest,
-    /// Not used, but needed for borsh backward compatibility.
     _UnusedQueryResponse,
-
-    /// Not used any longer and ignored when received.
-    ///
-    /// We’ve been still sending those messages at protocol version 56 so we
-    /// need to wait until 59 before we can remove the variant completely.
-    /// Until then we need to be able to decode those messages (even though we
-    /// will ignore them).
-    ReceiptOutcomeRequest(CryptoHash),
-
-    /// Not used, but needed to borsh backward compatibility.
+    _UnusedReceiptOutcomeRequest(CryptoHash),
     _UnusedReceiptOutcomeResponse,
-
     _UnusedStateRequestHeader,
     _UnusedStateRequestPart,
     /// StateResponse in not produced since protocol version 58.
@@ -540,6 +529,8 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
+    ChunkStateWitness(ChunkStateWitness),
+    ChunkEndorsement(ChunkEndorsement),
 }
 
 impl RoutedMessageBody {
@@ -548,10 +539,11 @@ impl RoutedMessageBody {
     // lost
     pub fn is_important(&self) -> bool {
         match self {
-            // Both BlockApproval and VersionedPartialEncodedChunk is essential for block production and
-            // are only sent by the original node and if they are lost, the receiver node doesn't
-            // know to request them.
+            // These messages are important because they are critical for block and chunk production,
+            // and lost messages cannot be requested again.
             RoutedMessageBody::BlockApproval(_)
+            | RoutedMessageBody::ChunkEndorsement(_)
+            | RoutedMessageBody::ChunkStateWitness(_)
             | RoutedMessageBody::VersionedPartialEncodedChunk(_) => true,
             _ => false,
         }
@@ -575,7 +567,7 @@ impl fmt::Debug for RoutedMessageBody {
             }
             RoutedMessageBody::_UnusedQueryRequest => write!(f, "QueryRequest"),
             RoutedMessageBody::_UnusedQueryResponse => write!(f, "QueryResponse"),
-            RoutedMessageBody::ReceiptOutcomeRequest(hash) => write!(f, "ReceiptRequest({})", hash),
+            RoutedMessageBody::_UnusedReceiptOutcomeRequest(_) => write!(f, "ReceiptRequest"),
             RoutedMessageBody::_UnusedReceiptOutcomeResponse => write!(f, "ReceiptResponse"),
             RoutedMessageBody::_UnusedStateRequestHeader => write!(f, "StateRequestHeader"),
             RoutedMessageBody::_UnusedStateRequestPart => write!(f, "StateRequestPart"),
@@ -604,6 +596,8 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::Ping(_) => write!(f, "Ping"),
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
+            RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
+            RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
         }
     }
 }
@@ -687,7 +681,6 @@ impl RoutedMessage {
             RoutedMessageBody::Ping(_)
                 | RoutedMessageBody::TxStatusRequest(_, _)
                 | RoutedMessageBody::PartialEncodedChunkRequest(_)
-                | RoutedMessageBody::ReceiptOutcomeRequest(_)
         )
     }
 

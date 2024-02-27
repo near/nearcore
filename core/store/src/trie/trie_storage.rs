@@ -237,7 +237,8 @@ impl TrieCache {
             .per_shard_max_bytes
             .get(&shard_uid)
             .copied()
-            .unwrap_or(cache_config.default_max_bytes);
+            .unwrap_or(cache_config.default_max_bytes)
+            .as_u64();
         let queue_capacity = config.deletions_queue_capacity();
         Self(Arc::new(Mutex::new(TrieCacheInner::new(
             queue_capacity,
@@ -536,9 +537,7 @@ fn read_node_from_db(
     let val = store
         .get(DBCol::State, key.as_ref())
         .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or_else(|| {
-            StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash)
-        })?;
+        .ok_or(StorageError::MissingTrieValue(MissingTrieValueContext::TrieStorage, *hash))?;
     Ok(val.into())
 }
 
@@ -687,10 +686,10 @@ mod trie_cache_tests {
     fn test_trie_config() {
         let mut store_config = StoreConfig::default();
 
-        const DEFAULT_SIZE: u64 = 1;
-        const S0_SIZE: u64 = 2;
-        const DEFAULT_VIEW_SIZE: u64 = 3;
-        const S0_VIEW_SIZE: u64 = 4;
+        const DEFAULT_SIZE: bytesize::ByteSize = bytesize::ByteSize(1);
+        const S0_SIZE: bytesize::ByteSize = bytesize::ByteSize(2);
+        const DEFAULT_VIEW_SIZE: bytesize::ByteSize = bytesize::ByteSize(3);
+        const S0_VIEW_SIZE: bytesize::ByteSize = bytesize::ByteSize(4);
 
         let s0 = ShardUId::single_shard();
         store_config.trie_cache.default_max_bytes = DEFAULT_SIZE;
@@ -710,11 +709,11 @@ mod trie_cache_tests {
         trie_config: &TrieConfig,
         shard_id: ShardId,
         is_view: bool,
-        expected_size: u64,
+        expected_size: bytesize::ByteSize,
     ) {
         let shard_uid = ShardUId { version: 0, shard_id: shard_id as u32 };
         let trie_cache = TrieCache::new(&trie_config, shard_uid, is_view);
-        assert_eq!(expected_size, trie_cache.lock().total_size_limit,);
-        assert_eq!(is_view, trie_cache.lock().is_view,);
+        assert_eq!(expected_size.as_u64(), trie_cache.lock().total_size_limit);
+        assert_eq!(is_view, trie_cache.lock().is_view);
     }
 }

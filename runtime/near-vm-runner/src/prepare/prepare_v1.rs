@@ -71,7 +71,7 @@ impl<'a> ContractModule<'a> {
     /// Memory section contains declarations of internal linear memories, so if we find one
     /// we reject such a module.
     pub(crate) fn ensure_no_internal_memory(self) -> Result<Self, PrepareError> {
-        if self.module.memory_section().map_or(false, |ms| !ms.entries().is_empty()) {
+        if self.module.memory_section().is_some_and(|ms| !ms.entries().is_empty()) {
             Err(PrepareError::InternalMemoryDeclared)
         } else {
             Ok(self)
@@ -234,11 +234,12 @@ pub(crate) fn validate_contract(
 
 #[cfg(test)]
 mod test {
-    use crate::logic::{Config, ContractPrepareVersion};
+    use crate::logic::ContractPrepareVersion;
+    use crate::tests::test_vm_config;
 
     #[test]
     fn v1_preparation_generates_valid_contract_fuzzer() {
-        let mut config = Config::test();
+        let mut config = test_vm_config();
         let prepare_version = ContractPrepareVersion::V1;
         config.limit_config.contract_prepare_version = prepare_version;
         let features = crate::features::WasmFeatures::from(prepare_version);

@@ -86,12 +86,9 @@ impl BlockSync {
             }
         }
 
-        // start_height is used to report the progress of header sync, e.g. to say that it's 50% complete.
+        // start_height is used to report the progress of state sync, e.g. to say that it's 50% complete.
         // This number has no other functional value.
-        let start_height = match sync_status.start_height() {
-            Some(height) => height,
-            None => head.height,
-        };
+        let start_height = sync_status.start_height().unwrap_or(head.height);
 
         sync_status.update(SyncStatus::BlockSync {
             start_height,
@@ -152,7 +149,7 @@ impl BlockSync {
         // Then go forward for as long as we know the next block
         let mut hash = *header.hash();
         loop {
-            match chain.store().get_next_block_hash(&hash) {
+            match chain.chain_store().get_next_block_hash(&hash) {
                 Ok(got_hash) => {
                     if chain.block_exists(&got_hash)? {
                         hash = got_hash;
@@ -191,7 +188,7 @@ impl BlockSync {
         let mut requests = vec![];
         let mut next_hash = reference_hash;
         for _ in 0..MAX_BLOCK_REQUESTS {
-            match chain.store().get_next_block_hash(&next_hash) {
+            match chain.chain_store().get_next_block_hash(&next_hash) {
                 Ok(hash) => next_hash = hash,
                 Err(e) => match e {
                     near_chain::Error::DBNotFoundErr(_) => break,
@@ -305,8 +302,10 @@ enum BlockSyncDue {
 mod test {
     use std::sync::Arc;
 
+    use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils::wait_for_all_blocks_in_processing;
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::Provenance;
+    use near_chain_configs::GenesisConfig;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_o11y::testonly::TracingCapture;
@@ -368,10 +367,11 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+            BlockSync::new(network_adapter.as_multi_sender(), block_fetch_horizon, false, true);
+        let mut genesis_config = GenesisConfig::test();
+        genesis_config.epoch_length = 100;
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -447,10 +447,11 @@ mod test {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
         let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+            BlockSync::new(network_adapter.as_multi_sender(), block_fetch_horizon, true, true);
+        let mut genesis_config = GenesisConfig::test();
+        genesis_config.epoch_length = 5;
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

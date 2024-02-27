@@ -110,6 +110,9 @@ pub enum ProtocolFeature {
     /// as it hardcodes preparation v2 code into the generated assembly.
     NearVmRuntime,
     BlockHeaderV4,
+    /// Resharding V2. A new implementation for resharding and a new shard
+    /// layout for the production networks.
+    SimpleNightshadeV2,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -120,14 +123,21 @@ pub enum ProtocolFeature {
     FixContractLoadingCost,
     #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
     RejectBlocksWithOutdatedProtocolVersions,
-    SimpleNightshadeV2,
+    /// Allows creating an account with a non refundable balance to cover storage costs.
+    /// NEP: https://github.com/near/NEPs/pull/491
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    NonRefundableBalance,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
-    /// Enables chunk validation which is introduced with stateless validation.
-    /// NEP: https://github.com/near/NEPs/pull/509
-    ChunkValidation,
+    /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
+    StatelessValidationV0,
     EthImplicitAccounts,
+
+    // Stateless validation: lower block and chunk validator kickout percent from 90 to 50.
+    LowerValidatorKickoutPercentForDebugging,
+    // Stateless validation: single shard tracking.
+    SingleShardTracking,
 }
 
 impl ProtocolFeature {
@@ -171,7 +181,14 @@ impl ProtocolFeature {
             ProtocolFeature::ComputeCosts | ProtocolFeature::FlatStorageReads => 61,
             ProtocolFeature::PreparationV2 | ProtocolFeature::NearVmRuntime => 62,
             ProtocolFeature::BlockHeaderV4 => 63,
-            ProtocolFeature::RestrictTla | ProtocolFeature::TestnetFewerBlockProducers => 64,
+            ProtocolFeature::RestrictTla
+            | ProtocolFeature::TestnetFewerBlockProducers
+            | ProtocolFeature::SimpleNightshadeV2 => 64,
+
+            // StatelessNet features
+            ProtocolFeature::StatelessValidationV0 => 80,
+            ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
+            ProtocolFeature::SingleShardTracking => 82,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -180,9 +197,9 @@ impl ProtocolFeature {
             ProtocolFeature::FixContractLoadingCost => 129,
             #[cfg(feature = "protocol_feature_reject_blocks_with_outdated_protocol_version")]
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
-            ProtocolFeature::SimpleNightshadeV2 => 135,
-            ProtocolFeature::ChunkValidation => 137,
             ProtocolFeature::EthImplicitAccounts => 138,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            ProtocolFeature::NonRefundableBalance => 140,
         }
     }
 }
@@ -193,9 +210,12 @@ impl ProtocolFeature {
 const STABLE_PROTOCOL_VERSION: ProtocolVersion = 64;
 
 /// Largest protocol version supported by the current binary.
-pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "nightly_protocol") {
+pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
+    // Current StatelessNet protocol version.
+    82
+} else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    139
+    140
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

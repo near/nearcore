@@ -12,10 +12,11 @@ fn vm_receipts<'a>(ext: &'a MockedExternal) -> Vec<impl serde::Serialize + 'a> {
 
 #[test]
 fn test_promise_results() {
-    let mut promise_results = vec![];
-    promise_results.push(PromiseResult::Successful(b"test".to_vec()));
-    promise_results.push(PromiseResult::Failed);
-    promise_results.push(PromiseResult::NotReady);
+    let promise_results = vec![
+        PromiseResult::Successful(b"test".to_vec()),
+        PromiseResult::Failed,
+        PromiseResult::NotReady,
+    ];
 
     let mut logic_builder = VMLogicBuilder::default();
     logic_builder.promise_results = promise_results;

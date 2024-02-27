@@ -1,52 +1,67 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use crate::adapter::ProcessTxResponse;
+use crate::stateless_validation::processing_tracker::{
+    ProcessingDoneTracker, ProcessingDoneWaiter,
+};
 use crate::Client;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, IntoMultiSender};
+use near_async::time::Clock;
 use near_chain::test_utils::ValidatorSchedule;
+use near_chain::types::Tip;
 use near_chain::{ChainGenesis, Provenance};
+use near_chain_configs::GenesisConfig;
+use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::test_utils::MockClientAdapterForShardsManager;
+use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
 use near_network::types::PeerManagerMessageRequest;
 use near_network::types::{PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg};
 use near_o11y::testonly::TracingCapture;
+use near_parameters::RuntimeConfig;
 use near_primitives::action::delegate::{DelegateAction, NonDelegateAction, SignedDelegateAction};
 use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::runtime::config::RuntimeConfig;
-use near_primitives::sharding::PartialEncodedChunk;
+use near_primitives::network::PeerId;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
+    StateItem,
 };
+use near_store::ShardUId;
 use once_cell::sync::OnceCell;
 
-use super::setup::{setup_client_with_runtime, ShardsManagerAdapterForTest};
+use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
+
+/// Timeout used in tests that wait for a specific chunk endorsement to appear
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
 pub struct TestEnv {
+    pub clock: Clock,
     pub chain_genesis: ChainGenesis,
     pub validators: Vec<AccountId>,
     pub network_adapters: Vec<Arc<MockPeerManagerAdapter>>,
     pub client_adapters: Vec<Arc<MockClientAdapterForShardsManager>>,
-    pub shards_manager_adapters: Vec<ShardsManagerAdapterForTest>,
+    pub shards_manager_adapters: Vec<SynchronousShardsManagerAdapter>,
     pub clients: Vec<Client>,
-    pub(crate) account_to_client_index: HashMap<AccountId, usize>,
+    pub(crate) account_indices: AccountIndices,
     pub(crate) paused_blocks: Arc<Mutex<HashMap<CryptoHash, Arc<OnceCell<()>>>>>,
     // random seed to be inject in each client according to AccountId
     // if not set, a default constant TEST_SEED will be injected
@@ -55,9 +70,19 @@ pub struct TestEnv {
     pub(crate) save_trie_changes: bool,
 }
 
+pub struct StateWitnessPropagationOutput {
+    /// Whether some propagated state witness includes two different post state
+    /// roots.
+    pub found_differing_post_state_root_due_to_state_transitions: bool,
+}
+
 impl TestEnv {
-    pub fn builder(chain_genesis: ChainGenesis) -> TestEnvBuilder {
-        TestEnvBuilder::new(chain_genesis)
+    pub fn default_builder() -> TestEnvBuilder {
+        TestEnvBuilder::new(GenesisConfig::test())
+    }
+
+    pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
+        TestEnvBuilder::new(genesis_config.clone())
     }
 
     /// Process a given block in the client with index `id`.
@@ -110,11 +135,11 @@ impl TestEnv {
     }
 
     pub fn client(&mut self, account_id: &AccountId) -> &mut Client {
-        &mut self.clients[self.account_to_client_index[account_id]]
+        self.account_indices.lookup_mut(&mut self.clients, account_id)
     }
 
-    pub fn shards_manager(&self, account: &AccountId) -> &ShardsManagerAdapterForTest {
-        &self.shards_manager_adapters[self.account_to_client_index[account]]
+    pub fn shards_manager(&self, account: &AccountId) -> &SynchronousShardsManagerAdapter {
+        self.account_indices.lookup(&self.shards_manager_adapters, account)
     }
 
     pub fn process_partial_encoded_chunks(&mut self) {
@@ -122,51 +147,46 @@ impl TestEnv {
 
         let mut keep_going = true;
         while keep_going {
+            keep_going = false;
             // for network_adapter in network_adapters.iter() {
             for i in 0..network_adapters.len() {
                 let network_adapter = network_adapters.get(i).unwrap();
                 let _span =
                     tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
 
-                keep_going = false;
-                // process partial encoded chunks
-                while let Some(request) = network_adapter.pop() {
-                    // if there are any requests in any of the adapters reset
-                    // keep going to true as processing of any message may
-                    // trigger more messages to be processed in other clients
-                    // it's a bit sad and it would be much nicer if all messages
-                    // were forwarded to a single queue
-                    // TODO would be nicer to first handle all PECs and then all PECFs
-                    keep_going = true;
-                    match request {
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedChunkMessage {
-                                account_id,
-                                partial_encoded_chunk,
-                            },
-                        ) => {
-                            let partial_encoded_chunk =
-                                PartialEncodedChunk::from(partial_encoded_chunk);
-                            let message =
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
-                                    partial_encoded_chunk,
-                                );
-                            self.shards_manager(&account_id).send(message);
-                        }
-                        PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::PartialEncodedChunkForward { account_id, forward },
-                        ) => {
-                            let message =
-                                ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
-                                    forward,
-                                );
-                            self.shards_manager(&account_id).send(message);
-                        }
-                        _ => {
-                            tracing::debug!(target: "test", ?request, "skipping unsupported request type");
-                        }
+                keep_going |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkRequest { .. },
+                    ) => {
+                        self.process_partial_encoded_chunk_request(i, request);
+                        None
                     }
-                }
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkMessage {
+                            account_id,
+                            partial_encoded_chunk,
+                        },
+                    ) => {
+                        let partial_encoded_chunk =
+                            PartialEncodedChunk::from(partial_encoded_chunk);
+                        let message = ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(
+                            partial_encoded_chunk,
+                        );
+                        self.shards_manager(&account_id).send(message);
+                        None
+                    }
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkForward { account_id, forward },
+                    ) => {
+                        let message =
+                            ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(
+                                forward,
+                            );
+                        self.shards_manager(&account_id).send(message);
+                        None
+                    }
+                    _ => Some(request),
+                });
             }
         }
     }
@@ -189,8 +209,9 @@ impl TestEnv {
             NetworkRequests::PartialEncodedChunkRequest { target, request, .. },
         ) = request
         {
-            let target_id = self.account_to_client_index[&target.account_id.unwrap()];
+            let target_id = self.account_indices.index(&target.account_id.unwrap());
             let response = self.get_partial_encoded_chunk_response(target_id, request);
+            tracing::info!("Got response for PartialEncodedChunkRequest: {:?}", response);
             if let Some(response) = response {
                 self.shards_manager_adapters[id].send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
@@ -251,7 +272,8 @@ impl TestEnv {
                     chunk_producer,
                 } => {
                     self.clients[id]
-                        .on_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
+                        .chunk_inclusion_tracker
+                        .mark_chunk_header_ready_for_inclusion(chunk_header, chunk_producer);
                 }
             }
             any_processed = true;
@@ -268,6 +290,136 @@ impl TestEnv {
             if self.clients[idx].finish_blocks_in_processing().is_empty() {
                 return;
             }
+        }
+    }
+
+    fn found_differing_post_state_root_due_to_state_transitions(
+        chunk_state_witness: &ChunkStateWitness,
+    ) -> bool {
+        let chunk_state_witness_inner = &chunk_state_witness.inner;
+        let mut post_state_roots =
+            HashSet::from([chunk_state_witness_inner.main_state_transition.post_state_root]);
+        post_state_roots.extend(
+            chunk_state_witness_inner.implicit_transitions.iter().map(|t| t.post_state_root),
+        );
+        post_state_roots.len() >= 2
+    }
+
+    /// Processes all state witnesses sent over the network. The function waits for the processing to finish,
+    /// so chunk endorsements are available immediately after this function returns.
+    pub fn propagate_chunk_state_witnesses(
+        &mut self,
+        allow_errors: bool,
+    ) -> StateWitnessPropagationOutput {
+        let mut output = StateWitnessPropagationOutput {
+            found_differing_post_state_root_due_to_state_transitions: false,
+        };
+        let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
+
+        let network_adapters = self.network_adapters.clone();
+        for network_adapter in network_adapters {
+            network_adapter.handle_filtered(|request| match request {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkStateWitness(
+                    account_ids,
+                    state_witness,
+                )) => {
+                    // Process chunk state witness for each client.
+                    for account_id in account_ids.iter() {
+                        let processing_done_tracker = ProcessingDoneTracker::new();
+                        witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+
+                        let processing_result =
+                            self.client(account_id).process_chunk_state_witness(
+                                state_witness.clone(),
+                                PeerId::random(),
+                                Some(processing_done_tracker),
+                            );
+                        if !allow_errors {
+                            processing_result.unwrap();
+                        }
+                    }
+
+                    // Update output.
+                    output.found_differing_post_state_root_due_to_state_transitions |=
+                        Self::found_differing_post_state_root_due_to_state_transitions(
+                            &state_witness,
+                        );
+
+                    None
+                }
+                _ => Some(request),
+            });
+        }
+
+        // Wait for all state witnesses to be processed before returning.
+        for processing_done_waiter in witness_processing_done_waiters {
+            processing_done_waiter.wait();
+        }
+
+        output
+    }
+
+    pub fn propagate_chunk_endorsements(&mut self, allow_errors: bool) {
+        // Clone the Vec to satisfy the borrow checker.
+        let network_adapters = self.network_adapters.clone();
+        for network_adapter in network_adapters {
+            network_adapter.handle_filtered(|request| match request {
+                PeerManagerMessageRequest::NetworkRequests(NetworkRequests::ChunkEndorsement(
+                    account_id,
+                    endorsement,
+                )) => {
+                    let processing_result =
+                        self.client(&account_id).process_chunk_endorsement(endorsement);
+                    if !allow_errors {
+                        processing_result.unwrap();
+                    }
+
+                    None
+                }
+                _ => Some(request),
+            });
+        }
+    }
+
+    pub fn propagate_chunk_state_witnesses_and_endorsements(&mut self, allow_errors: bool) {
+        self.propagate_chunk_state_witnesses(allow_errors);
+        self.propagate_chunk_endorsements(allow_errors);
+    }
+
+    /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
+    /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
+    /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
+    pub fn wait_for_chunk_endorsement(
+        &mut self,
+        client_idx: usize,
+        chunk_hash: &ChunkHash,
+    ) -> Result<ChunkEndorsement, TimeoutError> {
+        let start_time = Instant::now();
+        let network_adapter = self.network_adapters[client_idx].clone();
+        loop {
+            let mut endorsement_opt = None;
+            network_adapter.handle_filtered(|request| {
+                match &request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
+                    ) if endorsement.chunk_hash() == chunk_hash => {
+                        endorsement_opt = Some(endorsement.clone());
+                    }
+                    _ => {}
+                };
+                Some(request)
+            });
+
+            if let Some(endorsement) = endorsement_opt {
+                return Ok(endorsement);
+            }
+
+            let elapsed_since_start = start_time.elapsed();
+            if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
+                return Err(TimeoutError(elapsed_since_start));
+            }
+
+            std::thread::sleep(Duration::from_millis(50));
         }
     }
 
@@ -321,23 +473,53 @@ impl TestEnv {
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_id as usize];
-        let response = client
-            .runtime_adapter
-            .query(
-                shard_uid,
-                &last_chunk_header.prev_state_root(),
-                last_block.header().height(),
-                last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
-                last_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id },
-            )
-            .unwrap();
-        match response.kind {
-            QueryResponseKind::ViewAccount(account_view) => account_view,
-            _ => panic!("Wrong return value"),
+
+        for i in 0..self.clients.len() {
+            let tracks_shard = self.clients[i]
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self.get_client_id(i),
+                    shard_id,
+                )
+                .unwrap();
+            if tracks_shard {
+                let response = self.clients[i]
+                    .runtime_adapter
+                    .query(
+                        shard_uid,
+                        &last_chunk_header.prev_state_root(),
+                        last_block.header().height(),
+                        last_block.header().raw_timestamp(),
+                        last_block.header().prev_hash(),
+                        last_block.header().hash(),
+                        last_block.header().epoch_id(),
+                        &QueryRequest::ViewAccount { account_id },
+                    )
+                    .unwrap();
+                match response.kind {
+                    QueryResponseKind::ViewAccount(account_view) => return account_view,
+                    _ => panic!("Wrong return value"),
+                }
+            }
         }
+        panic!("No client tracks shard {}", shard_id);
+    }
+
+    /// Passes the given query to the runtime adapter using the current head and returns a result.
+    pub fn query_view(&mut self, request: QueryRequest) -> Result<QueryResponse, QueryError> {
+        let head = self.clients[0].chain.head().unwrap();
+        let head_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        self.clients[0].runtime_adapter.query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &request,
+        )
     }
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
@@ -393,7 +575,7 @@ impl TestEnv {
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[idx].clone().into(),
+            self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
             self.chain_genesis.clone(),
             self.clients[idx].epoch_manager.clone(),
@@ -410,6 +592,42 @@ impl TestEnv {
     /// specifically, returns validator id of the client’s validator signer.
     pub fn get_client_id(&self, idx: usize) -> &AccountId {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    }
+
+    /// Returns the index of client with the given [`AccoountId`].
+    pub fn get_client_index(&self, account_id: &AccountId) -> usize {
+        self.account_indices.index(account_id)
+    }
+
+    /// Get block producer responsible for producing the block at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_block_producer_at_offset(&self, head: &Tip, height_offset: u64) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+    }
+
+    /// Get chunk producer responsible for producing the chunk at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_chunk_producer_at_offset(
+        &self,
+        head: &Tip,
+        height_offset: u64,
+        shard_id: ShardId,
+    ) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
@@ -528,3 +746,23 @@ impl Drop for TestEnv {
         }
     }
 }
+
+pub(crate) struct AccountIndices(pub(crate) HashMap<AccountId, usize>);
+
+impl AccountIndices {
+    pub fn index(&self, account_id: &AccountId) -> usize {
+        self.0[account_id]
+    }
+
+    pub fn lookup<'a, T>(&self, container: &'a [T], account_id: &AccountId) -> &'a T {
+        &container[self.0[account_id]]
+    }
+
+    pub fn lookup_mut<'a, T>(&self, container: &'a mut [T], account_id: &AccountId) -> &'a mut T {
+        &mut container[self.0[account_id]]
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("Timed out after {0:?}")]
+pub struct TimeoutError(Duration);

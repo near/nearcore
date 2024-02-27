@@ -40,8 +40,7 @@ impl ColumnCountMap {
         match col {
             col::ACCOUNT => "ACCOUNT",
             col::CONTRACT_CODE => "CONTRACT_CODE",
-            col::DELAYED_RECEIPT => "DELAYED_RECEIPT",
-            col::DELAYED_RECEIPT_INDICES => "DELAYED_RECEIPT_INDICES",
+            col::DELAYED_RECEIPT_OR_INDICES => "DELAYED_RECEIPT_OR_INDICES",
             col::ACCESS_KEY => "ACCESS_KEY",
             col::CONTRACT_DATA => "CONTRACT_DATA",
             col::RECEIVED_DATA => "RECEIVED_DATA",
@@ -234,9 +233,8 @@ impl TrieIterationBenchmarkCmd {
             // key for contract code only contains account id, nothing to prune
             col::CONTRACT_CODE => false,
             // key for delayed receipt only contains account id, nothing to prune
-            col::DELAYED_RECEIPT => false,
             // key for delayed receipt indices is a shard singleton, nothing to prune
-            col::DELAYED_RECEIPT_INDICES => false,
+            col::DELAYED_RECEIPT_OR_INDICES => false,
 
             // Most columns use the ACCOUNT_DATA_SEPARATOR to indicate the end
             // of the accound id in the trie key. For those columns the

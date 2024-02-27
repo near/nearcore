@@ -10,13 +10,12 @@
 //! We also test unaffected cases to make sure compute costs only affect
 //! parameters they should.
 
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType};
-use near_primitives::config::ActionCosts;
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_parameters::RuntimeConfigStore;
+use near_parameters::{ActionCosts, RuntimeConfig};
 use near_primitives::sharding::ShardChunk;
 use near_primitives::transaction::{
     Action, DeployContractAction, FunctionCallAction, SignedTransaction,
@@ -25,7 +24,6 @@ use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use node_runtime::config::RuntimeConfig;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
@@ -196,9 +194,7 @@ fn assert_compute_limit_reached(
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         genesis.config.gas_limit = genesis.config.gas_limit / gas_divider;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        TestEnv::builder(chain_genesis)
-            .real_epoch_managers(&genesis.config)
+        TestEnv::builder(&genesis.config)
             .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config_store])
             .build()
     };

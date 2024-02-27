@@ -6,9 +6,9 @@ use std::{collections::HashSet, fs, path::Path};
 
 use borsh::BorshDeserialize;
 use near_chain_configs::{Genesis, GenesisContents};
+use near_parameters::RuntimeConfigStore;
 use near_primitives::{
     epoch_manager::EpochConfig,
-    runtime::config_store::RuntimeConfigStore,
     shard_layout::{account_id_to_shard_id, ShardLayout},
     state_record::{state_record_to_account_id, StateRecord},
     types::{AccountId, NumShards, ShardId, StateRoot},
@@ -118,7 +118,7 @@ fn genesis_state_from_genesis(store: Store, genesis: &Genesis) -> Vec<StateRoot>
     let tries = ShardTries::new(
         store.clone(),
         TrieConfig::default(),
-        &genesis.config.shard_layout.get_shard_uids(),
+        &genesis.config.shard_layout.shard_uids().collect::<Vec<_>>(),
         FlatStorageManager::new(store),
         StateSnapshotConfig::default(),
     );

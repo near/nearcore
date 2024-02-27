@@ -858,9 +858,8 @@ fn gas_overflow_indirect_call() {
 }
 
 mod fix_contract_loading_cost_protocol_upgrade {
-    use near_primitives_core::config::ExtCosts;
-
     use super::*;
+    use near_parameters::ExtCosts;
 
     static ALMOST_TRIVIAL_CONTRACT: &str = r#"
 (module

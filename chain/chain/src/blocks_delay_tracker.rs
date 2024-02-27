@@ -150,7 +150,7 @@ impl BlocksDelayTracker {
                         let chunk_hash = chunk.chunk_hash();
                         self.chunks
                             .entry(chunk_hash.clone())
-                            .or_insert(ChunkTrackingStats::new(chunk));
+                            .or_insert_with(|| ChunkTrackingStats::new(chunk));
                         self.floating_chunks.remove(&chunk_hash);
                         Some(chunk_hash)
                     } else {
@@ -425,7 +425,7 @@ impl Chain {
         if self.is_in_processing(block_hash) {
             return BlockProcessingStatus::InProcessing;
         }
-        if self.store().block_exists(block_hash).unwrap_or_default() {
+        if self.chain_store().block_exists(block_hash).unwrap_or_default() {
             return BlockProcessingStatus::Accepted;
         }
         if let Some(dropped_reason) = &block_info.dropped {

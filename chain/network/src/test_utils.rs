@@ -5,11 +5,10 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use actix::{Actor, ActorContext, Context, Handler};
-use futures::future::BoxFuture;
 use futures::{future, Future, FutureExt};
-use near_async::messaging::{CanSend, CanSendAsync};
+use near_async::messaging::{CanSend, MessageWithCallback};
 use near_crypto::{KeyType, SecretKey};
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::types::EpochId;
@@ -234,17 +233,18 @@ pub struct MockPeerManagerAdapter {
     pub notify: Notify,
 }
 
-impl CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
+impl CanSend<MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>>
     for MockPeerManagerAdapter
 {
-    fn send_async(
+    fn send(
         &self,
-        message: PeerManagerMessageRequest,
-    ) -> BoxFuture<'static, Result<PeerManagerMessageResponse, ()>> {
-        self.requests.write().unwrap().push_back(message);
+        message: MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
+    ) {
+        self.requests.write().unwrap().push_back(message.message);
         self.notify.notify_one();
-        async { Ok(PeerManagerMessageResponse::NetworkResponses(NetworkResponses::NoResponse)) }
-            .boxed()
+        (message.callback)(Ok(PeerManagerMessageResponse::NetworkResponses(
+            NetworkResponses::NoResponse,
+        )));
     }
 }
 
@@ -268,6 +268,29 @@ impl MockPeerManagerAdapter {
     }
     pub fn put_back_most_recent(&self, request: PeerManagerMessageRequest) {
         self.requests.write().unwrap().push_back(request);
+    }
+    /// Calls the handler for each message, but removing only those for which the handler returns
+    /// None (or else the returned message gets requeued; the returned message should be the same
+    /// as the one given). Returns true if any message was removed.
+    pub fn handle_filtered(
+        &self,
+        mut f: impl FnMut(PeerManagerMessageRequest) -> Option<PeerManagerMessageRequest>,
+    ) -> bool {
+        // We get the count first and then pop one by one, that way we avoid
+        // grabbing the lock for the whole duration, which might lead to a
+        // deadlock if the processing of the request results in more network
+        // messages.
+        let num_requests = self.requests.read().unwrap().len();
+        let mut handled = false;
+        for _ in 0..num_requests {
+            let request = self.requests.write().unwrap().pop_front().unwrap();
+            if let Some(request) = f(request) {
+                self.requests.write().unwrap().push_back(request);
+            } else {
+                handled = true;
+            }
+        }
+        handled
     }
 }
 

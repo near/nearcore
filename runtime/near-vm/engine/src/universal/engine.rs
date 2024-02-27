@@ -91,7 +91,7 @@ impl UniversalEngine {
     }
 
     /// Compile a WebAssembly binary
-    #[tracing::instrument(target = "near_vm", level = "trace", skip_all)]
+    #[tracing::instrument(target = "near_vm", level = "debug", skip_all)]
     pub fn compile_universal(
         &self,
         binary: &[u8],

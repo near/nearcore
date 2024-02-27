@@ -1,28 +1,25 @@
 use crate::tests::client::process_blocks::produce_blocks_from_height;
 use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
-use near_chain::chain::NUM_ORPHAN_ANCESTORS_CHECK;
-use near_chain::{ChainGenesis, Error, Provenance};
+use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
+use near_chain::{Error, Provenance};
 use near_chain_configs::Genesis;
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
-use near_client::ProcessTxResponse;
+use near_client::{ProcessTxResponse, ProduceChunkResult};
 use near_crypto::{InMemorySigner, KeyType, SecretKey, Signer};
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfigStore;
 use near_primitives::account::AccessKey;
-use near_primitives::checked_feature;
-use near_primitives::errors::{InvalidAccessKeyError, InvalidTxError};
-use near_primitives::runtime::config_store::RuntimeConfigStore;
+use near_primitives::errors::InvalidTxError;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::ChunkHash;
-use near_primitives::transaction::{Action, AddKeyAction, DeployContractAction, SignedTransaction};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight};
-use near_primitives::utils::{
-    derive_eth_implicit_account_id, derive_near_implicit_account_id, wallet_contract_placeholder,
-};
-use near_primitives::version::{ProtocolFeature, ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::utils::derive_near_implicit_account_id;
+use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
@@ -55,10 +52,7 @@ fn test_transaction_hash_collision() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let signer0 = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
@@ -128,10 +122,7 @@ fn get_status_of_tx_hash_collision_for_near_implicit_account(
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = protocol_version;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let deposit_for_account_creation = 10u128.pow(23);
     let mut height = 1;
@@ -239,115 +230,14 @@ fn test_transaction_hash_collision_for_near_implicit_account_ok() {
     );
 }
 
-/// Test that transactions from ETH-implicit accounts are rejected.
-#[test]
-fn test_transaction_from_eth_implicit_account_fail() {
-    if !checked_feature!("stable", EthImplicitAccounts, PROTOCOL_VERSION) {
-        return;
-    }
-    let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
-    let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
-    let deposit_for_account_creation = 10u128.pow(23);
-    let mut height = 1;
-    let blocks_number = 5;
-    let signer1 = InMemorySigner::from_seed("test1".parse().unwrap(), KeyType::ED25519, "test1");
-
-    let secret_key = SecretKey::from_seed(KeyType::SECP256K1, "test");
-    let public_key = secret_key.public_key();
-    let eth_implicit_account_id = derive_eth_implicit_account_id(public_key.unwrap_as_secp256k1());
-    let eth_implicit_account_signer =
-        InMemorySigner::from_secret_key(eth_implicit_account_id.clone(), secret_key);
-
-    // Send money to ETH-implicit account, invoking its creation.
-    let send_money_tx = SignedTransaction::send_money(
-        1,
-        "test1".parse().unwrap(),
-        eth_implicit_account_id.clone(),
-        &signer1,
-        deposit_for_account_creation,
-        *genesis_block.hash(),
-    );
-    // Check for tx success status and get new block height.
-    height = check_tx_processing(&mut env, send_money_tx, height, blocks_number);
-    let block = env.clients[0].chain.get_block_by_height(height - 1).unwrap();
-
-    // Try to send money from ETH-implicit account using `(block_height - 1) * 1e6` as a nonce.
-    // That would be a good nonce for any access key, but the transaction should fail nonetheless because there is no access key.
-    let nonce = (height - 1) * AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER;
-    let send_money_from_eth_implicit_account_tx = SignedTransaction::send_money(
-        nonce,
-        eth_implicit_account_id.clone(),
-        "test0".parse().unwrap(),
-        &eth_implicit_account_signer,
-        100,
-        *block.hash(),
-    );
-    let response = env.clients[0].process_tx(send_money_from_eth_implicit_account_tx, false, false);
-    let expected_tx_error = ProcessTxResponse::InvalidTx(InvalidTxError::InvalidAccessKeyError(
-        InvalidAccessKeyError::AccessKeyNotFound {
-            account_id: eth_implicit_account_id.clone(),
-            public_key: public_key.clone(),
-        },
-    ));
-    assert_eq!(response, expected_tx_error);
-
-    // Try to delete ETH-implicit account. Should fail because there is no access key.
-    let delete_eth_implicit_account_tx = SignedTransaction::delete_account(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id.clone(),
-        "test0".parse().unwrap(),
-        &eth_implicit_account_signer,
-        *block.hash(),
-    );
-    let response = env.clients[0].process_tx(delete_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
-
-    // Try to add an access key to the ETH-implicit account. Should fail because there is no access key.
-    let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id.clone(),
-        &eth_implicit_account_signer,
-        vec![Action::AddKey(Box::new(AddKeyAction {
-            public_key,
-            access_key: AccessKey::full_access(),
-        }))],
-        *block.hash(),
-    );
-    let response =
-        env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
-
-    // Try to deploy the Wallet Contract again to the ETH-implicit account. Should fail because there is no access key.
-    let wallet_contract_code = wallet_contract_placeholder().code().to_vec();
-    let add_access_key_to_eth_implicit_account_tx = SignedTransaction::from_actions(
-        nonce,
-        eth_implicit_account_id.clone(),
-        eth_implicit_account_id,
-        &eth_implicit_account_signer,
-        vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
-        *block.hash(),
-    );
-    let response =
-        env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
-    assert_eq!(response, expected_tx_error);
-}
-
 /// Test that chunks with transactions that have expired are considered invalid.
 #[test]
 fn test_chunk_transaction_validity() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    genesis.config.min_gas_price = 0;
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let tx = SignedTransaction::send_money(
@@ -361,16 +251,13 @@ fn test_chunk_transaction_validity() {
     for i in 1..200 {
         env.produce_block(0, i);
     }
-    let (encoded_shard_chunk, merkle_path, receipts, block) =
-        create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
+    let (
+        ProduceChunkResult { chunk, encoded_chunk_parts_paths: merkle_paths, receipts, .. },
+        block,
+    ) = create_chunk_with_transactions(&mut env.clients[0], vec![tx]);
     let validator_id = env.clients[0].validator_signer.as_ref().unwrap().validator_id().clone();
     env.clients[0]
-        .persist_and_distribute_encoded_chunk(
-            encoded_shard_chunk,
-            merkle_path,
-            receipts,
-            validator_id,
-        )
+        .persist_and_distribute_encoded_chunk(chunk, merkle_paths, receipts, validator_id)
         .unwrap();
     let res = env.clients[0].process_block_test(block.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidTransactions);
@@ -381,10 +268,7 @@ fn test_transaction_nonce_too_large() {
     let epoch_length = 5;
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(ChainGenesis::test())
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let genesis_block = env.clients[0].chain.get_block_by_height(0).unwrap();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let large_nonce = AccessKey::ACCESS_KEY_NONCE_RANGE_MULTIPLIER + 1;
@@ -446,11 +330,9 @@ fn test_request_chunks_for_orphan() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,
@@ -587,11 +469,9 @@ fn test_processing_chunks_sanity() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();
@@ -687,11 +567,9 @@ impl ChunkForwardingOptimizationTestData {
             ];
             config.num_block_producer_seats = num_block_producers as u64;
         }
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let env = TestEnv::builder(chain_genesis)
+        let env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .real_epoch_managers(&genesis.config)
             .track_all_shards()
             .nightshade_runtimes(&genesis)
             .build();
@@ -706,7 +584,11 @@ impl ChunkForwardingOptimizationTestData {
         }
     }
 
-    fn process_one_peer_message(&mut self, client_id: usize, requests: NetworkRequests) {
+    fn process_one_peer_message(
+        &mut self,
+        client_id: usize,
+        requests: NetworkRequests,
+    ) -> Option<NetworkRequests> {
         match requests {
             NetworkRequests::PartialEncodedChunkRequest { ref target, ref request, .. } => {
                 for part_ord in &request.part_ords {
@@ -736,6 +618,7 @@ impl ChunkForwardingOptimizationTestData {
                     client_id,
                     PeerManagerMessageRequest::NetworkRequests(requests),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkMessage { account_id, partial_encoded_chunk } => {
                 debug!(
@@ -762,6 +645,7 @@ impl ChunkForwardingOptimizationTestData {
                         partial_encoded_chunk.into(),
                     ),
                 );
+                None
             }
             NetworkRequests::PartialEncodedChunkForward { account_id, forward } => {
                 debug!(
@@ -783,10 +667,9 @@ impl ChunkForwardingOptimizationTestData {
                 self.env.shards_manager(&account_id).send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(forward),
                 );
+                None
             }
-            _ => {
-                panic!("Unexpected network request: {:?}", requests);
-            }
+            _ => Some(requests),
         }
     }
 
@@ -794,17 +677,17 @@ impl ChunkForwardingOptimizationTestData {
         loop {
             let mut any_message_processed = false;
             for i in 0..self.num_validators {
-                if let Some(msg) = self.env.network_adapters[i].pop() {
-                    any_message_processed = true;
-                    match msg {
-                        PeerManagerMessageRequest::NetworkRequests(requests) => {
-                            self.process_one_peer_message(i, requests);
-                        }
-                        _ => {
-                            panic!("Unexpected message: {:?}", msg);
-                        }
+                // Arc Clone is needed to appease the borrow checker (double &mut borrow in handle_filtered)
+                let network_adapter = self.env.network_adapters[i].clone();
+
+                any_message_processed |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(requests) => {
+                        self.process_one_peer_message(i, requests).map(|ignored_request| {
+                            PeerManagerMessageRequest::NetworkRequests(ignored_request)
+                        })
                     }
-                }
+                    _ => Some(request),
+                });
             }
             if !any_message_processed {
                 break;
@@ -827,9 +710,6 @@ fn test_chunk_forwarding_optimization() {
             break;
         }
         debug!(target: "test", "======= Height {} ======", height + 1);
-        test.process_network_messages();
-        test.env.process_shards_manager_responses(0);
-
         let block = test.env.clients[0].produce_block(height + 1).unwrap().unwrap();
         if block.header().height() > 1 {
             // For any block except the first, the previous block's application at each
@@ -866,12 +746,23 @@ fn test_chunk_forwarding_optimization() {
             assert_eq!(&accepted_blocks[0], block.header().hash());
             assert_eq!(test.env.clients[i].chain.head().unwrap().height, block.header().height());
         }
+
+        test.process_network_messages();
+        test.env.process_shards_manager_responses(0);
+
+        // Propagating state witnesses and chunk endorsements is required for block production
+        test.env.propagate_chunk_state_witnesses_and_endorsements(false);
     }
 
     // With very high probability we should've encountered some cases where forwarded parts
     // could not be applied because the chunk header is not available. Assert this did indeed
     // happen.
-    assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
+    // Note: For nightly, which includes SingleShardTracking, this check is disabled because
+    // we're so efficient with part forwarding now that we don't seem to be forwarding more
+    // than it is necessary.
+    if !cfg!(feature = "nightly") && !cfg!(feature = "statelessnet_protocol") {
+        assert!(PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER.get() > 0.0);
+    }
     debug!(target: "test",
         "Counters for debugging:
                 num_part_ords_requested: {}
@@ -904,11 +795,9 @@ fn test_processing_blocks_async() {
     genesis.config.shard_layout = ShardLayout::v1_test();
     genesis.config.num_block_producer_seats_per_shard =
         vec![num_validators, num_validators, num_validators, num_validators];
-    let chain_genesis = ChainGenesis::new(&genesis);
-    let mut env = TestEnv::builder(chain_genesis)
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(num_clients)
         .validator_seats(num_validators as usize)
-        .real_epoch_managers(&genesis.config)
         .track_all_shards()
         .nightshade_runtimes(&genesis)
         .build();
