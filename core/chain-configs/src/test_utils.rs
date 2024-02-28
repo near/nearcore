@@ -5,13 +5,26 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeightDelta, Gas, NumBlocks, NumSeats, NumShards,
+    AccountId, AccountInfo, Balance, BlockHeightDelta, NumSeats, NumShards,
 };
 use near_primitives::utils::generate_random_string;
 use near_primitives::version::PROTOCOL_VERSION;
-use num_rational::{Ratio, Rational32};
+use num_rational::Ratio;
 
-use crate::{Genesis, GenesisConfig};
+use crate::{
+    Genesis, GenesisConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR, PROTOCOL_REWARD_RATE, PROTOCOL_TREASURY_ACCOUNT,
+    PROTOCOL_UPGRADE_STAKE_THRESHOLD, TRANSACTION_VALIDITY_PERIOD,
+};
+
+/// Initial balance used in tests.
+pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
+
+/// Validator's stake used in tests.
+pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
+
+pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
 impl GenesisConfig {
     pub fn test() -> Self {
@@ -30,55 +43,6 @@ impl GenesisConfig {
         }
     }
 }
-
-/// Protocol treasury account
-pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
-
-/// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
-
-/// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
-
-/// Protocol upgrade stake threshold.
-pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
-
-pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
-
-/// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
-
-/// The rate at which the gas price can be adjusted (alpha in the formula).
-/// The formula is
-/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
-
-/// Criterion for kicking out block producers.
-pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
-
-/// Protocol treasury reward
-pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
-
-/// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
-
-/// Expected number of blocks per year
-pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
-
-/// Number of blocks for which a given transaction is valid
-pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
-
-/// Criterion for kicking out chunk producers.
-pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
-
-/// Fishermen stake threshold.
-pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
-
-/// Initial and minimum gas price.
-pub const MIN_GAS_PRICE: Balance = 100_000_000;
 
 impl Genesis {
     // Creates new genesis with a given set of accounts and shard layout.
@@ -179,7 +143,7 @@ impl Genesis {
     }
 }
 
-fn add_protocol_account(records: &mut Vec<StateRecord>) {
+pub fn add_protocol_account(records: &mut Vec<StateRecord>) {
     let signer = InMemorySigner::from_seed(
         PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
         KeyType::ED25519,
@@ -195,7 +159,7 @@ fn add_protocol_account(records: &mut Vec<StateRecord>) {
     );
 }
 
-fn add_account_with_key(
+pub fn add_account_with_key(
     records: &mut Vec<StateRecord>,
     account_id: AccountId,
     public_key: &PublicKey,
@@ -214,7 +178,7 @@ fn add_account_with_key(
     });
 }
 
-fn random_chain_id() -> String {
+pub fn random_chain_id() -> String {
     format!("test-chain-{}", generate_random_string(5))
 }
 

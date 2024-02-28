@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::{test_utils::TestEnv, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_primitives::errors::{
@@ -21,7 +21,7 @@ use near_primitives_core::{
 use near_store::ShardUId;
 use near_vm_runner::ContractCode;
 use near_wallet_contract::{wallet_contract, wallet_contract_magic_bytes};
-use nearcore::{test_utils::TestEnvNightshadeSetupExt, NEAR_BASE};
+use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use node_runtime::ZERO_BALANCE_ACCOUNT_STORAGE_LIMIT;
 use rlp::RlpStream;
 use testlib::runtime_utils::{alice_account, bob_account, carol_account};

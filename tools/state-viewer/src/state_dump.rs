@@ -296,6 +296,7 @@ mod test {
 
     use near_chain::{ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -311,7 +312,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
     use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;

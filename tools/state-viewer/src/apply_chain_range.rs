@@ -451,6 +451,7 @@ mod test {
     use std::path::Path;
 
     use near_chain::Provenance;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -461,7 +462,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::NightshadeRuntime;
 
     use crate::apply_chain_range::apply_chain_range;

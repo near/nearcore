@@ -2,7 +2,7 @@ use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
@@ -30,9 +30,7 @@ use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
 };
-use nearcore::{
-    load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt, NEAR_BASE,
-};
+use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::collections::HashSet;
