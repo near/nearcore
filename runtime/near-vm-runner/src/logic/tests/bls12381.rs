@@ -23,8 +23,20 @@ mod tests {
     use std::fs;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+    const P_MINUS_1: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa";
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
+
+    macro_rules! run_bls12381_functoin {
+        ($fn_name:ident, $buffer:expr) => {{
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write($buffer.concat().as_slice());
+            let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+            assert_eq!(res, 0);
+            logic.registers().get_for_free(0).unwrap().to_vec()
+        }};
+    }
 
     struct G1Operations;
     struct G2Operations;
@@ -72,9 +84,6 @@ mod tests {
         }
 
         fn map_fp_to_g(fps: Vec<FP>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
             let mut fp_vec: Vec<Vec<u8>> = vec![vec![]];
 
             for i in 0..fps.len() {
@@ -84,10 +93,7 @@ mod tests {
                 fp_vec.push(fp_slice.to_vec());
             }
 
-            let input = logic.internal_mem_write(fp_vec.concat().as_slice());
-            let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
+            run_bls12381_functoin!(bls12381_map_fp_to_g1, fp_vec)
         }
     }
 
@@ -151,9 +157,6 @@ mod tests {
         }
 
         fn map_fp_to_g(fp2: Vec<FP2>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
             let mut fp2_vec: Vec<Vec<u8>> = vec![vec![]];
 
             for i in 0..fp2.len() {
@@ -164,10 +167,7 @@ mod tests {
                 fp2_vec.push(fp2_res.to_vec());
             }
 
-            let input = logic.internal_mem_write(fp2_vec.concat().as_slice());
-            let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
+            run_bls12381_functoin!(bls12381_map_fp2_to_g2, fp2_vec)
         }
     }
 
@@ -187,60 +187,6 @@ mod tests {
                     let g: $ECP = $ECP::generator();
 
                     g.mul(&r)
-                }
-
-                fn decompress_p(p2: Vec<$ECP>) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
-                    let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
-                    for i in 0..p2.len() {
-                        p2s_vec.push($serialize_g(&p2[i]).to_vec());
-                    }
-
-                    let input = logic.internal_mem_write(p2s_vec.concat().as_slice());
-                    let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
-                }
-
-                fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
-                    let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
-
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
-                }
-
-                fn get_inverse(p: &[u8]) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
-                    let buffer = vec![vec![1], p.to_vec()];
-
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
-                }
-
-                fn get_sum_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
-                    let mut buffer: Vec<Vec<u8>> = vec![];
-                    for i in 0..points.len() {
-                        buffer.push(vec![points[i].0]);
-                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
-                    }
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
                 }
 
                 fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
@@ -267,10 +213,35 @@ mod tests {
                     assert_eq!(res1, $serialize_uncompressed_g(&res3).to_vec());
                 }
 
-                fn get_multiexp(points: &Vec<(Big, $ECP)>) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
+                fn decompress_p(p2: Vec<$ECP>) -> Vec<u8> {
+                    let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
+                    for i in 0..p2.len() {
+                        p2s_vec.push($serialize_g(&p2[i]).to_vec());
+                    }
 
+                    run_bls12381_functoin!($bls12381_decompress, p2s_vec)
+                }
+
+                fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
+                    let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
+                    run_bls12381_functoin!($bls12381_sum, buffer)
+                }
+
+                fn get_inverse(p: &[u8]) -> Vec<u8> {
+                    let buffer = vec![vec![1], p.to_vec()];
+                    run_bls12381_functoin!($bls12381_sum, buffer)
+                }
+
+                fn get_sum_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push(vec![points[i].0]);
+                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                    }
+                    run_bls12381_functoin!($bls12381_sum, buffer)
+                }
+
+                fn get_multiexp(points: &Vec<(Big, $ECP)>) -> Vec<u8> {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
@@ -283,16 +254,11 @@ mod tests {
 
                         buffer.push(n_vec);
                     }
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
+
+                    run_bls12381_functoin!($bls12381_multiexp, buffer)
                 }
 
                 fn get_multiexp_small(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
@@ -300,16 +266,11 @@ mod tests {
                         n_vec[0] = points[i].0;
                         buffer.push(n_vec.to_vec());
                     }
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
+
+                    run_bls12381_functoin!($bls12381_multiexp, buffer)
                 }
 
                 fn get_multiexp_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
-                    let mut logic_builder = VMLogicBuilder::default();
-                    let mut logic = logic_builder.build();
-
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
@@ -320,10 +281,8 @@ mod tests {
                                 .push(hex::decode(R_MINUS_1).unwrap().into_iter().rev().collect());
                         }
                     }
-                    let input = logic.internal_mem_write(buffer.concat().as_slice());
-                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                    assert_eq!(res, 0);
-                    logic.registers().get_for_free(0).unwrap().to_vec()
+
+                    run_bls12381_functoin!($bls12381_multiexp, buffer)
                 }
             }
         };
@@ -1133,7 +1092,7 @@ mod tests {
 
         assert_eq!(res1, serialize_uncompressed_g1(&res2));
 
-        let fp = FP::new_big(Big::from_string("1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa".to_string()));
+        let fp = FP::new_big(Big::from_string(P_MINUS_1.to_string()));
         let res1 = G1Operations::map_fp_to_g(vec![fp.clone()]);
 
         let mut res2 = map_to_curve_g1(fp);
