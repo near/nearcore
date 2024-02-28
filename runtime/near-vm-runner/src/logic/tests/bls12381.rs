@@ -102,6 +102,10 @@ mod tests {
             assert_eq!(res, 0);
             logic.registers().get_for_free(0).unwrap().to_vec()
         }
+
+        fn clear_cofactor(p: &mut ECP) {
+            *p = p.mul(&Big::new_ints(&H_EFF_G1))
+        }
     }
 
     impl G2Operations {
@@ -191,6 +195,10 @@ mod tests {
             let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
             assert_eq!(res, 0);
             logic.registers().get_for_free(0).unwrap().to_vec()
+        }
+
+        fn clear_cofactor(p: &mut ECP2) {
+            p.clear_cofactor()
         }
     }
 
@@ -1114,14 +1122,13 @@ mod tests {
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let p_ser = $add_p_y(&p).to_vec();
 
-                let input = logic
-                    .internal_mem_write(vec![vec![0], p_ser.clone()].concat().as_slice());
+                let input =
+                    logic.internal_mem_write(vec![vec![0], p_ser.clone()].concat().as_slice());
                 let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
 
-                let input = logic.internal_mem_write(
-                    vec![p_ser, zero_scalar.clone()].concat().as_slice(),
-                );
+                let input =
+                    logic.internal_mem_write(vec![p_ser, zero_scalar.clone()].concat().as_slice());
                 let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
             }
@@ -1183,20 +1190,82 @@ mod tests {
         p_ser
     }
 
-    #[test]
-    fn test_bls12381_map_fp_to_g1() {
-        let mut rnd = get_rnd();
+    macro_rules! test_bls12381_map_fp_to_g {
+        (
+            $GOperations:ident,
+            $map_fp_to_g:ident,
+            $map_to_curve_g:ident,
+            $get_random_fp:ident,
+            $MAX_N:expr,
+            $FP:ident,
+            $serialize_uncompressed_g:ident,
+            $test_bls12381_map_fp_to_g:ident,
+            $test_bls12381_map_fp_to_g_many_points:ident
+        ) => {
+            #[test]
+            fn $test_bls12381_map_fp_to_g() {
+                let mut rnd = get_rnd();
 
-        for _ in 0..100 {
-            let fp = get_random_fp(&mut rnd);
-            let res1 = map_fp_to_g1(vec![fp.clone()]);
+                for _ in 0..100 {
+                    let fp = $get_random_fp(&mut rnd);
+                    let res1 = $map_fp_to_g(vec![fp.clone()]);
 
-            let mut res2 = map_to_curve_g1(fp);
-            res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+                    let mut res2 = $map_to_curve_g(fp);
+                    $GOperations::clear_cofactor(&mut res2);
 
-            assert_eq!(res1, serialize_uncompressed_g1(&res2));
-        }
+                    assert_eq!(res1, $serialize_uncompressed_g(&res2));
+                }
+            }
+
+            #[test]
+            fn $test_bls12381_map_fp_to_g_many_points() {
+                let mut rnd = get_rnd();
+
+                for i in 0..10 {
+                    let n: usize =
+                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
+
+                    let mut fps: Vec<$FP> = vec![];
+                    let mut res2_mul: Vec<u8> = vec![];
+                    for i in 0..n {
+                        fps.push($get_random_fp(&mut rnd));
+
+                        let mut res2 = $map_to_curve_g(fps[i].clone());
+                        $GOperations::clear_cofactor(&mut res2);
+
+                        res2_mul.append(&mut $serialize_uncompressed_g(&res2).to_vec());
+                    }
+
+                    let res1 = $map_fp_to_g(fps);
+                    assert_eq!(res1, res2_mul);
+                }
+            }
+        };
     }
+
+    test_bls12381_map_fp_to_g!(
+        G1Operations,
+        map_fp_to_g1,
+        map_to_curve_g1,
+        get_random_fp,
+        500,
+        FP,
+        serialize_uncompressed_g1,
+        test_bls12381_map_fp_to_g1,
+        test_bls12381_map_fp_to_g1_many_points
+    );
+
+    test_bls12381_map_fp_to_g!(
+        G2Operations,
+        map_fp2_to_g2,
+        map_to_curve_g2,
+        get_random_fp2,
+        250,
+        FP2,
+        serialize_uncompressed_g2,
+        test_bls12381_map_fp2_to_g2,
+        test_bls12381_map_fp2_to_g2_many_points
+    );
 
     #[test]
     fn test_bls12381_map_fp_to_g1_edge_cases() {
@@ -1204,7 +1273,7 @@ mod tests {
         let res1 = map_fp_to_g1(vec![fp.clone()]);
 
         let mut res2 = map_to_curve_g1(fp);
-        res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+        G1Operations::clear_cofactor(&mut res2);
 
         assert_eq!(res1, serialize_uncompressed_g1(&res2));
 
@@ -1212,34 +1281,9 @@ mod tests {
         let res1 = map_fp_to_g1(vec![fp.clone()]);
 
         let mut res2 = map_to_curve_g1(fp);
-        res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
+        G1Operations::clear_cofactor(&mut res2);
 
         assert_eq!(res1, serialize_uncompressed_g1(&res2));
-    }
-
-    #[test]
-    fn test_bls12381_map_fp_to_g1_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 500;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut fps: Vec<FP> = vec![];
-            let mut res2_mul: Vec<u8> = vec![];
-            for i in 0..n {
-                fps.push(get_random_fp(&mut rnd));
-
-                let mut res2 = map_to_curve_g1(fps[i].clone());
-                res2 = res2.mul(&Big::new_ints(&H_EFF_G1));
-
-                res2_mul.append(&mut serialize_uncompressed_g1(&res2).to_vec());
-            }
-
-            let res1 = map_fp_to_g1(fps);
-            assert_eq!(res1, res2_mul);
-        }
     }
 
     #[test]
@@ -1253,46 +1297,6 @@ mod tests {
         let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
 
         assert_eq!(res, 1);
-    }
-
-    #[test]
-    fn test_bls12381_map_fp2_to_g2() {
-        let mut rnd = get_rnd();
-
-        for _ in 0..100 {
-            let fp2 = get_random_fp2(&mut rnd);
-            let res1 = map_fp2_to_g2(vec![fp2.clone()]);
-
-            let mut res2 = map_to_curve_g2(fp2);
-            res2.clear_cofactor();
-
-            assert_eq!(res1, serialize_uncompressed_g2(&res2));
-        }
-    }
-
-    #[test]
-    fn test_bls12381_map_fp_to_g2_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 250;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut fps: Vec<FP2> = vec![];
-            let mut res2_mul: Vec<u8> = vec![];
-            for i in 0..n {
-                fps.push(get_random_fp2(&mut rnd));
-
-                let mut res2 = map_to_curve_g2(fps[i].clone());
-                res2.clear_cofactor();
-
-                res2_mul.append(&mut serialize_uncompressed_g2(&res2).to_vec());
-            }
-
-            let res1 = map_fp2_to_g2(fps);
-            assert_eq!(res1, res2_mul);
-        }
     }
 
     #[test]
