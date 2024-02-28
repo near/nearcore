@@ -31,13 +31,6 @@ mod tests {
     impl G1Operations {
         const POINT_LEN: usize = 96;
 
-        fn get_random_g_point(rnd: &mut RAND) -> ECP {
-            let r: Big = Big::random(rnd);
-            let g: ECP = ECP::generator();
-
-            g.mul(&r)
-        }
-
         fn get_random_curve_point(rnd: &mut RAND) -> ECP {
             let mut r: Big = Big::random(rnd);
             r.mod2m(381);
@@ -64,45 +57,6 @@ mod tests {
             }
 
             p
-        }
-
-        fn decompress_p(p1: Vec<ECP>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut p1s_vec: Vec<Vec<u8>> = vec![vec![]];
-            for i in 0..p1.len() {
-                p1s_vec.push(serialize_g1(&p1[i]).to_vec());
-            }
-
-            let input = logic.internal_mem_write(p1s_vec.concat().as_slice());
-            let res = logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
-
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_inverse(p: &[u8]) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let buffer = vec![vec![1], p.to_vec()];
-
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
         }
 
         fn clear_cofactor(p: &mut ECP) {
@@ -134,123 +88,10 @@ mod tests {
             assert_eq!(res, 0);
             logic.registers().get_for_free(0).unwrap().to_vec()
         }
-
-        fn get_sum_many_points(points: &Vec<(u8, ECP)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(vec![points[i].0]);
-                buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp_many_points(points: &Vec<(u8, ECP)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
-                if points[i].0 == 0 {
-                    buffer.push(vec![vec![1], vec![0; 31]].concat());
-                } else {
-                    //r - 1
-                    buffer.push(
-                        hex::decode(
-                            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
-                        )
-                        .unwrap()
-                        .into_iter()
-                        .rev()
-                        .collect(),
-                    );
-                }
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp_small(points: &Vec<(u8, ECP)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
-                let mut n_vec: [u8; 32] = [0u8; 32];
-                n_vec[0] = points[i].0;
-                buffer.push(n_vec.to_vec());
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp(points: &Vec<(Big, ECP)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g1(&points[i].1).to_vec());
-                let mut n_vec: [u8; 48] = [0u8; 48];
-                points[i].0.to_byte_array(&mut n_vec, 0);
-
-                let mut n_vec = n_vec.to_vec();
-                n_vec.reverse();
-                n_vec.resize(32, 0);
-
-                buffer.push(n_vec);
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
-            let mut res3 = ECP::new();
-
-            let mut points: Vec<(u8, ECP)> = vec![];
-            for i in 0..n {
-                points.push((rnd.getbyte() % 2, G1Operations::get_random_curve_point(rnd)));
-
-                let mut current_point = points[i].1.clone();
-                if points[i].0 == 1 {
-                    current_point.neg();
-                }
-
-                res3.add(&current_point);
-            }
-
-            let res1 = Self::get_sum_many_points(&points);
-
-            points.shuffle(&mut thread_rng());
-            let res2 = Self::get_sum_many_points(&points);
-            assert_eq!(res1, res2);
-
-            assert_eq!(res1, serialize_uncompressed_g1(&res3).to_vec());
-        }
     }
 
     impl G2Operations {
         const POINT_LEN: usize = 192;
-
-        fn get_random_g_point(rnd: &mut RAND) -> ECP2 {
-            let r: Big = Big::random(rnd);
-            let g: ECP2 = ECP2::generator();
-
-            g.mul(&r)
-        }
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP2 {
             let mut c: Big = Big::random(rnd);
@@ -294,45 +135,6 @@ mod tests {
             p
         }
 
-        fn decompress_p(p2: Vec<ECP2>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
-            for i in 0..p2.len() {
-                p2s_vec.push(serialize_g2(&p2[i]).to_vec());
-            }
-
-            let input = logic.internal_mem_write(p2s_vec.concat().as_slice());
-            let res = logic.bls12381_p2_decompress(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
-
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_inverse(p: &[u8]) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let buffer = vec![vec![1], p.to_vec()];
-
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
         fn clear_cofactor(p: &mut ECP2) {
             p.clear_cofactor()
         }
@@ -366,113 +168,192 @@ mod tests {
             assert_eq!(res, 0);
             logic.registers().get_for_free(0).unwrap().to_vec()
         }
-
-        fn get_sum_many_points(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(vec![points[i].0]);
-                buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp_many_points(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
-                if points[i].0 == 0 {
-                    buffer.push(vec![vec![1], vec![0; 31]].concat());
-                } else {
-                    // r - 1
-                    buffer.push(
-                        hex::decode(
-                            "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
-                        )
-                        .unwrap()
-                        .into_iter()
-                        .rev()
-                        .collect(),
-                    );
-                }
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp_small(points: &Vec<(u8, ECP2)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
-                let mut n_vec: [u8; 32] = [0u8; 32];
-                n_vec[0] = points[i].0;
-                buffer.push(n_vec.to_vec());
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn get_multiexp(points: &Vec<(Big, ECP2)>) -> Vec<u8> {
-            let mut logic_builder = VMLogicBuilder::default();
-            let mut logic = logic_builder.build();
-
-            let mut buffer: Vec<Vec<u8>> = vec![];
-            for i in 0..points.len() {
-                buffer.push(serialize_uncompressed_g2(&points[i].1).to_vec());
-                let mut n_vec: [u8; 48] = [0u8; 48];
-                points[i].0.to_byte_array(&mut n_vec, 0);
-
-                let mut n_vec = n_vec.to_vec();
-                n_vec.reverse();
-                n_vec.resize(32, 0);
-
-                buffer.push(n_vec);
-            }
-            let input = logic.internal_mem_write(buffer.concat().as_slice());
-            let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
-            assert_eq!(res, 0);
-            logic.registers().get_for_free(0).unwrap().to_vec()
-        }
-
-        fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
-            let mut res3 = ECP2::new();
-
-            let mut points: Vec<(u8, ECP2)> = vec![];
-            for i in 0..n {
-                points.push((rnd.getbyte() % 2, G2Operations::get_random_curve_point(rnd)));
-
-                let mut current_point = points[i].1.clone();
-                if points[i].0 == 1 {
-                    current_point.neg();
-                }
-
-                res3.add(&current_point);
-            }
-
-            let res1 = G2Operations::get_sum_many_points(&points);
-
-            points.shuffle(&mut thread_rng());
-            let res2 = G2Operations::get_sum_many_points(&points);
-            assert_eq!(res1, res2);
-
-            assert_eq!(res1, serialize_uncompressed_g2(&res3).to_vec());
-        }
     }
+
+    macro_rules! impl_goperations {
+        (
+            $GOperations:ident,
+            $ECP:ident,
+            $serialize_g:ident,
+            $serialize_uncompressed_g:ident,
+            $bls12381_decompress:ident,
+            $bls12381_sum:ident,
+            $bls12381_multiexp:ident
+        ) => {
+            impl $GOperations {
+                fn get_random_g_point(rnd: &mut RAND) -> $ECP {
+                    let r: Big = Big::random(rnd);
+                    let g: $ECP = $ECP::generator();
+
+                    g.mul(&r)
+                }
+
+                fn decompress_p(p2: Vec<$ECP>) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
+                    for i in 0..p2.len() {
+                        p2s_vec.push($serialize_g(&p2[i]).to_vec());
+                    }
+
+                    let input = logic.internal_mem_write(p2s_vec.concat().as_slice());
+                    let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
+
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn get_inverse(p: &[u8]) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let buffer = vec![vec![1], p.to_vec()];
+
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn get_sum_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push(vec![points[i].0]);
+                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                    }
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
+                    let mut res3 = $ECP::new();
+
+                    let mut points: Vec<(u8, $ECP)> = vec![];
+                    for i in 0..n {
+                        points.push((rnd.getbyte() % 2, Self::get_random_curve_point(rnd)));
+
+                        let mut current_point = points[i].1.clone();
+                        if points[i].0 == 1 {
+                            current_point.neg();
+                        }
+
+                        res3.add(&current_point);
+                    }
+
+                    let res1 = Self::get_sum_many_points(&points);
+
+                    points.shuffle(&mut thread_rng());
+                    let res2 = Self::get_sum_many_points(&points);
+                    assert_eq!(res1, res2);
+
+                    assert_eq!(res1, $serialize_uncompressed_g(&res3).to_vec());
+                }
+
+                fn get_multiexp(points: &Vec<(Big, $ECP)>) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                        let mut n_vec: [u8; 48] = [0u8; 48];
+                        points[i].0.to_byte_array(&mut n_vec, 0);
+
+                        let mut n_vec = n_vec.to_vec();
+                        n_vec.reverse();
+                        n_vec.resize(32, 0);
+
+                        buffer.push(n_vec);
+                    }
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn get_multiexp_small(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                        let mut n_vec: [u8; 32] = [0u8; 32];
+                        n_vec[0] = points[i].0;
+                        buffer.push(n_vec.to_vec());
+                    }
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+
+                fn get_multiexp_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
+                    let mut logic_builder = VMLogicBuilder::default();
+                    let mut logic = logic_builder.build();
+
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                        if points[i].0 == 0 {
+                            buffer.push(vec![vec![1], vec![0; 31]].concat());
+                        } else {
+                            // r - 1
+                            buffer.push(
+                                hex::decode(
+                                    "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
+                                )
+                                .unwrap()
+                                .into_iter()
+                                .rev()
+                                .collect(),
+                            );
+                        }
+                   }
+                   let input = logic.internal_mem_write(buffer.concat().as_slice());
+                   let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
+                   assert_eq!(res, 0);
+                   logic.registers().get_for_free(0).unwrap().to_vec()
+               }
+           }
+        };
+    }
+
+    impl_goperations!(
+        G1Operations,
+        ECP,
+        serialize_g1,
+        serialize_uncompressed_g1,
+        bls12381_p1_decompress,
+        bls12381_p1_sum,
+        bls12381_p1_multiexp
+    );
+    impl_goperations!(
+        G2Operations,
+        ECP2,
+        serialize_g2,
+        serialize_uncompressed_g2,
+        bls12381_p2_decompress,
+        bls12381_p2_sum,
+        bls12381_p2_multiexp
+    );
 
     fn get_rnd() -> RAND {
         let mut rnd: RAND = RAND::new();
