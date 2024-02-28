@@ -934,14 +934,17 @@ mod tests {
             $serialize_uncompressed:ident,
             $MAX_N:expr,
             $point_type:ident,
+            $add_p_y:ident,
             $get_sum_many_points:ident,
             $get_multiexp_small:ident,
             $get_multiexp:ident,
             $bls12381_multiexp:ident,
+            $bls12381_sum:ident,
             $test_bls12381_multiexp_mul:ident,
             $test_bls12381_multiexp_many_points: ident,
             $test_bls12381_multiexp_incorrect_input: ident,
-            $test_bls12381_multiexp_invariants_checks: ident
+            $test_bls12381_multiexp_invariants_checks: ident,
+            $test_bls12381_error_encoding: ident
         ) => {
             #[test]
             fn $test_bls12381_multiexp_mul() {
@@ -1097,6 +1100,31 @@ mod tests {
                     assert_eq!(res1, $serialize_uncompressed(&p));
                 }
             }
+
+            #[test]
+            fn $test_bls12381_error_encoding() {
+                let mut rnd = get_rnd();
+
+                let mut logic_builder = VMLogicBuilder::default();
+                let mut logic = logic_builder.build();
+
+                let zero_scalar = vec![0u8; 32];
+
+                //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
+                let p = $GOperations::get_random_curve_point(&mut rnd);
+                let p_ser = $add_p_y(&p).to_vec();
+
+                let input = logic
+                    .internal_mem_write(vec![vec![0], p_ser.clone()].concat().as_slice());
+                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
+                assert_eq!(res, 1);
+
+                let input = logic.internal_mem_write(
+                    vec![p_ser, zero_scalar.clone()].concat().as_slice(),
+                );
+                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
+                assert_eq!(res, 1);
+            }
         };
     }
 
@@ -1106,14 +1134,17 @@ mod tests {
         serialize_uncompressed_g1,
         500,
         ECP,
+        add_p_y,
         get_g1_sum_many_points,
         get_g1_multiexp_small,
         get_g1_multiexp,
         bls12381_p1_multiexp,
+        bls12381_p1_sum,
         test_bls12381_p1_multiexp_mul,
         test_bls12381_p1_multiexp_many_points,
         test_bls12381_p1_multiexp_incorrect_input,
-        test_bls12381_p1_multiexp_invariants_checks
+        test_bls12381_p1_multiexp_invariants_checks,
+        test_bls12381_error_g1_encoding
     );
     test_bls12381_multiexp!(
         G2Operations,
@@ -1121,66 +1152,35 @@ mod tests {
         serialize_uncompressed_g2,
         250,
         ECP2,
+        add2_p_y,
         get_g2_sum_many_points,
         get_g2_multiexp_small,
         get_g2_multiexp,
         bls12381_p2_multiexp,
+        bls12381_p2_sum,
         test_bls12381_p2_multiexp_mul,
         test_bls12381_p2_multiexp_many_points,
         test_bls12381_p2_multiexp_incorrect_input,
-        test_bls12381_p2_multiexp_invariants_checks
+        test_bls12381_p2_multiexp_invariants_checks,
+        test_bls12381_error_g2_encoding
     );
 
-    #[test]
-    fn test_bls12381_error_g1_encoding() {
-        let mut rnd = get_rnd();
-
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let zero_scalar = vec![0u8; 32];
-
-        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-        let p = G1Operations::get_random_curve_point(&mut rnd);
-        let mut ybig = p.gety();
+    fn add_p_y(point: &ECP) -> [u8; 96] {
+        let mut ybig = point.gety();
         ybig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_uncompressed_g1(&p);
+        let mut p_ser = serialize_uncompressed_g1(&point);
         ybig.to_byte_array(&mut p_ser[0..96], 48);
 
-        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
-        assert_eq!(res, 1);
-
-        let input =
-            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
-        let res = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-        assert_eq!(res, 1);
+        p_ser
     }
 
-    #[test]
-    fn test_bls12381_error_g2_encoding() {
-        let mut rnd = get_rnd();
-
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let zero_scalar = vec![0u8; 32];
-
-        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-        let p = G2Operations::get_random_curve_point(&mut rnd);
-        let mut yabig = p.gety().geta();
+    fn add2_p_y(point: &ECP2) -> [u8; 192] {
+        let mut yabig = point.gety().geta();
         yabig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_uncompressed_g2(&p);
+        let mut p_ser = serialize_uncompressed_g2(&point);
         yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
 
-        let input = logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-        let res = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
-        assert_eq!(res, 1);
-
-        let input =
-            logic.internal_mem_write(vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice());
-        let res = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
-        assert_eq!(res, 1);
+        p_ser
     }
 
     #[test]
