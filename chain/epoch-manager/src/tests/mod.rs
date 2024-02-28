@@ -2627,6 +2627,27 @@ fn test_validator_kickout_sanity() {
                 }
             ),
             (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 90, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 159, expected: 200 }
+                }
+            ),
+            (
+                "test2".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 100, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 70, expected: 100 }
+                }
+            ),
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 89, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                }
+            ),
+            (
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
@@ -2708,25 +2729,44 @@ fn test_max_kickout_stake_ratio() {
             ("test4".parse().unwrap(), NotEnoughChunks { produced: 50, expected: 100 }),
         ])
     );
-    assert_eq!(
-        validator_stats,
-        HashMap::from([
-            (
-                "test3".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
-                }
-            ),
-            (
-                "test1".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
-                }
-            ),
-        ])
-    );
+    let wanted_validator_stats = HashMap::from([
+        (
+            "test0".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 50, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+            },
+        ),
+        (
+            "test1".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 70, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+            },
+        ),
+        (
+            "test2".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 70, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 100, expected: 100 },
+            },
+        ),
+        (
+            "test3".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+            },
+        ),
+        (
+            "test4".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ValidatorStats { produced: 50, expected: 100 },
+            },
+        ),
+    ]);
+    assert_eq!(validator_stats, wanted_validator_stats,);
     // At most 50% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
     let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
@@ -2747,39 +2787,7 @@ fn test_max_kickout_stake_ratio() {
             NotEnoughBlocks { produced: 50, expected: 100 }
         ),])
     );
-    assert_eq!(
-        validator_stats,
-        HashMap::from([
-            (
-                "test1".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
-                }
-            ),
-            (
-                "test2".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
-                }
-            ),
-            (
-                "test3".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
-                }
-            ),
-            (
-                "test4".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 50, expected: 100 }
-                }
-            ),
-        ])
-    );
+    assert_eq!(validator_stats, wanted_validator_stats,);
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {
