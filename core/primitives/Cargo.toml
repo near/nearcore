@@ -38,7 +38,6 @@ smart-default.workspace = true
 stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
-time.workspace = true
 tracing.workspace = true
 
 near-crypto.workspace = true
