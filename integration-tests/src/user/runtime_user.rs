@@ -241,7 +241,10 @@ impl User for RuntimeUser {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_contract_code(&state_update, account_id)
-            .map(|contract_code| contract_code.into())
+            .map(|contract_code| {
+                let hash = *contract_code.hash();
+                ContractCodeView { hash, code: contract_code.into_code() }
+            })
             .map_err(|err| err.to_string())
     }
 

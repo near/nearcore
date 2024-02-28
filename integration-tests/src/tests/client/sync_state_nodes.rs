@@ -2,15 +2,16 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::Sender;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
-use near_client::adapter::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -24,7 +25,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::{config::GenesisExt, load_test_config, start_with_config};
+use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -564,11 +565,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+            let mut env = TestEnv::builder(&genesis.config)
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)
                 .build();
 
@@ -664,7 +664,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
             let rt = Arc::clone(&env.clients[1].runtime_adapter);
-            let f = move |msg: ApplyStatePartsRequest| {
+            let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -689,7 +689,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
                 }
-            };
+            });
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
             env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;

@@ -1,13 +1,9 @@
-pub use profile_v2::ProfileDataV2;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use enum_map::{enum_map, Enum, EnumMap};
 use near_parameters::{ActionCosts, ExtCosts, ExtCostsConfig};
 use near_primitives_core::types::{Compute, Gas};
 use std::fmt;
 use strum::IntoEnumIterator;
-
-mod profile_v2;
 
 /// Profile of gas consumption.
 #[derive(Clone, PartialEq, Eq)]
@@ -268,8 +264,8 @@ mod test {
             sha256_byte -> 16 [0% host]
             keccak256_base -> 17 [0% host]
             keccak256_byte -> 18 [0% host]
-            keccak512_base -> 19 [1% host]
-            keccak512_byte -> 20 [1% host]
+            keccak512_base -> 19 [0% host]
+            keccak512_byte -> 20 [0% host]
             ripemd160_base -> 21 [1% host]
             ripemd160_block -> 22 [1% host]
             ecrecover_base -> 23 [1% host]
@@ -286,11 +282,11 @@ mod test {
             storage_remove_key_byte -> 34 [1% host]
             storage_remove_ret_value_byte -> 35 [1% host]
             storage_has_key_base -> 36 [1% host]
-            storage_has_key_byte -> 37 [2% host]
-            storage_iter_create_prefix_base -> 38 [2% host]
-            storage_iter_create_prefix_byte -> 39 [2% host]
-            storage_iter_create_range_base -> 40 [2% host]
-            storage_iter_create_from_byte -> 41 [2% host]
+            storage_has_key_byte -> 37 [1% host]
+            storage_iter_create_prefix_base -> 38 [1% host]
+            storage_iter_create_prefix_byte -> 39 [1% host]
+            storage_iter_create_range_base -> 40 [1% host]
+            storage_iter_create_from_byte -> 41 [1% host]
             storage_iter_create_to_byte -> 42 [2% host]
             storage_iter_next_base -> 43 [2% host]
             storage_iter_next_key_byte -> 44 [2% host]
@@ -304,12 +300,16 @@ mod test {
             validator_total_stake_base -> 52 [2% host]
             alt_bn128_g1_multiexp_base -> 53 [2% host]
             alt_bn128_g1_multiexp_element -> 54 [2% host]
-            alt_bn128_pairing_check_base -> 55 [3% host]
-            alt_bn128_pairing_check_element -> 56 [3% host]
-            alt_bn128_g1_sum_base -> 57 [3% host]
-            alt_bn128_g1_sum_element -> 58 [3% host]
-            ed25519_verify_base -> 59 [3% host]
-            ed25519_verify_byte -> 60 [3% host]
+            alt_bn128_pairing_check_base -> 55 [2% host]
+            alt_bn128_pairing_check_element -> 56 [2% host]
+            alt_bn128_g1_sum_base -> 57 [2% host]
+            alt_bn128_g1_sum_element -> 58 [2% host]
+            ed25519_verify_base -> 59 [2% host]
+            ed25519_verify_byte -> 60 [2% host]
+            yield_create_base -> 61 [2% host]
+            yield_create_byte -> 62 [2% host]
+            yield_resume_base -> 63 [3% host]
+            yield_resume_byte -> 64 [3% host]
             ------ Actions --------
             create_account -> 1000
             delete_account -> 1001

@@ -1,4 +1,4 @@
-use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+use near_chain::{ChainStoreAccess, Provenance};
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -15,7 +15,6 @@ use near_store::{
     StoreConfig, TrieConfig,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use std::path::PathBuf;
@@ -35,7 +34,7 @@ impl StateSnaptshotTestEnv {
         store: &Store,
     ) -> Self {
         let trie_cache_config = TrieCacheConfig {
-            default_max_bytes: 50_000_000,
+            default_max_bytes: bytesize::ByteSize::mb(50),
             per_shard_max_bytes: Default::default(),
             shard_cache_deletions_queue_capacity: 0,
         };
@@ -138,7 +137,7 @@ fn verify_make_snapshot(
     state_snapshot_test_env.shard_tries.delete_state_snapshot();
     state_snapshot_test_env.shard_tries.create_state_snapshot(
         block_hash,
-        &vec![ShardUId::single_shard()],
+        &[ShardUId::single_shard()],
         block,
     )?;
     // check that make_state_snapshot does not panic or err out
@@ -167,7 +166,7 @@ fn verify_make_snapshot(
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
         .parent()
-        .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
+        .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
     let parent_path_result = std::fs::read_dir(parent_path)?;
     if vec![parent_path_result.filter_map(Result::ok)].len() > 1 {
         return Err(anyhow::Error::msg(
@@ -194,11 +193,10 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
         .use_state_snapshots()
         .real_stores()
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -208,7 +206,7 @@ fn test_make_state_snapshot() {
 
     let mut blocks = vec![];
 
-    let store = env.clients[0].chain.store().store();
+    let store = env.clients[0].chain.chain_store().store();
     let state_snapshot_test_env = set_up_test_env_for_state_snapshots(store);
 
     for i in 1..=5 {

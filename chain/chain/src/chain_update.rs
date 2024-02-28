@@ -4,12 +4,10 @@ use crate::metrics::{SHARD_LAYOUT_NUM_SHARDS, SHARD_LAYOUT_VERSION};
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
 use crate::types::{
-    ApplySplitStateResultOrStateChanges, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, RuntimeAdapter, RuntimeStorageConfig,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ReshardingResults,
+    RuntimeAdapter, RuntimeStorageConfig,
 };
-use crate::update_shard::{
-    NewChunkResult, OldChunkResult, ShardBlockUpdateResult, ShardUpdateResult, StateSplitResult,
-};
+use crate::update_shard::{NewChunkResult, OldChunkResult, ReshardingResult, ShardUpdateResult};
 use crate::{metrics, DoomslugThresholdMode};
 use crate::{Chain, Doomslug};
 use near_chain_primitives::error::Error;
@@ -40,10 +38,10 @@ use tracing::{debug, info, warn};
 /// If rejected nothing will be updated in underlying storage.
 /// Safe to stop process mid way (Ctrl+C or crash).
 pub struct ChainUpdate<'a> {
-    pub(crate) epoch_manager: Arc<dyn EpochManagerAdapter>,
+    epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    pub(crate) chain_store_update: ChainStoreUpdate<'a>,
+    chain_store_update: ChainStoreUpdate<'a>,
     doomslug_threshold_mode: DoomslugThresholdMode,
     #[allow(unused)]
     transaction_validity_period: BlockHeightDelta,
@@ -51,14 +49,14 @@ pub struct ChainUpdate<'a> {
 
 impl<'a> ChainUpdate<'a> {
     pub fn new(
-        store: &'a mut ChainStore,
+        chain_store: &'a mut ChainStore,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         doomslug_threshold_mode: DoomslugThresholdMode,
         transaction_validity_period: BlockHeightDelta,
     ) -> Self {
-        let chain_store_update: ChainStoreUpdate<'_> = store.store_update();
+        let chain_store_update: ChainStoreUpdate<'_> = chain_store.store_update();
         Self::new_impl(
             epoch_manager,
             shard_tracker,
@@ -150,51 +148,35 @@ impl<'a> ChainUpdate<'a> {
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            match result {
-                ShardUpdateResult::Stateful(result) => {
-                    self.process_apply_chunk_result(block, result)?
-                }
-                ShardUpdateResult::Stateless(results) => {
-                    for (block_hash, shard_uid, chunk_extra) in results {
-                        let expected_chunk_extra =
-                            self.chain_store_update.get_chunk_extra(&block_hash, &shard_uid)?;
-                        assert_eq!(
-                            &chunk_extra,
-                            expected_chunk_extra.as_ref(),
-                            "For stateless validation, chunk extras for block {} and shard {} do not match",
-                            block_hash,
-                            shard_uid
-                        );
-                    }
-                }
-            }
+            self.process_apply_chunk_result(block, result)?;
         }
         Ok(())
     }
 
-    /// Postprocess split state results or state changes, do the necessary update on chain
-    /// for split state results: store the chunk extras and trie changes for the split states
-    /// for state changes, store the state changes for splitting states
-    fn process_split_state(
+    /// Postprocess resharding results and do the necessary update on chain for
+    /// resharding results.
+    /// - Store the chunk extras and trie changes for the apply results.
+    /// - Store the state changes to be applided later for the store results.
+    fn process_resharding_results(
         &mut self,
         block: &Block,
         shard_uid: &ShardUId,
-        apply_results_or_state_changes: ApplySplitStateResultOrStateChanges,
+        resharding_results: ReshardingResults,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
-        match apply_results_or_state_changes {
-            ApplySplitStateResultOrStateChanges::ApplySplitStateResults(mut results) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state apply");
+        match resharding_results {
+            ReshardingResults::ApplyReshardingResults(mut results) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results apply");
 
                 // Sort the results so that the gas reassignment is deterministic.
                 results.sort_unstable_by_key(|r| r.shard_uid);
                 // Drop the mutability as we no longer need it.
                 let results = results;
 
-                // Split validator_proposals, gas_burnt, balance_burnt to each split shard
-                // and store the chunk extra for split shards
+                // Split validator_proposals, gas_burnt, balance_burnt to each child shard
+                // and store the chunk extra for children shards
                 // Note that here we do not split outcomes by the new shard layout, we simply store
                 // the outcome_root from the parent shard. This is because outcome proofs are
                 // generated per shard using the old shard layout and stored in the database.
@@ -220,24 +202,24 @@ impl<'a> ChainUpdate<'a> {
                 }
 
                 let num_split_shards = next_epoch_shard_layout
-                    .get_split_shard_uids(shard_uid.shard_id())
+                    .get_children_shards_uids(shard_uid.shard_id())
                     .unwrap_or_else(|| panic!("invalid shard layout {:?}", next_epoch_shard_layout))
                     .len() as NumShards;
 
                 let total_gas_used = chunk_extra.gas_used();
                 let total_balance_burnt = chunk_extra.balance_burnt();
 
-                // The gas remainder, the split shards will be reassigned one
+                // The gas remainder, the children shards will be reassigned one
                 // unit each until its depleted.
                 let mut gas_res = total_gas_used % num_split_shards;
-                // The gas quotient, the split shards will be reassigned the
+                // The gas quotient, the children shards will be reassigned the
                 // full value each.
                 let gas_split = total_gas_used / num_split_shards;
 
-                // The balance remainder, the split shards will be reassigned one
+                // The balance remainder, the children shards will be reassigned one
                 // unit each until its depleted.
                 let mut balance_res = (total_balance_burnt % num_split_shards as u128) as NumShards;
-                // The balance quotient, the split shards will be reassigned the
+                // The balance quotient, the children shards will be reassigned the
                 // full value each.
                 let balance_split = total_balance_burnt / (num_split_shards as u128);
 
@@ -300,9 +282,9 @@ impl<'a> ChainUpdate<'a> {
                 assert_eq!(sum_gas_used, total_gas_used);
                 assert_eq!(sum_balance_burnt, total_balance_burnt);
             }
-            ApplySplitStateResultOrStateChanges::StateChangesForSplitStates(state_changes) => {
-                tracing::debug!(target: "resharding", height, ?shard_uid, "process_split_state store");
-                self.chain_store_update.add_state_changes_for_split_states(
+            ReshardingResults::StoreReshardingResults(state_changes) => {
+                tracing::debug!(target: "resharding", height, ?shard_uid, "process_resharding_results store");
+                self.chain_store_update.add_state_changes_for_resharding(
                     *block_hash,
                     shard_uid.shard_id(),
                     state_changes,
@@ -312,24 +294,24 @@ impl<'a> ChainUpdate<'a> {
         Ok(())
     }
 
-    /// Processed results of applying chunk
+    /// Process results of applying chunk
     fn process_apply_chunk_result(
         &mut self,
         block: &Block,
-        result: ShardBlockUpdateResult,
+        result: ShardUpdateResult,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
         let height = block.header().height();
         match result {
-            ShardBlockUpdateResult::NewChunk(NewChunkResult {
+            ShardUpdateResult::NewChunk(NewChunkResult {
                 gas_limit,
                 shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results,
             }) => {
                 let (outcome_root, outcome_paths) =
-                    ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+                    ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
                 let shard_id = shard_uid.shard_id();
 
                 // Save state root after applying transactions.
@@ -369,14 +351,20 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
-                if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                self.chain_store_update.save_state_transition_data(
+                    *block_hash,
+                    shard_id,
+                    apply_result.proof,
+                    apply_result.applied_receipts_hash,
+                );
+                if let Some(resharding_results) = resharding_results {
+                    self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
             }
-            ShardBlockUpdateResult::OldChunk(OldChunkResult {
+            ShardUpdateResult::OldChunk(OldChunkResult {
                 shard_uid,
                 apply_result,
-                apply_split_result_or_state_changes,
+                resharding_results,
             }) => {
                 let old_extra = self.chain_store_update.get_chunk_extra(prev_hash, &shard_uid)?;
 
@@ -395,18 +383,22 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
+                self.chain_store_update.save_state_transition_data(
+                    *block_hash,
+                    shard_uid.shard_id(),
+                    apply_result.proof,
+                    apply_result.applied_receipts_hash,
+                );
 
-                if let Some(apply_results_or_state_changes) = apply_split_result_or_state_changes {
-                    self.process_split_state(block, &shard_uid, apply_results_or_state_changes)?;
+                if let Some(resharding_config) = resharding_results {
+                    self.process_resharding_results(block, &shard_uid, resharding_config)?;
                 }
             }
-            ShardBlockUpdateResult::StateSplit(StateSplitResult { shard_uid, results }) => {
-                self.chain_store_update
-                    .remove_state_changes_for_split_states(*block.hash(), shard_uid.shard_id());
-                self.process_split_state(
+            ShardUpdateResult::Resharding(ReshardingResult { shard_uid, results }) => {
+                self.process_resharding_results(
                     block,
                     &shard_uid,
-                    ApplySplitStateResultOrStateChanges::ApplySplitStateResults(results),
+                    ReshardingResults::ApplyReshardingResults(results),
                 )?;
             }
         };
@@ -731,16 +723,16 @@ impl<'a> ChainUpdate<'a> {
         // TODO(nikurt): Determine the value correctly.
         let is_first_block_with_chunk_of_version = false;
 
-        let apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(chunk_header.prev_state_root(), true),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 gas_limit,
                 last_validator_proposals: chunk_header.prev_validator_proposals(),
                 is_first_block_with_chunk_of_version,
                 is_new_chunk: true,
             },
-            ApplyTransactionsBlockContext {
+            ApplyChunkBlockContext {
                 height: chunk_header.height_included(),
                 block_hash: *block_header.hash(),
                 prev_block_hash: *chunk_header.prev_block_hash(),
@@ -754,7 +746,7 @@ impl<'a> ChainUpdate<'a> {
         )?;
 
         let (outcome_root, outcome_proofs) =
-            ApplyTransactionResult::compute_outcomes_proof(&apply_result.outcomes);
+            ApplyChunkResult::compute_outcomes_proof(&apply_result.outcomes);
 
         self.chain_store_update.save_chunk(chunk);
 
@@ -828,19 +820,16 @@ impl<'a> ChainUpdate<'a> {
         let chunk_extra =
             self.chain_store_update.get_chunk_extra(prev_block_header.hash(), &shard_uid)?;
 
-        let apply_result = self.runtime_adapter.apply_transactions(
+        let apply_result = self.runtime_adapter.apply_chunk(
             RuntimeStorageConfig::new(*chunk_extra.state_root(), true),
-            ApplyTransactionsChunkContext {
+            ApplyChunkShardContext {
                 shard_id,
                 last_validator_proposals: chunk_extra.validator_proposals(),
                 gas_limit: chunk_extra.gas_limit(),
                 is_new_chunk: false,
                 is_first_block_with_chunk_of_version: false,
             },
-            ApplyTransactionsBlockContext::from_header(
-                &block_header,
-                prev_block_header.next_gas_price(),
-            ),
+            ApplyChunkBlockContext::from_header(&block_header, prev_block_header.next_gas_price()),
             &[],
             &[],
         )?;

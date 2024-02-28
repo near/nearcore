@@ -1,12 +1,11 @@
 use actix::System;
 use futures::{future, FutureExt};
+use near_async::messaging::IntoMultiSender;
 use near_chain::test_utils::ValidatorSchedule;
 use near_primitives::merkle::PartialMerkleTree;
 use near_primitives::test_utils::create_test_signer;
-use std::sync::Arc;
 use std::time::Duration;
 
-use crate::adapter::{BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader};
 use crate::test_utils::{setup_mock_all_validators, setup_no_network, setup_only_view};
 use crate::{
     GetBlock, GetBlockWithMerkleTree, GetExecutionOutcomesForBlock, Query, QueryError, Status,
@@ -15,6 +14,9 @@ use crate::{
 use near_actix_test_utils::run_actix;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{
+    BlockResponse, ProcessTxRequest, ProcessTxResponse, StateRequestHeader,
+};
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::PeerInfo;
 use near_network::types::{
@@ -82,6 +84,7 @@ fn query_status_not_crash() {
                 block.header.height + 1,
                 header.block_ordinal() + 1,
                 block.chunks.into_iter().map(|c| c.into()).collect(),
+                vec![],
                 EpochId(block.header.next_epoch_id),
                 EpochId(block.header.hash),
                 None,
@@ -222,7 +225,7 @@ fn test_state_request() {
             true,
             false,
             true,
-            Arc::new(MockPeerManagerAdapter::default()).into(),
+            MockPeerManagerAdapter::default().into_multi_sender(),
             100,
             Utc::now(),
         );
@@ -290,6 +293,7 @@ fn test_garbage_collection() {
             vec![false, true], // first validator non-archival, second archival
             vec![true, true],
             true,
+            None,
             Box::new(
                 move |conns,
                       _,

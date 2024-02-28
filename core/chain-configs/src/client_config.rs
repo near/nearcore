@@ -154,11 +154,11 @@ impl SyncConfig {
 // A handle that allows the main process to interrupt resharding if needed.
 // This typically happens when the main process is interrupted.
 #[derive(Clone)]
-pub struct StateSplitHandle {
+pub struct ReshardingHandle {
     keep_going: Arc<AtomicBool>,
 }
 
-impl StateSplitHandle {
+impl ReshardingHandle {
     pub fn new() -> Self {
         Self { keep_going: Arc::new(AtomicBool::new(true)) }
     }
@@ -175,7 +175,7 @@ impl StateSplitHandle {
 /// Configuration for resharding.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(default)]
-pub struct StateSplitConfig {
+pub struct ReshardingConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
@@ -200,7 +200,7 @@ pub struct StateSplitConfig {
     pub max_poll_time: Duration,
 }
 
-impl Default for StateSplitConfig {
+impl Default for ReshardingConfig {
     fn default() -> Self {
         // Conservative default for a slower resharding that puts as little
         // extra load on the node as possible.
@@ -299,6 +299,30 @@ pub fn default_enable_multiline_logging() -> Option<bool> {
 
 pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::from_millis(200))
+}
+
+pub fn default_orphan_state_witness_pool_size() -> usize {
+    // With 5 shards, a capacity of 25 witnesses allows to store 5 orphan witnesses per shard.
+    25
+}
+
+/// Config for the Chunk Distribution Network feature.
+/// This allows nodes to push and pull chunks from a central stream.
+/// The two benefits of this approach are: (1) less request/response traffic
+/// on the peer-to-peer network and (2) lower latency for RPC nodes indexing the chain.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct ChunkDistributionNetworkConfig {
+    pub enabled: bool,
+    pub uris: ChunkDistributionUris,
+}
+
+/// URIs for the Chunk Distribution Network feature.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub struct ChunkDistributionUris {
+    /// URI for pulling chunks from the stream.
+    pub get: String,
+    /// URI for publishing chunks to the stream.
+    pub set: String,
 }
 
 /// ClientConfig where some fields can be updated at runtime.
@@ -410,7 +434,7 @@ pub struct ClientConfig {
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: bool,
     // Configuration for resharding.
-    pub state_split_config: MutableConfigValue<StateSplitConfig>,
+    pub resharding_config: MutableConfigValue<ReshardingConfig>,
     /// If the node is not a chunk producer within that many blocks, then route
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
@@ -419,6 +443,15 @@ pub struct ClientConfig {
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     pub produce_chunk_add_transactions_time_limit: MutableConfigValue<Option<Duration>>,
+    /// Optional config for the Chunk Distribution Network feature.
+    /// If set to `None` then this node does not participate in the Chunk Distribution Network.
+    /// Nodes not participating will still function fine, but possibly with higher
+    /// latency due to the need of requesting chunks over the peer-to-peer network.
+    pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
+    /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
+    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// required block appears. This variable controls how many witnesses can be stored in the pool.
+    pub orphan_state_witness_pool_size: usize,
 }
 
 impl ClientConfig {
@@ -466,7 +499,7 @@ impl ClientConfig {
             num_block_producer_seats,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
-            catchup_step_period: Duration::from_millis(1),
+            catchup_step_period: Duration::from_millis(100),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),
                 Duration::from_millis(min_block_prod_time / 5),
@@ -493,15 +526,17 @@ impl ClientConfig {
             state_sync: StateSyncConfig::default(),
             transaction_pool_size_limit: None,
             enable_multiline_logging: false,
-            state_split_config: MutableConfigValue::new(
-                StateSplitConfig::default(),
-                "state_split_config",
+            resharding_config: MutableConfigValue::new(
+                ReshardingConfig::default(),
+                "resharding_config",
             ),
             tx_routing_height_horizon: 4,
             produce_chunk_add_transactions_time_limit: MutableConfigValue::new(
                 default_produce_chunk_add_transactions_time_limit(),
                 "produce_chunk_add_transactions_time_limit",
             ),
+            chunk_distribution_network: None,
+            orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
         }
     }
 }

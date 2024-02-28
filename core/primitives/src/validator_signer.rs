@@ -5,10 +5,10 @@ use near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer};
 
 use crate::block::{Approval, ApprovalInner, BlockHeader};
 use crate::challenge::ChallengeBody;
-use crate::chunk_validation::ChunkEndorsementInner;
 use crate::hash::CryptoHash;
 use crate::network::{AnnounceAccount, PeerId};
 use crate::sharding::ChunkHash;
+use crate::stateless_validation::{ChunkEndorsementInner, ChunkStateWitnessInner};
 use crate::telemetry::TelemetryInfo;
 use crate::types::{AccountId, BlockHeight, EpochId};
 
@@ -39,6 +39,10 @@ pub trait ValidatorSigner: Sync + Send {
 
     /// Signs approval of the given chunk.
     fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature;
+
+    /// Signs approval of the given chunk.
+    /// Returns signature and a signed payload size in bytes
+    fn sign_chunk_state_witness(&self, inner: &ChunkStateWitnessInner) -> (Signature, usize);
 
     /// Signs challenge body.
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature);
@@ -114,6 +118,10 @@ impl ValidatorSigner for EmptyValidatorSigner {
 
     fn sign_chunk_endorsement(&self, _inner: &ChunkEndorsementInner) -> Signature {
         Signature::default()
+    }
+
+    fn sign_chunk_state_witness(&self, _inner: &ChunkStateWitnessInner) -> (Signature, usize) {
+        (Signature::default(), 0)
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {
@@ -209,6 +217,11 @@ impl ValidatorSigner for InMemoryValidatorSigner {
 
     fn sign_chunk_endorsement(&self, inner: &ChunkEndorsementInner) -> Signature {
         self.signer.sign(&borsh::to_vec(inner).unwrap())
+    }
+
+    fn sign_chunk_state_witness(&self, inner: &ChunkStateWitnessInner) -> (Signature, usize) {
+        let data = borsh::to_vec(inner).unwrap();
+        (self.signer.sign(&data), data.len())
     }
 
     fn sign_challenge(&self, challenge_body: &ChallengeBody) -> (CryptoHash, Signature) {

@@ -1,18 +1,11 @@
-use crate::time;
+use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use crate::futures::DelayedActionRunner;
+use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
-use futures::FutureExt;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::task::Context;
-use tokio::sync::oneshot;
-
-use crate::{
-    futures::FutureSpawner,
-    messaging::{self, CanSend},
-};
-
-use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 
 // Support for futures in TestLoop.
 //
@@ -34,14 +27,14 @@ use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 //
 //   2. A way to send a message to the TestLoop and expect a response as a
 //      future, which will resolve whenever the TestLoop handles the message.
-//      To support this, use MessageExpectingResponse<Request, Response> as the
+//      To support this, use MessageWithCallback<Request, Response> as the
 //      event type, and in the handler, call (event.responder)(result)
 //      (possibly asynchronously) to complete the future.
 //
 //      This is needed to support the AsyncSender interface, which is required
 //      by some components as they expect a response to each message. The way
 //      this is implemented is by implementing a conversion from
-//      DelaySender<MessageExpectingResponse<Request, Response>> to
+//      DelaySender<MessageWithCallback<Request, Response>> to
 //      AsyncSender<Request, Response>.
 
 /// A message, plus a response callback. This should be used as the event type
@@ -49,34 +42,6 @@ use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 ///
 /// The response is used to complete the future that is returned by
 /// our `AsyncSender::send_async` implementation.
-pub struct MessageExpectingResponse<T, R> {
-    pub message: T,
-    pub responder: Box<dyn FnOnce(R) + Send>,
-}
-
-impl<T: Debug, R> Debug for MessageExpectingResponse<T, R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("MessageWithResponder").field(&self.message).finish()
-    }
-}
-
-impl<
-        Message: 'static,
-        Response: Send + 'static,
-        Event: From<MessageExpectingResponse<Message, Response>> + 'static,
-    > messaging::CanSendAsync<Message, Response> for DelaySender<Event>
-{
-    fn send_async(&self, message: Message) -> BoxFuture<'static, Response> {
-        let (sender, receiver) = oneshot::channel::<Response>();
-        let future = async move { receiver.await.expect("Future was cancelled") };
-        let responder = Box::new(move |r| sender.send(r).ok().unwrap());
-        self.send_with_delay(
-            MessageExpectingResponse { message, responder }.into(),
-            time::Duration::ZERO,
-        );
-        future.boxed()
-    }
-}
 
 pub struct TestLoopTask {
     future: Mutex<Option<BoxFuture<'static, ()>>>,
@@ -129,5 +94,57 @@ impl FutureSpawner for TestLoopFutureSpawner {
             description: description.to_string(),
         });
         self.send(task);
+    }
+}
+
+/// Represents an action that was scheduled to run later, by using
+/// `DelayedActionRunner::run_later`.
+pub struct TestLoopDelayedActionEvent<T> {
+    name: String,
+    action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+}
+
+impl<T> Debug for TestLoopDelayedActionEvent<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("DelayedAction").field(&self.name).finish()
+    }
+}
+
+/// An event handler that handles only `TestLoopDelayedActionEvent`s, by
+/// running the action encapsulated in the event.
+pub fn drive_delayed_action_runners<T>() -> LoopEventHandler<T, TestLoopDelayedActionEvent<T>> {
+    LoopEventHandler::new_with_drop(
+        |event, data, ctx| {
+            let mut runner = TestLoopDelayedActionRunner { sender: ctx.sender.clone() };
+            (event.action)(data, &mut runner);
+            Ok(())
+        },
+        |_| {
+            // Delayed actions are usually used for timers, so let's just say
+            // it's OK to drop them at the end of the test. It would be hard
+            // to distinguish what sort of delayed action was being scheduled
+            // anyways.
+            true
+        },
+    )
+}
+
+/// `DelayedActionRunner` that schedules the action to be run later by the
+/// TestLoop event loop.
+pub struct TestLoopDelayedActionRunner<T> {
+    pub(crate) sender: DelaySender<TestLoopDelayedActionEvent<T>>,
+}
+
+impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
+    fn run_later_boxed(
+        &mut self,
+        name: &str,
+        dur: std::time::Duration,
+        action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+    ) {
+        self.sender.send_with_delay(
+            TestLoopDelayedActionEvent { name: name.to_string(), action },
+            dur.try_into().unwrap(),
+        );
     }
 }

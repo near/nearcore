@@ -1,6 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -17,9 +17,8 @@ use near_store::flat::{
     FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
 };
 use near_store::test_utils::create_test_store;
+use near_store::trie::TrieNodesCount;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
-use near_vm_runner::logic::TrieNodesCount;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::str::FromStr;
 use std::thread;
@@ -33,12 +32,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
-    let chain_genesis = ChainGenesis::new(genesis);
-    TestEnv::builder(chain_genesis)
-        .stores(vec![store])
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(genesis)
-        .build()
+    TestEnv::builder(&genesis.config).stores(vec![store]).nightshade_runtimes(genesis).build()
 }
 
 /// Waits for flat storage creation on given shard for `CREATION_TIMEOUT` blocks.
@@ -314,7 +308,7 @@ fn test_flat_storage_creation_start_from_state_part() {
     let store = create_test_store();
 
     // Process some blocks with flat storage.
-    // Split state into two parts and return trie keys corresponding to each part.
+    // Reshard into two parts and return trie keys corresponding to each part.
     const NUM_PARTS: u64 = 2;
     let trie_keys: Vec<_> = {
         let mut env = setup_env(&genesis, store.clone());

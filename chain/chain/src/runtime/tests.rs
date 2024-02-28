@@ -1,21 +1,28 @@
 use std::collections::BTreeSet;
 
-use near_chain::types::RuntimeStorageConfig;
-use near_chain::{Chain, ChainGenesis};
+use crate::types::{ChainConfig, RuntimeStorageConfig};
+use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain_configs::test_utils::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, RngSeed};
+use near_pool::{
+    InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
+};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
-use near_chain_configs::{Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::{
+    default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::block::Tip;
-use near_primitives::challenge::{ChallengesResult, SlashedValidator};
+use near_primitives::challenge::{ChallengesResult, PartialState, SlashedValidator};
 use near_primitives::transaction::{Action, DeleteAccountAction, StakeAction, TransferAction};
 use near_primitives::types::{
     BlockHeightDelta, Nonce, ValidatorId, ValidatorInfoIdentifier, ValidatorKickoutReason,
@@ -25,7 +32,7 @@ use near_primitives::views::{
     AccountView, CurrentEpochValidatorInfo, EpochValidatorInfo, NextEpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_store::{get_genesis_state_roots, NodeStorage};
+use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 
 use super::*;
 
@@ -67,16 +74,16 @@ impl NightshadeRuntime {
         challenges_result: &ChallengesResult,
     ) -> (StateRoot, Vec<ValidatorStake>, Vec<Receipt>) {
         let mut result = self
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*state_root, true),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals,
                     gas_limit,
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version: false,
                 },
-                ApplyTransactionsBlockContext {
+                ApplyChunkBlockContext {
                     height,
                     block_hash: *block_hash,
                     prev_block_hash: *prev_block_hash,
@@ -119,6 +126,14 @@ impl NightshadeRuntime {
     }
 }
 
+struct TestEnvConfig {
+    epoch_length: BlockHeightDelta,
+    has_reward: bool,
+    minimum_stake_divisor: Option<u64>,
+    zero_fees: bool,
+    create_flat_storage: bool,
+}
+
 /// Environment to test runtime behaviour separate from Chain.
 /// Runtime operates in a mock chain where i-th block is attached to (i-1)-th one, has height `i` and hash
 /// `hash([i])`.
@@ -139,15 +154,19 @@ impl TestEnv {
         epoch_length: BlockHeightDelta,
         has_reward: bool,
     ) -> Self {
-        Self::new_with_minimum_stake_divisor(validators, epoch_length, has_reward, None)
+        Self::new_with_config(
+            validators,
+            TestEnvConfig {
+                epoch_length,
+                has_reward,
+                minimum_stake_divisor: None,
+                zero_fees: true,
+                create_flat_storage: true,
+            },
+        )
     }
 
-    fn new_with_minimum_stake_divisor(
-        validators: Vec<Vec<AccountId>>,
-        epoch_length: BlockHeightDelta,
-        has_reward: bool,
-        minimum_stake_divisor: Option<u64>,
-    ) -> Self {
+    fn new_with_config(validators: Vec<Vec<AccountId>>, config: TestEnvConfig) -> Self {
         let (dir, opener) = NodeStorage::test_opener();
         let store = opener.open().unwrap().get_hot_store();
         let all_validators = validators.iter().fold(BTreeSet::new(), |acc, x| {
@@ -160,17 +179,20 @@ impl TestEnv {
             validators.iter().map(|x| x.len() as ValidatorId).collect(),
         );
         // No fees mode.
-        genesis.config.epoch_length = epoch_length;
+        genesis.config.epoch_length = config.epoch_length;
         genesis.config.chunk_producer_kickout_threshold =
             genesis.config.block_producer_kickout_threshold;
-        if !has_reward {
+        if !config.has_reward {
             genesis.config.max_inflation_rate = Ratio::from_integer(0);
         }
-        if let Some(minimum_stake_divisor) = minimum_stake_divisor {
+        if let Some(minimum_stake_divisor) = config.minimum_stake_divisor {
             genesis.config.minimum_stake_divisor = minimum_stake_divisor;
         }
         let genesis_total_supply = genesis.config.total_supply;
         let genesis_protocol_version = genesis.config.protocol_version;
+
+        let runtime_config_store =
+            if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() };
 
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
@@ -180,7 +202,7 @@ impl TestEnv {
             epoch_manager.clone(),
             None,
             None,
-            Some(RuntimeConfigStore::free()),
+            Some(runtime_config_store),
             DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
             Default::default(),
             StateSnapshotConfig {
@@ -194,23 +216,27 @@ impl TestEnv {
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
         let genesis_hash = hash(&[0]);
 
-        // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
-        // and use a mock chain, so we need to initialize flat storage manually.
-        let flat_storage_manager = runtime.get_flat_storage_manager();
-        for shard_uid in epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids() {
-            let mut store_update = store.store_update();
-            flat_storage_manager.set_flat_storage_for_genesis(
-                &mut store_update,
-                shard_uid,
-                &genesis_hash,
-                0,
-            );
-            store_update.commit().unwrap();
-            assert!(matches!(
-                flat_storage_manager.get_flat_storage_status(shard_uid),
-                near_store::flat::FlatStorageStatus::Ready(_)
-            ));
-            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        if config.create_flat_storage {
+            // Create flat storage. Naturally it happens on Chain creation, but here we test only Runtime behaviour
+            // and use a mock chain, so we need to initialize flat storage manually.
+            let flat_storage_manager = runtime.get_flat_storage_manager();
+            for shard_uid in
+                epoch_manager.get_shard_layout(&EpochId::default()).unwrap().shard_uids()
+            {
+                let mut store_update = store.store_update();
+                flat_storage_manager.set_flat_storage_for_genesis(
+                    &mut store_update,
+                    shard_uid,
+                    &genesis_hash,
+                    0,
+                );
+                store_update.commit().unwrap();
+                assert!(matches!(
+                    flat_storage_manager.get_flat_storage_status(shard_uid),
+                    near_store::flat::FlatStorageStatus::Ready(_)
+                ));
+                flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            }
         }
 
         epoch_manager
@@ -395,7 +421,7 @@ fn test_validator_rotation() {
         &signer,
         CryptoHash::default(),
     );
-    let test2_stake_amount = 3600 * crate::NEAR_BASE;
+    let test2_stake_amount = 3600 * NEAR_BASE;
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
@@ -646,11 +672,6 @@ fn test_verify_validator_signature() {
             &signature
         )
         .unwrap());
-}
-
-#[test]
-fn test_split_states() {
-    init_test_logger();
 }
 
 // TODO (#7327): enable test when flat storage will support state sync.
@@ -1105,13 +1126,17 @@ fn test_fishermen_stake() {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let mut env = TestEnv::new_with_minimum_stake_divisor(
+    let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
-        4,
-        false,
-        // We need to be able to stake enough to be fisherman, but not enough to be
-        // validator
-        Some(20000),
+        TestEnvConfig {
+            epoch_length: 4,
+            has_reward: false,
+            // We need to be able to stake enough to be fisherman, but not enough to be
+            // validator
+            minimum_stake_divisor: Some(20000),
+            zero_fees: true,
+            create_flat_storage: true,
+        },
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
@@ -1119,7 +1144,7 @@ fn test_fishermen_stake() {
         .iter()
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
-    let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
+    let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -1175,13 +1200,17 @@ fn test_fishermen_unstake() {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let mut env = TestEnv::new_with_minimum_stake_divisor(
+    let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
-        2,
-        false,
-        // We need to be able to stake enough to be fisherman, but not enough to be
-        // validator
-        Some(20000),
+        TestEnvConfig {
+            epoch_length: 2,
+            has_reward: false,
+            // We need to be able to stake enough to be fisherman, but not enough to be
+            // validator
+            minimum_stake_divisor: Some(20000),
+            zero_fees: true,
+            create_flat_storage: true,
+        },
     );
     let block_producers: Vec<_> =
         validators.iter().map(|id| create_test_signer(id.as_str())).collect();
@@ -1189,7 +1218,7 @@ fn test_fishermen_unstake() {
         .iter()
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
-    let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
+    let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     env.step_default(vec![staking_transaction]);
@@ -1340,7 +1369,7 @@ fn test_insufficient_stake() {
         .collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
     env.step_default(vec![staking_transaction1, staking_transaction2]);
     assert!(env.last_proposals.is_empty());
     let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);
@@ -1417,7 +1446,7 @@ fn test_trie_and_flat_state_equality() {
 #[test]
 fn test_genesis_hash() {
     let genesis = near_mainnet_res::mainnet_genesis();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let store = near_store::test_utils::create_test_store();
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -1448,4 +1477,203 @@ fn test_genesis_hash() {
         ],
         epoch_info.block_producers_settlement()
     );
+}
+
+/// Creates a signed transaction between each pair of `signers`,
+/// where transactions outcoming from a single signer differ by nonce.
+/// The transactions are then shuffled and used to fill a transaction pool.
+fn generate_transaction_pool(
+    signers: &Vec<InMemorySigner>,
+    block_hash: CryptoHash,
+) -> TransactionPool {
+    const TEST_SEED: RngSeed = [3; 32];
+    let mut rng = StdRng::from_seed(TEST_SEED);
+    let signer_count = signers.len();
+
+    let mut transactions = vec![];
+    for round in 1..signer_count {
+        for i in 0..signer_count {
+            let transaction = SignedTransaction::send_money(
+                round.try_into().unwrap(),
+                signers[i].account_id.clone(),
+                signers[(i + round) % signer_count].account_id.clone(),
+                &signers[i] as &dyn Signer,
+                round.try_into().unwrap(),
+                block_hash,
+            );
+            transactions.push(transaction);
+        }
+    }
+    transactions.shuffle(&mut rng);
+
+    let mut pool = TransactionPool::new(TEST_SEED, None, "");
+    for transaction in transactions {
+        assert_eq!(pool.insert_transaction(transaction), InsertTransactionResult::Success);
+    }
+    pool
+}
+
+fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
+    let num_nodes = 4;
+    let validators = (0..num_nodes)
+        .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
+        .collect::<Vec<_>>();
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+    let mut env = TestEnv::new_with_config(
+        vec![validators.clone()],
+        TestEnvConfig {
+            epoch_length: chain_genesis.epoch_length,
+            has_reward: false,
+            minimum_stake_divisor: None,
+            zero_fees: false,
+            create_flat_storage: false,
+        },
+    );
+
+    let chain = Chain::new(
+        env.epoch_manager.clone(),
+        ShardTracker::new_empty(env.epoch_manager.clone()),
+        env.runtime.clone(),
+        &chain_genesis,
+        DoomslugThresholdMode::NoApprovals,
+        ChainConfig::test(),
+        None,
+    )
+    .unwrap();
+
+    // Make sure `chain` and test `env` use the same genesis hash.
+    env.head = chain.chain_store().head().unwrap();
+    // Produce a single block, so that `prev_block_hash` is valid.
+    env.step_default(vec![]);
+
+    let signers: Vec<_> = validators
+        .iter()
+        .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
+        .collect();
+
+    let transaction_pool = generate_transaction_pool(&signers, env.head.prev_block_hash);
+    (env, chain, transaction_pool)
+}
+
+fn prepare_transactions(
+    env: &TestEnv,
+    chain: &Chain,
+    transaction_groups: &mut dyn TransactionGroupIterator,
+    storage_config: RuntimeStorageConfig,
+) -> Result<PreparedTransactions, Error> {
+    env.runtime.prepare_transactions(
+        storage_config,
+        PrepareTransactionsChunkContext {
+            shard_id: 0,
+            gas_limit: env.runtime.genesis_config.gas_limit,
+        },
+        PrepareTransactionsBlockContext {
+            next_gas_price: env.runtime.genesis_config.min_gas_price,
+            height: env.head.height,
+            block_hash: env.head.last_block_hash,
+        },
+        transaction_groups,
+        &mut |tx: &SignedTransaction| -> bool {
+            chain
+                .chain_store()
+                .check_transaction_validity_period(
+                    &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
+                    &tx.transaction.block_hash,
+                    chain.transaction_validity_period,
+                )
+                .is_ok()
+        },
+        default_produce_chunk_add_transactions_time_limit(),
+    )
+}
+
+/// Check that transactions validation works the same when using recorded storage proof instead of db.
+#[test]
+fn test_prepare_transactions_storage_proof() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let transactions_count = transaction_pool.len();
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+        record_storage: true,
+    };
+
+    let proposed_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        storage_config,
+    )
+    .unwrap();
+
+    assert_eq!(proposed_transactions.transactions.len(), transactions_count);
+    assert!(proposed_transactions.storage_proof.is_some());
+
+    let validator_storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Recorded(PartialStorage {
+            nodes: proposed_transactions.storage_proof.unwrap(),
+        }),
+        state_patch: Default::default(),
+        record_storage: false,
+    };
+
+    let validated_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut TransactionGroupIteratorWrapper::new(&proposed_transactions.transactions),
+        validator_storage_config,
+    )
+    .unwrap();
+
+    assert_eq!(validated_transactions.transactions, proposed_transactions.transactions);
+}
+
+/// Check that transactions validation fails if provided empty storage proof.
+#[test]
+fn test_prepare_transactions_empty_storage_proof() {
+    let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
+    let transactions_count = transaction_pool.len();
+
+    let storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Db,
+        state_patch: Default::default(),
+        record_storage: true,
+    };
+
+    let proposed_transactions = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        storage_config,
+    )
+    .unwrap();
+
+    assert_eq!(proposed_transactions.transactions.len(), transactions_count);
+    assert!(proposed_transactions.storage_proof.is_some());
+
+    let validator_storage_config = RuntimeStorageConfig {
+        state_root: env.state_roots[0],
+        use_flat_storage: true,
+        source: StorageDataSource::Recorded(PartialStorage {
+            nodes: PartialState::default(), // We use empty storage proof here.
+        }),
+        state_patch: Default::default(),
+        record_storage: false,
+    };
+
+    let validation_result = prepare_transactions(
+        &env,
+        &chain,
+        &mut PoolIteratorWrapper::new(&mut transaction_pool),
+        validator_storage_config,
+    );
+
+    assert!(validation_result.is_err());
 }

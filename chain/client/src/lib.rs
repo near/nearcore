@@ -8,28 +8,36 @@ pub use near_client_primitives::types::{
     QueryError, Status, StatusResponse, SyncStatus, TxStatus, TxStatusError,
 };
 
-pub use crate::adapter::{
-    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
-};
-pub use crate::client::Client;
+pub use crate::client::{Client, ProduceChunkResult};
 #[cfg(feature = "test_features")]
-pub use crate::client_actor::NetworkAdversarialMessage;
+pub use crate::client_actions::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::config_updater::ConfigUpdater;
+pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::{
+    HandleOrphanWitnessOutcome, MAX_ORPHAN_WITNESS_SIZE,
+};
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client::{start_view_client, ViewClientActor};
 pub use near_client_primitives::debug::DebugStatus;
+pub use near_network::client::{
+    BlockApproval, BlockResponse, ProcessTxRequest, ProcessTxResponse, SetNetworkInfo,
+};
+pub use stateless_validation::processing_tracker::{ProcessingDoneTracker, ProcessingDoneWaiter};
 
 pub mod adapter;
 pub mod adversarial;
-mod chunk_validation;
+mod chunk_distribution_network;
+mod chunk_inclusion_tracker;
 mod client;
+pub mod client_actions;
 mod client_actor;
 mod config_updater;
 pub mod debug;
 mod info;
 mod metrics;
+mod stateless_validation;
 pub mod sync;
+pub mod sync_jobs_actions;
 mod sync_jobs_actor;
 pub mod test_utils;
 #[cfg(test)]

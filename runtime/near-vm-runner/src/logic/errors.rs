@@ -206,6 +206,12 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
+    /// There is no yielded promise associated with the given `data_id`.
+    YieldedPromiseNotFound { data_id: String },
+    /// Yield payload length exceeds the maximum permitted.
+    YieldPayloadLength { length: u64, limit: u64 },
+    /// Yield resumption data id is malformed.
+    DataIdMalformed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -435,6 +441,14 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
+            YieldedPromiseNotFound { data_id } => {
+                write!(f, "Attempted to resume invalid yielded promise: {}", data_id)
+            }
+            YieldPayloadLength { length, limit } => write!(
+                f,
+                "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
+            ),
+            DataIdMalformed => write!(f, "yield resumption token is malformed"),
         }
     }
 }

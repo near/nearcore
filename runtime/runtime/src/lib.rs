@@ -19,31 +19,34 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
+    YieldedPromise, YieldedPromiseQueueIndices,
 };
-pub use near_primitives::runtime::apply_state::ApplyState;
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
-use near_primitives::transaction::ExecutionMetadata;
 use near_primitives::transaction::{
-    Action, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry, SignedTransaction,
+    Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
+    SignedTransaction, TransferAction,
 };
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use near_primitives::transaction::{DeleteAccountAction, NonrefundableStorageTransferAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
-    validator_stake::ValidatorStake, AccountId, Balance, Compute, EpochInfoProvider, Gas,
-    RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
+    validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
+    EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt, create_receipt_id_from_transaction,
+    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, remove_postponed_receipt, set,
-    set_account, set_delayed_receipt, set_postponed_receipt, set_received_data, PartialStorage,
-    StorageError, Trie, TrieChanges, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_received_data, has_received_data,
+    remove_postponed_receipt, set, set_account, set_delayed_receipt, set_postponed_receipt,
+    set_received_data, PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
+use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
 use near_vm_runner::ContractCode;
@@ -57,6 +60,7 @@ mod actions;
 pub mod adapter;
 mod balance_checker;
 pub mod config;
+mod conversions;
 pub mod ext;
 mod metrics;
 mod prefetch;
@@ -65,6 +69,42 @@ pub mod state_viewer;
 mod verifier;
 
 const EXPECT_ACCOUNT_EXISTS: &str = "account exists, checked above";
+
+#[derive(Debug)]
+pub struct ApplyState {
+    /// Currently building block height.
+    pub block_height: BlockHeight,
+    /// Prev block hash
+    pub prev_block_hash: CryptoHash,
+    /// Current block hash
+    pub block_hash: CryptoHash,
+    /// Current epoch id
+    pub epoch_id: EpochId,
+    /// Current epoch height
+    pub epoch_height: EpochHeight,
+    /// Price for the gas.
+    pub gas_price: Balance,
+    /// The current block timestamp (number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC).
+    pub block_timestamp: u64,
+    /// Gas limit for a given chunk.
+    /// If None is given, assumes there is no gas limit.
+    pub gas_limit: Option<Gas>,
+    /// Current random seed (from current block vrf output).
+    pub random_seed: CryptoHash,
+    /// Current Protocol version when we apply the state transition
+    pub current_protocol_version: ProtocolVersion,
+    /// The Runtime config to use for the current transition.
+    pub config: Arc<RuntimeConfig>,
+    /// Cache for compiled contracts.
+    pub cache: Option<Box<dyn CompiledContractCache>>,
+    /// Whether the chunk being applied is new.
+    pub is_new_chunk: bool,
+    /// Data for migrations that may need to be applied at the start of an epoch when protocol
+    /// version changes
+    pub migration_data: Arc<MigrationData>,
+    /// Flags for migrations indicating whether they can be applied at this block
+    pub migration_flags: MigrationFlags,
+}
 
 /// Contains information to update validators accounts at the first block of a new epoch.
 #[derive(Debug)]
@@ -128,7 +168,7 @@ pub struct ActionResult {
     pub logs: Vec<LogEntry>,
     pub new_receipts: Vec<Receipt>,
     pub validator_proposals: Vec<ValidatorStake>,
-    pub profile: ProfileDataV3,
+    pub profile: Box<ProfileDataV3>,
 }
 
 impl ActionResult {
@@ -305,16 +345,20 @@ impl Runtime {
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
         let account_id = &receipt.receiver_id;
-        let is_the_only_action = actions.len() == 1;
         let is_refund = receipt.predecessor_id.is_system();
+        let is_the_only_action = actions.len() == 1;
+        let implicit_account_creation_eligible = is_the_only_action && !is_refund;
+
+        let receipt_starts_with_create_account =
+            matches!(actions.get(0), Some(Action::CreateAccount(_)));
         // Account validation
         if let Err(e) = check_account_existence(
             action,
             account,
             account_id,
             &apply_state.config,
-            is_the_only_action,
-            is_refund,
+            implicit_account_creation_eligible,
+            receipt_starts_with_create_account,
         ) {
             result.result = Err(e);
             return Ok(result);
@@ -335,6 +379,7 @@ impl Runtime {
                     &receipt.receiver_id,
                     &receipt.predecessor_id,
                     &mut result,
+                    apply_state.current_protocol_version,
                 );
             }
             Action::DeployContract(deploy_contract) => {
@@ -363,34 +408,34 @@ impl Runtime {
                     epoch_info_provider,
                 )?;
             }
-            Action::Transfer(transfer) => {
-                if let Some(account) = account.as_mut() {
-                    action_transfer(account, transfer)?;
-                    // Check if this is a gas refund, then try to refund the access key allowance.
-                    if is_refund && action_receipt.signer_id == receipt.receiver_id {
-                        try_refund_allowance(
-                            state_update,
-                            &receipt.receiver_id,
-                            &action_receipt.signer_public_key,
-                            transfer,
-                        )?;
-                    }
-                } else {
-                    // Implicit account creation
-                    debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
-                    debug_assert!(!is_refund);
-                    action_implicit_account_creation_transfer(
-                        state_update,
-                        apply_state,
-                        &apply_state.config.fees,
-                        account,
-                        actor_id,
-                        &receipt.receiver_id,
-                        transfer,
-                        apply_state.block_height,
-                        apply_state.current_protocol_version,
-                    );
-                }
+            Action::Transfer(TransferAction { deposit }) => {
+                action_transfer_or_implicit_account_creation(
+                    account,
+                    *deposit,
+                    false,
+                    is_refund,
+                    action_receipt,
+                    receipt,
+                    state_update,
+                    apply_state,
+                    actor_id,
+                )?;
+            }
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
+                deposit,
+            }) => {
+                action_transfer_or_implicit_account_creation(
+                    account,
+                    *deposit,
+                    true,
+                    is_refund,
+                    action_receipt,
+                    receipt,
+                    state_update,
+                    apply_state,
+                    actor_id,
+                )?;
             }
             Action::Stake(stake) => {
                 action_stake(
@@ -460,11 +505,13 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt = match &receipt.receipt {
-            ReceiptEnum::Action(action_receipt) => action_receipt,
-            _ => unreachable!("given receipt should be an action receipt"),
-        };
+        let action_receipt =
+            &receipt.receipt.action().expect("given receipt should be an action receipt");
         let account_id = &receipt.receiver_id;
+
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let account_before_update = get_account(state_update, account_id)?;
+
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -540,6 +587,19 @@ impl Runtime {
             if let Err(ref mut res) = result.result {
                 res.index = Some(action_index as u64);
                 break;
+            }
+
+            // We update `other_burnt_amount` statistic with the non-refundable amount being burnt on account deletion.
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            if matches!(action, Action::DeleteAccount(DeleteAccountAction { beneficiary_id: _ })) {
+                // The `account_before_update` can be None if the account is both created and deleted within
+                // a single action receipt (see `test_create_account_add_key_call_delete_key_delete_account`).
+                if let Some(ref account_before_update) = account_before_update {
+                    stats.other_burnt_amount = safe_add_balance(
+                        stats.other_burnt_amount,
+                        account_before_update.nonrefundable(),
+                    )?
+                }
             }
         }
 
@@ -673,7 +733,8 @@ impl Runtime {
                     .expect("the receipt for the given receipt index should exist")
                     .receipt
                 {
-                    ReceiptEnum::Action(ref mut new_action_receipt) => new_action_receipt
+                    ReceiptEnum::Action(ref mut new_action_receipt)
+                    | ReceiptEnum::PromiseYield(ref mut new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers),
                     _ => unreachable!("the receipt should be an action receipt"),
@@ -704,16 +765,16 @@ impl Runtime {
             .into_iter()
             .enumerate()
             .filter_map(|(receipt_index, mut new_receipt)| {
-                let receipt_id = create_receipt_id_from_receipt(
+                let receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = matches!(&new_receipt.receipt, ReceiptEnum::Action(_));
+                let is_action = new_receipt.receipt.is_action();
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -725,9 +786,9 @@ impl Runtime {
 
         let status = match result.result {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
-                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt(
+                ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    receipt,
+                    &receipt.receipt_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -837,7 +898,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
-            ReceiptEnum::Data(ref data_receipt) => {
+            ReceiptEnum::Data(ref data_receipt) | ReceiptEnum::PromiseResume(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -923,14 +984,15 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt) => {
+            ReceiptEnum::Action(ref action_receipt)
+            | ReceiptEnum::PromiseYield(ref action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
                 // If not, then we will postpone this receipt for later.
                 let mut pending_data_count: u32 = 0;
                 for data_id in &action_receipt.input_data_ids {
-                    if get_received_data(state_update, account_id, *data_id)?.is_none() {
+                    if !has_received_data(state_update, account_id, *data_id)? {
                         pending_data_count += 1;
                         // The data for a given data_id is not available, so we save a link to this
                         // receipt_id for the pending data_id into the state.
@@ -1438,8 +1500,68 @@ impl Runtime {
             prefetcher.clear();
         }
 
+        // Resolve timed-out yielded promises
+        let mut yielded_promise_indices: YieldedPromiseQueueIndices =
+            get(&state_update, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+        let mut new_receipt_index: usize = 0;
+
+        while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
+            let queue_entry_key =
+                TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
+
+            let (data_id, expires_at): (CryptoHash, BlockHeight) =
+                get(&state_update, &queue_entry_key)?.ok_or_else(|| {
+                    StorageError::StorageInconsistentState(format!(
+                        "Yielded promise queue entry #{} should be in the state",
+                        yielded_promise_indices.first_index
+                    ))
+                })?;
+
+            // Queue entries are ordered by expires_at
+            if expires_at > apply_state.block_height {
+                break;
+            }
+
+            // Check if the yielded promise still needs to be resolved
+            let yielded_promise_key = TrieKey::YieldedPromise { data_id };
+            if let Some(yielded_promise) =
+                get::<YieldedPromise>(&state_update, &yielded_promise_key)?
+            {
+                // Deliver a DataReceipt without any data to resolve the timed-out yield
+                let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
+
+                let new_receipt_id = create_receipt_id_from_receipt_id(
+                    apply_state.current_protocol_version,
+                    &data_id,
+                    &apply_state.prev_block_hash,
+                    &apply_state.block_hash,
+                    new_receipt_index,
+                );
+                new_receipt_index += 1;
+
+                outgoing_receipts.push(Receipt {
+                    predecessor_id: yielded_promise.account_id.clone(),
+                    receiver_id: yielded_promise.account_id,
+                    receipt_id: new_receipt_id,
+                    receipt: new_receipt,
+                });
+
+                state_update.remove(yielded_promise_key);
+            }
+
+            state_update.remove(queue_entry_key);
+            // Math checked above: first_index is less than next_available_index
+            yielded_promise_indices.first_index += 1;
+        }
+        metrics.yield_timeouts_done(total_gas_burnt, total_compute_usage);
+
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
+        }
+
+        if yielded_promise_indices != initial_yielded_promise_indices {
+            set(&mut state_update, TrieKey::YieldedPromiseQueueIndices, &yielded_promise_indices);
         }
 
         check_balance(
@@ -1512,6 +1634,53 @@ impl Runtime {
         }
         state_update.commit(StateChangeCause::Migration);
     }
+}
+
+fn action_transfer_or_implicit_account_creation(
+    account: &mut Option<Account>,
+    deposit: u128,
+    nonrefundable: bool,
+    is_refund: bool,
+    action_receipt: &ActionReceipt,
+    receipt: &Receipt,
+    state_update: &mut TrieUpdate,
+    apply_state: &ApplyState,
+    actor_id: &mut AccountId,
+) -> Result<(), RuntimeError> {
+    Ok(if let Some(account) = account.as_mut() {
+        if nonrefundable {
+            assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            action_nonrefundable_storage_transfer(account, deposit)?;
+        } else {
+            action_transfer(account, deposit)?;
+        }
+        // Check if this is a gas refund, then try to refund the access key allowance.
+        if is_refund && action_receipt.signer_id == receipt.receiver_id {
+            try_refund_allowance(
+                state_update,
+                &receipt.receiver_id,
+                &action_receipt.signer_public_key,
+                deposit,
+            )?;
+        }
+    } else {
+        // Implicit account creation
+        debug_assert!(apply_state.config.wasm_config.implicit_account_creation);
+        debug_assert!(!is_refund);
+        action_implicit_account_creation_transfer(
+            state_update,
+            &apply_state,
+            &apply_state.config.fees,
+            account,
+            actor_id,
+            &receipt.receiver_id,
+            deposit,
+            apply_state.block_height,
+            apply_state.current_protocol_version,
+            nonrefundable,
+        );
+    })
 }
 
 #[cfg(test)]
@@ -2610,17 +2779,14 @@ mod tests {
 
 /// Interface provided for gas cost estimations.
 pub mod estimator {
+    use super::Runtime;
+    use crate::{ApplyState, ApplyStats};
     use near_primitives::errors::RuntimeError;
     use near_primitives::receipt::Receipt;
-    use near_primitives::runtime::apply_state::ApplyState;
     use near_primitives::transaction::ExecutionOutcomeWithId;
     use near_primitives::types::validator_stake::ValidatorStake;
     use near_primitives::types::EpochInfoProvider;
     use near_store::TrieUpdate;
-
-    use crate::ApplyStats;
-
-    use super::Runtime;
 
     pub fn apply_action_receipt(
         state_update: &mut TrieUpdate,

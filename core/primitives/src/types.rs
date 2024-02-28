@@ -9,7 +9,6 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 /// Reexport primitive types
 pub use near_primitives_core::types::*;
-pub use near_vm_runner::logic::TrieNodesCount;
 use once_cell::sync::Lazy;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
@@ -212,7 +211,7 @@ pub struct ConsolidatedStateChange {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct StateChangesForSplitStates {
+pub struct StateChangesForResharding {
     pub changes: Vec<ConsolidatedStateChange>,
     // we need to store deleted receipts here because StateChanges will only include
     // trie keys for removed values and account information can not be inferred from
@@ -220,7 +219,7 @@ pub struct StateChangesForSplitStates {
     pub processed_delayed_receipts: Vec<Receipt>,
 }
 
-impl StateChangesForSplitStates {
+impl StateChangesForResharding {
     pub fn from_raw_state_changes(
         changes: &[RawStateChangesWithTrieKey],
         processed_delayed_receipts: Vec<Receipt>,
@@ -371,6 +370,9 @@ impl StateChanges {
                 TrieKey::PostponedReceipt { .. } => {}
                 TrieKey::DelayedReceiptIndices => {}
                 TrieKey::DelayedReceipt { .. } => {}
+                TrieKey::YieldedPromiseQueueIndices => {}
+                TrieKey::YieldedPromiseQueueEntry { .. } => {}
+                TrieKey::YieldedPromise { .. } => {}
             }
         }
 

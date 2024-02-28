@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use std::sync::{Arc, Mutex};
 use std::{fmt::Debug, time::Duration};
 
-use crate::StateSplitConfig;
+use crate::ReshardingConfig;
 
 /// A wrapper for a config value that can be updated while the node is running.
 /// When initializing sub-objects (e.g. `ShardsManager`), please make sure to
@@ -29,7 +29,8 @@ impl<T: Serialize> Serialize for MutableConfigValue<T> {
         S: Serializer,
     {
         let to_string_result = serde_json::to_string(&self.value);
-        let value_str = to_string_result.unwrap_or("unable to serialize the value".to_string());
+        let value_str =
+            to_string_result.unwrap_or_else(|_| "unable to serialize the value".to_string());
         serializer.serialize_str(&value_str)
     }
 }
@@ -92,7 +93,7 @@ pub struct UpdateableClientConfig {
     pub expected_shutdown: Option<BlockHeight>,
 
     // Configuration for resharding.
-    pub state_split_config: StateSplitConfig,
+    pub resharding_config: ReshardingConfig,
 
     /// Time limit for adding transactions in produce_chunk()
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,

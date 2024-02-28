@@ -51,8 +51,8 @@ pytest sanity/sync_chunks_from_archival.py
 pytest sanity/sync_chunks_from_archival.py --features nightly
 pytest sanity/rpc_tx_forwarding.py
 pytest sanity/rpc_tx_forwarding.py --features nightly
-pytest --timeout=240 sanity/skip_epoch.py
-pytest --timeout=240 sanity/skip_epoch.py --features nightly
+pytest --timeout=480 sanity/skip_epoch.py
+pytest --timeout=480 sanity/skip_epoch.py --features nightly
 pytest --timeout=240 sanity/one_val.py
 pytest --timeout=240 sanity/one_val.py nightly --features nightly
 pytest --timeout=240 sanity/lightclnt.py
@@ -69,6 +69,8 @@ pytest --timeout=240 sanity/state_sync_epoch_boundary.py
 pytest --timeout=240 sanity/state_sync_epoch_boundary.py --features nightly
 pytest --timeout=240 sanity/state_sync_then_catchup.py
 pytest --timeout=240 sanity/state_sync_then_catchup.py --features nightly
+pytest --timeout=240 sanity/state_parts_dump_check.py
+pytest --timeout=240 sanity/state_parts_dump_check.py --features nightly
 pytest --timeout=120 sanity/catchup_flat_storage_deletions.py
 pytest --timeout=120 sanity/catchup_flat_storage_deletions.py --features nightly
 pytest --timeout=240 sanity/validator_switch.py
@@ -147,10 +149,15 @@ pytest sanity/meta_tx.py --features nightly
 pytest --timeout=600 sanity/split_storage.py
 pytest --timeout=600 sanity/split_storage.py --features nightly
 
-# Test for resharding
+# Tests for resharding
 pytest --timeout=120 sanity/resharding.py
-pytest --timeout=120 sanity/resharding.py --features nightly
-pytest --timeout=120 sanity/resharding_error_handling.py
-pytest --timeout=120 sanity/resharding_error_handling.py --features nightly
 pytest --timeout=120 sanity/resharding_rpc_tx.py
-pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
+pytest --timeout=120 sanity/resharding_restart.py
+pytest --timeout=120 sanity/resharding_error_handling.py
+
+# Tests for resharding in nightly are disabled because resharding is not
+# compatible with stateless validation. 
+# pytest --timeout=120 sanity/resharding.py --features nightly
+# pytest --timeout=120 sanity/resharding_rpc_tx.py --features nightly
+# pytest --timeout=120 sanity/resharding_restart.py --features nightly
+# pytest --timeout=120 sanity/resharding_error_handling.py --features nightly

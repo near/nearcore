@@ -33,7 +33,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{
     BlockExtra, BlockHeight, EpochId, NumBlocks, ShardId, StateChanges, StateChangesExt,
-    StateChangesForSplitStates, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
+    StateChangesForResharding, StateChangesKinds, StateChangesKindsExt, StateChangesRequest,
 };
 use near_primitives::utils::{
     get_block_shard_id, get_outcome_id_block_hash, get_outcome_id_block_hash_rev, index_to_bytes,
@@ -42,14 +42,15 @@ use near_primitives::utils::{
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::LightClientBlockView;
 use near_store::{
-    DBCol, KeyForStateChanges, Store, StoreUpdate, WrappedTrieChanges, CHUNK_TAIL_KEY,
-    FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, TAIL_KEY,
+    DBCol, KeyForStateChanges, PartialStorage, Store, StoreUpdate, WrappedTrieChanges,
+    CHUNK_TAIL_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, HEADER_HEAD_KEY, HEAD_KEY,
+    LARGEST_TARGET_HEIGHT_KEY, LATEST_KNOWN_KEY, TAIL_KEY,
 };
 
 use crate::byzantine_assert;
 use crate::chunks_store::ReadOnlyChunksStore;
 use crate::types::{Block, BlockHeader, LatestKnown};
+use near_primitives::stateless_validation::StoredChunkStateTransitionData;
 use near_store::db::{StoreStatistics, STATE_SYNC_DUMP_KEY};
 use std::sync::Arc;
 
@@ -520,11 +521,11 @@ impl ChainStore {
             .collect()
     }
 
-    pub fn get_state_changes_for_split_states(
+    pub fn get_state_changes_for_resharding(
         &self,
         block_hash: &CryptoHash,
         shard_id: ShardId,
-    ) -> Result<StateChangesForSplitStates, Error> {
+    ) -> Result<StateChangesForResharding, Error> {
         let key = &get_block_shard_id(block_hash, shard_id);
         option_to_not_found(
             self.store.get_ser(DBCol::StateChangesForSplitStates, key),
@@ -645,7 +646,7 @@ impl ChainStore {
         shard_id: ShardId,
         receipts_shard_id: ShardId,
     ) -> Result<(), Error> {
-        let split_shard_ids = shard_layout.get_split_shard_ids(receipts_shard_id);
+        let split_shard_ids = shard_layout.get_children_shards_ids(receipts_shard_id);
         let split_shard_ids =
             split_shard_ids.ok_or(Error::InvalidSplitShardsIds(shard_id, receipts_shard_id))?;
 
@@ -1120,7 +1121,7 @@ impl ChainStoreAccess for ChainStore {
         } else {
             self.store
                 .get_ser(DBCol::BlockMisc, TAIL_KEY)
-                .map(|option| option.unwrap_or_else(|| self.genesis_height))
+                .map(|option| option.unwrap_or(self.genesis_height))
                 .map_err(|e| e.into())
         }
     }
@@ -1129,14 +1130,14 @@ impl ChainStoreAccess for ChainStore {
     fn chunk_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, CHUNK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 
     fn fork_tail(&self) -> Result<BlockHeight, Error> {
         self.store
             .get_ser(DBCol::BlockMisc, FORK_TAIL_KEY)
-            .map(|option| option.unwrap_or_else(|| self.genesis_height))
+            .map(|option| option.unwrap_or(self.genesis_height))
             .map_err(|e| e.into())
     }
 
@@ -1438,9 +1439,10 @@ pub struct ChainStoreUpdate<'a> {
     final_head: Option<Tip>,
     largest_target_height: Option<BlockHeight>,
     trie_changes: Vec<WrappedTrieChanges>,
-    // All state changes made by a chunk, this is only used for splitting states
-    add_state_changes_for_split_states: HashMap<(CryptoHash, ShardId), StateChangesForSplitStates>,
-    remove_state_changes_for_split_states: HashSet<(CryptoHash, ShardId)>,
+    state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
+    // All state changes made by a chunk, this is only used for resharding.
+    add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
+    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1465,8 +1467,9 @@ impl<'a> ChainStoreUpdate<'a> {
             final_head: None,
             largest_target_height: None,
             trie_changes: vec![],
-            add_state_changes_for_split_states: HashMap::new(),
-            remove_state_changes_for_split_states: HashSet::new(),
+            state_transition_data: Default::default(),
+            add_state_changes_for_resharding: HashMap::new(),
+            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1989,13 +1992,13 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = *header.prev_hash();
-        if prev_hash == CryptoHash::default() {
+        if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
         } else {
-            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
+            let prev_hash = header.prev_hash();
+            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
             let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(prev_hash);
+            new_merkle_tree.insert(*prev_hash);
             self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
         Ok(())
@@ -2075,27 +2078,38 @@ impl<'a> ChainStoreUpdate<'a> {
         self.trie_changes.push(trie_changes);
     }
 
-    pub fn add_state_changes_for_split_states(
+    pub fn save_state_transition_data(
         &mut self,
         block_hash: CryptoHash,
         shard_id: ShardId,
-        state_changes: StateChangesForSplitStates,
+        partial_storage: Option<PartialStorage>,
+        applied_receipts_hash: CryptoHash,
+    ) {
+        if let Some(partial_storage) = partial_storage {
+            self.state_transition_data.insert(
+                (block_hash, shard_id),
+                StoredChunkStateTransitionData {
+                    base_state: partial_storage.nodes,
+                    receipts_hash: applied_receipts_hash,
+                },
+            );
+        }
+    }
+
+    pub fn add_state_changes_for_resharding(
+        &mut self,
+        block_hash: CryptoHash,
+        shard_id: ShardId,
+        state_changes: StateChangesForResharding,
     ) {
         let prev =
-            self.add_state_changes_for_split_states.insert((block_hash, shard_id), state_changes);
+            self.add_state_changes_for_resharding.insert((block_hash, shard_id), state_changes);
         // We should not save state changes for the same chunk twice
         assert!(prev.is_none());
     }
 
-    pub fn remove_state_changes_for_split_states(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-    ) {
-        // We should not remove state changes for the same chunk twice
-        let value_not_present =
-            self.remove_state_changes_for_split_states.insert((block_hash, shard_id));
-        assert!(value_not_present);
+    pub fn remove_all_state_changes_for_resharding(&mut self) {
+        self.remove_all_state_changes_for_resharding = true;
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2524,8 +2538,14 @@ impl<'a> ChainStoreUpdate<'a> {
             }
         }
 
-        for ((block_hash, shard_id), state_changes) in
-            self.add_state_changes_for_split_states.drain()
+        for ((block_hash, shard_id), state_transition_data) in self.state_transition_data.drain() {
+            store_update.set_ser(
+                DBCol::StateTransitionData,
+                &get_block_shard_id(&block_hash, shard_id),
+                &state_transition_data,
+            )?;
+        }
+        for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()
         {
             store_update.set_ser(
                 DBCol::StateChangesForSplitStates,
@@ -2533,11 +2553,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_split_states.drain() {
-            store_update.delete(
-                DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
-            );
+
+        if self.remove_all_state_changes_for_resharding {
+            store_update.delete_all(DBCol::StateChangesForSplitStates);
         }
 
         let mut affected_catchup_blocks = HashSet::new();
@@ -2749,13 +2767,13 @@ mod tests {
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let short_fork = vec![TestBlockBuilder::new(&genesis, signer.clone()).build()];
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
 
         let short_fork_head = short_fork[0].header().clone();
         assert!(chain
-            .mut_store()
+            .mut_chain_store()
             .check_transaction_validity_period(
                 &short_fork_head,
                 genesis.hash(),
@@ -2765,7 +2783,7 @@ mod tests {
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
-            let mut store_update = chain.mut_store().store_update();
+            let mut store_update = chain.mut_chain_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
@@ -2778,7 +2796,7 @@ mod tests {
         let valid_base_hash = long_fork[1].hash();
         let cur_header = &long_fork.last().unwrap().header();
         assert!(chain
-            .mut_store()
+            .mut_chain_store()
             .check_transaction_validity_period(
                 cur_header,
                 valid_base_hash,
@@ -2787,7 +2805,7 @@ mod tests {
             .is_ok());
         let invalid_base_hash = long_fork[0].hash();
         assert_eq!(
-            chain.mut_store().check_transaction_validity_period(
+            chain.mut_chain_store().check_transaction_validity_period(
                 cur_header,
                 invalid_base_hash,
                 transaction_validity_period
@@ -2805,7 +2823,7 @@ mod tests {
         let mut blocks = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
-            let mut store_update = chain.mut_store().store_update();
+            let mut store_update = chain.mut_chain_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
@@ -2818,7 +2836,7 @@ mod tests {
         let valid_base_hash = blocks[1].hash();
         let cur_header = &blocks.last().unwrap().header();
         assert!(chain
-            .mut_store()
+            .mut_chain_store()
             .check_transaction_validity_period(
                 cur_header,
                 valid_base_hash,
@@ -2829,14 +2847,14 @@ mod tests {
             .height(transaction_validity_period + 3)
             .build();
 
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(new_block.header().clone()).unwrap();
         store_update
             .update_height_if_not_challenged(new_block.header().height(), *new_block.hash())
             .unwrap();
         store_update.commit().unwrap();
         assert_eq!(
-            chain.mut_store().check_transaction_validity_period(
+            chain.mut_chain_store().check_transaction_validity_period(
                 new_block.header(),
                 valid_base_hash,
                 transaction_validity_period
@@ -2855,7 +2873,7 @@ mod tests {
         let mut short_fork = vec![];
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
-            let mut store_update = chain.mut_store().store_update();
+            let mut store_update = chain.mut_chain_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
@@ -2865,7 +2883,7 @@ mod tests {
 
         let short_fork_head = short_fork.last().unwrap().header().clone();
         assert_eq!(
-            chain.mut_store().check_transaction_validity_period(
+            chain.mut_chain_store().check_transaction_validity_period(
                 &short_fork_head,
                 &genesis_hash,
                 transaction_validity_period
@@ -2875,7 +2893,7 @@ mod tests {
         let mut long_fork = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period * 5) {
-            let mut store_update = chain.mut_store().store_update();
+            let mut store_update = chain.mut_chain_store().store_update();
             let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
@@ -2884,7 +2902,7 @@ mod tests {
         }
         let long_fork_head = &long_fork.last().unwrap().header();
         assert_eq!(
-            chain.mut_store().check_transaction_validity_period(
+            chain.mut_chain_store().check_transaction_validity_period(
                 long_fork_head,
                 &genesis_hash,
                 transaction_validity_period
@@ -2903,7 +2921,7 @@ mod tests {
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);
 
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[1])));
         store_update
             .chain_store_cache_update
@@ -2911,11 +2929,11 @@ mod tests {
             .insert(*block1.header().hash(), block1.clone());
         store_update.commit().unwrap();
 
-        let block_hash = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
+        let block_hash = chain.mut_chain_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
+            chain.mut_chain_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
 
-        let mut store_update = chain.mut_store().store_update();
+        let mut store_update = chain.mut_chain_store().store_update();
         store_update.chain_store_cache_update.height_to_hashes.insert(1, Some(hash(&[2])));
         store_update
             .chain_store_cache_update
@@ -2923,9 +2941,9 @@ mod tests {
             .insert(*block2.header().hash(), block2.clone());
         store_update.commit().unwrap();
 
-        let block_hash1 = chain.mut_store().height.get(&index_to_bytes(1).to_vec());
+        let block_hash1 = chain.mut_chain_store().height.get(&index_to_bytes(1).to_vec());
         let epoch_id_to_hash1 =
-            chain.mut_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
+            chain.mut_chain_store().block_hash_per_height.get(&index_to_bytes(1).to_vec());
 
         assert_ne!(block_hash, block_hash1);
         assert_ne!(epoch_id_to_hash, epoch_id_to_hash1);

@@ -11,9 +11,9 @@ use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyTransactionResult;
-use near_chain::types::ApplyTransactionsBlockContext;
-use near_chain::types::ApplyTransactionsChunkContext;
+use near_chain::types::ApplyChunkBlockContext;
+use near_chain::types::ApplyChunkResult;
+use near_chain::types::ApplyChunkShardContext;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
@@ -30,7 +30,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
@@ -39,6 +39,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
 use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
+use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -58,7 +59,7 @@ pub(crate) fn apply_block(
     runtime: &dyn RuntimeAdapter,
     chain_store: &mut ChainStore,
     use_flat_storage: bool,
-) -> (Block, ApplyTransactionResult) {
+) -> (Block, ApplyChunkResult) {
     let block = chain_store.get_block(&block_hash).unwrap();
     let height = block.header().height();
     let shard_uid = epoch_manager.shard_id_to_uid(shard_id, block.header().epoch_id()).unwrap();
@@ -89,16 +90,16 @@ pub(crate) fn apply_block(
         .unwrap();
 
         runtime
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
                     gas_limit: chunk_inner.gas_limit(),
                     is_new_chunk: true,
                     is_first_block_with_chunk_of_version,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     prev_block.header().next_gas_price(),
                 ),
@@ -111,16 +112,16 @@ pub(crate) fn apply_block(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
 
         runtime
-            .apply_transactions(
+            .apply_chunk(
                 RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
-                ApplyTransactionsChunkContext {
+                ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
                     gas_limit: chunk_extra.gas_limit(),
                     is_new_chunk: false,
                     is_first_block_with_chunk_of_version: false,
                 },
-                ApplyTransactionsBlockContext::from_header(
+                ApplyChunkBlockContext::from_header(
                     block.header(),
                     block.header().next_gas_price(),
                 ),
@@ -383,7 +384,7 @@ pub(crate) fn dump_state(
     let home_dir = PathBuf::from(&home_dir);
 
     if stream {
-        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let output_dir = file.unwrap_or_else(|| home_dir.join("output"));
         let records_path = output_dir.join("records.json");
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -406,7 +407,7 @@ pub(crate) fn dump_state(
             None,
             change_config,
         );
-        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        let output_file = file.unwrap_or_else(|| home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
     }
@@ -523,7 +524,7 @@ fn chunk_extras_equal(l: &ChunkExtra, r: &ChunkExtra) -> bool {
 
 pub(crate) fn check_apply_block_result(
     block: &Block,
-    apply_result: &ApplyTransactionResult,
+    apply_result: &ApplyChunkResult,
     epoch_manager: &EpochManagerHandle,
     chain_store: &ChainStore,
     shard_id: ShardId,
@@ -609,7 +610,7 @@ pub(crate) fn print_chain(
                         .get_block_producer(&epoch_id, header.height())
                         .map(|account_id| account_id.to_string())
                         .ok()
-                        .unwrap_or("error".to_owned());
+                        .unwrap_or_else(|| "error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
@@ -627,7 +628,7 @@ pub(crate) fn print_chain(
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
                             .map(|account_id| account_id.to_string())
-                            .unwrap_or("CP Unknown".to_owned());
+                            .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
@@ -670,7 +671,7 @@ pub(crate) fn print_chain(
             let block_producer = epoch_manager
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
-                .unwrap_or("error".to_owned());
+                .unwrap_or_else(|_| "error".to_owned());
             println!(
                 "{: >3} {} | {: >10}",
                 height,
@@ -712,8 +713,8 @@ pub(crate) fn replay_chain(
     }
 }
 
-pub(crate) fn resulting_chunk_extra(result: &ApplyTransactionResult, gas_limit: Gas) -> ChunkExtra {
-    let (outcome_root, _) = ApplyTransactionResult::compute_outcomes_proof(&result.outcomes);
+pub(crate) fn resulting_chunk_extra(result: &ApplyChunkResult, gas_limit: Gas) -> ChunkExtra {
+    let (outcome_root, _) = ApplyChunkResult::compute_outcomes_proof(&result.outcomes);
     ChunkExtra::new(
         &result.new_root,
         outcome_root,
@@ -1139,7 +1140,7 @@ fn get_state_stats_group_by<'a>(
     // The flat state iterator is sorted by type, account id. In order to
     // rearrange it we get the iterators for each type and later merge them by
     // the account id.
-    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
+    let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
         .map(|(type_byte, _)| {
             chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
@@ -1320,7 +1321,6 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain::ChainGenesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
@@ -1330,7 +1330,6 @@ mod tests {
     use near_primitives::types::AccountId;
     use near_store::genesis::initialize_genesis_state;
     use nearcore::config::Config;
-    use nearcore::config::GenesisExt;
     use nearcore::{NearConfig, NightshadeRuntime};
     use std::sync::Arc;
 
@@ -1342,7 +1341,6 @@ mod tests {
         near_o11y::testonly::init_test_logger();
         let validators = vec!["test0".parse::<AccountId>().unwrap()];
         let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
-        let chain_genesis = ChainGenesis::test();
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let home_dir = tmp_dir.path();
@@ -1361,7 +1359,7 @@ mod tests {
         let epoch_managers = vec![epoch_manager];
         let runtimes = vec![runtime];
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(stores)
             .epoch_managers(epoch_managers)
             .runtimes(runtimes)

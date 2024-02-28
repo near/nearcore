@@ -20,7 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeightDelta, BlockReference, NumSeats};
 use near_primitives::views::{QueryRequest, QueryResponseKind, ValidatorInfo};
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::{load_test_config, start_with_config, NearConfig, NEAR_BASE};
 
 use near_o11y::WithSpanContextExt;

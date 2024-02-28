@@ -29,61 +29,72 @@ jobs:
             os: ubuntu-22.04-16core
             type: stable
             runs_integ_tests: true
+            upload_profraws: true
+          - name: Linux StatelessNet
+            id: linux-statelessnet
+            cache_id: linux
+            os: ubuntu-22.04-16core
+            type: statelessnet
+            runs_integ_tests: true
+            upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
             cache_id: linux
             os: ubuntu-22.04-16core
             type: nightly
             runs_integ_tests: true
+            upload_profraws: true
           - name: MacOS
             id: macos
             cache_id: macos
             os: macos-latest-xlarge
             type: stable
             runs_integ_tests: false
+            # TODO: Currently only computing linux coverage, because the MacOS runners
+            # have files at a different path and thus comes out duplicated.
+            upload_profraws: false
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
       # Install all the required tools
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-nextest
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-deny
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: cargo-llvm-cov
+          tool: just,cargo-nextest,cargo-llvm-cov
 
-      # Setup the dependency rust cache and llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-${{ matrix.cache_id }}"
+      # Run the tests:
+      - run: mkdir -p coverage/profraw/{unit,integration,binaries}
+      # - Run the unit tests, retrieving the coverage information
+      - run: just codecov-ci "nextest-unit ${{ matrix.type }}"
+      - run: mv coverage/codecov/{new,unit-${{matrix.id}}}.json
+      - run: mv coverage/profraw/{new,unit/${{matrix.id}}}.tar.zst
+      # - Run the integration tests, retrieving the coverage information
+      - run: just codecov-ci "nextest-integration ${{ matrix.type }}"
+        if: matrix.runs_integ_tests
+      - run: mv coverage/codecov/{new,integration-${{matrix.id}}}.json
+        if: matrix.runs_integ_tests
+      - run: mv coverage/profraw/{new,integration/${{matrix.id}}}.tar.zst
+        if: matrix.runs_integ_tests
 
-      # Run the tests
-      - run: just codecov "nextest-unit ${{ matrix.type }}"
-      - run: mv codecov.json unit-${{ matrix.id }}.json
-      - run: just codecov "nextest-integration ${{ matrix.type }}"
-        if: matrix.runs_integ_tests
-      - run: mv codecov.json integration-${{ matrix.id }}.json
-        if: matrix.runs_integ_tests
+      # Cleanup the target directory, leaving only stuff interesting to llvm-cov, and tarball it
+      - run: just tar-bins-for-coverage-ci
+      - run: mv coverage/profraw/binaries/{new,${{matrix.id}}}.tar.zst
 
       # Upload the coverage
       - uses: actions/upload-artifact@v3
+        if: matrix.upload_profraws
         with:
-          name: coverage
-          path: |
-            unit-${{ matrix.id }}.json
-            integration-${{ matrix.id }}.json
+          name: coverage-profraw
+          path: coverage/profraw
+          retention-days: 2
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-codecov
+          path: coverage/codecov
 
   protobuf_backward_compat:
     name: "Protobuf Backward Compatibility"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@1158f4fa81bc02e1ff62abcca6d516c9e24c77da
@@ -93,32 +104,29 @@ jobs:
 
   py_backward_compat:
     name: "Backward Compatibility"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-8core
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/backward_compatible.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-backward-compat.json
+      - run: mkdir -p coverage/codecov
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-backward-compat.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-backward-compat.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_db_migration:
     name: "Database Migration"
@@ -129,26 +137,23 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: echo "NEAR_ROOT=$PWD" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/db_migration.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-db-migration.json
+      - run: mkdir -p coverage/codecov
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-db-migration.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-db-migration.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_sanity_checks:
     name: "Sanity Checks"
@@ -162,19 +167,15 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       # This is the only job that uses `--features nightly` so we build this in-line instead of a
       # separate job like done with the regular neard.
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --profile dev-release -p neard --bin neard --features nightly
       # Note: We're not running spin_up_cluster.py for non-nightly
       # because spinning up non-nightly clusters is already covered
@@ -182,11 +183,12 @@ jobs:
       - run: python3 pytest/tests/sanity/spin_up_cluster.py
         env:
           NEAR_ROOT: "target/dev-release"
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-sanity-checks.json
+      - run: mkdir -p coverage/codecov
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-sanity-checks.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-sanity-checks.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_genesis_check:
     name: "Genesis Changes"
@@ -197,34 +199,31 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: python3 scripts/state/update_res.py check
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-genesis-check.json
+      - run: mkdir -p coverage/codecov
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-genesis-check.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-genesis-check.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   py_style_check:
     name: "Style"
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: just
+          tool: just
       - uses: actions/setup-python@v4
         with:
           python-version: 3.11
@@ -241,39 +240,31 @@ jobs:
         with:
           python-version: 3.11
           cache: pip
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-llvm-cov
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
-        with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
+          tool: cargo-llvm-cov
       - run: pip3 install --user -r pytest/requirements.txt
       - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
-      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/rustc-coverage-wrapper.sh" >> "$GITHUB_ENV"
+      - run: echo "RUSTC_WORKSPACE_WRAPPER=$PWD/scripts/coverage-wrapper-rustc" >> "$GITHUB_ENV"
+      - run: echo "CARGO=1" >> "$GITHUB_ENV"
       - run: cargo build --locked --profile dev-release -p neard --bin neard
       - run: echo "CURRENT_NEARD=$PWD/target/dev-release/neard" >> "$GITHUB_ENV"
       - run: cd pytest && python3 tests/sanity/upgradable.py
-      - run: cargo llvm-cov report --profile dev-release --codecov --output-path py-upgradability.json
+      - run: mkdir -p coverage/codecov
+      - run: cargo llvm-cov report --profile dev-release --codecov --output-path coverage/codecov/py-upgradability.json
       - uses: actions/upload-artifact@v3
         with:
-          name: coverage
-          path: py-upgradability.json
+          name: coverage-codecov
+          path: coverage/codecov
 
   rpc_error_schema:
     name: "RPC Schema"
-    runs-on: ubuntu-22.04-8core
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@a95ba195448af2da9b00fb742d14ffaaf3c21f43
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          prefix-key: "0" # change this to invalidate CI cache
-          shared-key: "cargo_nextest-linux"
-          save-if: "false" # use the cache from nextest, but don’t double-save
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
-        with:
-          crate: just
+          tool: just
       - run: just check-rpc-errors-schema
 
   lychee_checks:
@@ -285,15 +276,127 @@ jobs:
         with:
           fail: true
 
+  check_fmt:
+    name: "Cargo Fmt"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
+      - run: just check-cargo-fmt
+
+  check_clippy:
+    name: "Cargo Clippy"
+    runs-on: ubuntu-22.04-8core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
+      - run: just check-cargo-clippy
+
+  check_cargo_deny:
+    name: "Cargo Deny"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just,cargo-deny
+      - run: just check-cargo-deny
+
+  check_themis:
+    name: "Themis"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
+      - run: just check-themis
+
+  check_non_default:
+    name: "Non-default Configuration Builds"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
+      - run: just check-non-default
+
+  check_udeps:
+    name: "Unused Dependencies"
+    runs-on: ubuntu-22.04-8core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just,cargo-udeps
+      - run: just check-cargo-udeps
+
   cargo_audit:
     name: "Cargo Audit"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: baptiste0928/cargo-install@21a18ba3bf4a184d1804e8b759930d3471b1c941
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
         with:
-          crate: cargo-audit
+          tool: cargo-audit
       - run: cargo audit -D warnings
+
+  generate_coverage:
+    name: "Generate Coverage Artifact"
+    runs-on: ubuntu-latest
+    needs:
+      - cargo_nextest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - type: unit
+            profraws: unit
+          - type: integration
+            profraws: unit integration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1000 # have enough history to find the merge-base between PR and master
+      - uses: actions/download-artifact@v3
+        with:
+          name: coverage-profraw
+          path: coverage/profraw
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: cargo-llvm-cov
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+          cache: pip
+      - run: pip3 install --user diff-cover
+      - run: for f in coverage/profraw/binaries/*.tar.zst; do tar -x --zstd -f $f; done
+      - name: Retrieve the profraws used to generate this coverage (${{matrix.profraws}})
+        run: |
+          for profile in ${{matrix.profraws}}; do
+            for f in coverage/profraw/$profile/*.tar.zst; do
+              tar -x --zstd -C target/ -f $f
+            done
+          done
+      - run: cargo llvm-cov show-env | grep -v RUSTFLAGS | tr -d "'" >> "$GITHUB_ENV"
+      - run: mkdir -p coverage/lcov coverage/html
+      - run: cargo llvm-cov report --profile dev-release --lcov --output-path coverage/lcov/${{matrix.type}}.lcov
+      - run: cargo llvm-cov report --profile dev-release --html --hide-instantiations --output-dir coverage/html/${{matrix.type}}-full
+      - run: git fetch origin master
+      - run: diff-cover --compare-branch=origin/master --html-report coverage/html/${{matrix.type}}-diff.html coverage/lcov/${{matrix.type}}.lcov
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-lcov
+          path: coverage/lcov
+      - uses: actions/upload-artifact@v3
+        with:
+          name: coverage-html
+          path: coverage/html
 
   upload_coverage:
     name: "Upload Coverage"
@@ -309,72 +412,61 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v3
         with:
-          name: coverage
+          name: coverage-codecov
       # Keep the number of uploads here in sync with codecov.yml’s after_n_build value
       # codecov will send a comment only after having receidev this number of uploads.
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux.json
           fail_ci_if_error: true
           flags: unittests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-linux-nightly.json
           fail_ci_if_error: true
           flags: unittests,linux-nightly
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: unit-macos.json
           fail_ci_if_error: true
           flags: unittests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux.json
           fail_ci_if_error: true
           flags: integration-tests,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: integration-linux-nightly.json
           fail_ci_if_error: true
           flags: integration-tests,linux-nightly
       # - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
       #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
       #     files: integration-macos.json
       #     fail_ci_if_error: true
       #     flags: integration-tests,macos
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-backward-compat.json
           fail_ci_if_error: true
           flags: pytests,backward-compatibility,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-db-migration.json
           fail_ci_if_error: true
           flags: pytests,db-migration,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-sanity-checks.json
           fail_ci_if_error: true
           flags: pytests,sanity-checks,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-genesis-check.json
           fail_ci_if_error: true
           flags: pytests,genesis-check,linux
       - uses: codecov/codecov-action@eaaf4bedf32dbdc6b720b63067d99c4d77d6047d
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: py-upgradability.json
           fail_ci_if_error: true
           flags: pytests,upgradability,linux

@@ -43,7 +43,7 @@
 
 use near_o11y::metrics::prometheus;
 use near_o11y::metrics::prometheus::core::GenericCounter;
-use near_primitives::receipt::{Receipt, ReceiptEnum};
+use near_primitives::receipt::Receipt;
 use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
@@ -91,7 +91,7 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action_receipt) = &receipt.receipt {
+            if let Some(action_receipt) = &receipt.receipt.action() {
                 let account_id = receipt.receiver_id.clone();
 
                 // general-purpose account prefetching

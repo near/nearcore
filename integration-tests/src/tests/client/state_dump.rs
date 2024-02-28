@@ -4,7 +4,7 @@ use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, Genesis};
-use near_client::sync::external::external_storage_location;
+use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -21,7 +21,6 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
 use near_store::Store;
-use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
@@ -39,12 +38,10 @@ fn test_state_dump() {
     genesis.config.epoch_length = 25;
 
     near_actix_test_utils::run_actix(async {
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let mut env = TestEnv::builder(chain_genesis.clone())
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(1)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .build();
 
@@ -63,7 +60,7 @@ fn test_state_dump() {
 
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
-            chain_genesis,
+            ChainGenesis::new(&genesis.config),
             epoch_manager.clone(),
             shard_tracker,
             runtime,
@@ -95,8 +92,7 @@ fn test_state_dump() {
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("Missing {:?}", path);
@@ -138,13 +134,11 @@ fn run_state_sync_with_dumped_parts(
     near_actix_test_utils::run_actix(async {
         let mut genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
         genesis.config.epoch_length = epoch_length;
-        let chain_genesis = ChainGenesis::new(&genesis);
         let num_clients = 2;
-        let mut env = TestEnv::builder(chain_genesis.clone())
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers(&genesis.config)
             .nightshade_runtimes(&genesis)
             .build();
 
@@ -167,7 +161,7 @@ fn run_state_sync_with_dumped_parts(
         });
         let _state_sync_dump_handle = spawn_state_sync_dump(
             &config,
-            chain_genesis,
+            ChainGenesis::new(&genesis.config),
             epoch_manager.clone(),
             shard_tracker,
             runtime,
@@ -268,8 +262,7 @@ fn run_state_sync_with_dumped_parts(
                         &epoch_id,
                         epoch_height,
                         shard_id,
-                        part_id,
-                        num_parts,
+                        &StateFileType::StatePart { part_id, num_parts },
                     ));
                     if std::fs::read(&path).is_err() {
                         tracing::info!("dumping node: Missing {:?}", path);
@@ -336,8 +329,8 @@ fn run_state_sync_with_dumped_parts(
 
             // Check that inlined flat state values remain inlined.
             {
-                let store0 = env.clients[0].chain.store().store();
-                let store1 = env.clients[1].chain.store().store();
+                let store0 = env.clients[0].chain.chain_store().store();
+                let store1 = env.clients[1].chain.chain_store().store();
                 let (num_inlined_before, num_ref_before) = count_flat_state_value_kinds(store0);
                 let (num_inlined_after, num_ref_after) = count_flat_state_value_kinds(store1);
                 // Nothing new created, number of flat state values should be identical.
@@ -355,8 +348,8 @@ fn run_state_sync_with_dumped_parts(
 
             // Check that inlined flat state values remain inlined.
             {
-                let store0 = env.clients[0].chain.store().store();
-                let store1 = env.clients[1].chain.store().store();
+                let store0 = env.clients[0].chain.chain_store().store();
+                let store1 = env.clients[1].chain.chain_store().store();
                 let (num_inlined_before, _num_ref_before) = count_flat_state_value_kinds(store0);
                 let (num_inlined_after, _num_ref_after) = count_flat_state_value_kinds(store1);
                 // Created a new entry, but inlined values should stay inlinedNothing new created, number of flat state values should be identical.

@@ -1,9 +1,12 @@
 use crate::metrics;
 
+use borsh::BorshSerialize;
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
-use near_client::sync::external::{create_bucket_readwrite, external_storage_location};
+use near_client::sync::external::{
+    create_bucket_readwrite, external_storage_location, StateFileType,
+};
 use near_client::sync::external::{
     external_storage_location_directory, get_part_id_from_filename, is_part_filename,
     ExternalConnection,
@@ -139,6 +142,18 @@ impl StateSyncDumpHandle {
     }
 }
 
+/// Fetches the state sync header from DB and serializes it.
+fn get_serialized_header(
+    shard_id: ShardId,
+    sync_hash: CryptoHash,
+    chain: &Chain,
+) -> anyhow::Result<Vec<u8>> {
+    let header = chain.get_state_response_header(shard_id, sync_hash)?;
+    let mut buffer: Vec<u8> = Vec::new();
+    header.serialize(&mut buffer)?;
+    Ok(buffer)
+}
+
 pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
@@ -152,9 +167,14 @@ async fn get_missing_part_ids_for_epoch(
     total_parts: u64,
     external: &ExternalConnection,
 ) -> Result<Vec<u64>, anyhow::Error> {
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id);
-    let file_names = external.list_state_parts(shard_id, &directory_path).await?;
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let file_names = external.list_objects(shard_id, &directory_path).await?;
     if !file_names.is_empty() {
         let existing_nums: HashSet<_> = file_names
             .iter()
@@ -187,7 +207,7 @@ fn get_current_state(
     account_id: &Option<AccountId>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
 ) -> Result<Option<(EpochId, EpochHeight, CryptoHash)>, Error> {
-    let was_last_epoch_dumped = match chain.store().get_state_sync_dump_progress(*shard_id) {
+    let was_last_epoch_dumped = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
         Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
@@ -217,6 +237,39 @@ fn get_current_state(
     }
 }
 
+/// Uploads header to external storage.
+/// Returns true if it was successful.
+async fn upload_state_header(
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    state_sync_header: anyhow::Result<Vec<u8>>,
+    external: &ExternalConnection,
+) -> bool {
+    match state_sync_header {
+        Err(err) => {
+            tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to serialize header.");
+            false
+        }
+        Ok(header) => {
+            let file_type = StateFileType::StateHeader;
+            let location =
+                external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+            match external.put_file(file_type, &header, shard_id, &location).await {
+                Err(err) => {
+                    tracing::warn!(target: "state_sync_dump", shard_id, epoch_height, ?err, "Failed to put header into external storage. Will retry next iteration.");
+                    false
+                }
+                Ok(_) => {
+                    tracing::trace!(target: "state_sync_dump", shard_id, epoch_height, "Header saved to external storage.");
+                    true
+                }
+            }
+        }
+    }
+}
+
 const FAILURES_ALLOWED_PER_ITERATION: u32 = 10;
 
 async fn state_sync_dump(
@@ -236,7 +289,7 @@ async fn state_sync_dump(
 
     if restart_dump_for_shards.contains(&shard_id) {
         tracing::debug!(target: "state_sync_dump", shard_id, "Dropped existing progress");
-        chain.store().set_state_sync_dump_progress(shard_id, None).unwrap();
+        chain.chain_store().set_state_sync_dump_progress(shard_id, None).unwrap();
     }
 
     // Stop if the node is stopped.
@@ -264,7 +317,48 @@ async fn state_sync_dump(
                         None
                     }
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
-                        match get_missing_part_ids_for_epoch(
+                        // Upload header
+                        let header_in_external_storage = match external
+                            .is_state_sync_header_stored_for_epoch(
+                                shard_id,
+                                &chain_id,
+                                &epoch_id,
+                                epoch_height,
+                            )
+                            .await
+                        {
+                            Err(err) => {
+                                tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                                false
+                            }
+                            // Header is already stored
+                            Ok(true) => true,
+                            // Header is missing
+                            Ok(false) => {
+                                upload_state_header(
+                                    &chain_id,
+                                    &epoch_id,
+                                    epoch_height,
+                                    shard_id,
+                                    get_serialized_header(shard_id, sync_hash, &chain),
+                                    &external,
+                                )
+                                .await
+                            }
+                        };
+
+                        let header_upload_status = if header_in_external_storage {
+                            None
+                        } else {
+                            Some(StateSyncDumpProgress::InProgress {
+                                epoch_id: epoch_id.clone(),
+                                epoch_height,
+                                sync_hash,
+                            })
+                        };
+
+                        // Upload parts
+                        let parts_upload_status = match get_missing_part_ids_for_epoch(
                             shard_id,
                             &chain_id,
                             &epoch_id,
@@ -327,16 +421,16 @@ async fn state_sync_dump(
                                         }
                                     };
 
+                                    let file_type = StateFileType::StatePart { part_id, num_parts };
                                     let location = external_storage_location(
                                         &chain_id,
                                         &epoch_id,
                                         epoch_height,
                                         shard_id,
-                                        part_id,
-                                        num_parts,
+                                        &file_type,
                                     );
                                     if let Err(err) = external
-                                        .put_state_part(&state_part, shard_id, &location)
+                                        .put_file(file_type, &state_part, shard_id, &location)
                                         .await
                                     {
                                         // no need to break if there's an error, we should keep dumping other parts.
@@ -373,6 +467,13 @@ async fn state_sync_dump(
                                     None
                                 }
                             }
+                        };
+                        match (&parts_upload_status, &header_upload_status) {
+                            (
+                                Some(StateSyncDumpProgress::AllDumped { .. }),
+                                Some(StateSyncDumpProgress::InProgress { .. }),
+                            ) => header_upload_status,
+                            _ => parts_upload_status,
                         }
                     }
                 }
@@ -383,7 +484,7 @@ async fn state_sync_dump(
         let has_progress = match next_state {
             Some(next_state) => {
                 tracing::debug!(target: "state_sync_dump", shard_id, ?next_state);
-                match chain.store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
+                match chain.chain_store().set_state_sync_dump_progress(shard_id, Some(next_state)) {
                     Ok(_) => true,
                     Err(err) => {
                         // This will be retried.
@@ -468,7 +569,7 @@ fn obtain_and_store_state_part(
     )?;
 
     let key = borsh::to_vec(&StatePartKey(sync_hash, shard_id, part_id))?;
-    let mut store_update = chain.store().store().store_update();
+    let mut store_update = chain.chain_store().store().store_update();
     store_update.set(DBCol::StateParts, &key, &state_part);
     store_update.commit()?;
     Ok(state_part)

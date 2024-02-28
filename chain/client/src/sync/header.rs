@@ -333,7 +333,7 @@ impl HeaderSync {
     // why we stop at the final block is because the consensus guarantees us that the final
     // blocks observed by all nodes are on the same fork.
     fn get_locator(&mut self, chain: &Chain) -> Result<Vec<CryptoHash>, near_chain::Error> {
-        let store = chain.store();
+        let store = chain.chain_store();
         let tip = store.header_head()?;
         // We could just get the ordinal from the header, but it's off by one: #8177.
         let tip_ordinal = store.get_block_merkle_tree(&tip.last_block_hash)?.size();
@@ -375,6 +375,7 @@ mod test {
     use std::sync::Arc;
     use std::thread;
 
+    use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils::{
         process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
     };
@@ -436,7 +437,7 @@ mod test {
     fn test_sync_headers_fork() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -522,7 +523,7 @@ mod test {
     fn test_sync_headers_fork_from_final_block() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -632,7 +633,7 @@ mod test {
 
         // Setup header_sync with expectation of 25 headers/second
         let mut header_sync = HeaderSync::new(
-            network_adapter.clone().into(),
+            network_adapter.as_multi_sender(),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(1),
             TimeDuration::from_secs(3),
@@ -726,7 +727,7 @@ mod test {
     fn test_sync_from_very_behind() {
         let mock_adapter = Arc::new(MockPeerManagerAdapter::default());
         let mut header_sync = HeaderSync::new(
-            mock_adapter.clone().into(),
+            mock_adapter.as_multi_sender(),
             TimeDuration::from_secs(10),
             TimeDuration::from_secs(2),
             TimeDuration::from_secs(120),
@@ -747,15 +748,14 @@ mod test {
         for _ in 0..(4 * MAX_BLOCK_HEADERS + 10) {
             let last_block = chain2.get_block(&chain2.head().unwrap().last_block_hash).unwrap();
             let this_height = last_block.header().height() + 1;
-            let (epoch_id, next_epoch_id) =
-                if last_block.header().prev_hash() == &CryptoHash::default() {
-                    (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
-                } else {
-                    (
-                        last_block.header().epoch_id().clone(),
-                        last_block.header().next_epoch_id().clone(),
-                    )
-                };
+            let (epoch_id, next_epoch_id) = if last_block.header().is_genesis() {
+                (last_block.header().next_epoch_id().clone(), EpochId(*last_block.hash()))
+            } else {
+                (
+                    last_block.header().epoch_id().clone(),
+                    last_block.header().next_epoch_id().clone(),
+                )
+            };
             let block = Block::produce(
                 PROTOCOL_VERSION,
                 PROTOCOL_VERSION,
@@ -763,6 +763,7 @@ mod test {
                 this_height,
                 last_block.header().block_ordinal() + 1,
                 last_block.chunks().iter().cloned().collect(),
+                vec![vec![]; last_block.chunks().len()],
                 epoch_id,
                 next_epoch_id,
                 None,

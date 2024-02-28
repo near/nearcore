@@ -1,26 +1,26 @@
 use crate::concurrency::{Once, RateLimiter, WeakMap};
 use log::info;
+use near_async::messaging::noop;
 use near_async::messaging::CanSend;
+use near_async::messaging::IntoSender;
+use near_async::messaging::Sender;
 use near_async::time;
+use near_network::client::{
+    AnnounceAccountRequest, BlockHeadersResponse, BlockResponse, ClientSenderForNetwork,
+    SetNetworkInfo,
+};
 use near_network::concurrency::ctx;
 use near_network::concurrency::scope;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-    ReasonForBan, StateResponseInfo,
 };
 use near_network::types::{
     FullPeerInfo, NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_primitives::block::{Approval, Block, BlockHeader};
-use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::ChunkStateWitness;
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::transaction::SignedTransaction;
-use near_primitives::types::{AccountId, EpochId, ShardId};
-use near_primitives::views::FinalExecutionOutcomeView;
 use nearcore::config::NearConfig;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -56,7 +56,7 @@ pub struct Network {
     pub block_headers: Arc<WeakMap<CryptoHash, Once<Vec<BlockHeader>>>>,
     pub blocks: Arc<WeakMap<CryptoHash, Once<Block>>>,
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
-    data: Mutex<NetworkData>,
+    data: Arc<Mutex<NetworkData>>,
 
     // client_config.min_num_peers
     min_peers: usize,
@@ -78,7 +78,7 @@ impl Network {
         Arc::new(Network {
             stats: Default::default(),
             network_adapter,
-            data: Mutex::new(NetworkData {
+            data: Arc::new(Mutex::new(NetworkData {
                 info_: Arc::new(NetworkInfo {
                     connected_peers: vec![],
                     num_connected_peers: 0,
@@ -92,7 +92,7 @@ impl Network {
                     tier1_accounts_data: vec![],
                 }),
                 info_futures: Default::default(),
-            }),
+            })),
             blocks: WeakMap::new(),
             block_headers: WeakMap::new(),
             chunks: WeakMap::new(),
@@ -222,87 +222,49 @@ impl Network {
             anyhow::Ok(res?)
         })
     }
-}
 
-#[async_trait::async_trait]
-impl near_network::client::Client for Network {
-    async fn tx_status_request(
-        &self,
-        _account_id: AccountId,
-        _tx_hash: CryptoHash,
-    ) -> Option<Box<FinalExecutionOutcomeView>> {
-        None
-    }
-
-    async fn tx_status_response(&self, _tx_result: FinalExecutionOutcomeView) {}
-
-    async fn state_request_header(
-        &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        Ok(None)
-    }
-
-    async fn state_request_part(
-        &self,
-        _shard_id: ShardId,
-        _sync_hash: CryptoHash,
-        _part_id: u64,
-    ) -> Result<Option<StateResponseInfo>, ReasonForBan> {
-        Ok(None)
-    }
-
-    async fn state_response(&self, _info: StateResponseInfo) {}
-
-    async fn block_approval(&self, _approval: Approval, _peer_id: PeerId) {}
-
-    async fn transaction(&self, _transaction: SignedTransaction, _is_forwarded: bool) {}
-
-    async fn block_request(&self, _hash: CryptoHash) -> Option<Box<Block>> {
-        None
-    }
-
-    async fn block_headers_request(&self, _hashes: Vec<CryptoHash>) -> Option<Vec<BlockHeader>> {
-        None
-    }
-
-    async fn block(&self, block: Block, _peer_id: PeerId, _was_requested: bool) {
-        self.blocks.get(&block.hash().clone()).map(|p| p.set(block));
-    }
-
-    async fn block_headers(
-        &self,
-        headers: Vec<BlockHeader>,
-        _peer_id: PeerId,
-    ) -> Result<(), ReasonForBan> {
-        if let Some(h) = headers.iter().min_by_key(|h| h.height()) {
-            let hash = *h.prev_hash();
-            self.block_headers.get(&hash).map(|p| p.set(headers));
-        }
-        Ok(())
-    }
-
-    async fn challenge(&self, _challenge: Challenge) {}
-
-    async fn network_info(&self, info: NetworkInfo) {
-        let mut n = self.data.lock().unwrap();
-        n.info_ = Arc::new(info);
-        if n.info_.num_connected_peers < self.min_peers {
-            info!("connected = {}/{}", n.info_.num_connected_peers, self.min_peers);
-            return;
-        }
-        for s in n.info_futures.split_off(0) {
-            s.send(n.info_.clone()).unwrap();
+    pub fn as_client_adapter(&self) -> ClientSenderForNetwork {
+        let blocks = self.blocks.clone();
+        let block_headers = self.block_headers.clone();
+        let data = self.data.clone();
+        let min_peers = self.min_peers;
+        ClientSenderForNetwork {
+            tx_status_request: Sender::from_async_fn(|_| None),
+            tx_status_response: noop().into_sender(),
+            state_request_header: Sender::from_async_fn(|_| None),
+            state_request_part: Sender::from_async_fn(|_| None),
+            state_response: noop().into_sender(),
+            block_approval: noop().into_sender(),
+            transaction: noop().into_sender(),
+            block_request: Sender::from_async_fn(|_| None),
+            block_headers_request: Sender::from_async_fn(|_| None),
+            block: Sender::from_async_fn(move |block: BlockResponse| {
+                blocks.get(&block.block.hash().clone()).map(|p| p.set(block.block));
+            }),
+            block_headers: Sender::from_async_fn(move |headers: BlockHeadersResponse| {
+                if let Some(h) = headers.0.iter().min_by_key(|h| h.height()) {
+                    let hash = *h.prev_hash();
+                    block_headers.get(&hash).map(|p| p.set(headers.0));
+                }
+                Ok(())
+            }),
+            challenge: noop().into_sender(),
+            network_info: Sender::from_async_fn(move |info: SetNetworkInfo| {
+                let mut n = data.lock().unwrap();
+                n.info_ = Arc::new(info.0);
+                if n.info_.num_connected_peers < min_peers {
+                    info!("connected = {}/{}", n.info_.num_connected_peers, min_peers);
+                    return;
+                }
+                for s in n.info_futures.split_off(0) {
+                    s.send(n.info_.clone()).unwrap();
+                }
+            }),
+            announce_account: Sender::from_async_fn(|accounts: AnnounceAccountRequest| {
+                Ok(accounts.0.into_iter().map(|a| a.0).collect::<Vec<_>>())
+            }),
+            chunk_state_witness: noop().into_sender(),
+            chunk_endorsement: noop().into_sender(),
         }
     }
-
-    async fn announce_account(
-        &self,
-        accounts: Vec<(AnnounceAccount, Option<EpochId>)>,
-    ) -> Result<Vec<AnnounceAccount>, ReasonForBan> {
-        Ok(accounts.into_iter().map(|a| a.0).collect())
-    }
-
-    async fn chunk_state_witness(&self, _witness: ChunkStateWitness) {}
 }

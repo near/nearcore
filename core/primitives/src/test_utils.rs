@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
 use near_primitives_core::types::ProtocolVersion;
 
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
-use crate::block::BlockV3;
+use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
 use crate::block_header::BlockHeader;
+use crate::challenge::Challenges;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
@@ -25,7 +27,7 @@ use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
-    Account::new(amount, 0, code_hash, std::mem::size_of::<Account>() as u64)
+    Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
 }
 
 impl Transaction {
@@ -261,17 +263,6 @@ impl SignedTransaction {
     }
 }
 
-impl Block {
-    pub fn get_mut(&mut self) -> &mut BlockV3 {
-        match self {
-            Block::BlockV1(_) | Block::BlockV2(_) => {
-                panic!("older block version should not appear in tests")
-            }
-            Block::BlockV3(block) => Arc::make_mut(block),
-        }
-    }
-}
-
 impl BlockHeader {
     pub fn get_mut(&mut self) -> &mut crate::block_header::BlockHeaderV4 {
         match self {
@@ -346,14 +337,50 @@ impl ShardChunkHeader {
         }
     }
 }
+
+impl BlockBody {
+    fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
+        match self {
+            BlockBody::V1(body) => &mut body.chunks,
+            BlockBody::V2(body) => &mut body.chunks,
+        }
+    }
+
+    fn set_chunks(&mut self, chunks: Vec<ShardChunkHeader>) {
+        match self {
+            BlockBody::V1(body) => body.chunks = chunks,
+            BlockBody::V2(body) => body.chunks = chunks,
+        }
+    }
+
+    fn set_challenges(&mut self, challenges: Challenges) {
+        match self {
+            BlockBody::V1(body) => body.challenges = challenges,
+            BlockBody::V2(body) => body.challenges = challenges,
+        }
+    }
+
+    fn set_vrf_value(&mut self, vrf_value: Value) {
+        match self {
+            BlockBody::V1(body) => body.vrf_value = vrf_value,
+            BlockBody::V2(body) => body.vrf_value = vrf_value,
+        }
+    }
+
+    fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
+        match self {
+            BlockBody::V1(_) => unreachable!("old body should not appear in tests"),
+            BlockBody::V2(body) => body.chunk_endorsements = chunk_endorsements,
+        }
+    }
+}
+
 /// Builder class for blocks to make testing easier.
 /// # Examples
 ///
 /// // TODO(mm-near): change it to doc-tested code once we have easy way to create a genesis block.
 /// let signer = EmptyValidatorSigner::default();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
-///
-
 pub struct TestBlockBuilder {
     prev: Block,
     signer: Arc<dyn ValidatorSigner>,
@@ -375,7 +402,7 @@ impl TestBlockBuilder {
             signer: signer.clone(),
             height: prev.header().height() + 1,
             epoch_id: prev.header().epoch_id().clone(),
-            next_epoch_id: if prev.header().prev_hash() == &CryptoHash::default() {
+            next_epoch_id: if prev.header().is_genesis() {
                 EpochId(*prev.hash())
             } else {
                 prev.header().next_epoch_id().clone()
@@ -422,6 +449,7 @@ impl TestBlockBuilder {
             self.height,
             self.prev.header().block_ordinal() + 1,
             self.prev.chunks().iter().cloned().collect(),
+            vec![vec![]; self.prev.chunks().len()],
             self.epoch_id,
             self.next_epoch_id,
             None,
@@ -455,6 +483,28 @@ impl Block {
                 let block = Arc::make_mut(block);
                 &mut block.header
             }
+            Block::BlockV4(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.header
+            }
+        }
+    }
+
+    pub fn mut_chunks(&mut self) -> &mut Vec<ShardChunkHeader> {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.chunks
+            }
+            Block::BlockV3(block) => {
+                let block = Arc::make_mut(block);
+                &mut block.body.chunks
+            }
+            Block::BlockV4(block) => {
+                let block = Arc::make_mut(block);
+                block.body.mut_chunks()
+            }
         }
     }
 
@@ -484,7 +534,57 @@ impl Block {
                 let block = Arc::make_mut(block);
                 block.body.chunks = chunks;
             }
+            Block::BlockV4(block) => {
+                let block = Arc::make_mut(block);
+                block.body.set_chunks(chunks);
+            }
         }
+    }
+
+    pub fn set_challenges(&mut self, challenges: Challenges) {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => {
+                let body = Arc::make_mut(body);
+                body.challenges = challenges;
+            }
+            Block::BlockV3(body) => {
+                let body = Arc::make_mut(body);
+                body.body.challenges = challenges;
+            }
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_challenges(challenges);
+            }
+        };
+    }
+
+    pub fn set_vrf_value(&mut self, vrf_value: Value) {
+        match self {
+            Block::BlockV1(_) => unreachable!(),
+            Block::BlockV2(body) => {
+                let body = Arc::make_mut(body);
+                body.vrf_value = vrf_value;
+            }
+            Block::BlockV3(body) => {
+                let body = Arc::make_mut(body);
+                body.body.vrf_value = vrf_value;
+            }
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_vrf_value(vrf_value);
+            }
+        };
+    }
+
+    pub fn set_chunk_endorsements(&mut self, chunk_endorsements: Vec<ChunkEndorsementSignatures>) {
+        match self {
+            Block::BlockV1(_) | Block::BlockV2(_) | Block::BlockV3(_) => (),
+            Block::BlockV4(body) => {
+                let body = Arc::make_mut(body);
+                body.body.set_chunk_endorsements(chunk_endorsements);
+            }
+        };
     }
 }
 
@@ -580,5 +680,11 @@ impl FinalExecutionOutcomeView {
                 "receipt #{i} failed: {receipt:?}",
             );
         }
+    }
+
+    /// Calculates how much NEAR was burnt for gas, after refunds.
+    pub fn tokens_burnt(&self) -> Balance {
+        self.transaction_outcome.outcome.tokens_burnt
+            + self.receipts_outcome.iter().map(|r| r.outcome.tokens_burnt).sum::<u128>()
     }
 }

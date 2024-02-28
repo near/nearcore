@@ -1,7 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::path::PathBuf;
-use syn::parse;
 use syn::*;
 
 mod ignores;

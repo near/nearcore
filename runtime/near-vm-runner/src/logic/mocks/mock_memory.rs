@@ -47,5 +47,5 @@ impl MemoryLike for MockedMemory {
 
 #[test]
 fn test_memory_like() {
-    crate::logic::test_utils::test_memory_like(|| Box::new(MockedMemory::default()));
+    crate::logic::test_utils::test_memory_like(|| Box::<MockedMemory>::default());
 }

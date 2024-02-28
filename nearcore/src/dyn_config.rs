@@ -47,7 +47,7 @@ pub fn get_updateable_client_config(config: Config) -> UpdateableClientConfig {
     // Keep this list in-sync with `core/dyn-configs/README.md`.
     UpdateableClientConfig {
         expected_shutdown: config.expected_shutdown,
-        state_split_config: config.state_split_config,
+        resharding_config: config.resharding_config,
         produce_chunk_add_transactions_time_limit: config.produce_chunk_add_transactions_time_limit,
     }
 }

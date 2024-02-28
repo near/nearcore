@@ -1,16 +1,10 @@
 //! External dependencies of the near-vm-logic.
-
 use super::types::ReceiptIndex;
-use super::TrieNodesCount;
 use super::VMLogicError;
 use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Gas;
-use near_primitives_core::types::GasWeight;
-use near_primitives_core::types::Nonce;
-use near_primitives_core::types::{AccountId, Balance};
-
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -115,6 +109,28 @@ pub trait ValuePtr {
     /// # Errors
     /// StorageError if reading from storage fails
     fn deref(&self) -> Result<Vec<u8>>;
+}
+
+/// Counts trie nodes reads during tx/receipt execution for proper storage costs charging.
+///
+/// NB: this is the near-vm-runner copy of the type. It should not be deduplicated by adding
+/// dependency edges. Convert between various versions of this type in a common crate, if needed.
+#[derive(Debug, PartialEq)]
+pub struct TrieNodesCount {
+    /// Potentially expensive trie node reads which are served from disk in the worst case.
+    pub db_reads: u64,
+    /// Cheap trie node reads which are guaranteed to be served from RAM.
+    pub mem_reads: u64,
+}
+
+impl TrieNodesCount {
+    /// Used to determine the number of trie nodes charged during some operation.
+    pub fn checked_sub(self, other: &Self) -> Option<Self> {
+        Some(Self {
+            db_reads: self.db_reads.checked_sub(other.db_reads)?,
+            mem_reads: self.mem_reads.checked_sub(other.mem_reads)?,
+        })
+    }
 }
 
 /// An external blockchain interface for the Runtime logic
@@ -259,7 +275,6 @@ pub trait External {
     ///
     /// # Arguments
     ///
-    /// * `generate_data_id` - function to generate a data id to connect receipt output to
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
     fn create_receipt(
@@ -267,6 +282,33 @@ pub trait External {
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError>;
+
+    /// Create a receipt with a new input data dependency.
+    ///
+    /// Returns the ReceiptIndex of the newly created receipt and the id of its data dependency.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    fn yield_create_action_receipt(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
+
+    /// Creates a DataReceipt under the specified `data_id`.
+    ///
+    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or if the
+    /// corresponding ActionReceipt was already resolved, this function will fail with an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - `data_id` with which the DataReceipt should be created
+    /// * `data` - contents of the DataReceipt
+    fn yield_submit_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError>;
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///

@@ -10,6 +10,7 @@ use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::types::{Balance, BlockHeightDelta, NumBlocks, NumSeats, NumShards};
+use near_primitives_core::version::PROTOCOL_VERSION;
 use num_rational::Rational32;
 use serde::ser::{SerializeSeq, Serializer};
 use std::collections::{hash_map, HashMap};
@@ -47,22 +48,40 @@ fn set_total_balance(dst: &mut Account, src: &Account) {
 }
 
 impl AccountRecords {
-    fn new(amount: Balance, locked: Balance, num_bytes_account: u64) -> Self {
+    fn new(
+        amount: Balance,
+        locked: Balance,
+        nonrefundable: Balance,
+        num_bytes_account: u64,
+    ) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, num_bytes_account);
+        ret.set_account(amount, locked, nonrefundable, num_bytes_account);
         ret
     }
 
     fn new_validator(stake: Balance, num_bytes_account: u64) -> Self {
         let mut ret = Self::default();
-        ret.set_account(0, stake, num_bytes_account);
+        ret.set_account(0, stake, 0, num_bytes_account);
         ret.amount_needed = true;
         ret
     }
 
-    fn set_account(&mut self, amount: Balance, locked: Balance, num_bytes_account: u64) {
+    fn set_account(
+        &mut self,
+        amount: Balance,
+        locked: Balance,
+        nonrefundable: Balance,
+        num_bytes_account: u64,
+    ) {
         assert!(self.account.is_none());
-        let account = Account::new(amount, locked, CryptoHash::default(), num_bytes_account);
+        let account = Account::new(
+            amount,
+            locked,
+            nonrefundable,
+            CryptoHash::default(),
+            num_bytes_account,
+            PROTOCOL_VERSION,
+        );
         self.account = Some(account);
     }
 
@@ -181,6 +200,7 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
+                            account.nonrefundable(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -194,7 +214,12 @@ fn parse_extra_records(
                                 &account_id
                             ));
                         }
-                        r.set_account(account.amount(), account.locked(), num_bytes_account);
+                        r.set_account(
+                            account.amount(),
+                            account.locked(),
+                            account.nonrefundable(),
+                            num_bytes_account,
+                        );
                     }
                 }
             }
@@ -254,6 +279,8 @@ pub struct GenesisChanges {
     pub protocol_reward_rate: Option<Rational32>,
     pub block_producer_kickout_threshold: Option<u8>,
     pub chunk_producer_kickout_threshold: Option<u8>,
+    pub min_gas_price: Option<Balance>,
+    pub max_gas_price: Option<Balance>,
 }
 
 /// Amend a genesis/records file created by `dump-state`.
@@ -340,25 +367,25 @@ pub fn amend_genesis(
     }
 
     genesis.config.total_supply = total_supply;
-    // TODO: give an option to set this
-    genesis.config.num_block_producer_seats = validators.len() as NumSeats;
+    if let Some(n) = genesis_changes.num_seats {
+        genesis.config.num_block_producer_seats = n;
+    } else {
+        genesis.config.num_block_producer_seats = validators.len() as NumSeats;
+    }
     // here we have already checked that there are no duplicate validators in wanted_records()
     genesis.config.validators = validators;
     if let Some(chain_id) = &genesis_changes.chain_id {
         genesis.config.chain_id = chain_id.clone();
     }
-    if let Some(n) = genesis_changes.num_seats {
-        genesis.config.num_block_producer_seats = n;
-    }
     if let Some(shard_layout) = shard_layout {
-        genesis.config.avg_hidden_validator_seats_per_shard =
-            shard_layout.shard_ids().into_iter().map(|_| 0).collect();
-        genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
-            shard_layout.shard_ids().count() as NumShards,
-            genesis.config.num_block_producer_seats,
-        );
         genesis.config.shard_layout = shard_layout;
     }
+    genesis.config.avg_hidden_validator_seats_per_shard =
+        genesis.config.shard_layout.shard_ids().into_iter().map(|_| 0).collect();
+    genesis.config.num_block_producer_seats_per_shard = utils::get_num_seats_per_shard(
+        genesis.config.shard_layout.shard_ids().count() as NumShards,
+        genesis.config.num_block_producer_seats,
+    );
     if let Some(v) = genesis_changes.protocol_version {
         genesis.config.protocol_version = v;
     }
@@ -376,6 +403,12 @@ pub fn amend_genesis(
     }
     if let Some(t) = genesis_changes.chunk_producer_kickout_threshold {
         genesis.config.chunk_producer_kickout_threshold = t;
+    }
+    if let Some(p) = genesis_changes.min_gas_price {
+        genesis.config.min_gas_price = p;
+    }
+    if let Some(p) = genesis_changes.max_gas_price {
+        genesis.config.max_gas_price = p;
     }
     genesis.to_file(genesis_file_out);
     records_seq.end()?;
@@ -439,8 +472,16 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    let account =
-                        Account::new(*amount, *locked, CryptoHash::default(), *storage_usage);
+                    // `nonrefundable_balance` can be implemented if this is required in state records.
+                    let nonrefundable_balance = 0;
+                    let account = Account::new(
+                        *amount,
+                        *locked,
+                        nonrefundable_balance,
+                        CryptoHash::default(),
+                        *storage_usage,
+                        PROTOCOL_VERSION,
+                    );
                     StateRecord::Account { account_id: account_id.parse().unwrap(), account }
                 }
                 Self::AccessKey { account_id, public_key } => StateRecord::AccessKey {

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use near_async::messaging::AsyncSendError;
 use serde_json::Value;
 
 use near_client_primitives::types::{
@@ -67,8 +68,8 @@ impl RpcFrom<GetExecutionOutcomeError> for RpcLightClientProofError {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcLightClientProofError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcLightClientProofError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }
@@ -93,8 +94,8 @@ impl RpcFrom<GetBlockProofError> for RpcLightClientProofError {
     }
 }
 
-impl RpcFrom<actix::MailboxError> for RpcLightClientNextBlockError {
-    fn rpc_from(error: actix::MailboxError) -> Self {
+impl RpcFrom<AsyncSendError> for RpcLightClientNextBlockError {
+    fn rpc_from(error: AsyncSendError) -> Self {
         Self::InternalError { error_message: error.to_string() }
     }
 }

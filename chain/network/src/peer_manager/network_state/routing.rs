@@ -5,7 +5,6 @@ use crate::network_protocol::{
 };
 use crate::peer_manager::connection;
 use crate::peer_manager::network_state::PeerIdOrHash;
-use crate::peer_manager::peer_manager_actor::Event;
 use crate::routing::routing_table_view::FindRouteError;
 use crate::routing::NetworkTopologyChange;
 use crate::stats::metrics;
@@ -47,10 +46,11 @@ impl NetworkState {
         self.spawn(async move {
             let new_accounts = this.account_announcements.add_accounts(accounts);
             tracing::debug!(target: "network", account_id = ?this.config.validator.as_ref().map(|v|v.account_id()), ?new_accounts, "Received new accounts");
+            #[cfg(test)]
+            this.config.event_sink.send(crate::peer_manager::peer_manager_actor::Event::AccountsAdded(new_accounts.clone()));
             this.broadcast_routing_table_update(RoutingTableUpdate::from_accounts(
-                new_accounts.clone(),
+                new_accounts,
             ));
-            this.config.event_sink.push(Event::AccountsAdded(new_accounts));
         }).await.unwrap()
     }
 
@@ -130,7 +130,10 @@ impl NetworkState {
                     }
                 }
                 // Broadcast new edges to all other peers.
-                this.config.event_sink.push(Event::EdgesAdded(edges.clone()));
+                #[cfg(test)]
+                this.config.event_sink.send(
+                    crate::peer_manager::peer_manager_actor::Event::EdgesAdded(edges.clone()),
+                );
                 this.broadcast_routing_table_update(RoutingTableUpdate::from_edges(edges));
                 // Retu
                 oks.iter()
@@ -214,7 +217,7 @@ impl NetworkState {
     }
 
     pub(crate) fn compare_route_back(&self, hash: CryptoHash, peer_id: &PeerId) -> bool {
-        self.tier2_route_back.lock().get(&hash).map_or(false, |value| value == peer_id)
+        self.tier2_route_back.lock().get(&hash).is_some_and(|value| value == peer_id)
     }
 
     /// Accepts NetworkTopologyChange events.

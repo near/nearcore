@@ -85,7 +85,7 @@ async fn download_file(url: &str, path: &Path) -> Result<(), FileDownloadError> 
     let uri = url.parse()?;
 
     let (tmp_file, tmp_path) = {
-        let tmp_dir = path.parent().unwrap_or(Path::new("."));
+        let tmp_dir = path.parent().unwrap_or_else(|| Path::new("."));
         tempfile::NamedTempFile::new_in(tmp_dir).map_err(FileDownloadError::OpenError)?.into_parts()
     };
 

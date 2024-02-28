@@ -238,18 +238,18 @@ pub fn create_receipt_id_from_transaction(
     )
 }
 
-/// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
+/// Creates a new Receipt ID from a given receipt id, a block hash and a new receipt index.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_receipt_id_from_receipt(
+pub fn create_receipt_id_from_receipt_id(
     protocol_version: ProtocolVersion,
-    receipt: &Receipt,
+    receipt_id: &CryptoHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     receipt_index: usize,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &receipt.receipt_id,
+        receipt_id,
         prev_block_hash,
         block_hash,
         receipt_index as u64,
