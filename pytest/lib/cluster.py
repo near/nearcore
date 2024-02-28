@@ -487,10 +487,7 @@ class LocalNode(BaseNode):
             logger.error(
                 '=== failed to start node, rpc does not ready in 10 seconds')
 
-    def run_cmd(self,
-              *,
-              cmd: tuple,
-              extra_env: typing.Dict[str, str] = dict()):
+    def run_cmd(self, *, cmd: tuple, extra_env: typing.Dict[str, str] = dict()):
 
         env = os.environ.copy()
         env["RUST_BACKTRACE"] = "1"
