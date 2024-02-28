@@ -70,7 +70,7 @@ use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;

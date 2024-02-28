@@ -11,7 +11,6 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashMap;
 use std::sync::Arc;

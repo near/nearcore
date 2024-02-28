@@ -13,7 +13,7 @@ use near_o11y::testonly::init_integration_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
-use nearcore::config::{GenesisExt, TESTING_INIT_STAKE};
+use nearcore::config::TESTING_INIT_STAKE;
 use nearcore::{load_test_config, start_with_config};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};

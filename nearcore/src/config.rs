@@ -1,6 +1,7 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
@@ -16,6 +17,7 @@ use near_chain_configs::{
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
+use near_epoch_manager::EpochManagerHandle;
 #[cfg(feature = "json_rpc")]
 use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
@@ -38,12 +40,14 @@ use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
 use near_rosetta_rpc::RosettaRpcConfig;
+use near_store::config::StateSnapshotType;
+use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,14 +55,14 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tracing::{info, warn};
 
+/// One NEAR, divisible by 10^24.
+pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
+
 /// Initial balance used in tests.
 pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
 
 /// Validator's stake used in tests.
 pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
@@ -498,106 +502,6 @@ impl Config {
     }
 }
 
-#[easy_ext::ext(GenesisExt)]
-impl Genesis {
-    // Creates new genesis with a given set of accounts and shard layout.
-    // The first num_validator_seats from accounts will be treated as 'validators'.
-    pub fn test_with_seeds(
-        accounts: Vec<AccountId>,
-        num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
-        shard_layout: ShardLayout,
-    ) -> Self {
-        let mut validators = vec![];
-        let mut records = vec![];
-        for (i, account) in accounts.into_iter().enumerate() {
-            let signer =
-                InMemorySigner::from_seed(account.clone(), KeyType::ED25519, account.as_ref());
-            let i = i as u64;
-            if i < num_validator_seats {
-                validators.push(AccountInfo {
-                    account_id: account.clone(),
-                    public_key: signer.public_key.clone(),
-                    amount: TESTING_INIT_STAKE,
-                });
-            }
-            add_account_with_key(
-                &mut records,
-                account,
-                &signer.public_key.clone(),
-                TESTING_INIT_BALANCE - if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                if i < num_validator_seats { TESTING_INIT_STAKE } else { 0 },
-                CryptoHash::default(),
-            );
-        }
-        add_protocol_account(&mut records);
-        let config = GenesisConfig {
-            protocol_version: PROTOCOL_VERSION,
-            genesis_time: StaticClock::utc(),
-            chain_id: random_chain_id(),
-            num_block_producer_seats: num_validator_seats,
-            num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
-            avg_hidden_validator_seats_per_shard: vec![0; num_validator_seats_per_shard.len()],
-            dynamic_resharding: false,
-            protocol_upgrade_stake_threshold: PROTOCOL_UPGRADE_STAKE_THRESHOLD,
-            epoch_length: FAST_EPOCH_LENGTH,
-            gas_limit: INITIAL_GAS_LIMIT,
-            gas_price_adjustment_rate: GAS_PRICE_ADJUSTMENT_RATE,
-            block_producer_kickout_threshold: BLOCK_PRODUCER_KICKOUT_THRESHOLD,
-            validators,
-            protocol_reward_rate: PROTOCOL_REWARD_RATE,
-            total_supply: get_initial_supply(&records),
-            max_inflation_rate: MAX_INFLATION_RATE,
-            num_blocks_per_year: NUM_BLOCKS_PER_YEAR,
-            protocol_treasury_account: PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-            transaction_validity_period: TRANSACTION_VALIDITY_PERIOD,
-            chunk_producer_kickout_threshold: CHUNK_PRODUCER_KICKOUT_THRESHOLD,
-            fishermen_threshold: FISHERMEN_THRESHOLD,
-            min_gas_price: MIN_GAS_PRICE,
-            shard_layout,
-            ..Default::default()
-        };
-        Genesis::new(config, records.into()).unwrap()
-    }
-
-    pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
-        Self::test_with_seeds(
-            accounts,
-            num_validator_seats,
-            vec![num_validator_seats],
-            ShardLayout::v0_single_shard(),
-        )
-    }
-
-    pub fn test_sharded(
-        accounts: Vec<AccountId>,
-        num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
-    ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
-        Self::test_with_seeds(
-            accounts,
-            num_validator_seats,
-            num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 0),
-        )
-    }
-
-    pub fn test_sharded_new_version(
-        accounts: Vec<AccountId>,
-        num_validator_seats: NumSeats,
-        num_validator_seats_per_shard: Vec<NumSeats>,
-    ) -> Self {
-        let num_shards = num_validator_seats_per_shard.len() as NumShards;
-        Self::test_with_seeds(
-            accounts,
-            num_validator_seats,
-            num_validator_seats_per_shard,
-            ShardLayout::v0(num_shards, 1),
-        )
-    }
-}
-
 #[derive(Clone)]
 pub struct NearConfig {
     pub config: Config,
@@ -736,6 +640,49 @@ impl NearConfig {
             .expect("Error writing key file");
 
         self.genesis.to_file(dir.join(&self.config.genesis_file));
+    }
+}
+
+#[easy_ext::ext(NightshadeRuntimeExt)]
+impl NightshadeRuntime {
+    pub fn from_config(
+        home_dir: &Path,
+        store: Store,
+        config: &NearConfig,
+        epoch_manager: Arc<EpochManagerHandle>,
+    ) -> Arc<NightshadeRuntime> {
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let mut state_snapshot_type =
+            config.config.store.state_snapshot_config.state_snapshot_type.clone();
+        if config.config.store.state_snapshot_enabled {
+            state_snapshot_type = StateSnapshotType::EveryEpoch;
+        }
+        // TODO (#9989): directly use the new state snapshot config once the migration is done.
+        let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
+            || config.config.store.state_snapshot_config.compaction_enabled;
+        let state_snapshot_config = StateSnapshotConfig {
+            state_snapshot_type,
+            home_dir: home_dir.to_path_buf(),
+            hot_store_path: config
+                .config
+                .store
+                .path
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("data")),
+            state_snapshot_subdir: PathBuf::from("state_snapshot"),
+            compaction_enabled,
+        };
+        NightshadeRuntime::new(
+            store,
+            &config.genesis.config,
+            epoch_manager,
+            config.client_config.trie_viewer_state_size_limit,
+            config.client_config.max_gas_burnt_view,
+            None,
+            config.config.gc.gc_num_epochs_to_keep(),
+            TrieConfig::from_store_config(&config.config.store),
+            state_snapshot_config,
+        )
     }
 }
 

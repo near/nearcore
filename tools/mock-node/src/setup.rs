@@ -16,7 +16,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{BlockHeight, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
 use std::path::Path;
@@ -289,7 +289,6 @@ mod tests {
     use near_o11y::WithSpanContextExt;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account_from_alphabet;
-    use nearcore::config::GenesisExt;
     use nearcore::{load_test_config, start_with_config, NEAR_BASE};
     use rand::thread_rng;
     use std::ops::ControlFlow;

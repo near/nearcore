@@ -9,7 +9,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_store::{checkpoint_hot_storage_and_cleanup_columns, DBCol, NodeStorage};
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

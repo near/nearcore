@@ -16,7 +16,7 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
 

@@ -20,7 +20,6 @@ use near_primitives::{
     types::{AccountId, EpochId, ShardId},
 };
 use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
 

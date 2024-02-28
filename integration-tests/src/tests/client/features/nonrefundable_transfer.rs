@@ -23,7 +23,6 @@ use near_primitives::views::{
     ExecutionStatusView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use testlib::fees_utils::FeeHelper;

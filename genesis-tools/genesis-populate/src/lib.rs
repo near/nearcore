@@ -22,7 +22,7 @@ use near_store::{
     get_account, get_genesis_state_roots, set_access_key, set_account, set_code, Store, TrieUpdate,
 };
 use near_vm_runner::ContractCode;
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};

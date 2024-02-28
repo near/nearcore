@@ -10,7 +10,6 @@ use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderInner};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives_core::types::BlockHeight;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 const NOT_BREAKING_CHANGE_MSG: &str = "Not a breaking change";

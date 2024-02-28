@@ -21,7 +21,6 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
 use near_store::Store;
-use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;

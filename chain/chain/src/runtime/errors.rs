@@ -1,4 +1,4 @@
-use near_chain::near_chain_primitives::error::QueryError;
+use crate::near_chain_primitives::error::QueryError;
 
 #[easy_ext::ext(FromStateViewerErrors)]
 impl QueryError {

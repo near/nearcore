@@ -30,7 +30,6 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus,
 };
 use near_test_contracts::{ft_contract, smallest_rs_contract};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::NEAR_BASE;
 use testlib::runtime_utils::{

@@ -25,7 +25,7 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::{config::GenesisExt, load_test_config, start_with_config};
+use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
