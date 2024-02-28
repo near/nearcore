@@ -224,6 +224,12 @@ mod tests {
         rnd
     }
 
+    fn get_zero(point_len: usize) -> Vec<u8> {
+        let mut zero1 = vec![0; point_len];
+        zero1[0] |= 0x40;
+        zero1
+    }
+
     fn map_fp_to_g1(fps: Vec<FP>) -> Vec<u8> {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -1423,7 +1429,7 @@ mod tests {
         500,
         ECP,
         bls12381_p1_decompress,
-        add_p,
+        add_p_x,
         test_bls12381_p1_decompress,
         test_bls12381_p1_decompress_many_points,
         test_bls12381_p1_decompress_incorrect_input
@@ -1437,13 +1443,13 @@ mod tests {
         250,
         ECP2,
         bls12381_p2_decompress,
-        add_p2,
+        add2_p_x,
         test_bls12381_p2_decompress,
         test_bls12381_p2_decompress_many_points,
         test_bls12381_p2_decompress_incorrect_input
     );
 
-    fn add_p(point: &ECP) -> [u8; 48] {
+    fn add_p_x(point: &ECP) -> [u8; 48] {
         let mut xbig = point.getx();
         xbig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_g1(&point);
@@ -1453,7 +1459,7 @@ mod tests {
         p_ser
     }
 
-    fn add_p2(point: &ECP2) -> [u8; 96] {
+    fn add2_p_x(point: &ECP2) -> [u8; 96] {
         let mut xabig = point.getx().geta();
         xabig.add(&Big::from_string(P.to_string()));
         let mut p_ser = serialize_g2(&point);
@@ -1653,22 +1659,10 @@ mod tests {
         assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
     }
 
-    fn get_zero_p1() -> [u8; 96] {
-        let mut zero1: [u8; 96] = [0; 96];
-        zero1[0] |= 0x40;
-        zero1
-    }
-
-    fn get_zero_p2() -> [u8; 192] {
-        let mut zero2: [u8; 192] = [0; 192];
-        zero2[0] |= 0x40;
-        zero2
-    }
-
     #[test]
     fn test_bls12381_empty_input() {
-        assert_eq!(get_zero_p1(), get_g1_multiexp_many_points(&vec![]).as_slice());
-        assert_eq!(get_zero_p2(), get_g2_multiexp_many_points(&vec![]).as_slice());
+        assert_eq!(get_zero(96), get_g1_multiexp_many_points(&vec![]));
+        assert_eq!(get_zero(192), get_g2_multiexp_many_points(&vec![]));
         assert_eq!(map_fp_to_g1(vec![]).len(), 0);
         assert_eq!(map_fp2_to_g2(vec![]).len(), 0);
         assert_eq!(pairing_check(vec![], vec![]), 0);
