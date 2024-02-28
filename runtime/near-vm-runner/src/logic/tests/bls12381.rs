@@ -1312,8 +1312,10 @@ mod tests {
             $GOperations:ident,
             $serialize_uncompressed_g:ident,
             $POINT_LEN:expr,
+            $MAX_N:expr,
             $ECP:ident,
-            $test_bls12381_decompress:ident
+            $test_bls12381_decompress:ident,
+            $test_bls12381_decompress_many_points:ident
         ) => {
             #[test]
             fn $test_bls12381_decompress() {
@@ -1338,6 +1340,34 @@ mod tests {
 
                 assert_eq!(res1, $serialize_uncompressed_g(&zero1));
             }
+
+            #[test]
+            fn $test_bls12381_decompress_many_points() {
+                let mut rnd = get_rnd();
+
+                for i in 0..10 {
+                    let n: usize =
+                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
+
+                    let mut p1s: Vec<$ECP> = vec![];
+                    let mut res2: Vec<u8> = vec![];
+                    for i in 0..n {
+                        p1s.push($GOperations::get_random_curve_point(&mut rnd));
+                        res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
+                    }
+                    let res1 = $GOperations::decompress_p(p1s.clone());
+                    assert_eq!(res1, res2);
+
+                    let mut p1s: Vec<$ECP> = vec![];
+                    let mut res2: Vec<u8> = vec![];
+                    for i in 0..n {
+                        p1s.push($GOperations::get_random_g_point(&mut rnd));
+                        res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
+                    }
+                    let res1 = $GOperations::decompress_p(p1s.clone());
+                    assert_eq!(res1, res2);
+                }
+            }
         };
     }
 
@@ -1345,46 +1375,21 @@ mod tests {
         G1Operations,
         serialize_uncompressed_g1,
         48,
+        500,
         ECP,
-        test_bls12381_p1_decompress
+        test_bls12381_p1_decompress,
+        test_bls12381_p1_decompress_many_points
     );
 
     test_bls12381_decompress!(
         G2Operations,
         serialize_uncompressed_g2,
         96,
+        250,
         ECP2,
-        test_bls12381_p2_decompress
+        test_bls12381_p2_decompress,
+        test_bls12381_p2_decompress_many_points
     );
-
-    #[test]
-    fn test_bls12381_p1_decompress_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 500;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut p1s: Vec<ECP> = vec![];
-            let mut res2: Vec<u8> = vec![];
-            for i in 0..n {
-                p1s.push(G1Operations::get_random_curve_point(&mut rnd));
-                res2.append(&mut serialize_uncompressed_g1(&p1s[i]).to_vec());
-            }
-            let res1 = G1Operations::decompress_p(p1s.clone());
-            assert_eq!(res1, res2);
-
-            let mut p1s: Vec<ECP> = vec![];
-            let mut res2: Vec<u8> = vec![];
-            for i in 0..n {
-                p1s.push(G1Operations::get_random_g_point(&mut rnd));
-                res2.append(&mut serialize_uncompressed_g1(&p1s[i]).to_vec());
-            }
-            let res1 = G1Operations::decompress_p(p1s.clone());
-            assert_eq!(res1, res2);
-        }
-    }
 
     #[test]
     fn test_bls12381_p1_decompress_incorrect_input() {
@@ -1429,35 +1434,6 @@ mod tests {
         let input = logic.internal_mem_write(p_ser.as_slice());
         let res = logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
-    }
-
-    #[test]
-    fn test_bls12381_p2_decompress_many_points() {
-        let mut rnd = get_rnd();
-
-        const MAX_N: usize = 250;
-
-        for i in 0..10 {
-            let n: usize = if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N };
-
-            let mut p2s: Vec<ECP2> = vec![];
-            let mut res2: Vec<u8> = vec![];
-            for i in 0..n {
-                p2s.push(G2Operations::get_random_curve_point(&mut rnd));
-                res2.append(&mut serialize_uncompressed_g2(&p2s[i]).to_vec());
-            }
-            let res1 = G2Operations::decompress_p(p2s.clone());
-            assert_eq!(res1, res2);
-
-            let mut p2s: Vec<ECP2> = vec![];
-            let mut res2: Vec<u8> = vec![];
-            for i in 0..n {
-                p2s.push(G2Operations::get_random_g_point(&mut rnd));
-                res2.append(&mut serialize_uncompressed_g2(&p2s[i]).to_vec());
-            }
-            let res1 = G2Operations::decompress_p(p2s.clone());
-            assert_eq!(res1, res2);
-        }
     }
 
     #[test]
