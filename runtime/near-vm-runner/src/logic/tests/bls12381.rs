@@ -497,34 +497,6 @@ mod tests {
         assert_eq!(res1, serialize_uncompressed_g2(&res3).to_vec());
     }
 
-    fn fix_eip2537_fp(fp: Vec<u8>) -> Vec<u8> {
-        fp[16..].to_vec()
-    }
-
-    fn fix_eip2537_fp2(fp2: Vec<u8>) -> Vec<u8> {
-        vec![fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
-    }
-
-    fn fix_eip2537_g1(g1: Vec<u8>) -> Vec<u8> {
-        let mut res =
-            vec![fix_eip2537_fp(g1[..64].to_vec()), fix_eip2537_fp(g1[64..].to_vec())].concat();
-        if res == vec![0; 192] {
-            res[0] |= 0x40;
-        }
-
-        return res;
-    }
-
-    fn fix_eip2537_g2(g2: Vec<u8>) -> Vec<u8> {
-        let mut res =
-            vec![fix_eip2537_fp2(g2[..128].to_vec()), fix_eip2537_fp2(g2[128..].to_vec())].concat();
-        if res == vec![0; 192] {
-            res[0] |= 0x40;
-        }
-
-        return res;
-    }
-
     macro_rules! test_bls12381_sum {
         (
             $GOperations:ident,
@@ -1813,41 +1785,70 @@ mod tests {
         .concat()
     }
 
-    fn fix_eip2537_sum_g1_input(input: Vec<u8>) -> Vec<u8> {
-        vec![
-            vec![0u8],
-            fix_eip2537_g1(input[..128].to_vec()),
-            vec![0u8],
-            fix_eip2537_g1(input[128..].to_vec()),
-        ]
-        .concat()
+    fn fix_eip2537_fp(fp: Vec<u8>) -> Vec<u8> {
+        fp[16..].to_vec()
     }
 
-    fn fix_eip2537_sum_g2_input(input: Vec<u8>) -> Vec<u8> {
-        vec![
-            vec![0u8],
-            fix_eip2537_g2(input[..256].to_vec()),
-            vec![0u8],
-            fix_eip2537_g2(input[256..].to_vec()),
-        ]
-        .concat()
+    fn fix_eip2537_fp2(fp2: Vec<u8>) -> Vec<u8> {
+        vec![fp2[64 + 16..].to_vec(), fp2[16..64].to_vec()].concat()
     }
 
-    fn fix_eip2537_mul_g1_input(input: Vec<u8>) -> Vec<u8> {
-        vec![
-            fix_eip2537_g1(input[..128].to_vec()),
-            input[128..].to_vec().into_iter().rev().collect(),
-        ]
-        .concat()
+    macro_rules! fix_eip2537_input {
+        ($namespace_name:ident, $fix_eip2537_fp:ident) => {
+            mod $namespace_name {
+                use crate::logic::tests::bls12381::tests::$fix_eip2537_fp;
+
+                pub fn fix_eip2537_g(g: Vec<u8>) -> Vec<u8> {
+                    let mut res = vec![
+                        $fix_eip2537_fp(g[..g.len() / 2].to_vec()),
+                        $fix_eip2537_fp(g[g.len() / 2..].to_vec()),
+                    ]
+                    .concat();
+
+                    if g == vec![0; g.len()] {
+                        res[0] |= 0x40;
+                    }
+
+                    return res;
+                }
+
+                pub fn fix_eip2537_sum_input(input: Vec<u8>) -> Vec<u8> {
+                    vec![
+                        vec![0u8],
+                        fix_eip2537_g(input[..input.len() / 2].to_vec()),
+                        vec![0u8],
+                        fix_eip2537_g(input[input.len() / 2..].to_vec()),
+                    ]
+                    .concat()
+                }
+
+                pub fn fix_eip2537_mul_input(input: Vec<u8>) -> Vec<u8> {
+                    vec![
+                        fix_eip2537_g(input[..(input.len() - 32)].to_vec()),
+                        input[(input.len() - 32)..].to_vec().into_iter().rev().collect(),
+                    ]
+                    .concat()
+                }
+
+                pub fn cmp_output_g(output: &str, res: Vec<u8>) {
+                    let bytes_output = fix_eip2537_g(hex::decode(output).unwrap());
+                    assert_eq!(res, bytes_output);
+                }
+            }
+        };
     }
 
-    fn fix_eip2537_mul_g2_input(input: Vec<u8>) -> Vec<u8> {
-        vec![
-            fix_eip2537_g2(input[..256].to_vec()),
-            input[256..].to_vec().into_iter().rev().collect(),
-        ]
-        .concat()
-    }
+    fix_eip2537_input!(fix_eip2537_g1_namespace, fix_eip2537_fp);
+    use fix_eip2537_g1_namespace::cmp_output_g as cmp_output_g1;
+    use fix_eip2537_g1_namespace::fix_eip2537_g as fix_eip2537_g1;
+    use fix_eip2537_g1_namespace::fix_eip2537_mul_input as fix_eip2537_mul_g1_input;
+    use fix_eip2537_g1_namespace::fix_eip2537_sum_input as fix_eip2537_sum_g1_input;
+
+    fix_eip2537_input!(fix_eip2537_g2_namespace, fix_eip2537_fp2);
+    use fix_eip2537_g2_namespace::cmp_output_g as cmp_output_g2;
+    use fix_eip2537_g2_namespace::fix_eip2537_g as fix_eip2537_g2;
+    use fix_eip2537_g2_namespace::fix_eip2537_mul_input as fix_eip2537_mul_g2_input;
+    use fix_eip2537_g2_namespace::fix_eip2537_sum_input as fix_eip2537_sum_g2_input;
 
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
         logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
@@ -1863,21 +1864,7 @@ mod tests {
         }
     }
 
-    fn cmp_output_g1(output: &str, res: Vec<u8>) {
-        let bytes_output = fix_eip2537_g1(hex::decode(output).unwrap());
-        assert_eq!(res, bytes_output);
-    }
-
-    fn cmp_output_g2(output: &str, res: Vec<u8>) {
-        let bytes_output = fix_eip2537_g2(hex::decode(output).unwrap());
-        assert_eq!(res, bytes_output);
-    }
-
-    fn is_one(_output: &str, res: u64) {
-        assert_eq!(res, 1);
-    }
-
-    fn error_fp_map_check(output: &str, res: u64) {
+    fn error_check(output: &str, res: u64) {
         if !output.contains("padded BE encoding are NOT zeroes") {
             assert_eq!(res, 1)
         }
@@ -2005,7 +1992,7 @@ mod tests {
         160,
         fix_eip2537_mul_g1_input,
         multiexp_g1_return_value,
-        is_one
+        error_check
     );
 
     eip2537_tests!(
@@ -2014,7 +2001,7 @@ mod tests {
         288,
         fix_eip2537_mul_g2_input,
         multiexp_g2_return_value,
-        is_one
+        error_check
     );
 
     eip2537_tests!(
@@ -2023,7 +2010,7 @@ mod tests {
         64,
         fix_eip2537_fp,
         map_fp_to_g1_return_value,
-        error_fp_map_check
+        error_check
     );
 
     eip2537_tests!(
@@ -2032,6 +2019,6 @@ mod tests {
         128,
         fix_eip2537_fp2,
         map_fp2tog2_return_value,
-        error_fp_map_check
+        error_check
     );
 }
