@@ -138,6 +138,15 @@ impl ReceiptEnum {
             _ => false,
         }
     }
+
+    pub fn action(&self) -> Option<&ActionReceipt> {
+        match self {
+            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                Some(action_receipt)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`

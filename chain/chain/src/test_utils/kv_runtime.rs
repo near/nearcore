@@ -1118,9 +1118,7 @@ impl RuntimeAdapter for KeyValueRuntime {
         let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
-                &receipt.receipt
-            {
+            if let Some(action) = &receipt.receipt.action() {
                 assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
@@ -1137,7 +1135,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     panic!("receipts should never be applied twice");
                 }
             } else {
-                unreachable!();
+                unreachable!("only action receipts can be applied");
             }
         }
 
