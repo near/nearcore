@@ -76,6 +76,7 @@ protocol_feature_fix_staking_threshold = ["nearcore/protocol_feature_fix_staking
 protocol_feature_nonrefundable_transfer_nep491 = ["near-state-viewer/protocol_feature_nonrefundable_transfer_nep491"]
 serialize_all_state_changes = ["nearcore/serialize_all_state_changes"]
 new_epoch_sync = ["nearcore/new_epoch_sync", "dep:near-epoch-sync-tool"]
+yield_resume = ["nearcore/yield_resume"]
 
 nightly = [
   "near-chain-configs/nightly",
@@ -98,6 +99,7 @@ nightly = [
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
   "serialize_all_state_changes",
+  "yield_resume",
 ]
 nightly_protocol = [
   "near-chain-configs/nightly_protocol",

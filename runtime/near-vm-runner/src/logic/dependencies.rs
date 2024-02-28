@@ -4,10 +4,7 @@ use super::VMLogicError;
 use near_crypto::PublicKey;
 use near_parameters::vm::StorageGetMode;
 use near_primitives_core::hash::CryptoHash;
-use near_primitives_core::types::Gas;
-use near_primitives_core::types::GasWeight;
-use near_primitives_core::types::Nonce;
-use near_primitives_core::types::{AccountId, Balance};
+use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use std::borrow::Cow;
 
 /// Representation of the address slice of guest memory.
@@ -285,6 +282,33 @@ pub trait External {
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError>;
+
+    /// Create a receipt with a new input data dependency.
+    ///
+    /// Returns the ReceiptIndex of the newly created receipt and the id of its data dependency.
+    ///
+    /// # Arguments
+    ///
+    /// * `receiver_id` - account id of the receiver of the receipt created
+    fn yield_create_action_receipt(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
+
+    /// Creates a DataReceipt under the specified `data_id`.
+    ///
+    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or if the
+    /// corresponding ActionReceipt was already resolved, this function will fail with an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - `data_id` with which the DataReceipt should be created
+    /// * `data` - contents of the DataReceipt
+    fn yield_submit_data_receipt(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<(), VMLogicError>;
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///

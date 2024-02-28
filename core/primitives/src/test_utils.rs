@@ -402,7 +402,7 @@ impl TestBlockBuilder {
             signer: signer.clone(),
             height: prev.header().height() + 1,
             epoch_id: prev.header().epoch_id().clone(),
-            next_epoch_id: if prev.header().prev_hash() == &CryptoHash::default() {
+            next_epoch_id: if prev.header().is_genesis() {
                 EpochId(*prev.hash())
             } else {
                 prev.header().next_epoch_id().clone()

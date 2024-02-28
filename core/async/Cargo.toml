@@ -28,6 +28,7 @@ near-performance-metrics.workspace = true
 
 [dev-dependencies]
 derive-enum-from-into.workspace = true
+tokio-util.workspace = true
 
 [features]
 nightly = [

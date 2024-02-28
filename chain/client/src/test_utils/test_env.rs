@@ -29,7 +29,6 @@ use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
@@ -331,7 +330,6 @@ impl TestEnv {
                         let processing_result =
                             self.client(account_id).process_chunk_state_witness(
                                 state_witness.clone(),
-                                PeerId::random(),
                                 Some(processing_done_tracker),
                             );
                         if !allow_errors {

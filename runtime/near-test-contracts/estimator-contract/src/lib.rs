@@ -96,6 +96,21 @@ extern "C" {
     fn promise_and(promise_idx_ptr: u64, promise_idx_count: u64) -> u64;
     fn promise_batch_create(account_id_len: u64, account_id_ptr: u64) -> u64;
     fn promise_batch_then(promise_index: u64, account_id_len: u64, account_id_ptr: u64) -> u64;
+    fn promise_yield_create(
+        method_len: u64,
+        method_ptr: u64,
+        arg_len: u64,
+        arg_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        data_id_reg: u64,
+    ) -> u64;
+    fn promise_yield_resume(
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u64;
     // #######################
     // # Promise API actions #
     // #######################
@@ -168,6 +183,16 @@ extern "C" {
 // Function that does not do anything at all.
 #[no_mangle]
 pub fn noop() {}
+
+// Function that does not do anything at all. With a shorter name.
+#[no_mangle]
+pub fn n() {}
+
+// Function that does not do anything at all. With a 100 byte name.
+#[no_mangle]
+pub fn noooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooop(
+) {
+}
 
 // Function that we use to measure `base` cost by calling `block_height` many times.
 #[no_mangle]
@@ -984,6 +1009,49 @@ pub unsafe fn data_receipt_100kib_1000() {
         &amount as *const u128 as *const u64 as u64,
         gas / 3,
     );
+}
+
+/// Function to measure `yield_create_base` fee.
+/// Creates 1000 waiting receipts/yield promises.
+#[no_mangle]
+pub unsafe fn yield_create_base() {
+    const METHOD_NAME: &str = "n";
+    for _ in 0..1000 {
+        promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 0);
+    }
+}
+
+/// Function to measure `yield_create_byte`. Subtract the measurement for `yield_create_base` above,
+/// thus obtaining the cost of creating yield promises with a 100 byte method name.
+///
+/// Creates 1000 waiting receipts/yield promises.
+#[no_mangle]
+pub unsafe fn yield_create_byte_100b_method_length() {
+    const METHOD_NAME: &str = "noooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooop";
+    for _ in 0..1000 {
+        promise_yield_create(METHOD_NAME.len() as u64, METHOD_NAME.as_ptr() as u64, 0, 0, 0, 1, 0);
+    }
+}
+
+/// Function to measure `yield_create_byte`. Subtract the measurement for `yield_create_base` above,
+/// thus obtaining the cost of creating yield promises with a 1000 byte arguments.
+///
+/// Creates 1000 waiting receipts/yield promises.
+#[no_mangle]
+pub unsafe fn yield_create_byte_1000b_argument_length() {
+    const ARGUMENTS: [u8; 1000] = [b'a'; 1000];
+    const METHOD_NAME: &str = "n";
+    for _ in 0..1000 {
+        promise_yield_create(
+            METHOD_NAME.len() as u64,
+            METHOD_NAME.as_ptr() as u64,
+            ARGUMENTS.len() as u64,
+            ARGUMENTS.as_ptr() as u64,
+            0,
+            1,
+            0,
+        );
+    }
 }
 
 #[no_mangle]

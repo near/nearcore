@@ -1442,7 +1442,7 @@ pub struct ChainStoreUpdate<'a> {
     state_transition_data: HashMap<(CryptoHash, ShardId), StoredChunkStateTransitionData>,
     // All state changes made by a chunk, this is only used for resharding.
     add_state_changes_for_resharding: HashMap<(CryptoHash, ShardId), StateChangesForResharding>,
-    remove_state_changes_for_resharding: HashSet<(CryptoHash, ShardId)>,
+    remove_all_state_changes_for_resharding: bool,
     add_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
     // A pair (prev_hash, hash) to be removed from blocks to catchup
     remove_blocks_to_catchup: Vec<(CryptoHash, CryptoHash)>,
@@ -1469,7 +1469,7 @@ impl<'a> ChainStoreUpdate<'a> {
             trie_changes: vec![],
             state_transition_data: Default::default(),
             add_state_changes_for_resharding: HashMap::new(),
-            remove_state_changes_for_resharding: HashSet::new(),
+            remove_all_state_changes_for_resharding: false,
             add_blocks_to_catchup: vec![],
             remove_blocks_to_catchup: vec![],
             remove_prev_blocks_to_catchup: vec![],
@@ -1992,13 +1992,13 @@ impl<'a> ChainStoreUpdate<'a> {
     }
 
     fn update_and_save_block_merkle_tree(&mut self, header: &BlockHeader) -> Result<(), Error> {
-        let prev_hash = *header.prev_hash();
-        if prev_hash == CryptoHash::default() {
+        if header.is_genesis() {
             self.save_block_merkle_tree(*header.hash(), PartialMerkleTree::default());
         } else {
-            let old_merkle_tree = self.get_block_merkle_tree(&prev_hash)?;
+            let prev_hash = header.prev_hash();
+            let old_merkle_tree = self.get_block_merkle_tree(prev_hash)?;
             let mut new_merkle_tree = PartialMerkleTree::clone(&old_merkle_tree);
-            new_merkle_tree.insert(prev_hash);
+            new_merkle_tree.insert(*prev_hash);
             self.save_block_merkle_tree(*header.hash(), new_merkle_tree);
         }
         Ok(())
@@ -2108,15 +2108,8 @@ impl<'a> ChainStoreUpdate<'a> {
         assert!(prev.is_none());
     }
 
-    pub fn remove_state_changes_for_resharding(
-        &mut self,
-        block_hash: CryptoHash,
-        shard_id: ShardId,
-    ) {
-        // We should not remove state changes for the same chunk twice
-        let value_not_present =
-            self.remove_state_changes_for_resharding.insert((block_hash, shard_id));
-        assert!(value_not_present);
+    pub fn remove_all_state_changes_for_resharding(&mut self) {
+        self.remove_all_state_changes_for_resharding = true;
     }
 
     pub fn add_block_to_catchup(&mut self, prev_hash: CryptoHash, block_hash: CryptoHash) {
@@ -2560,11 +2553,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 &state_changes,
             )?;
         }
-        for (block_hash, shard_id) in self.remove_state_changes_for_resharding.drain() {
-            store_update.delete(
-                DBCol::StateChangesForSplitStates,
-                &get_block_shard_id(&block_hash, shard_id),
-            );
+
+        if self.remove_all_state_changes_for_resharding {
+            store_update.delete_all(DBCol::StateChangesForSplitStates);
         }
 
         let mut affected_catchup_blocks = HashSet::new();

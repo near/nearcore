@@ -369,6 +369,11 @@ pub mod block_info {
         }
 
         #[inline]
+        pub fn is_genesis(&self) -> bool {
+            self.prev_hash() == &CryptoHash::default()
+        }
+
+        #[inline]
         pub fn epoch_first_block(&self) -> &CryptoHash {
             match self {
                 Self::V1(v1) => &v1.epoch_first_block,
