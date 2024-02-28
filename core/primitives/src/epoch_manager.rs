@@ -1256,7 +1256,6 @@ pub mod epoch_sync {
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 
@@ -1333,10 +1332,11 @@ pub mod epoch_sync {
             let epoch_first_header = self.get_epoch_first_header()?;
             let header = self.get_header(*hash, EpochSyncHashType::Other)?;
 
-            log_assert!(
-                epoch_first_header.epoch_id() == header.epoch_id(),
-                "We can only correctly reconstruct headers from this epoch"
-            );
+            if epoch_first_header.epoch_id() != header.epoch_id() {
+                let msg = "We can only correctly reconstruct headers from this epoch";
+                debug_assert!(false, "{}", msg);
+                tracing::error!(message = msg);
+            }
 
             let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
                 0

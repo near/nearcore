@@ -4182,7 +4182,6 @@ dependencies = [
  "itertools",
  "near-crypto",
  "near-fmt",
- "near-o11y",
  "near-parameters",
  "near-primitives-core",
  "near-rpc-error-macro",
@@ -4202,7 +4201,6 @@ dependencies = [
  "smart-default",
  "strum",
  "thiserror",
- "time",
  "tracing",
 ]
 
