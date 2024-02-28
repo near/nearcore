@@ -154,31 +154,6 @@ fn get_serialized_header(
     Ok(buffer)
 }
 
-/// Check if the state sync header exists in the external storage.
-async fn is_state_sync_header_stored_for_epoch(
-    shard_id: ShardId,
-    chain_id: &String,
-    epoch_id: &EpochId,
-    epoch_height: u64,
-    external: &ExternalConnection,
-) -> Result<bool, anyhow::Error> {
-    let file_type = StateFileType::StateHeader;
-    let directory_path =
-        external_storage_location_directory(chain_id, epoch_id, epoch_height, shard_id, &file_type);
-    let file_names = external.list_objects(shard_id, &directory_path).await?;
-    let header_exits = !file_names.is_empty() && file_names.contains(&file_type.filename());
-    tracing::debug!(
-        target: "state_sync_dump",
-        ?directory_path,
-        "{}",
-        match header_exits {
-            true => "Header has already been dumped.",
-            false => "Header has not been dumped.",
-        }
-    );
-    Ok(header_exits)
-}
-
 pub fn extract_part_id_from_part_file_name(file_name: &String) -> u64 {
     assert!(is_part_filename(file_name));
     return get_part_id_from_filename(file_name).unwrap();
@@ -343,35 +318,34 @@ async fn state_sync_dump(
                     }
                     Ok((state_root, num_parts, sync_prev_prev_hash)) => {
                         // Upload header
-                        let header_in_external_storage =
-                            match is_state_sync_header_stored_for_epoch(
+                        let header_in_external_storage = match external
+                            .is_state_sync_header_stored_for_epoch(
                                 shard_id,
                                 &chain_id,
                                 &epoch_id,
                                 epoch_height,
-                                &external,
                             )
                             .await
-                            {
-                                Err(err) => {
-                                    tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
-                                    false
-                                }
-                                // Header is already stored
-                                Ok(true) => true,
-                                // Header is missing
-                                Ok(false) => {
-                                    upload_state_header(
-                                        &chain_id,
-                                        &epoch_id,
-                                        epoch_height,
-                                        shard_id,
-                                        get_serialized_header(shard_id, sync_hash, &chain),
-                                        &external,
-                                    )
-                                    .await
-                                }
-                            };
+                        {
+                            Err(err) => {
+                                tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to determine header presence in external storage.");
+                                false
+                            }
+                            // Header is already stored
+                            Ok(true) => true,
+                            // Header is missing
+                            Ok(false) => {
+                                upload_state_header(
+                                    &chain_id,
+                                    &epoch_id,
+                                    epoch_height,
+                                    shard_id,
+                                    get_serialized_header(shard_id, sync_hash, &chain),
+                                    &external,
+                                )
+                                .await
+                            }
+                        };
 
                         let header_upload_status = if header_in_external_storage {
                             None

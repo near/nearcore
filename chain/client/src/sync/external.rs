@@ -236,6 +236,36 @@ impl ExternalConnection {
             }
         }
     }
+
+    /// Check if the state sync header exists in the external storage.
+    pub async fn is_state_sync_header_stored_for_epoch(
+        &self,
+        shard_id: ShardId,
+        chain_id: &String,
+        epoch_id: &EpochId,
+        epoch_height: u64,
+    ) -> Result<bool, anyhow::Error> {
+        let file_type = StateFileType::StateHeader;
+        let directory_path = external_storage_location_directory(
+            chain_id,
+            epoch_id,
+            epoch_height,
+            shard_id,
+            &file_type,
+        );
+        let file_names = self.list_objects(shard_id, &directory_path).await?;
+        let header_exits = file_names.contains(&file_type.filename());
+        tracing::debug!(
+            target: "state_sync_dump",
+            ?directory_path,
+            "{}",
+            match header_exits {
+                true => "Header has already been dumped.",
+                false => "Header has not been dumped.",
+            }
+        );
+        Ok(header_exits)
+    }
 }
 
 /// Construct the state file location on the external storage.
