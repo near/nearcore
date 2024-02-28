@@ -1805,7 +1805,7 @@ mod tests {
         };
     }
 
-    fn transform_pairing_input(input: Vec<u8>) -> Vec<u8> {
+    fn fix_eip2537_pairing_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             fix_eip2537_g1(input[..128].to_vec()).to_vec(),
             fix_eip2537_g2(input[128..].to_vec()).to_vec(),
@@ -1813,36 +1813,40 @@ mod tests {
         .concat()
     }
 
-    fn transform_sum_g1_input(input: Vec<u8>) -> Vec<u8> {
+    fn fix_eip2537_sum_g1_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             vec![0u8],
             fix_eip2537_g1(input[..128].to_vec()),
             vec![0u8],
             fix_eip2537_g1(input[128..].to_vec()),
-        ].concat()
+        ]
+        .concat()
     }
 
-    fn transform_sum_g2_input(input: Vec<u8>) -> Vec<u8> {
+    fn fix_eip2537_sum_g2_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             vec![0u8],
             fix_eip2537_g2(input[..256].to_vec()),
             vec![0u8],
             fix_eip2537_g2(input[256..].to_vec()),
-        ].concat()
+        ]
+        .concat()
     }
 
-    fn transform_mul_g1_input(input: Vec<u8>) -> Vec<u8> {
+    fn fix_eip2537_mul_g1_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             fix_eip2537_g1(input[..128].to_vec()),
             input[128..].to_vec().into_iter().rev().collect(),
-        ].concat()
+        ]
+        .concat()
     }
 
-    fn transform_mul_g2_input(input: Vec<u8>) -> Vec<u8> {
+    fn fix_eip2537_mul_g2_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             fix_eip2537_g2(input[..256].to_vec()),
             input[256..].to_vec().into_iter().rev().collect(),
-        ].concat()
+        ]
+        .concat()
     }
 
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
@@ -1869,52 +1873,6 @@ mod tests {
         assert_eq!(res, bytes_output);
     }
 
-    fn run_map_fp_to_g1_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_map_fp2_to_g2_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_sum_g1_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_p1_sum(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_sum_g2_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_p2_sum(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_multiexp_g1_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_multiexp_g2_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
-        let _ = logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap();
-        logic.registers().get_for_free(0).unwrap().to_vec()
-    }
-
-    fn run_multiexp_g1_get_return_value_only(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
-        logic.bls12381_p1_multiexp(input.len, input.ptr, 0).unwrap()
-    }
-
-    fn run_multiexp_g2_get_return_value_only(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
-        logic.bls12381_p2_multiexp(input.len, input.ptr, 0).unwrap()
-    }
-
-    fn run_map_fp_to_g1_get_return_value_only(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
-        logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap()
-    }
-
-    fn run_map_fp2_to_g2_get_return_value_only(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
-        logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap()
-    }
-
     fn is_one(_output: &str, res: u64) {
         assert_eq!(res, 1);
     }
@@ -1925,11 +1883,37 @@ mod tests {
         }
     }
 
+    macro_rules! run_bls12381_function_raw {
+        (
+            $fn_name_raw:ident,
+            $fn_name_return_value_only:ident,
+            $bls_fn_name:ident
+        ) => {
+            fn $fn_name_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
+                let res = logic.$bls_fn_name(input.len, input.ptr, 0).unwrap();
+                assert_eq!(res, 0);
+                logic.registers().get_for_free(0).unwrap().to_vec()
+            }
+
+            #[allow(unused)]
+            fn $fn_name_return_value_only(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
+                logic.$bls_fn_name(input.len, input.ptr, 0).unwrap()
+            }
+        };
+    }
+
+    run_bls12381_function_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
+    run_bls12381_function_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
+    run_bls12381_function_raw!(run_sum_g1, sum_g1_get_return_value, bls12381_p1_sum);
+    run_bls12381_function_raw!(run_sum_g2, sum_g2_get_return_value, bls12381_p2_sum);
+    run_bls12381_function_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
+    run_bls12381_function_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
+
     eip2537_tests!(
         "src/logic/tests/bls12381_test_vectors/pairing.csv",
         test_bls12381_pairing_test_vectors,
         384,
-        transform_pairing_input,
+        fix_eip2537_pairing_input,
         run_pairing_check_raw,
         check_pairing_res
     );
@@ -1939,7 +1923,7 @@ mod tests {
         test_bls12381_fp_to_g1_test_vectors,
         64,
         fix_eip2537_fp,
-        run_map_fp_to_g1_raw,
+        run_map_fp_to_g1,
         cmp_output_g1
     );
 
@@ -1948,7 +1932,7 @@ mod tests {
         test_bls12381_fp2_to_g2_test_vectors,
         128,
         fix_eip2537_fp2,
-        run_map_fp2_to_g2_raw,
+        run_map_fp2_to_g2,
         cmp_output_g2
     );
 
@@ -1956,8 +1940,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g1_add.csv",
         test_bls12381_g1_add_test_vectors,
         256,
-        transform_sum_g1_input,
-        run_sum_g1_raw,
+        fix_eip2537_sum_g1_input,
+        run_sum_g1,
         cmp_output_g1
     );
 
@@ -1965,8 +1949,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g2_add.csv",
         test_bls12381_g2_add_test_vectors,
         512,
-        transform_sum_g2_input,
-        run_sum_g2_raw,
+        fix_eip2537_sum_g2_input,
+        run_sum_g2,
         cmp_output_g2
     );
 
@@ -1974,8 +1958,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g1_mul.csv",
         test_bls12381_g1_mul_test_vectors,
         160,
-        transform_mul_g1_input,
-        run_multiexp_g1_raw,
+        fix_eip2537_mul_g1_input,
+        run_multiexp_g1,
         cmp_output_g1
     );
 
@@ -1983,8 +1967,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g2_mul.csv",
         test_bls12381_g2_mul_test_vectors,
         288,
-        transform_mul_g2_input,
-        run_multiexp_g2_raw,
+        fix_eip2537_mul_g2_input,
+        run_multiexp_g2,
         cmp_output_g2
     );
 
@@ -1992,8 +1976,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g1_multiexp.csv",
         test_bls12381_g1_multiexp_test_vectors,
         160,
-        transform_mul_g1_input,
-        run_multiexp_g1_raw,
+        fix_eip2537_mul_g1_input,
+        run_multiexp_g1,
         cmp_output_g1
     );
 
@@ -2001,8 +1985,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/g2_multiexp.csv",
         test_bls12381_g2_multiexp_test_vectors,
         288,
-        transform_mul_g2_input,
-        run_multiexp_g2_raw,
+        fix_eip2537_mul_g2_input,
+        run_multiexp_g2,
         cmp_output_g2
     );
 
@@ -2010,7 +1994,7 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/pairing_error.csv",
         test_bls12381_pairing_error_test_vectors,
         384,
-        transform_pairing_input,
+        fix_eip2537_pairing_input,
         run_pairing_check_raw,
         check_pairing_res
     );
@@ -2019,8 +2003,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/multiexp_g1_error.csv",
         test_bls12381_g1_multiexp_error_test_vectors,
         160,
-        transform_mul_g1_input,
-        run_multiexp_g1_get_return_value_only,
+        fix_eip2537_mul_g1_input,
+        multiexp_g1_return_value,
         is_one
     );
 
@@ -2028,8 +2012,8 @@ mod tests {
         "src/logic/tests/bls12381_test_vectors/multiexp_g2_error.csv",
         test_bls12381_g2_multiexp_error_test_vectors,
         288,
-        transform_mul_g2_input,
-        run_multiexp_g2_get_return_value_only,
+        fix_eip2537_mul_g2_input,
+        multiexp_g2_return_value,
         is_one
     );
 
@@ -2038,7 +2022,7 @@ mod tests {
         test_bls12381_fp_to_g1_error_test_vectors,
         64,
         fix_eip2537_fp,
-        run_map_fp_to_g1_get_return_value_only,
+        map_fp_to_g1_return_value,
         error_fp_map_check
     );
 
@@ -2047,7 +2031,7 @@ mod tests {
         test_bls12381_fp2_to_g2_error_test_vectors,
         128,
         fix_eip2537_fp2,
-        run_map_fp2_to_g2_get_return_value_only,
+        map_fp2tog2_return_value,
         error_fp_map_check
     );
 }
