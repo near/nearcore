@@ -877,10 +877,11 @@ mod tests {
             $namespace_name:ident,
             $INPUT_SIZE:expr,
             $MAX_N:expr,
-            $func_name:ident
+            $run_bls_fn:ident
         ) => {
             mod $namespace_name {
                 use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
+                use crate::logic::tests::bls12381::tests::$run_bls_fn;
 
                 // Input is beyond memory bounds.
                 #[test]
@@ -892,7 +893,7 @@ mod tests {
                     let buffer = vec![0u8; $INPUT_SIZE * $MAX_N];
 
                     let input = logic.internal_mem_write(buffer.as_slice());
-                    logic.$func_name(input.len, input.ptr, 0).unwrap();
+                    $run_bls_fn(input, &mut logic);
                 }
 
                 #[test]
@@ -904,20 +905,21 @@ mod tests {
                     let buffer = vec![0u8; $INPUT_SIZE - 1];
 
                     let input = logic.internal_mem_write(buffer.as_slice());
-                    logic.$func_name(input.len, input.ptr, 0).unwrap();
+                    $run_bls_fn(input, &mut logic);
                 }
             }
         };
     }
 
-    test_bls12381_memory_limit!(memory_limit_p1_sum, 97, 676, bls12381_p1_sum);
-    test_bls12381_memory_limit!(memory_limit_p2_sum, 193, 340, bls12381_p2_sum);
-    test_bls12381_memory_limit!(memory_limit_p1_multiexp, 128, 600, bls12381_p1_multiexp);
-    test_bls12381_memory_limit!(memory_limit_p2_multiexp, 224, 300, bls12381_p2_multiexp);
-    test_bls12381_memory_limit!(memory_limit_map_fp_to_g1, 48, 1500, bls12381_map_fp_to_g1);
-    test_bls12381_memory_limit!(memory_limit_map_fp2_to_g2, 96, 700, bls12381_map_fp2_to_g2);
-    test_bls12381_memory_limit!(memory_limit_p1_decompress, 48, 1500, bls12381_p1_decompress);
-    test_bls12381_memory_limit!(memory_limit_p2_decompress, 96, 700, bls12381_p2_decompress);
+    test_bls12381_memory_limit!(memory_limit_p1_sum, 97, 676, sum_g1_return_value);
+    test_bls12381_memory_limit!(memory_limit_p2_sum, 193, 340, sum_g2_return_value);
+    test_bls12381_memory_limit!(memory_limit_p1_multiexp, 128, 600, multiexp_g1_return_value);
+    test_bls12381_memory_limit!(memory_limit_p2_multiexp, 224, 300, multiexp_g2_return_value);
+    test_bls12381_memory_limit!(memory_limit_map_fp_to_g1, 48, 1500, map_fp_to_g1_return_value);
+    test_bls12381_memory_limit!(memory_limit_map_fp2_to_g2, 96, 700, map_fp2tog2_return_value);
+    test_bls12381_memory_limit!(memory_limit_p1_decompress, 48, 1500, decompress_g1_return_value);
+    test_bls12381_memory_limit!(memory_limit_p2_decompress, 96, 700, decompress_g2_return_value);
+    test_bls12381_memory_limit!(memory_limit_pairing_check, 288, 500, run_pairing_check_raw);
 
     macro_rules! test_bls12381_multiexp {
         (
@@ -1122,18 +1124,6 @@ mod tests {
         test_bls12381_p2_multiexp_incorrect_input,
         test_bls12381_p2_multiexp_invariants_checks
     );
-
-    #[test]
-    #[should_panic]
-    fn test_bls12381_pairing_check_too_big_input() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let buffer = vec![0u8; 288 * 500];
-
-        let input = logic.internal_mem_write(buffer.as_slice());
-        logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
-    }
 
     #[test]
     fn test_bls12381_error_g1_encoding() {
@@ -1704,16 +1694,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_bls12381_pairing_check_incorrect_input_length() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let input = logic.internal_mem_write(vec![0u8; 289].as_slice());
-        logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
-    }
-
-    #[test]
     fn test_bls12381_empty_input() {
         let mut zero1: [u8; 96] = [0; 96];
         zero1[0] |= 0x40;
@@ -1850,10 +1830,6 @@ mod tests {
     use fix_eip2537_g2_namespace::fix_eip2537_mul_input as fix_eip2537_mul_g2_input;
     use fix_eip2537_g2_namespace::fix_eip2537_sum_input as fix_eip2537_sum_g2_input;
 
-    fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
-        logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
-    }
-
     fn check_pairing_res(output: &str, res: u64) {
         if output == "0000000000000000000000000000000000000000000000000000000000000000" {
             assert_eq!(res, 2);
@@ -1876,6 +1852,7 @@ mod tests {
             $fn_name_return_value_only:ident,
             $bls_fn_name:ident
         ) => {
+            #[allow(unused)]
             fn $fn_name_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
                 let res = logic.$bls_fn_name(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 0);
@@ -1891,10 +1868,15 @@ mod tests {
 
     run_bls12381_function_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
     run_bls12381_function_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
-    run_bls12381_function_raw!(run_sum_g1, sum_g1_get_return_value, bls12381_p1_sum);
-    run_bls12381_function_raw!(run_sum_g2, sum_g2_get_return_value, bls12381_p2_sum);
+    run_bls12381_function_raw!(run_sum_g1, sum_g1_return_value, bls12381_p1_sum);
+    run_bls12381_function_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
     run_bls12381_function_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
     run_bls12381_function_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
+    run_bls12381_function_raw!(run_decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
+    run_bls12381_function_raw!(run_decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
+    fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
+        logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
+    }
 
     eip2537_tests!(
         "src/logic/tests/bls12381_test_vectors/pairing.csv",
