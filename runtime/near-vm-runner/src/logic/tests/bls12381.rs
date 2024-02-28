@@ -1653,31 +1653,27 @@ mod tests {
         assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
     }
 
-    #[test]
-    fn test_bls12381_empty_input() {
+    fn get_zero_p1() -> [u8; 96] {
         let mut zero1: [u8; 96] = [0; 96];
         zero1[0] |= 0x40;
-        let empty_multiexp1 = get_g1_multiexp_many_points(&vec![]);
-        assert_eq!(zero1, empty_multiexp1.as_slice());
+        zero1
+    }
 
+    fn get_zero_p2() -> [u8; 192] {
         let mut zero2: [u8; 192] = [0; 192];
         zero2[0] |= 0x40;
-        let empty_multiexp2 = get_g2_multiexp_many_points(&vec![]);
-        assert_eq!(zero2, empty_multiexp2.as_slice());
+        zero2
+    }
 
-        let map_fp_res = map_fp_to_g1(vec![]);
-        assert_eq!(map_fp_res.len(), 0);
-
-        let map_fp2_res = map_fp2_to_g2(vec![]);
-        assert_eq!(map_fp2_res.len(), 0);
-
+    #[test]
+    fn test_bls12381_empty_input() {
+        assert_eq!(get_zero_p1(), get_g1_multiexp_many_points(&vec![]).as_slice());
+        assert_eq!(get_zero_p2(), get_g2_multiexp_many_points(&vec![]).as_slice());
+        assert_eq!(map_fp_to_g1(vec![]).len(), 0);
+        assert_eq!(map_fp2_to_g2(vec![]).len(), 0);
         assert_eq!(pairing_check(vec![], vec![]), 0);
-
-        let decompress_p1_res = G1Operations::decompress_p(vec![]);
-        assert_eq!(decompress_p1_res.len(), 0);
-
-        let decompress_p2_res = G2Operations::decompress_p(vec![]);
-        assert_eq!(decompress_p2_res.len(), 0);
+        assert_eq!(G1Operations::decompress_p(vec![]).len(), 0);
+        assert_eq!(G2Operations::decompress_p(vec![]).len(), 0);
     }
 
     // EIP-2537 tests
@@ -1807,11 +1803,7 @@ mod tests {
     }
 
     macro_rules! run_bls12381_function_raw {
-        (
-            $fn_name_raw:ident,
-            $fn_name_return_value_only:ident,
-            $bls_fn_name:ident
-        ) => {
+        ($fn_name_raw:ident, $fn_name_return_value_only:ident, $bls_fn_name:ident) => {
             #[allow(unused)]
             fn $fn_name_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
                 let res = logic.$bls_fn_name(input.len, input.ptr, 0).unwrap();
@@ -1832,16 +1824,8 @@ mod tests {
     run_bls12381_function_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
     run_bls12381_function_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
     run_bls12381_function_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
-    run_bls12381_function_raw!(
-        run_decompress_g1,
-        decompress_g1_return_value,
-        bls12381_p1_decompress
-    );
-    run_bls12381_function_raw!(
-        run_decompress_g2,
-        decompress_g2_return_value,
-        bls12381_p2_decompress
-    );
+    run_bls12381_function_raw!(decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
+    run_bls12381_function_raw!(decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
         logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
     }
