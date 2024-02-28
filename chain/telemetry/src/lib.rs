@@ -1,9 +1,9 @@
 mod metrics;
 
-use actix::{Actor, Addr, Context, Handler};
+use actix::{Actor, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
-use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::static_clock::StaticClock;
 use std::ops::Sub;
@@ -35,6 +35,12 @@ impl Default for TelemetryConfig {
 #[rtype(result = "()")]
 pub struct TelemetryEvent {
     content: serde_json::Value,
+}
+
+impl TelemetryEvent {
+    pub fn new(content: serde_json::Value) -> Self {
+        Self { content }
+    }
 }
 
 pub struct TelemetryActor {
@@ -116,9 +122,4 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
         }
         self.last_telemetry_update = now;
     }
-}
-
-/// Send telemetry event to all the endpoints.
-pub fn telemetry(telemetry: &Addr<TelemetryActor>, content: serde_json::Value) {
-    telemetry.do_send(TelemetryEvent { content }.with_span_context());
 }

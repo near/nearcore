@@ -49,7 +49,7 @@ impl ExampleComponent {
     }
 
     fn schedule_periodic_request(&mut self, ctx: &mut dyn DelayedActionRunner<Self>) {
-        ctx.run_later(std::time::Duration::from_secs(1), |component, ctx| {
+        ctx.run_later("periodic_request", std::time::Duration::from_secs(1), |component, ctx| {
             component
                 .periodic_request_sender
                 .send(PeriodicRequest { id: component.next_periodic_request_id });

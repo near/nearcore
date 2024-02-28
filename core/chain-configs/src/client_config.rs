@@ -499,7 +499,7 @@ impl ClientConfig {
             num_block_producer_seats,
             ttl_account_id_router: Duration::from_secs(60 * 60),
             block_fetch_horizon: 50,
-            catchup_step_period: Duration::from_millis(1),
+            catchup_step_period: Duration::from_millis(100),
             chunk_request_retry_period: min(
                 Duration::from_millis(100),
                 Duration::from_millis(min_block_prod_time / 5),

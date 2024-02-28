@@ -209,6 +209,11 @@ pub fn capture_events<Event>() -> LoopEventHandler<Vec<Event>, Event> {
     LoopEventHandler::new_simple(|event, data: &mut Vec<Event>| data.push(event))
 }
 
+/// An event handler that ignores all events.
+pub fn ignore_events<Event>() -> LoopEventHandler<(), Event> {
+    LoopEventHandler::new_simple(|_, _| {})
+}
+
 /// Periodically sends to the event loop the given event by the given interval.
 /// Each time this event is handled, the given function is called.
 /// The first invocation is triggered after the interval, not immediately.

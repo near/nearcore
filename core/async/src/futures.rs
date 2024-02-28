@@ -49,6 +49,19 @@ impl FutureSpawner for ActixFutureSpawner {
     }
 }
 
+pub struct ActixArbiterHandleFutureSpawner(pub actix::ArbiterHandle);
+
+impl FutureSpawner for ActixArbiterHandleFutureSpawner {
+    fn spawn_boxed(&self, description: &'static str, f: BoxFuture<'static, ()>) {
+        if !self.0.spawn(f) {
+            near_o11y::tracing::error!(
+                "Failed to spawn future: {}, arbiter has exited",
+                description
+            );
+        }
+    }
+}
+
 /// Abstraction for something that can schedule something to run after.
 /// This isn't the same as just delaying a closure. Rather, it has the
 /// additional power of providing the closure a mutable reference to some
@@ -58,6 +71,7 @@ impl FutureSpawner for ActixFutureSpawner {
 pub trait DelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
+        name: &str,
         dur: std::time::Duration,
         f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     );
@@ -66,6 +80,7 @@ pub trait DelayedActionRunner<T> {
 pub trait DelayedActionRunnerExt<T> {
     fn run_later(
         &mut self,
+        name: &str,
         dur: std::time::Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     );
@@ -77,20 +92,22 @@ where
 {
     fn run_later(
         &mut self,
+        name: &str,
         dur: std::time::Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
-        self.run_later_boxed(dur, Box::new(f));
+        self.run_later_boxed(name, dur, Box::new(f));
     }
 }
 
 impl<T> DelayedActionRunnerExt<T> for dyn DelayedActionRunner<T> + '_ {
     fn run_later(
         &mut self,
+        name: &str,
         dur: std::time::Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
-        self.run_later_boxed(dur, Box::new(f));
+        self.run_later_boxed(name, dur, Box::new(f));
     }
 }
 
@@ -105,6 +122,7 @@ where
 {
     fn run_later_boxed(
         &mut self,
+        _name: &str,
         dur: std::time::Duration,
         f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {

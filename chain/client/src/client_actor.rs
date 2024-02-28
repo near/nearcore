@@ -9,10 +9,9 @@ use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
 use chrono::{DateTime, Utc};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoMultiSender, Sender};
+use near_async::futures::ActixArbiterHandleFutureSpawner;
+use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::time::Clock;
-use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest};
-use near_chain::resharding::ReshardingRequest;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -34,7 +33,8 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
+use crate::sync_jobs_actions::SyncJobsActions;
+use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -76,7 +76,12 @@ impl ClientActor {
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { client_addr: self_addr_clone }
+                SyncJobsActor {
+                    actions: SyncJobsActions::new(
+                        self_addr_clone.with_auto_span_context().into_multi_sender(),
+                        ctx.address().with_auto_span_context().into_multi_sender(),
+                    ),
+                }
             },
         );
         let actions = ClientActions::new(
@@ -87,14 +92,12 @@ impl ClientActor {
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor,
+            telemetry_actor.with_auto_span_context().into_sender(),
             shutdown_signal,
             adv,
             config_updater,
-            create_sync_job_scheduler::<ApplyStatePartsRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<BlockCatchUpRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<ReshardingRequest>(sync_jobs_actor_addr),
-            state_parts_arbiter,
+            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
         )?;
         Ok(Self { actions })
     }
