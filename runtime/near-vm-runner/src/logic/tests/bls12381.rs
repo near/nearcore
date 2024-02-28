@@ -29,6 +29,8 @@ mod tests {
     struct G2Operations;
 
     impl G1Operations {
+        const POINT_LEN: usize = 96;
+
         fn get_random_g_point(rnd: &mut RAND) -> ECP {
             let r: Big = Big::random(rnd);
             let g: ECP = ECP::generator();
@@ -109,6 +111,8 @@ mod tests {
     }
 
     impl G2Operations {
+        const POINT_LEN: usize = 192;
+
         fn get_random_g_point(rnd: &mut RAND) -> ECP2 {
             let r: Big = Big::random(rnd);
             let g: ECP2 = ECP2::generator();
@@ -514,7 +518,6 @@ mod tests {
     macro_rules! test_bls12381_sum {
         (
             $GOperations:ident,
-            $POINT_LEN:expr,
             $serialize_uncompressed:ident,
             $deserialize:ident,
             $subgroup_check:ident,
@@ -536,7 +539,7 @@ mod tests {
             #[test]
             fn $test_bls12381_sum_edge_cases() {
                 // 0 + 0
-                let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                let mut zero: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
                 zero[0] = 64;
                 let got = $GOperations::get_sum(0, &zero, 0, &zero);
                 assert_eq!(zero.to_vec(), got);
@@ -663,7 +666,7 @@ mod tests {
             fn $test_bls12381_sum_inverse() {
                 let mut rnd = get_rnd();
 
-                let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                let mut zero: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
                 zero[0] = 64;
 
                 for _ in 0..10 {
@@ -730,7 +733,7 @@ mod tests {
             fn $test_bls12381_sum_many_points() {
                 let mut rnd = get_rnd();
 
-                let mut zero: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                let mut zero: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
                 zero[0] = 64;
 
                 //empty input
@@ -787,7 +790,7 @@ mod tests {
                 let mut logic = logic_builder.build();
 
                 // Incorrect sign encoding
-                let mut buffer = vec![0u8; $POINT_LEN + 1];
+                let mut buffer = vec![0u8; $GOperations::POINT_LEN + 1];
                 buffer[0] = 2;
 
                 let input = logic.internal_mem_write(buffer.as_slice());
@@ -795,16 +798,16 @@ mod tests {
                 assert_eq!(res, 1);
 
                 // Incorrect encoding of the point at infinity
-                let mut zero = vec![0u8; $POINT_LEN];
+                let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 64;
-                zero[$POINT_LEN - 1] = 1;
+                zero[$GOperations::POINT_LEN - 1] = 1;
 
                 let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
                 let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
                 assert_eq!(res, 1);
 
                 // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
-                let mut zero = vec![0u8; $POINT_LEN];
+                let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 192;
 
                 let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
@@ -845,7 +848,6 @@ mod tests {
 
     test_bls12381_sum!(
         G1Operations,
-        96,
         serialize_uncompressed_g1,
         deserialize_g1,
         subgroup_check_g1,
@@ -866,7 +868,6 @@ mod tests {
     );
     test_bls12381_sum!(
         G2Operations,
-        192,
         serialize_uncompressed_g2,
         deserialize_g2,
         subgroup_check_g2,
@@ -938,7 +939,6 @@ mod tests {
     macro_rules! test_bls12381_multiexp {
         (
             $GOperations:ident,
-            $POINT_LEN:expr,
             $serialize_uncompressed:ident,
             $MAX_N:expr,
             $point_type:ident,
@@ -1018,9 +1018,9 @@ mod tests {
                 let zero_scalar = vec![0u8; 32];
 
                 // Incorrect encoding of the point at infinity
-                let mut zero = vec![0u8; $POINT_LEN];
+                let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 64;
-                zero[$POINT_LEN - 1] = 1;
+                zero[$GOperations::POINT_LEN - 1] = 1;
 
                 let input =
                     logic.internal_mem_write(vec![zero, zero_scalar.clone()].concat().as_slice());
@@ -1028,7 +1028,7 @@ mod tests {
                 assert_eq!(res, 1);
 
                 // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
-                let mut zero = vec![0u8; $POINT_LEN];
+                let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 192;
 
                 let input =
@@ -1049,7 +1049,7 @@ mod tests {
                 // Point not on the curve
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[$POINT_LEN - 1] ^= 0x01;
+                p_ser[$GOperations::POINT_LEN- 1] ^= 0x01;
 
                 let input = logic.internal_mem_write(
                     vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice(),
@@ -1071,7 +1071,7 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_invariants_checks() {
-                let mut zero1: [u8; $POINT_LEN] = [0; $POINT_LEN];
+                let mut zero1: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
                 zero1[0] |= 0x40;
 
                 let mut rnd = get_rnd();
@@ -1137,7 +1137,6 @@ mod tests {
 
     test_bls12381_multiexp!(
         G1Operations,
-        96,
         serialize_uncompressed_g1,
         500,
         ECP,
@@ -1155,7 +1154,6 @@ mod tests {
     );
     test_bls12381_multiexp!(
         G2Operations,
-        192,
         serialize_uncompressed_g2,
         250,
         ECP2,
