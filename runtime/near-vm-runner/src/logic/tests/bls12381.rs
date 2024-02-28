@@ -880,8 +880,8 @@ mod tests {
             $run_bls_fn:ident
         ) => {
             mod $namespace_name {
-                use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
                 use crate::logic::tests::bls12381::tests::$run_bls_fn;
+                use crate::logic::tests::vm_logic_builder::VMLogicBuilder;
 
                 // Input is beyond memory bounds.
                 #[test]
@@ -1307,29 +1307,55 @@ mod tests {
         assert_eq!(res, 1);
     }
 
-    #[test]
-    fn test_bls12381_p1_decompress() {
-        let mut rnd = get_rnd();
+    macro_rules! test_bls12381_decompress {
+        (
+            $GOperations:ident,
+            $serialize_uncompressed_g:ident,
+            $POINT_LEN:expr,
+            $ECP:ident,
+            $test_bls12381_decompress:ident
+        ) => {
+            #[test]
+            fn $test_bls12381_decompress() {
+                let mut rnd = get_rnd();
 
-        for _ in 0..100 {
-            let p1 = G1Operations::get_random_curve_point(&mut rnd);
-            let res1 = G1Operations::decompress_p(vec![p1.clone()]);
+                for _ in 0..100 {
+                    let p1 = $GOperations::get_random_curve_point(&mut rnd);
+                    let res1 = $GOperations::decompress_p(vec![p1.clone()]);
 
-            assert_eq!(res1, serialize_uncompressed_g1(&p1));
+                    assert_eq!(res1, $serialize_uncompressed_g(&p1));
 
-            let p1_neg = p1.mul(&Big::new_int(-1));
-            let res1_neg = G1Operations::decompress_p(vec![p1_neg.clone()]);
+                    let p1_neg = p1.mul(&Big::new_int(-1));
+                    let res1_neg = $GOperations::decompress_p(vec![p1_neg.clone()]);
 
-            assert_eq!(res1[0..48], res1_neg[0..48]);
-            assert_ne!(res1[48..], res1_neg[48..]);
-            assert_eq!(res1_neg, serialize_uncompressed_g1(&p1_neg));
-        }
+                    assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
+                    assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
+                    assert_eq!(res1_neg, $serialize_uncompressed_g(&p1_neg));
+                }
 
-        let zero1 = ECP::new();
-        let res1 = G1Operations::decompress_p(vec![zero1.clone()]);
+                let zero1 = $ECP::new();
+                let res1 = $GOperations::decompress_p(vec![zero1.clone()]);
 
-        assert_eq!(res1, serialize_uncompressed_g1(&zero1));
+                assert_eq!(res1, $serialize_uncompressed_g(&zero1));
+            }
+        };
     }
+
+    test_bls12381_decompress!(
+        G1Operations,
+        serialize_uncompressed_g1,
+        48,
+        ECP,
+        test_bls12381_p1_decompress
+    );
+
+    test_bls12381_decompress!(
+        G2Operations,
+        serialize_uncompressed_g2,
+        96,
+        ECP2,
+        test_bls12381_p2_decompress
+    );
 
     #[test]
     fn test_bls12381_p1_decompress_many_points() {
@@ -1403,30 +1429,6 @@ mod tests {
         let input = logic.internal_mem_write(p_ser.as_slice());
         let res = logic.bls12381_p1_decompress(input.len, input.ptr, 0).unwrap();
         assert_eq!(res, 1);
-    }
-
-    #[test]
-    fn test_bls12381_p2_decompress() {
-        let mut rnd = get_rnd();
-
-        for _ in 0..100 {
-            let p2 = G2Operations::get_random_curve_point(&mut rnd);
-            let res1 = G2Operations::decompress_p(vec![p2.clone()]);
-
-            assert_eq!(res1, serialize_uncompressed_g2(&p2));
-
-            let p2_neg = p2.mul(&Big::new_int(-1));
-            let res2_neg = G2Operations::decompress_p(vec![p2_neg.clone()]);
-
-            assert_eq!(res1[0..96], res2_neg[0..96]);
-            assert_ne!(res1[96..], res2_neg[96..]);
-            assert_eq!(res2_neg, serialize_uncompressed_g2(&p2_neg));
-        }
-
-        let zero2 = ECP2::new();
-        let res1 = G2Operations::decompress_p(vec![zero2.clone()]);
-
-        assert_eq!(res1, serialize_uncompressed_g2(&zero2));
     }
 
     #[test]
@@ -1872,8 +1874,16 @@ mod tests {
     run_bls12381_function_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
     run_bls12381_function_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
     run_bls12381_function_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
-    run_bls12381_function_raw!(run_decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
-    run_bls12381_function_raw!(run_decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
+    run_bls12381_function_raw!(
+        run_decompress_g1,
+        decompress_g1_return_value,
+        bls12381_p1_decompress
+    );
+    run_bls12381_function_raw!(
+        run_decompress_g2,
+        decompress_g2_return_value,
+        bls12381_p2_decompress
+    );
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
         logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
     }
