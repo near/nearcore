@@ -73,8 +73,11 @@ use self::{
         TestLoopTask,
     },
 };
-use crate::test_loop::event_handler::LoopHandlerContext;
-use crate::time;
+use crate::{break_apart::BreakApart, time};
+use crate::{
+    messaging::{IntoMultiSender, IntoSender},
+    test_loop::event_handler::LoopHandlerContext,
+};
 use near_o11y::{testonly::init_test_logger, tracing::log::info};
 use serde::Serialize;
 use std::{
@@ -187,6 +190,27 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
     /// Returns a sender that can be used anywhere to send events to the loop.
     pub fn sender(&self) -> DelaySender<Event> {
         self.pending_events_sender.clone()
+    }
+
+    /// A shortcut for a common use case, where we use an enum message to
+    /// represent all the possible messages that a multisender may be used to
+    /// send.
+    ///
+    /// This assumes that S is a multisender with the derive
+    /// `#[derive(MultiSendMessage, ...)]`, which creates the enum
+    /// `MyMultiSenderMessage` (where `MyMultiSender` is the name of the struct
+    /// being derived from).
+    ///
+    /// To use, first include in the test loop event enum a case for
+    /// `MyMultiSenderMessage`. Then, call this function to get a multisender,
+    /// like
+    /// `builder.wrapped_multi_sender<MyMultiSenderMessage, MyMultiSender>()`.
+    pub fn wrapped_multi_sender<M: 'static, S: 'static>(&self) -> S
+    where
+        DelaySender<Event>: IntoSender<M>,
+        BreakApart<M>: IntoMultiSender<S>,
+    {
+        self.sender().into_sender().break_apart().into_multi_sender()
     }
 
     /// Returns a clock that will always return the current virtual time.

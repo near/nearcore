@@ -2,6 +2,7 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::Sender;
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
@@ -663,7 +664,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
             let rt = Arc::clone(&env.clients[1].runtime_adapter);
-            let f = move |msg: ApplyStatePartsRequest| {
+            let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -688,7 +689,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
                 }
-            };
+            });
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
             env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;

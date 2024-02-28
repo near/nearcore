@@ -10,7 +10,20 @@ where
     A::Context: actix::dev::ToEnvelope<A, M>,
 {
     fn send(&self, message: M) {
-        actix::Addr::do_send(self, message)
+        match self.try_send(message) {
+            Ok(_) => {}
+            Err(err) => match err {
+                actix::dev::SendError::Full(message) => {
+                    self.do_send(message);
+                }
+                actix::dev::SendError::Closed(_) => {
+                    near_o11y::tracing::warn!(
+                        "Tried to send {} message to closed actor",
+                        std::any::type_name::<M>()
+                    );
+                }
+            },
+        }
     }
 }
 

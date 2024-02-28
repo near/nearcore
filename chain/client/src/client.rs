@@ -15,8 +15,8 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
-use actix_rt::ArbiterHandle;
 use itertools::Itertools;
+use near_async::futures::FutureSpawner;
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
@@ -2323,11 +2323,11 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
+        block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
+        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
@@ -2398,7 +2398,7 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 resharding_scheduler,
-                state_parts_arbiter_handle,
+                state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),
             )? {

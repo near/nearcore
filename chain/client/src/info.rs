@@ -1,7 +1,7 @@
 use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
-use actix::Addr;
 use itertools::Itertools;
+use near_async::messaging::Sender;
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
@@ -22,7 +22,7 @@ use near_primitives::views::{
     CatchupStatusView, ChunkProcessingStatus, CurrentEpochValidatorInfo, EpochValidatorInfo,
     ValidatorKickoutView,
 };
-use near_telemetry::{telemetry, TelemetryActor};
+use near_telemetry::TelemetryEvent;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -56,9 +56,8 @@ pub struct InfoHelper {
     gas_used: u64,
     /// Sign telemetry with block producer key if available.
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
-    /// Telemetry actor.
-    // The field can be None for testing. This allows avoiding running actix in tests.
-    telemetry_actor: Option<Addr<TelemetryActor>>,
+    /// Telemetry event sender.
+    telemetry_sender: Sender<TelemetryEvent>,
     /// Log coloring enabled.
     log_summary_style: LogSummaryStyle,
     /// Epoch id.
@@ -73,7 +72,7 @@ pub struct InfoHelper {
 
 impl InfoHelper {
     pub fn new(
-        telemetry_actor: Option<Addr<TelemetryActor>>,
+        telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
     ) -> Self {
@@ -87,7 +86,7 @@ impl InfoHelper {
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
             gas_used: 0,
-            telemetry_actor,
+            telemetry_sender,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
             boot_time_seconds: StaticClock::utc().timestamp(),
@@ -472,22 +471,16 @@ impl InfoHelper {
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
 
-        // In production `telemetry_actor` should always be available.
-        if let Some(telemetry_actor) = &self.telemetry_actor {
-            telemetry(
-                telemetry_actor,
-                self.telemetry_info(
-                    head,
-                    sync_status,
-                    node_id,
-                    network_info,
-                    client_config,
-                    cpu_usage,
-                    memory_usage,
-                    is_validator,
-                ),
-            );
-        }
+        self.telemetry_sender.send(TelemetryEvent::new(self.telemetry_info(
+            head,
+            sync_status,
+            node_id,
+            network_info,
+            client_config,
+            cpu_usage,
+            memory_usage,
+            is_validator,
+        )));
     }
 
     fn telemetry_info(
@@ -860,6 +853,7 @@ fn get_validator_epoch_stats(
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+    use near_async::messaging::{noop, IntoSender};
     use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -891,7 +885,7 @@ mod tests {
     #[test]
     fn telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let info_helper = InfoHelper::new(None, &config, None);
+        let info_helper = InfoHelper::new(noop().into_sender(), &config, None);
 
         let store = near_store::test_utils::create_test_store();
         let vs =
