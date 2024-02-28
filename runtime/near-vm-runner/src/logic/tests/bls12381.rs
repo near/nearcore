@@ -24,6 +24,7 @@ mod tests {
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
+    const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
     struct G1Operations;
     struct G2Operations;
@@ -315,24 +316,16 @@ mod tests {
                         if points[i].0 == 0 {
                             buffer.push(vec![vec![1], vec![0; 31]].concat());
                         } else {
-                            // r - 1
-                            buffer.push(
-                                hex::decode(
-                                    "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000",
-                                )
-                                .unwrap()
-                                .into_iter()
-                                .rev()
-                                .collect(),
-                            );
+                            buffer
+                                .push(hex::decode(R_MINUS_1).unwrap().into_iter().rev().collect());
                         }
-                   }
-                   let input = logic.internal_mem_write(buffer.concat().as_slice());
-                   let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                   assert_eq!(res, 0);
-                   logic.registers().get_for_free(0).unwrap().to_vec()
-               }
-           }
+                    }
+                    let input = logic.internal_mem_write(buffer.concat().as_slice());
+                    let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
+                    assert_eq!(res, 0);
+                    logic.registers().get_for_free(0).unwrap().to_vec()
+                }
+            }
         };
     }
 
