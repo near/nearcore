@@ -293,20 +293,28 @@ pub(crate) fn action_function_call(
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
-            .map(|(receiver_id, receipt)| Receipt {
-                predecessor_id: account_id.clone(),
-                receiver_id,
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Action(ActionReceipt {
+            .map(|(receiver_id, receipt)| {
+                let new_action_receipt = ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: receipt.output_data_receivers,
                     input_data_ids: receipt.input_data_ids,
                     actions: receipt.actions,
-                }),
+                };
+
+                Receipt {
+                    predecessor_id: account_id.clone(),
+                    receiver_id,
+                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                    // "Generating receipt IDs" section
+                    receipt_id: CryptoHash::default(),
+                    receipt: if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
+                    },
+                }
             })
             .collect();
 
@@ -318,7 +326,10 @@ pub(crate) fn action_function_call(
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                 // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Data(DataReceipt { data_id: data_id, data: Some(data) }),
+                receipt: ReceiptEnum::PromiseResume(DataReceipt {
+                    data_id: data_id,
+                    data: Some(data),
+                }),
             }
         }));
 
@@ -820,7 +831,7 @@ pub(crate) fn apply_delegate_action(
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
                     &apply_state.config,
@@ -836,7 +847,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 

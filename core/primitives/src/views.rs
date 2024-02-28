@@ -1924,42 +1924,54 @@ pub enum ReceiptEnumView {
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
+        is_promise_yield: bool,
     },
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
+        is_promise_resume: bool,
     },
 }
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
+        let is_promise_yield = matches!(&receipt.receipt, ReceiptEnum::PromiseYield(_));
+        let is_promise_resume = matches!(&receipt.receipt, ReceiptEnum::PromiseResume(_));
+
         ReceiptView {
             predecessor_id: receipt.predecessor_id,
             receiver_id: receipt.receiver_id,
             receipt_id: receipt.receipt_id,
             receipt: match receipt.receipt {
-                ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
-                    signer_id: action_receipt.signer_id,
-                    signer_public_key: action_receipt.signer_public_key,
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: action_receipt
-                        .output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver| DataReceiverView {
-                            data_id: data_receiver.data_id,
-                            receiver_id: data_receiver.receiver_id,
-                        })
-                        .collect(),
-                    input_data_ids: action_receipt
-                        .input_data_ids
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    actions: action_receipt.actions.into_iter().map(Into::into).collect(),
-                },
-                ReceiptEnum::Data(data_receipt) => {
-                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
+                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                    ReceiptEnumView::Action {
+                        signer_id: action_receipt.signer_id,
+                        signer_public_key: action_receipt.signer_public_key,
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: action_receipt
+                            .output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver| DataReceiverView {
+                                data_id: data_receiver.data_id,
+                                receiver_id: data_receiver.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: action_receipt
+                            .input_data_ids
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        actions: action_receipt.actions.into_iter().map(Into::into).collect(),
+                        is_promise_yield,
+                    }
+                }
+                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+                    ReceiptEnumView::Data {
+                        data_id: data_receipt.data_id,
+                        data: data_receipt.data,
+                        is_promise_resume,
+                    }
                 }
             },
         }
@@ -1982,25 +1994,40 @@ impl TryFrom<ReceiptView> for Receipt {
                     output_data_receivers,
                     input_data_ids,
                     actions,
-                } => ReceiptEnum::Action(ActionReceipt {
-                    signer_id,
-                    signer_public_key,
-                    gas_price,
-                    output_data_receivers: output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id,
-                            receiver_id: data_receiver_view.receiver_id,
-                        })
-                        .collect(),
-                    input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
-                    actions: actions
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?,
-                }),
-                ReceiptEnumView::Data { data_id, data } => {
-                    ReceiptEnum::Data(DataReceipt { data_id, data })
+                    is_promise_yield,
+                } => {
+                    let action_receipt = ActionReceipt {
+                        signer_id,
+                        signer_public_key,
+                        gas_price,
+                        output_data_receivers: output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver_view| DataReceiver {
+                                data_id: data_receiver_view.data_id,
+                                receiver_id: data_receiver_view.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
+                        actions: actions
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    };
+
+                    if is_promise_yield {
+                        ReceiptEnum::PromiseYield(action_receipt)
+                    } else {
+                        ReceiptEnum::Action(action_receipt)
+                    }
+                }
+                ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
+                    let data_receipt = DataReceipt { data_id, data };
+
+                    if is_promise_resume {
+                        ReceiptEnum::PromiseResume(data_receipt)
+                    } else {
+                        ReceiptEnum::Data(data_receipt)
+                    }
                 }
             },
         })
