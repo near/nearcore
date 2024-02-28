@@ -131,6 +131,15 @@ pub enum ReceiptEnum {
     PromiseResume(DataReceipt),
 }
 
+impl ReceiptEnum {
+    pub fn is_action(&self) -> bool {
+        match self {
+            ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => true,
+            _ => false,
+        }
+    }
+}
+
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
 #[derive(
     BorshSerialize,

@@ -270,7 +270,7 @@ impl GenesisStateApplier {
         for receipt in postponed_receipts {
             let account_id = &receipt.receiver_id;
             let action_receipt = match &receipt.receipt {
-                ReceiptEnum::Action(a) => a,
+                ReceiptEnum::Action(a) | ReceiptEnum::PromiseYield(a) => a,
                 _ => panic!("Expected action receipt"),
             };
             // Logic similar to `apply_receipt`

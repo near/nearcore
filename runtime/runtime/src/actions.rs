@@ -309,9 +309,10 @@ pub(crate) fn action_function_call(
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
-                    receipt: match receipt.is_promise_yield {
-                        false => ReceiptEnum::Action(new_action_receipt),
-                        true => ReceiptEnum::PromiseYield(new_action_receipt),
+                    receipt: if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
                     },
                 }
             })
