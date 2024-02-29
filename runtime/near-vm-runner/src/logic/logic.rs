@@ -2129,7 +2129,6 @@ impl<'a> VMLogic<'a> {
     /// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
     /// returns `MemoryAccessViolation`;
     /// * If a malformed data id is passed, returns `DataIdMalformed`;
-    /// * If an unexpected data id is passed, returns `YieldedPromiseNotFound`;
     /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`;
     /// * If called as view function returns `ProhibitedInView`;
     /// * Runs out of gas.

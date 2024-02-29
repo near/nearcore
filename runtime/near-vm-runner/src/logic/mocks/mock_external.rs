@@ -185,12 +185,14 @@ impl External for MockedExternal {
     ) -> Result<bool, crate::logic::VMLogicError> {
         self.action_log.push(MockAction::YieldResume { data_id, data });
         for action in &self.action_log {
-            let MockAction::YieldCreate { data_id: did, .. } = action else { continue; };
+            let MockAction::YieldCreate { data_id: did, .. } = action else {
+                continue;
+            };
             // FIXME: should also check that receiver_id matches current account_id, but there
             // isn't one tracked by `Self`...
             if data_id == *did {
                 // NB: does not actually handle timeouts.
-                return Ok(true)
+                return Ok(true);
             }
         }
         Ok(false)
