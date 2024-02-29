@@ -474,11 +474,10 @@ impl FlatStorageCreator {
         flat_storage_manager: &FlatStorageManager,
         runtime: &Arc<dyn RuntimeAdapter>,
     ) -> Result<HashMap<ShardUId, FlatStorageShardCreator>, Error> {
-        tracing::debug!(target: "store", "creating flat storage for the current epoch");
+        let epoch_id = &chain_head.epoch_id;
+        tracing::debug!(target: "store", ?epoch_id, "creating flat storage for the current epoch");
 
         let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
-
-        let epoch_id = &chain_head.epoch_id;
         let shard_ids = epoch_manager.shard_ids(epoch_id)?;
         for shard_id in shard_ids {
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
@@ -515,9 +514,9 @@ impl FlatStorageCreator {
             return Ok(());
         }
 
-        tracing::debug!(target: "store", "creating flat storage for the next epoch");
-
         let next_epoch_id = &chain_head.next_epoch_id;
+        tracing::debug!(target: "store", ?next_epoch_id, "creating flat storage for the next epoch");
+
         let shard_ids = epoch_manager.shard_ids(next_epoch_id)?;
         for shard_id in shard_ids {
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, next_epoch_id)?;
