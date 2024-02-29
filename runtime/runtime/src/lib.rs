@@ -36,7 +36,8 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
+    create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
+    create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
@@ -550,9 +551,9 @@ impl Runtime {
         result.compute_usage = exec_fees;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let action_hash = create_action_hash(
+            let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
-                receipt,
+                &receipt.receipt_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 action_index,
