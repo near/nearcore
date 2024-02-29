@@ -247,6 +247,40 @@ mod tests {
 
                     run_bls12381_fn!($bls12381_map_fp_to_g, fp_vec)
                 }
+
+                fn get_incorrect_points() -> Vec<Vec<u8>> {
+                    let mut rnd = get_rnd();
+                    let mut res: Vec<Vec<u8>> = vec![];
+
+                    // Incorrect encoding of the point at infinity
+                    let mut zero = get_zero(Self::POINT_LEN);
+                    zero[Self::POINT_LEN - 1] = 1;
+                    res.push(zero);
+
+                    // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
+                    let mut zero = vec![0u8; Self::POINT_LEN];
+                    zero[0] = 192;
+                    res.push(zero);
+
+                    let p = Self::get_random_curve_point(&mut rnd);
+                    let mut p_ser = $serialize_uncompressed_g(&p);
+                    p_ser[0] |= 0x80;
+                    res.push(p_ser.to_vec());
+
+                    // Point not on the curve
+                    let p = Self::get_random_curve_point(&mut rnd);
+                    let mut p_ser = $serialize_uncompressed_g(&p);
+                    p_ser[$GOperations::POINT_LEN - 1] ^= 0x01;
+                    res.push(p_ser.to_vec());
+
+                    //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
+                    let p = Self::get_random_curve_point(&mut rnd);
+                    let mut p_ser = $serialize_uncompressed_g(&p);
+                    p_ser[0] ^= 0x20;
+                    res.push(p_ser.to_vec());
+
+                    res
+                }
             }
         };
     }
@@ -533,40 +567,17 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_incorrect_input() {
-                let mut rnd = get_rnd();
+                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOperations::get_incorrect_points()
+                    .into_iter()
+                    .map(|test| vec![vec![0u8], test])
+                    .collect();
 
                 // Incorrect sign encoding
-                let mut buffer = vec![0u8; $GOperations::POINT_LEN + 1];
-                buffer[0] = 2;
-                run_bls12381_fn!($bls12381_sum, vec![buffer], 1);
+                test_vecs.push(vec![vec![2u8], get_zero($GOperations::POINT_LEN)]);
 
-                // Incorrect encoding of the point at infinity
-                let mut zero = vec![0u8; $GOperations::POINT_LEN];
-                zero[0] = 64;
-                zero[$GOperations::POINT_LEN - 1] = 1;
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], zero], 1);
-
-                // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
-                let mut zero = vec![0u8; $GOperations::POINT_LEN];
-                zero[0] = 192;
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], zero], 1);
-
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[0] |= 0x80;
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
-
-                // Point not on the curve
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[95] ^= 0x01;
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
-
-                //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[0] ^= 0x20;
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
+                for i in 0..test_vecs.len() {
+                    run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
+                }
             }
         };
     }
@@ -728,36 +739,16 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_incorrect_input() {
-                let mut rnd = get_rnd();
                 let zero_scalar = vec![0u8; 32];
 
-                // Incorrect encoding of the point at infinity
-                let mut zero = vec![0u8; $GOperations::POINT_LEN];
-                zero[0] = 64;
-                zero[$GOperations::POINT_LEN - 1] = 1;
-                run_bls12381_fn!($bls12381_multiexp, vec![zero, zero_scalar.clone()], 1);
+                let test_vecs: Vec<Vec<Vec<u8>>> = $GOperations::get_incorrect_points()
+                    .into_iter()
+                    .map(|test| vec![test, zero_scalar.clone()])
+                    .collect();
 
-                // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
-                let mut zero = vec![0u8; $GOperations::POINT_LEN];
-                zero[0] = 192;
-                run_bls12381_fn!($bls12381_multiexp, vec![zero, zero_scalar.clone()], 1);
-
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[0] |= 0x80;
-                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
-
-                // Point not on the curve
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[$GOperations::POINT_LEN - 1] ^= 0x01;
-                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
-
-                //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-                let p = $GOperations::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_uncompressed(&p);
-                p_ser[0] ^= 0x20;
-                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
+                for i in 0..test_vecs.len() {
+                    run_bls12381_fn!($bls12381_multiexp, test_vecs[i], 1);
+                }
             }
 
             #[test]
