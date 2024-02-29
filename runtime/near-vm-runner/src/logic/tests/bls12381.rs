@@ -41,14 +41,18 @@ mod tests {
     struct G1Operations;
     struct G2Operations;
 
+    fn get_381bit_big(rnd: &mut RAND) -> Big {
+        let mut r: Big = Big::random(rnd);
+        r.mod2m(381);
+        r
+    }
+
     impl G1Operations {
         const POINT_LEN: usize = 96;
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP {
             loop {
-                let mut r: Big = Big::random(rnd);
-                r.mod2m(381);
-                let p: ECP = ECP::new_big(&r);
+                let p: ECP = ECP::new_big(&get_381bit_big(rnd));
 
                 if !p.is_infinity() {
                     return p;
@@ -61,10 +65,7 @@ mod tests {
         }
 
         fn get_random_fp(rnd: &mut RAND) -> FP {
-            let mut c: Big = Big::random(rnd);
-            c.mod2m(381);
-
-            FP::new_big(c)
+            FP::new_big(get_381bit_big(rnd))
         }
 
         fn map_fp_to_g(fps: Vec<FP>) -> Vec<u8> {
@@ -86,13 +87,7 @@ mod tests {
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP2 {
             loop {
-                let mut c: Big = Big::random(rnd);
-                c.mod2m(381);
-
-                let mut d: Big = Big::random(rnd);
-                d.mod2m(381);
-                let p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
-
+                let p: ECP2 = ECP2::new_fp2(&Self::get_random_fp(rnd));
                 if !p.is_infinity() {
                     return p;
                 }
@@ -104,12 +99,8 @@ mod tests {
         }
 
         fn get_random_fp(rnd: &mut RAND) -> FP2 {
-            let mut c: Big = Big::random(rnd);
-            c.mod2m(381);
-
-            let mut d: Big = Big::random(rnd);
-            d.mod2m(381);
-
+            let c= get_381bit_big(rnd);
+            let d= get_381bit_big(rnd);
             FP2::new_bigs(c, d)
         }
 
