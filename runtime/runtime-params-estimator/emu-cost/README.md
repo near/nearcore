@@ -2,13 +2,13 @@
 
 ## Theory of operations
 
- Operation execution cost (aka gas cost) is computed basing on the number of userland x86 instructions required to perform the
+Operation execution cost (aka gas cost) is computed basing on the number of userland x86 instructions required to perform the
 particular operation in current NEAR runtime implementation. To compute this cost, we use instrumented QEMU binary
 translating engine to execute required operations in the userland Linux simulator.
 Thus, to measure the execution cost we have to compile NEAR runtime benchmark for Linux, execute the benchmark under
 instrumented QEMU running in container, and count how many x86 instructions are executed between start and end of execution.
 
- Instrumentation of QEMU is implemented in the following manner. We install instrumentation callback which conditionally increments
+Instrumentation of QEMU is implemented in the following manner. We install instrumentation callback which conditionally increments
 the instruction counter on every instruction during translation by QEMU's JIT, TCG. We activate counting when specific Linux syscall
 (currently, 0 aka sys_read) is executed with the certain arguments (file descriptor argument == 0x0afebabe or 0x0afebabf).
 On start event we clear instruction counter, on stop event we stop counting and return counted instructions into the buffer provided
@@ -16,6 +16,10 @@ to read syscall. As result, NEAR benchmark will know the exact instruction count
 is the pure function of container image used, Rust compiler version and the NEAR implementation and is fully reproducible.
 
 ## Usage
+
+**Note**: These instructions are written to work on a x86_64-linux-gnu host. The QEMU can be built
+to run on other architectures and operating systems, and it should produce reproducible results,
+but instructions to do so are out of scope for this document.
 
 We build and run the cost estimator in the container to make sure config is fully reproducible.
 Please make sure that the container is given at least 4G of RAM, as running under emulator is rather resource consuming.
