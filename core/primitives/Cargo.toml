@@ -41,6 +41,7 @@ thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-o11y.workspace = true

@@ -1,7 +1,7 @@
 use crate::metrics;
 
 use borsh::BorshSerialize;
-use near_async::time::{Duration, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode, Error};
 use near_chain_configs::{ClientConfig, ExternalStorageLocation};
@@ -72,6 +72,7 @@ pub fn spawn_state_sync_dump(
     let shard_ids = {
         // Sadly, `Chain` is not `Send` and each thread needs to create its own `Chain` instance.
         let chain = Chain::new_for_view_client(
+            Clock::real(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
@@ -92,6 +93,7 @@ pub fn spawn_state_sync_dump(
             let runtime = runtime.clone();
             let chain_genesis = chain_genesis.clone();
             let chain = Chain::new_for_view_client(
+                Clock::real(),
                 epoch_manager.clone(),
                 shard_tracker.clone(),
                 runtime.clone(),

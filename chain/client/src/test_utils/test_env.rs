@@ -76,7 +76,8 @@ pub struct StateWitnessPropagationOutput {
 
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
-        TestEnvBuilder::new(GenesisConfig::test())
+        let clock = Clock::real();
+        TestEnvBuilder::new(GenesisConfig::test(clock.clone())).clock(clock)
     }
 
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
@@ -569,6 +570,7 @@ impl TestEnv {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
         let num_validator_seats = vs.all_block_producers().count() as NumSeats;
         self.clients[idx] = setup_client_with_runtime(
+            self.clock.clone(),
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,

@@ -262,6 +262,7 @@ impl Client {
             resharding_config: config.resharding_config.clone(),
         };
         let chain = Chain::new(
+            clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime_adapter.clone(),
@@ -282,6 +283,7 @@ impl Client {
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
+            clock.clone(),
             network_adapter.clone(),
             genesis_block.header().epoch_id().clone(),
             genesis_block.header().next_epoch_id().clone(),
@@ -297,6 +299,7 @@ impl Client {
             EPOCH_SYNC_PEER_TIMEOUT,
         );
         let header_sync = HeaderSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.header_sync_initial_timeout,
             config.header_sync_progress_timeout,
@@ -304,6 +307,7 @@ impl Client {
             config.header_sync_expected_height_per_second,
         );
         let block_sync = BlockSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.block_fetch_horizon,
             config.archive,
@@ -325,6 +329,7 @@ impl Client {
         }
 
         let state_sync = StateSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.state_sync_timeout,
             &config.chain_id,
@@ -2336,6 +2341,7 @@ impl Client {
                     notify_state_sync = true;
                     (
                         StateSync::new(
+                            self.clock.clone(),
                             network_adapter,
                             state_sync_timeout,
                             &self.config.chain_id,

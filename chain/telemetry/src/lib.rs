@@ -5,7 +5,6 @@ use awc::{Client, Connector};
 use futures::FutureExt;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
-use near_primitives::static_clock::StaticClock;
 use std::ops::Sub;
 use time::{Duration, Instant};
 
@@ -91,7 +90,7 @@ impl Handler<WithSpanContext<TelemetryEvent>> for TelemetryActor {
     fn handle(&mut self, msg: WithSpanContext<TelemetryEvent>, _ctx: &mut Context<Self>) {
         let (_span, msg) = handler_debug_span!(target: "telemetry", msg);
         tracing::debug!(target: "client", ?msg);
-        let now = StaticClock::instant();
+        let now = time::Instant::now();
         if now - self.last_telemetry_update < self.config.reporting_interval {
             // Throttle requests to the telemetry endpoints, to at most one
             // request per `self.config.reporting_interval`.

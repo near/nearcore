@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use actix::{Addr, System};
 use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{future, FutureExt};
+use near_async::time::Clock;
 
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use crate::{ClientActor, Query};
@@ -150,6 +151,7 @@ fn test_catchup_receipts_sync_common(wait_till: u64, send: u64, sync_hold: bool)
             block_prod_time *= TEST_STATE_SYNC_TIMEOUT as u64;
         }
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -444,6 +446,7 @@ fn test_catchup_random_single_part_sync_common(skip_15: bool, non_zero: bool, he
 
         let connectors1 = connectors.clone();
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -633,6 +636,7 @@ fn test_catchup_sanity_blocks_produced() {
         let epoch_sync_enabled = vec![true; vs.all_block_producers().count()];
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -713,6 +717,7 @@ fn test_all_chunks_accepted_common(
         let responded = Arc::new(RwLock::new(HashSet::<(CryptoHash, Vec<u64>, ChunkHash)>::new()));
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,

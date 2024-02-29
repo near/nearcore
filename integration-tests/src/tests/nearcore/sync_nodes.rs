@@ -4,7 +4,7 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_async::time::Duration;
+use near_async::time::{Clock, Duration};
 use near_chain_configs::Genesis;
 use near_client::{GetBlock, ProcessTxRequest};
 use near_crypto::{InMemorySigner, KeyType};
@@ -34,8 +34,14 @@ fn sync_nodes() {
                 start_with_config(dir1.path(), near1).expect("start_with_config");
 
             let signer = create_test_signer("other");
-            let _ =
-                add_blocks(vec![genesis_block], client1, 13, genesis.config.epoch_length, &signer);
+            let _ = add_blocks(
+                Clock::real(),
+                vec![genesis_block],
+                client1,
+                13,
+                genesis.config.epoch_length,
+                &signer,
+            );
 
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
             let nearcore::NearNode { view_client: view_client2, .. } =
@@ -82,6 +88,7 @@ fn sync_after_sync_nodes() {
 
             let signer = create_test_signer("other");
             let blocks = add_blocks(
+                Clock::real(),
                 vec![genesis_block],
                 client1.clone(),
                 13,
@@ -102,8 +109,14 @@ fn sync_after_sync_nodes() {
                         match &res {
                             Ok(Ok(b)) if b.header.height == 13 => {
                                 if !next_step1.load(Ordering::Relaxed) {
-                                    let _ =
-                                        add_blocks(blocks1, client11, 10, epoch_length, &signer1);
+                                    let _ = add_blocks(
+                                        Clock::real(),
+                                        blocks1,
+                                        client11,
+                                        10,
+                                        epoch_length,
+                                        &signer1,
+                                    );
                                     next_step1.store(true, Ordering::Relaxed);
                                 }
                             }

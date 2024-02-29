@@ -11,13 +11,12 @@ use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
-use near_async::time::Utc;
+use near_async::time::Clock;
 use near_chain_configs::GenesisConfig;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
@@ -30,24 +29,25 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 use tracing::debug;
 
-pub fn get_chain() -> Chain {
-    get_chain_with_epoch_length_and_num_shards(10, 1)
+pub fn get_chain(clock: Clock) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, 10, 1)
 }
 
-pub fn get_chain_with_num_shards(num_shards: NumShards) -> Chain {
-    get_chain_with_epoch_length_and_num_shards(10, num_shards)
+pub fn get_chain_with_num_shards(clock: Clock, num_shards: NumShards) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, 10, num_shards)
 }
 
-pub fn get_chain_with_epoch_length(epoch_length: NumBlocks) -> Chain {
-    get_chain_with_epoch_length_and_num_shards(epoch_length, 1)
+pub fn get_chain_with_epoch_length(clock: Clock, epoch_length: NumBlocks) -> Chain {
+    get_chain_with_epoch_length_and_num_shards(clock, epoch_length, 1)
 }
 
 pub fn get_chain_with_epoch_length_and_num_shards(
+    clock: Clock,
     epoch_length: NumBlocks,
     num_shards: NumShards,
 ) -> Chain {
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(clock.clone()));
     let vs = ValidatorSchedule::new()
         .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
         .num_shards(num_shards);
@@ -55,6 +55,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     Chain::new(
+        clock,
         epoch_manager,
         shard_tracker,
         runtime,
@@ -109,12 +110,14 @@ pub fn process_block_sync(
 }
 
 // TODO(#8190) Improve this testing API.
-pub fn setup() -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>)
-{
-    setup_with_tx_validity_period(100)
+pub fn setup(
+    clock: Clock,
+) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+    setup_with_tx_validity_period(clock, 100)
 }
 
 fn setup_with_tx_validity_period(
+    clock: Clock,
     tx_validity_period: NumBlocks,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
@@ -123,11 +126,12 @@ fn setup_with_tx_validity_period(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: StaticClock::utc(),
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -149,6 +153,7 @@ fn setup_with_tx_validity_period(
 }
 
 pub fn setup_with_validators(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
@@ -160,11 +165,12 @@ pub fn setup_with_validators(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: StaticClock::utc(),
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -184,10 +190,10 @@ pub fn setup_with_validators(
 }
 
 pub fn setup_with_validators_and_start_time(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: u64,
     tx_validity_period: NumBlocks,
-    start_time: Utc,
 ) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
     let store = create_test_store();
     let signers =
@@ -196,11 +202,12 @@ pub fn setup_with_validators_and_start_time(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
         &ChainGenesis {
-            time: start_time,
+            time: clock.now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -323,12 +330,12 @@ pub fn display_chain(me: &Option<AccountId>, chain: &mut Chain, tail: bool) {
 mod test {
     use std::convert::TryFrom;
 
+    use near_async::time::Clock;
     use rand::Rng;
 
     use near_primitives::hash::CryptoHash;
     use near_primitives::receipt::Receipt;
     use near_primitives::sharding::ReceiptList;
-    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, NumShards};
 
     use crate::Chain;
@@ -366,10 +373,10 @@ mod test {
                 )
             })
             .collect::<Vec<_>>();
-        let start = StaticClock::instant();
+        let start = Clock::real().now();
         let naive_result = naive_build_receipt_hashes(&receipts, &shard_layout);
         let naive_duration = start.elapsed();
-        let start = StaticClock::instant();
+        let start = Clock::real().now();
         let prod_result = Chain::build_receipts_hashes(&receipts, &shard_layout);
         let prod_duration = start.elapsed();
         assert_eq!(naive_result, prod_result);

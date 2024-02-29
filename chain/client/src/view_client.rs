@@ -7,7 +7,7 @@ use crate::{
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
-use near_async::time::{Duration, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -46,7 +46,6 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -89,6 +88,7 @@ pub struct ViewClientRequestManager {
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
+    clock: Clock,
     pub adv: crate::adversarial::Controls,
 
     /// Validator account (if present).
@@ -120,6 +120,7 @@ impl ViewClientActor {
     const MAX_NUM_STATE_REQUESTS: usize = 30;
 
     pub fn new(
+        clock: Clock,
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -132,6 +133,7 @@ impl ViewClientActor {
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
+            clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
@@ -140,6 +142,7 @@ impl ViewClientActor {
             config.save_trie_changes,
         )?;
         Ok(ViewClientActor {
+            clock,
             adv,
             validator_account_id,
             chain,
@@ -167,8 +170,12 @@ impl ViewClientActor {
         }
     }
 
-    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
-        let now = StaticClock::instant();
+    fn need_request<K: Hash + Eq + Clone>(
+        &self,
+        key: K,
+        cache: &mut lru::LruCache<K, Instant>,
+    ) -> bool {
+        let now = self.clock.now();
         let need_request = match cache.get(&key) {
             Some(time) => now - *time > Duration::milliseconds(REQUEST_WAIT_TIME),
             None => true,
@@ -521,7 +528,7 @@ impl ViewClientActor {
             }
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
+            if self.need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let target_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
@@ -572,7 +579,7 @@ impl ViewClientActor {
     /// rate limit of state sync requests.
     fn throttle_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = StaticClock::instant();
+        let now = self.clock.now();
         while let Some(&instant) = cache.front() {
             if now - instant > self.config.view_client_throttle_period {
                 cache.pop_front();
@@ -1589,6 +1596,7 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
 
 /// Starts the View Client in a new arbiter (thread).
 pub fn start_view_client(
+    clock: Clock,
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -1601,6 +1609,7 @@ pub fn start_view_client(
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
         ViewClientActor::new(
+            clock.clone(),
             validator_account_id.clone(),
             &chain_genesis,
             epoch_manager.clone(),

@@ -35,6 +35,7 @@ thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-client.workspace = true

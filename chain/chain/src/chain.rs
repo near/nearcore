@@ -329,6 +329,7 @@ impl Chain {
     }
 
     pub fn new_for_view_client(
+        clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -336,7 +337,6 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
     ) -> Result<Chain, Error> {
-        let clock = Clock::real(); // TODO: make this a parameter
         let store = runtime_adapter.store();
         let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
         let genesis = Self::make_genesis_block(
@@ -376,6 +376,7 @@ impl Chain {
     }
 
     pub fn new(
+        clock: Clock,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
         shard_tracker: ShardTracker,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
@@ -384,8 +385,6 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
     ) -> Result<Chain, Error> {
-        let clock = Clock::real(); // TODO: make this a parameter
-
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
             .expect("genesis should be initialized.");

@@ -21,6 +21,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true

@@ -2,13 +2,12 @@ use crate::config_updater::ConfigUpdater;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
 use near_async::messaging::Sender;
-use near_async::time::Instant;
+use near_async::time::{Clock, Instant};
 use near_chain_configs::{ClientConfig, LogSummaryStyle, SyncConfig};
 use near_client_primitives::types::StateSyncStatus;
 use near_network::types::NetworkInfo;
 use near_primitives::block::Tip;
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::telemetry::{
     TelemetryAgentInfo, TelemetryChainInfo, TelemetryInfo, TelemetrySystemInfo,
 };
@@ -40,6 +39,7 @@ struct ValidatorInfoHelper {
 
 /// A helper that prints information about current chain and reports to telemetry.
 pub struct InfoHelper {
+    clock: Clock,
     /// Nearcore agent (executable) version
     nearcore_version: Version,
     /// System reference.
@@ -72,6 +72,7 @@ pub struct InfoHelper {
 
 impl InfoHelper {
     pub fn new(
+        clock: Clock,
         telemetry_sender: Sender<TelemetryEvent>,
         client_config: &ClientConfig,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
@@ -79,17 +80,18 @@ impl InfoHelper {
         set_open_files_limit(0);
         metrics::export_version(&client_config.version);
         InfoHelper {
+            clock: clock.clone(),
             nearcore_version: client_config.version.clone(),
             sys: System::new(),
             pid: get_current_pid().ok(),
-            started: StaticClock::instant(),
+            started: clock.now(),
             num_blocks_processed: 0,
             num_chunks_in_blocks_processed: 0,
             gas_used: 0,
             telemetry_sender,
             validator_signer,
             log_summary_style: client_config.log_summary_style,
-            boot_time_seconds: StaticClock::utc().unix_timestamp(),
+            boot_time_seconds: clock.now_utc().unix_timestamp(),
             epoch_id: None,
             enable_multiline_logging: client_config.enable_multiline_logging,
             prev_sync_requirement: None,
@@ -467,7 +469,7 @@ impl InfoHelper {
             }
         }
 
-        self.started = StaticClock::instant();
+        self.started = self.clock.now();
         self.num_blocks_processed = 0;
         self.num_chunks_in_blocks_processed = 0;
         self.gas_used = 0;
@@ -859,6 +861,7 @@ mod tests {
     use super::*;
     use assert_matches::assert_matches;
     use near_async::messaging::{noop, IntoSender};
+    use near_async::time::Clock;
     use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -890,7 +893,7 @@ mod tests {
     #[test]
     fn telemetry_info() {
         let config = ClientConfig::test(false, 1230, 2340, 50, false, true, true, true);
-        let info_helper = InfoHelper::new(noop().into_sender(), &config, None);
+        let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
 
         let store = near_store::test_utils::create_test_store();
         let vs =
@@ -899,7 +902,7 @@ mod tests {
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
         let chain_genesis = ChainGenesis {
-            time: StaticClock::utc(),
+            time: Clock::real().now_utc(),
             height: 0,
             gas_limit: 1_000_000,
             min_gas_price: 100,
@@ -912,6 +915,7 @@ mod tests {
         };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
+            Clock::real(),
             epoch_manager,
             shard_tracker,
             runtime,

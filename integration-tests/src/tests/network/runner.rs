@@ -96,6 +96,7 @@ fn setup_network_node(
     )
     .0;
     let view_client_actor = start_view_client(
+        Clock::real(),
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis,
         epoch_manager.clone(),
@@ -297,7 +298,7 @@ impl Runner {
         let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
         let validators =
             test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
-        let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+        let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
         Self { test_config, validators, state_machine: StateMachine::new(), chain_genesis }
     }
 

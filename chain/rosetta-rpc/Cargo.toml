@@ -41,6 +41,7 @@ node-runtime.workspace = true
 [dev-dependencies]
 insta.workspace = true
 near-actix-test-utils.workspace = true
+near-async.workspace = true
 
 [features]
 protocol_feature_nonrefundable_transfer_nep491 = []

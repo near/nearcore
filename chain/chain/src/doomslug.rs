@@ -818,16 +818,13 @@ mod tests {
             }
         }
 
-        // Shift 1 second forward
-        clock.advance(Duration::seconds(1));
-
         // Not processing a block at height 2 should not produce an appoval
         ds.set_tip(hash(&[2]), 2, 0);
         clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(), vec![]);
 
-        // Shift 1 second forward
-        clock.advance(Duration::seconds(1));
+        // Go forward more so we have 1 second
+        clock.advance(Duration::milliseconds(600));
 
         // But at height 3 should (also neither block has finality set, keep last final at 0 for now)
         ds.set_tip(hash(&[3]), 3, 0);
@@ -836,8 +833,8 @@ mod tests {
         assert_eq!(approval.inner, ApprovalInner::Endorsement(hash(&[3])));
         assert_eq!(approval.target_height, 4);
 
-        // Move 1 second further
-        clock.advance(Duration::seconds(1));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(600));
 
         clock.advance(Duration::milliseconds(199));
         assert_eq!(ds.process_timer(), vec![]);
@@ -852,8 +849,8 @@ mod tests {
             _ => assert!(false),
         }
 
-        // Move 1 second further
-        clock.advance(Duration::seconds(1));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(800));
 
         // Now skip 5 (the extra delay is 200+300 = 500)
         clock.advance(Duration::milliseconds(499));
@@ -868,8 +865,8 @@ mod tests {
             }
         }
 
-        // Move 1 second further
-        clock.advance(Duration::seconds(1));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(500));
 
         // Skip 6 (the extra delay is 0+200+300+400 = 900)
         clock.advance(Duration::milliseconds(899));
@@ -884,8 +881,8 @@ mod tests {
             }
         }
 
-        // Move 1 second further
-        clock.advance(Duration::seconds(1));
+        // Go forward more so we have another second
+        clock.advance(Duration::milliseconds(100));
 
         // Accept block at 5 with finality on the prev block, expect it to not produce an approval
         ds.set_tip(hash(&[5]), 5, 4);
@@ -902,7 +899,7 @@ mod tests {
 
         // No approval, since we skipped 6
         ds.set_tip(hash(&[6]), 6, 4);
-        clock.advance(Duration::milliseconds(400 - 17));
+        clock.advance(Duration::milliseconds(400));
         assert_eq!(ds.process_timer(), vec![]);
 
         // The block height was less than the timer height, and thus the timer was reset.

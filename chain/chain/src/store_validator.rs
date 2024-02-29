@@ -1,7 +1,7 @@
 use crate::types::RuntimeAdapter;
 use borsh::BorshDeserialize;
 use enum_map::Enum;
-use near_async::time::{Duration, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::GenesisConfig;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
@@ -14,7 +14,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
-use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::ExecutionOutcomeWithProof;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
@@ -100,7 +99,7 @@ impl StoreValidator {
             store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
-            start_time: StaticClock::instant(),
+            start_time: Clock::real().now(),
             is_archival,
             errors: vec![],
             tests: 0,
@@ -320,7 +319,7 @@ impl StoreValidator {
     }
 
     pub fn validate(&mut self) {
-        self.start_time = StaticClock::instant();
+        self.start_time = Clock::real().now();
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values
@@ -382,6 +381,7 @@ impl StoreValidator {
 
 #[cfg(test)]
 mod tests {
+    use near_async::time::Clock;
     use near_store::test_utils::create_test_store;
 
     use crate::test_utils::{KeyValueRuntime, MockEpochManager};
@@ -399,6 +399,7 @@ mod tests {
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
         let runtime = KeyValueRuntime::new(store.clone(), epoch_manager.as_ref());
         let chain = Chain::new(
+            Clock::real(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),

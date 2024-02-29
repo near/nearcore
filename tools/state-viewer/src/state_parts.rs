@@ -1,5 +1,6 @@
 use crate::epoch_info::iterate_and_filter;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Clock;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     create_bucket_readonly, create_bucket_readwrite, external_storage_location,
@@ -114,6 +115,7 @@ impl StatePartsSubCommand {
         );
         let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
         let mut chain = Chain::new_for_view_client(
+            Clock::real(),
             epoch_manager,
             shard_tracker,
             runtime,

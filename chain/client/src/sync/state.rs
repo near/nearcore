@@ -28,7 +28,7 @@ use borsh::BorshDeserialize;
 use futures::{future, FutureExt};
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::SendAsync;
-use near_async::time::{Duration, Utc};
+use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
 use near_chain::resharding::ReshardingRequest;
@@ -50,7 +50,6 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, StatePartKey,
 };
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::seq::SliceRandom;
@@ -82,17 +81,18 @@ pub enum StateSyncResult {
 }
 
 struct PendingRequestStatus {
+    clock: Clock,
     /// Number of parts that are in progress (we requested them from a given peer but didn't get the answer yet).
     missing_parts: usize,
     wait_until: Utc,
 }
 
 impl PendingRequestStatus {
-    fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: StaticClock::utc().add(timeout) }
+    fn new(clock: Clock, timeout: Duration) -> Self {
+        Self { clock: clock.clone(), missing_parts: 1, wait_until: clock.now_utc().add(timeout) }
     }
     fn expired(&self) -> bool {
-        StaticClock::utc() > self.wait_until
+        self.clock.now_utc() > self.wait_until
     }
 }
 
@@ -133,6 +133,7 @@ enum StateSyncInner {
 
 /// Helper to track state sync.
 pub struct StateSync {
+    clock: Clock,
     /// How to retrieve the state data.
     inner: StateSyncInner,
 
@@ -157,6 +158,7 @@ pub struct StateSync {
 
 impl StateSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
         timeout: Duration,
         chain_id: &str,
@@ -208,6 +210,7 @@ impl StateSync {
         };
         let (tx, rx) = channel::<StateSyncGetFileResult>();
         StateSync {
+            clock,
             inner,
             network_adapter,
             timeout,
@@ -666,6 +669,7 @@ impl StateSync {
                     parts_to_fetch(new_shard_sync_download).zip(possible_targets_sampler)
                 {
                     sent_request_part(
+                        self.clock.clone(),
                         target.clone(),
                         part_id,
                         shard_id,
@@ -741,7 +745,7 @@ impl StateSync {
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
-        let now = StaticClock::utc();
+        let now = self.clock.now_utc();
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
@@ -1308,6 +1312,7 @@ fn request_part_from_peers(
 }
 
 fn sent_request_part(
+    clock: Clock,
     peer_id: PeerId,
     part_id: u64,
     shard_id: ShardId,
@@ -1323,7 +1328,7 @@ fn sent_request_part(
         .and_modify(|pending_request| {
             pending_request.missing_parts += 1;
         })
-        .or_insert_with(|| PendingRequestStatus::new(timeout));
+        .or_insert_with(|| PendingRequestStatus::new(clock, timeout));
 }
 
 /// Works around how data requests to external storage are done.
@@ -1428,6 +1433,7 @@ mod test {
     use near_actix_test_utils::run_actix;
     use near_async::futures::ActixArbiterHandleFutureSpawner;
     use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::time::Clock;
     use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_crypto::SecretKey;
@@ -1444,6 +1450,7 @@ mod test {
     fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
+            Clock::real(),
             mock_peer_manager.as_multi_sender(),
             Duration::seconds(1),
             "chain_id",
@@ -1452,19 +1459,19 @@ mod test {
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, runtime, signer) = test_utils::setup();
+        let (mut chain, kv, runtime, signer) = test_utils::setup(Clock::real());
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
-                TestBlockBuilder::new(&prev, signer.clone())
+                TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
                     .epoch_id(prev.header().next_epoch_id().clone())
                     .next_epoch_id(EpochId { 0: *prev.hash() })
                     .next_bp_hash(*prev.header().next_bp_hash())
                     .build()
             } else {
-                TestBlockBuilder::new(&prev, signer.clone()).build()
+                TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build()
             };
 
             process_block_sync(

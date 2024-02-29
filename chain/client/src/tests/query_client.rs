@@ -7,7 +7,7 @@ use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
 use near_async::messaging::IntoMultiSender;
-use near_async::time::{Duration, Utc};
+use near_async::time::{Clock, Duration};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain_configs::DEFAULT_GC_NUM_EPOCHS_TO_KEEP;
 use near_crypto::{InMemorySigner, KeyType};
@@ -23,7 +23,6 @@ use near_o11y::testonly::init_test_logger;
 use near_o11y::WithSpanContextExt;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::merkle::PartialMerkleTree;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{BlockId, BlockReference, EpochId};
@@ -36,8 +35,13 @@ use num_rational::Ratio;
 fn query_client() {
     init_test_logger();
     run_actix(async {
-        let actor_handles =
-            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, true);
+        let actor_handles = setup_no_network(
+            Clock::real(),
+            vec!["test".parse().unwrap()],
+            "other".parse().unwrap(),
+            true,
+            true,
+        );
         let actor = actor_handles.view_client_actor.send(
             Query::new(
                 BlockReference::latest(),
@@ -63,8 +67,13 @@ fn query_client() {
 fn query_status_not_crash() {
     init_test_logger();
     run_actix(async {
-        let actor_handles =
-            setup_no_network(vec!["test".parse().unwrap()], "other".parse().unwrap(), true, false);
+        let actor_handles = setup_no_network(
+            Clock::real(),
+            vec!["test".parse().unwrap()],
+            "other".parse().unwrap(),
+            true,
+            false,
+        );
         let signer = create_test_signer("test");
         let actor = actor_handles
             .view_client_actor
@@ -95,7 +104,7 @@ fn query_status_not_crash() {
                 &signer,
                 block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                StaticClock::utc(),
+                Clock::real().now_utc(),
             );
             next_block.mut_header().get_mut().inner_lite.timestamp =
                 (next_block.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos()
@@ -140,8 +149,13 @@ fn query_status_not_crash() {
 fn test_execution_outcome_for_chunk() {
     init_test_logger();
     run_actix(async {
-        let actor_handles =
-            setup_no_network(vec!["test".parse().unwrap()], "test".parse().unwrap(), true, false);
+        let actor_handles = setup_no_network(
+            Clock::real(),
+            vec!["test".parse().unwrap()],
+            "test".parse().unwrap(),
+            true,
+            false,
+        );
         let signer = InMemorySigner::from_seed("test".parse().unwrap(), KeyType::ED25519, "test");
 
         actix::spawn(async move {
@@ -213,6 +227,7 @@ fn test_state_request() {
         let vs =
             ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
         let view_client = setup_only_view(
+            Clock::real(),
             vs,
             10000000,
             "test".parse().unwrap(),
@@ -225,7 +240,6 @@ fn test_state_request() {
             true,
             MockPeerManagerAdapter::default().into_multi_sender(),
             100,
-            Utc::now_utc(),
         );
         actix::spawn(async move {
             actix::clock::sleep(std::time::Duration::from_millis(500)).await;
@@ -280,6 +294,7 @@ fn test_garbage_collection() {
         ]]);
 
         setup_mock_all_validators(
+            Clock::real(),
             vs,
             vec![PeerInfo::random(), PeerInfo::random()],
             true,

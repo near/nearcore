@@ -155,7 +155,8 @@ impl ClientActions {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper = InfoHelper::new(telemetry_sender, &config, validator_signer.clone());
+        let info_helper =
+            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
 
         let now = clock.now_utc();
         Ok(ClientActions {

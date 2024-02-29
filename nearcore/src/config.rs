@@ -1,7 +1,7 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
-use near_async::time::Duration;
+use near_async::time::{Clock, Duration};
 use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
@@ -28,7 +28,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
@@ -506,6 +505,7 @@ impl Genesis {
     // Creates new genesis with a given set of accounts and shard layout.
     // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
+        clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
@@ -536,7 +536,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: from_timestamp(StaticClock::utc().unix_timestamp_nanos() as u64),
+            genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -565,6 +565,7 @@ impl Genesis {
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
         Self::test_with_seeds(
+            Clock::real(),
             accounts,
             num_validator_seats,
             vec![num_validator_seats],
@@ -579,6 +580,7 @@ impl Genesis {
     ) -> Self {
         let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::test_with_seeds(
+            Clock::real(),
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
@@ -593,6 +595,7 @@ impl Genesis {
     ) -> Self {
         let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::test_with_seeds(
+            Clock::real(),
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
@@ -1119,7 +1122,7 @@ pub fn init_configs(
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: from_timestamp(StaticClock::utc().unix_timestamp_nanos() as u64),
+                genesis_time: from_timestamp(Clock::real().now_utc().unix_timestamp_nanos() as u64),
                 chain_id,
                 genesis_height: 0,
                 num_block_producer_seats: NUM_BLOCK_PRODUCER_SEATS,
@@ -1182,6 +1185,7 @@ pub fn create_testnet_configs_from_seeds(
         seeds.iter().map(|s| s.parse().unwrap()).collect();
 
     let genesis = Genesis::test_with_seeds(
+        Clock::real(),
         accounts_to_add_to_genesis,
         num_validator_seats,
         get_num_seats_per_shard(num_shards, num_validator_seats),

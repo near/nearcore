@@ -8,7 +8,6 @@ use crate::hash::CryptoHash;
 use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
-use crate::static_clock::StaticClock;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
@@ -18,6 +17,7 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_async::time::Clock;
 use near_crypto::vrf::Value;
 use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
 use near_primitives_core::account::id::AccountIdRef;
@@ -381,6 +381,7 @@ impl BlockBody {
 /// let signer = EmptyValidatorSigner::default();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
 pub struct TestBlockBuilder {
+    clock: Clock,
     prev: Block,
     signer: Arc<dyn ValidatorSigner>,
     height: u64,
@@ -392,11 +393,12 @@ pub struct TestBlockBuilder {
 }
 
 impl TestBlockBuilder {
-    pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
+    pub fn new(clock: Clock, prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
         let mut tree = PartialMerkleTree::default();
         tree.insert(*prev.hash());
 
         Self {
+            clock,
             prev: prev.clone(),
             signer: signer.clone(),
             height: prev.header().height() + 1,
@@ -462,7 +464,7 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
-            StaticClock::utc(),
+            self.clock.now_utc(),
         )
     }
 }

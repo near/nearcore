@@ -525,7 +525,7 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
-    use near_async::time::Utc;
+    use near_async::time::{Clock, Utc};
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
@@ -552,12 +552,13 @@ mod tests {
             CryptoHash::hash_borsh(genesis_bps),
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
+        let b2 =
+            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

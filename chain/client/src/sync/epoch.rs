@@ -1,8 +1,7 @@
-use near_async::time::{Duration, Utc};
+use near_async::time::{Clock, Duration, Utc};
 use near_network::types::PeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::EpochId;
 use std::collections::{HashMap, HashSet};
@@ -11,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 // TODO #3488
 #[allow(dead_code)]
 pub struct EpochSync {
+    clock: Clock,
     network_adapter: PeerManagerAdapter,
     /// Datastructure to keep track of when the last request to each peer was made.
     /// Peers do not respond to Epoch Sync requests more frequently than once per a certain time
@@ -51,6 +51,7 @@ pub struct EpochSync {
 
 impl EpochSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
         genesis_epoch_id: EpochId,
         genesis_next_epoch_id: EpochId,
@@ -59,6 +60,7 @@ impl EpochSync {
         peer_timeout: Duration,
     ) -> Self {
         Self {
+            clock: clock.clone(),
             network_adapter,
             peer_to_last_request_time: HashMap::new(),
             peers_reporting_up_to_date: HashSet::new(),
@@ -66,7 +68,7 @@ impl EpochSync {
             next_epoch_id: genesis_next_epoch_id,
             next_block_producers: first_epoch_block_producers,
             requested_epoch_id: genesis_epoch_id,
-            last_request_time: StaticClock::utc(),
+            last_request_time: clock.now_utc(),
             last_request_peer_id: None,
             request_timeout,
             peer_timeout,

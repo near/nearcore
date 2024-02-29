@@ -1,12 +1,12 @@
-use near_async::time::{Duration, Instant};
+use near_async::time::{Clock, Duration, Instant};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::StaticClock;
 use std::cmp::max;
 use std::collections::HashMap;
 use tracing::info;
 
 pub struct BlockStats {
+    clock: Clock,
     hash2depth: HashMap<CryptoHash, u64>,
     num_blocks: u64,
     max_chain_length: u64,
@@ -17,12 +17,13 @@ pub struct BlockStats {
 }
 
 impl BlockStats {
-    pub(crate) fn new() -> BlockStats {
+    pub(crate) fn new(clock: Clock) -> BlockStats {
         BlockStats {
+            clock: clock.clone(),
             hash2depth: HashMap::new(),
             num_blocks: 0,
             max_chain_length: 0,
-            last_check: StaticClock::instant(),
+            last_check: clock.now(),
             max_divergence: 0,
             last_hash: None,
             parent: HashMap::new(),
@@ -71,7 +72,7 @@ impl BlockStats {
     }
 
     pub fn check_stats(&mut self, force: bool) {
-        let now = StaticClock::instant();
+        let now = self.clock.now();
         let diff = now - self.last_check;
         if !force && diff < Duration::seconds(60) {
             return;

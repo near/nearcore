@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Clock;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -235,6 +236,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,

@@ -23,7 +23,6 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::TelemetryActor;
 use rand::Rng;
@@ -163,7 +162,7 @@ pub fn random_seed_from_thread() -> RngSeed {
 /// Blocks the program until given genesis time arrives.
 fn wait_until_genesis(genesis_time: &Utc) {
     loop {
-        let duration = *genesis_time - StaticClock::utc();
+        let duration = *genesis_time - Clock::real().now_utc();
         if duration <= Duration::ZERO {
             break;
         }

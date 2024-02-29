@@ -1,3 +1,4 @@
+use near_async::time::Clock;
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
@@ -44,7 +45,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
             value: Arc::new(Mutex::new(val)),
             field_name: field_name.to_string(),
             #[cfg(feature = "metrics")]
-            last_update: near_primitives::static_clock::StaticClock::utc(),
+            last_update: Clock::real().now_utc(),
         };
         res.set_metric_value(val, 1);
         res

@@ -41,13 +41,11 @@ use near_primitives::block::{ApprovalInner, Block, GenesisId};
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::test_utils::create_test_store;
-use near_store::Store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
 use once_cell::sync::OnceCell;
@@ -66,6 +64,7 @@ pub const MAX_BLOCK_PROD_TIME: Duration = Duration::milliseconds(200);
 
 /// Sets up ClientActor and ViewClientActor viewing the same store/runtime.
 pub fn setup(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
     account_id: AccountId,
@@ -105,6 +104,7 @@ pub fn setup(
         DoomslugThresholdMode::NoApprovals
     };
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         runtime.clone(),
@@ -143,6 +143,7 @@ pub fn setup(
     let adv = crate::adversarial::Controls::default();
 
     let view_client_addr = start_view_client(
+        clock.clone(),
         Some(signer.validator_id().clone()),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -167,7 +168,7 @@ pub fn setup(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client = Client::new(
-        Clock::real(), // TODO: use fake clock
+        clock.clone(),
         config.clone(),
         chain_genesis,
         epoch_manager,
@@ -183,7 +184,7 @@ pub fn setup(
     )
     .unwrap();
     let client_actor = ClientActor::new(
-        Clock::real(), // TODO: use fake clock
+        clock,
         client,
         ctx.address().with_auto_span_context().into_multi_sender(),
         config,
@@ -201,6 +202,7 @@ pub fn setup(
 }
 
 pub fn setup_only_view(
+    clock: Clock,
     vs: ValidatorSchedule,
     epoch_length: BlockHeightDelta,
     account_id: AccountId,
@@ -213,7 +215,6 @@ pub fn setup_only_view(
     state_sync_enabled: bool,
     network_adapter: PeerManagerAdapter,
     transaction_validity_period: NumBlocks,
-    genesis_time: Utc,
 ) -> Addr<ViewClientActor> {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
@@ -221,7 +222,7 @@ pub fn setup_only_view(
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
     let runtime = KeyValueRuntime::new_with_no_gc(store, epoch_manager.as_ref(), archive);
     let chain_genesis = ChainGenesis {
-        time: genesis_time,
+        time: clock.now_utc(),
         height: 0,
         gas_limit: 1_000_000,
         min_gas_price: 100,
@@ -239,6 +240,7 @@ pub fn setup_only_view(
         DoomslugThresholdMode::NoApprovals
     };
     Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         runtime.clone(),
@@ -272,6 +274,7 @@ pub fn setup_only_view(
     let adv = crate::adversarial::Controls::default();
 
     start_view_client(
+        clock,
         Some(signer.validator_id().clone()),
         chain_genesis,
         epoch_manager,
@@ -285,6 +288,7 @@ pub fn setup_only_view(
 
 /// Sets up ClientActor and ViewClientActor with mock PeerManager.
 pub fn setup_mock(
+    clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -298,6 +302,7 @@ pub fn setup_mock(
     >,
 ) -> ActorHandlesForTesting {
     setup_mock_with_validity_period_and_no_epoch_sync(
+        clock,
         validators,
         account_id,
         skip_sync_wait,
@@ -308,6 +313,7 @@ pub fn setup_mock(
 }
 
 pub fn setup_mock_with_validity_period_and_no_epoch_sync(
+    clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -327,6 +333,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
     let client_addr = ClientActor::create(|ctx: &mut Context<ClientActor>| {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
         let (_, client, view_client_addr, shards_manager_adapter) = setup(
+            clock.clone(),
             vs,
             10,
             account_id,
@@ -339,7 +346,7 @@ pub fn setup_mock_with_validity_period_and_no_epoch_sync(
             true,
             network_adapter.as_multi_sender(),
             transaction_validity_period,
-            StaticClock::utc(),
+            clock.now_utc(),
             ctx,
             None,
         );
@@ -430,6 +437,7 @@ fn send_chunks<T, I, F>(
 ///                 the default action is performed, that might (and likely will) overwrite the
 ///                 `response` before it is sent back to the requester.
 pub fn setup_mock_all_validators(
+    clock: Clock,
     vs: ValidatorSchedule,
     key_pairs: Vec<PeerInfo>,
     skip_sync_wait: bool,
@@ -458,7 +466,7 @@ pub fn setup_mock_all_validators(
     let key_pairs = key_pairs;
 
     let addresses: Vec<_> = (0..key_pairs.len()).map(|i| hash(vec![i as u8].as_ref())).collect();
-    let genesis_time = StaticClock::utc();
+    let genesis_time = clock.now_utc();
     let mut ret = vec![];
 
     let connectors: Arc<OnceCell<Vec<ActorHandlesForTesting>>> = Default::default();
@@ -470,7 +478,7 @@ pub fn setup_mock_all_validators(
     let largest_endorsed_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let largest_skipped_height = Arc::new(RwLock::new(vec![0u64; key_pairs.len()]));
     let hash_to_height = Arc::new(RwLock::new(HashMap::new()));
-    let block_stats = Arc::new(RwLock::new(BlockStats::new()));
+    let block_stats = Arc::new(RwLock::new(BlockStats::new(clock.clone())));
 
     for (index, account_id) in validators.clone().into_iter().enumerate() {
         let vs = vs.clone();
@@ -854,6 +862,7 @@ pub fn setup_mock_all_validators(
             })
                 .start();
             let (block, client, view_client_addr, shards_manager_adapter) = setup(
+                clock.clone(),
                 vs,
                 epoch_length,
                 _account_id,
@@ -893,12 +902,14 @@ pub fn setup_mock_all_validators(
 
 /// Sets up ClientActor and ViewClientActor without network.
 pub fn setup_no_network(
+    clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
     setup_no_network_with_validity_period_and_no_epoch_sync(
+        clock,
         validators,
         account_id,
         skip_sync_wait,
@@ -908,6 +919,7 @@ pub fn setup_no_network(
 }
 
 pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
+    clock: Clock,
     validators: Vec<AccountId>,
     account_id: AccountId,
     skip_sync_wait: bool,
@@ -915,6 +927,7 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
     enable_doomslug: bool,
 ) -> ActorHandlesForTesting {
     setup_mock_with_validity_period_and_no_epoch_sync(
+        clock,
         validators,
         account_id,
         skip_sync_wait,
@@ -927,6 +940,7 @@ pub fn setup_no_network_with_validity_period_and_no_epoch_sync(
 }
 
 pub fn setup_client_with_runtime(
+    clock: Clock,
     num_validator_seats: NumSeats,
     account_id: Option<AccountId>,
     enable_doomslug: bool,
@@ -957,7 +971,7 @@ pub fn setup_client_with_runtime(
     let state_sync_adapter =
         Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let mut client = Client::new(
-        Clock::real(), // TODO: use fake clock
+        clock,
         config,
         chain_genesis,
         epoch_manager,
@@ -976,40 +990,6 @@ pub fn setup_client_with_runtime(
     client
 }
 
-pub fn setup_client(
-    store: Store,
-    vs: ValidatorSchedule,
-    account_id: Option<AccountId>,
-    enable_doomslug: bool,
-    network_adapter: PeerManagerAdapter,
-    shards_manager_adapter: SynchronousShardsManagerAdapter,
-    chain_genesis: ChainGenesis,
-    rng_seed: RngSeed,
-    archive: bool,
-    save_trie_changes: bool,
-) -> Client {
-    let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager =
-        MockEpochManager::new_with_validators(store.clone(), vs, chain_genesis.epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    setup_client_with_runtime(
-        num_validator_seats,
-        account_id,
-        enable_doomslug,
-        network_adapter,
-        shards_manager_adapter,
-        chain_genesis,
-        epoch_manager,
-        shard_tracker,
-        runtime,
-        rng_seed,
-        archive,
-        save_trie_changes,
-        None,
-    )
-}
-
 pub fn setup_synchronous_shards_manager(
     clock: Clock,
     account_id: Option<AccountId>,
@@ -1026,6 +1006,7 @@ pub fn setup_synchronous_shards_manager(
     // TODO(#8324): This should just be refactored so that we can construct Chain first
     // before anything else.
     let chain = Chain::new(
+        clock.clone(),
         epoch_manager.clone(),
         shard_tracker.clone(),
         runtime,
