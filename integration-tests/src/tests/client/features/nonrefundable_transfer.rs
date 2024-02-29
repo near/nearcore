@@ -7,6 +7,7 @@
 //! NEP: https://github.com/near/NEPs/pull/491
 
 use near_chain_configs::Genesis;
+use near_chain_configs::NEAR_BASE;
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::errors::{
@@ -24,7 +25,6 @@ use near_primitives::views::{
 };
 use near_primitives_core::account::{AccessKey, AccessKeyPermission};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use testlib::fees_utils::FeeHelper;
 
 use crate::node::RuntimeNode;

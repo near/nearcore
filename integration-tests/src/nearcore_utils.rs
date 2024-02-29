@@ -1,6 +1,7 @@
 use crate::genesis_helpers::genesis_block;
 use actix::Addr;
 use near_chain::Block;
+use near_chain_configs::test_utils::TESTING_INIT_STAKE;
 use near_chain_configs::Genesis;
 use near_client::{BlockResponse, ClientActor};
 use near_network::tcp;
@@ -15,7 +16,6 @@ use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{BlockHeightDelta, EpochId};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::TESTING_INIT_STAKE;
 use nearcore::{load_test_config, NearConfig};
 
 // This assumes that there is no height skipped. Otherwise epoch hash calculation will be wrong.

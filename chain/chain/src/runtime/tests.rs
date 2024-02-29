@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-use near_chain_configs::test_utils::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, RngSeed};
@@ -18,6 +18,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use near_chain_configs::{
     default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    NEAR_BASE,
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;

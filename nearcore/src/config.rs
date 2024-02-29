@@ -2,6 +2,10 @@ use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
 use near_chain::runtime::NightshadeRuntime;
+use near_chain_configs::test_utils::{
+    add_account_with_key, add_protocol_account, random_chain_id, FAST_EPOCH_LENGTH,
+    TESTING_INIT_BALANCE, TESTING_INIT_STAKE,
+};
 use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
@@ -14,6 +18,11 @@ use near_chain_configs::{
     default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
     ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
     GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig, StateSyncConfig,
+    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH,
+    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
+    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
+    TRANSACTION_VALIDITY_PERIOD,
 };
 use near_config_utils::{ValidationError, ValidationErrors};
 use near_crypto::{InMemorySigner, KeyFile, KeyType, PublicKey, Signer};
@@ -23,19 +32,15 @@ use near_jsonrpc::RpcConfig;
 use near_network::config::NetworkConfig;
 use near_network::tcp;
 use near_o11y::log_config::LogConfig;
-use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
-#[cfg(test)]
-use near_primitives::shard_layout::account_id_to_shard_id;
 use near_primitives::shard_layout::ShardLayout;
-use near_primitives::state_record::StateRecord;
 use near_primitives::static_clock::StaticClock;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{
-    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats,
-    NumShards, ShardId,
+    AccountId, AccountInfo, Balance, BlockHeight, BlockHeightDelta, Gas, NumSeats, NumShards,
+    ShardId,
 };
-use near_primitives::utils::{generate_random_string, get_num_seats_per_shard};
+use near_primitives::utils::get_num_seats_per_shard;
 use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use near_primitives::version::PROTOCOL_VERSION;
 #[cfg(feature = "rosetta_rpc")]
@@ -51,27 +56,13 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(test)]
-use tempfile::tempdir;
 use tracing::{info, warn};
-
-/// One NEAR, divisible by 10^24.
-pub const NEAR_BASE: Balance = 1_000_000_000_000_000_000_000_000;
-
-/// Initial balance used in tests.
-pub const TESTING_INIT_BALANCE: Balance = 1_000_000_000 * NEAR_BASE;
-
-/// Validator's stake used in tests.
-pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 
 /// Millinear, 1/1000 of NEAR.
 pub const MILLI_NEAR: Balance = NEAR_BASE / 1000;
 
 /// Block production tracking delay.
 pub const BLOCK_PRODUCTION_TRACKING_DELAY: u64 = 100;
-
-/// Expected block production time in ms.
-pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
 
 /// Mainnet and testnet validators are configured with a different value due to
 /// performance values.
@@ -101,64 +92,18 @@ const CATCHUP_STEP_PERIOD: u64 = 100;
 /// Time between checking to re-request chunks.
 const CHUNK_REQUEST_RETRY_PERIOD: u64 = 400;
 
-/// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
-
-/// Criterion for kicking out block producers.
-pub const BLOCK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
-
-/// Criterion for kicking out chunk producers.
-pub const CHUNK_PRODUCER_KICKOUT_THRESHOLD: u8 = 90;
-
 /// Fast mode constants for testing/developing.
 pub const FAST_MIN_BLOCK_PRODUCTION_DELAY: u64 = 120;
 pub const FAST_MAX_BLOCK_PRODUCTION_DELAY: u64 = 500;
-pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
-
-/// Expected number of blocks per year
-pub const NUM_BLOCKS_PER_YEAR: u64 = 365 * 24 * 60 * 60;
-
-/// Initial gas limit.
-pub const INITIAL_GAS_LIMIT: Gas = 1_000_000_000_000_000;
-
-/// Initial and minimum gas price.
-pub const MIN_GAS_PRICE: Balance = 100_000_000;
-
-/// Protocol treasury account
-pub const PROTOCOL_TREASURY_ACCOUNT: &str = "near";
-
-/// Fishermen stake threshold.
-pub const FISHERMEN_THRESHOLD: Balance = 10 * NEAR_BASE;
-
-/// Number of blocks for which a given transaction is valid
-pub const TRANSACTION_VALIDITY_PERIOD: NumBlocks = 100;
-
-/// Number of seats for block producers
-pub const NUM_BLOCK_PRODUCER_SEATS: NumSeats = 50;
 
 /// The minimum stake required for staking is last seat price divided by this number.
 pub const MINIMUM_STAKE_DIVISOR: u64 = 10;
 
 pub const CONFIG_FILENAME: &str = "config.json";
-pub const GENESIS_CONFIG_FILENAME: &str = "genesis.json";
 pub const NODE_KEY_FILE: &str = "node_key.json";
 pub const VALIDATOR_KEY_FILE: &str = "validator_key.json";
 
 pub const NETWORK_TELEMETRY_URL: &str = "https://explorer.{}.near.org/api/nodes";
-
-/// The rate at which the gas price can be adjusted (alpha in the formula).
-/// The formula is
-/// gas_price_t = gas_price_{t-1} * (1 + (gas_used/gas_limit - 1/2) * alpha))
-pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
-
-/// Protocol treasury reward
-pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
-
-/// Maximum inflation rate per year
-pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);
-
-/// Protocol upgrade stake threshold.
-pub const PROTOCOL_UPGRADE_STAKE_THRESHOLD: Rational32 = Rational32::new_raw(4, 5);
 
 fn default_doomslug_step_period() -> Duration {
     Duration::from_millis(100)
@@ -686,45 +631,6 @@ impl NightshadeRuntime {
     }
 }
 
-fn add_protocol_account(records: &mut Vec<StateRecord>) {
-    let signer = InMemorySigner::from_seed(
-        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        KeyType::ED25519,
-        PROTOCOL_TREASURY_ACCOUNT,
-    );
-    add_account_with_key(
-        records,
-        PROTOCOL_TREASURY_ACCOUNT.parse().unwrap(),
-        &signer.public_key,
-        TESTING_INIT_BALANCE,
-        0,
-        CryptoHash::default(),
-    );
-}
-
-fn random_chain_id() -> String {
-    format!("test-chain-{}", generate_random_string(5))
-}
-
-fn add_account_with_key(
-    records: &mut Vec<StateRecord>,
-    account_id: AccountId,
-    public_key: &PublicKey,
-    amount: u128,
-    staked: u128,
-    code_hash: CryptoHash,
-) {
-    records.push(StateRecord::Account {
-        account_id: account_id.clone(),
-        account: Account::new(amount, staked, 0, code_hash, 0, PROTOCOL_VERSION),
-    });
-    records.push(StateRecord::AccessKey {
-        account_id,
-        public_key: public_key.clone(),
-        access_key: AccessKey::full_access(),
-    });
-}
-
 /// Generates or loads a signer key from given file.
 ///
 /// If the file already exists, loads the file (panicking if the file is
@@ -771,63 +677,6 @@ fn generate_or_load_key(
     } else {
         Ok(None)
     }
-}
-
-#[test]
-fn test_generate_or_load_key() {
-    let tmp = tempfile::tempdir().unwrap();
-    let home_dir = tmp.path();
-
-    let gen = move |filename: &str, account: &str, seed: &str| {
-        generate_or_load_key(
-            home_dir,
-            filename,
-            if account.is_empty() { None } else { Some(account.parse().unwrap()) },
-            if seed.is_empty() { None } else { Some(seed) },
-        )
-    };
-
-    let test_ok = |filename: &str, account: &str, seed: &str| {
-        let result = gen(filename, account, seed);
-        let key = result.unwrap().unwrap();
-        assert!(home_dir.join("key").exists());
-        if !account.is_empty() {
-            assert_eq!(account, key.account_id.as_str());
-        }
-        key
-    };
-
-    let test_err = |filename: &str, account: &str, seed: &str| {
-        let result = gen(filename, account, seed);
-        assert!(result.is_err());
-    };
-
-    // account_id == None → do nothing, return None
-    assert!(generate_or_load_key(home_dir, "key", None, None).unwrap().is_none());
-    assert!(!home_dir.join("key").exists());
-
-    // account_id == Some, file doesn’t exist → create new key
-    let key = test_ok("key", "fred", "");
-
-    // file exists → load key, compare account if given
-    assert!(key == test_ok("key", "", ""));
-    assert!(key == test_ok("key", "fred", ""));
-    test_err("key", "barney", "");
-
-    // test_seed == Some → the same key is generated
-    let k1 = test_ok("k1", "fred", "foo");
-    let k2 = test_ok("k2", "barney", "foo");
-    let k3 = test_ok("k3", "fred", "bar");
-
-    assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
-    assert!(k1 != k3);
-
-    // file contains invalid JSON -> should return an error
-    {
-        let mut file = std::fs::File::create(&home_dir.join("bad_key")).unwrap();
-        writeln!(file, "not JSON").unwrap();
-    }
-    test_err("bad_key", "fred", "");
 }
 
 /// Checks that validator and node keys exist.
@@ -1431,212 +1280,288 @@ pub fn load_test_config(seed: &str, addr: tcp::ListenerAddr, genesis: Genesis) -
     NearConfig::new(config, genesis, signer.into(), validator_signer).unwrap()
 }
 
-#[test]
-fn test_init_config_localnet() {
-    // Check that we can initialize the config with multiple shards.
-    let temp_dir = tempdir().unwrap();
-    init_configs(
-        &temp_dir.path(),
-        Some("localnet".to_string()),
-        None,
-        Some("seed1"),
-        3,
-        false,
-        None,
-        false,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let genesis =
-        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::UnsafeFast)
-            .unwrap();
-    assert_eq!(genesis.config.chain_id, "localnet");
-    assert_eq!(genesis.config.shard_layout.shard_ids().count(), 3);
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("foobar.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        0
-    );
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("shard1.test.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        1
-    );
-    assert_eq!(
-        account_id_to_shard_id(
-            &AccountId::from_str("shard2.test.near").unwrap(),
-            &genesis.config.shard_layout
-        ),
-        2
-    );
-}
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::path::Path;
+    use std::str::FromStr;
 
-#[test]
-// Tests that `init_configs()` works if both config and genesis file exists, but the node key and validator key files don't exist.
-// Test does the following:
-// * Initialize all config and key files
-// * Check that the key files exist
-// * Remove the key files
-// * Run the initialization again
-// * Check that the key files got created
-fn test_init_config_localnet_keep_config_create_node_key() {
-    let temp_dir = tempdir().unwrap();
-    // Initialize all config and key files.
-    init_configs(
-        &temp_dir.path(),
-        Some("localnet".to_string()),
-        Some(AccountId::from_str("account.near").unwrap()),
-        Some("seed1"),
-        3,
-        false,
-        None,
-        false,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    use near_chain_configs::{GCConfig, Genesis, GenesisValidationMode};
+    use near_crypto::InMemorySigner;
+    use near_primitives::shard_layout::account_id_to_shard_id;
+    use near_primitives::types::{AccountId, NumShards};
+    use tempfile::tempdir;
 
-    // Check that the key files exist.
-    let _genesis =
-        Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::Full)
-            .unwrap();
-    let config = Config::from_file(&temp_dir.path().join(CONFIG_FILENAME)).unwrap();
-    let node_key_file = temp_dir.path().join(config.node_key_file);
-    let validator_key_file = temp_dir.path().join(config.validator_key_file);
-    assert!(node_key_file.exists());
-    assert!(validator_key_file.exists());
+    use crate::config::{
+        create_testnet_configs, generate_or_load_key, init_configs, Config, CONFIG_FILENAME,
+    };
 
-    // Remove the key files.
-    std::fs::remove_file(&node_key_file).unwrap();
-    std::fs::remove_file(&validator_key_file).unwrap();
-
-    // Run the initialization again.
-    init_configs(
-        &temp_dir.path(),
-        Some("localnet".to_string()),
-        Some(AccountId::from_str("account.near").unwrap()),
-        Some("seed1"),
-        3,
-        false,
-        None,
-        false,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-
-    // Check that the key files got created.
-    let _node_signer = InMemorySigner::from_file(&node_key_file).unwrap();
-    let _validator_signer = InMemorySigner::from_file(&validator_key_file).unwrap();
-}
-
-/// Tests that loading a config.json file works and results in values being
-/// correctly parsed and defaults being applied correctly applied.
-/// We skip config validation since we only care about Config being correctly loaded from file.
-#[test]
-fn test_config_from_file_skip_validation() {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    for (has_gc, path) in
-        [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
-    {
-        let path = base.join(path);
-        let data = std::fs::read(path).unwrap();
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        tmp.as_file().write_all(&data).unwrap();
-
-        let config = Config::from_file_skip_validation(&tmp.into_temp_path()).unwrap();
-
-        // TODO(mina86): We might want to add more checks.  Looking at all
-        // values is probably not worth it but there may be some other defaults
-        // we want to ensure that they happen.
-        let want_gc = if has_gc {
-            GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
-        } else {
-            GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
-        };
-        assert_eq!(want_gc, config.gc);
-
+    #[test]
+    fn test_init_config_localnet() {
+        // Check that we can initialize the config with multiple shards.
+        let temp_dir = tempdir().unwrap();
+        init_configs(
+            &temp_dir.path(),
+            Some("localnet".to_string()),
+            None,
+            Some("seed1"),
+            3,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let genesis = Genesis::from_file(
+            temp_dir.path().join("genesis.json"),
+            GenesisValidationMode::UnsafeFast,
+        )
+        .unwrap();
+        assert_eq!(genesis.config.chain_id, "localnet");
+        assert_eq!(genesis.config.shard_layout.shard_ids().count(), 3);
         assert_eq!(
-            vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
-            config.telemetry.endpoints
+            account_id_to_shard_id(
+                &AccountId::from_str("foobar.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            0
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard1.test.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            1
+        );
+        assert_eq!(
+            account_id_to_shard_id(
+                &AccountId::from_str("shard2.test.near").unwrap(),
+                &genesis.config.shard_layout
+            ),
+            2
         );
     }
-}
 
-#[test]
-fn test_create_testnet_configs() {
-    let num_shards = 4;
-    let num_validator_seats = 4;
-    let num_non_validator_seats = 8;
-    let prefix = "node";
-    let local_ports = true;
+    #[test]
+    // Tests that `init_configs()` works if both config and genesis file exists, but the node key and validator key files don't exist.
+    // Test does the following:
+    // * Initialize all config and key files
+    // * Check that the key files exist
+    // * Remove the key files
+    // * Run the initialization again
+    // * Check that the key files got created
+    fn test_init_config_localnet_keep_config_create_node_key() {
+        let temp_dir = tempdir().unwrap();
+        // Initialize all config and key files.
+        init_configs(
+            &temp_dir.path(),
+            Some("localnet".to_string()),
+            Some(AccountId::from_str("account.near").unwrap()),
+            Some("seed1"),
+            3,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-    // Set all supported options to true and verify config and genesis.
+        // Check that the key files exist.
+        let _genesis =
+            Genesis::from_file(temp_dir.path().join("genesis.json"), GenesisValidationMode::Full)
+                .unwrap();
+        let config = Config::from_file(&temp_dir.path().join(CONFIG_FILENAME)).unwrap();
+        let node_key_file = temp_dir.path().join(config.node_key_file);
+        let validator_key_file = temp_dir.path().join(config.validator_key_file);
+        assert!(node_key_file.exists());
+        assert!(validator_key_file.exists());
 
-    let archive = true;
-    let tracked_shards: Vec<u64> = vec![0, 1, 3];
+        // Remove the key files.
+        std::fs::remove_file(&node_key_file).unwrap();
+        std::fs::remove_file(&validator_key_file).unwrap();
 
-    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-        create_testnet_configs(
-            num_shards,
-            num_validator_seats,
-            num_non_validator_seats,
-            prefix,
-            local_ports,
-            archive,
-            tracked_shards.clone(),
-        );
+        // Run the initialization again.
+        init_configs(
+            &temp_dir.path(),
+            Some("localnet".to_string()),
+            Some(AccountId::from_str("account.near").unwrap()),
+            Some("seed1"),
+            3,
+            false,
+            None,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
-    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
-
-    for config in configs {
-        assert_eq!(config.archive, true);
-        assert_eq!(config.tracked_shards, tracked_shards);
+        // Check that the key files got created.
+        let _node_signer = InMemorySigner::from_file(&node_key_file).unwrap();
+        let _validator_signer = InMemorySigner::from_file(&validator_key_file).unwrap();
     }
 
-    assert_eq!(genesis.config.validators.len(), num_shards as usize);
-    assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    /// Tests that loading a config.json file works and results in values being
+    /// correctly parsed and defaults being applied correctly applied.
+    /// We skip config validation since we only care about Config being correctly loaded from file.
+    #[test]
+    fn test_config_from_file_skip_validation() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"));
 
-    // Set all supported options to false and verify config and genesis.
+        for (has_gc, path) in
+            [(true, "res/example-config-gc.json"), (false, "res/example-config-no-gc.json")]
+        {
+            let path = base.join(path);
+            let data = std::fs::read(path).unwrap();
+            let tmp = tempfile::NamedTempFile::new().unwrap();
+            tmp.as_file().write_all(&data).unwrap();
 
-    let archive = false;
-    let tracked_shards: Vec<u64> = vec![];
+            let config = Config::from_file_skip_validation(&tmp.into_temp_path()).unwrap();
 
-    let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
-        create_testnet_configs(
-            num_shards,
-            num_validator_seats,
-            num_non_validator_seats,
-            prefix,
-            local_ports,
-            archive,
-            tracked_shards.clone(),
-        );
-    assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+            // TODO(mina86): We might want to add more checks.  Looking at all
+            // values is probably not worth it but there may be some other defaults
+            // we want to ensure that they happen.
+            let want_gc = if has_gc {
+                GCConfig { gc_blocks_limit: 42, gc_fork_clean_step: 420, gc_num_epochs_to_keep: 24 }
+            } else {
+                GCConfig { gc_blocks_limit: 2, gc_fork_clean_step: 100, gc_num_epochs_to_keep: 5 }
+            };
+            assert_eq!(want_gc, config.gc);
 
-    for config in configs {
-        assert_eq!(config.archive, false);
-        assert_eq!(config.tracked_shards, tracked_shards);
+            assert_eq!(
+                vec!["https://explorer.mainnet.near.org/api/nodes".to_string()],
+                config.telemetry.endpoints
+            );
+        }
     }
 
-    assert_eq!(genesis.config.validators.len() as u64, num_shards);
-    assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    #[test]
+    fn test_create_testnet_configs() {
+        let num_shards = 4;
+        let num_validator_seats = 4;
+        let num_non_validator_seats = 8;
+        let prefix = "node";
+        let local_ports = true;
+
+        // Set all supported options to true and verify config and genesis.
+
+        let archive = true;
+        let tracked_shards: Vec<u64> = vec![0, 1, 3];
+
+        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+            create_testnet_configs(
+                num_shards,
+                num_validator_seats,
+                num_non_validator_seats,
+                prefix,
+                local_ports,
+                archive,
+                tracked_shards.clone(),
+            );
+
+        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+        for config in configs {
+            assert_eq!(config.archive, true);
+            assert_eq!(config.tracked_shards, tracked_shards);
+        }
+
+        assert_eq!(genesis.config.validators.len(), num_shards as usize);
+        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+
+        // Set all supported options to false and verify config and genesis.
+
+        let archive = false;
+        let tracked_shards: Vec<u64> = vec![];
+
+        let (configs, _validator_signers, _network_signers, genesis, _shard_keys) =
+            create_testnet_configs(
+                num_shards,
+                num_validator_seats,
+                num_non_validator_seats,
+                prefix,
+                local_ports,
+                archive,
+                tracked_shards.clone(),
+            );
+        assert_eq!(configs.len() as u64, num_validator_seats + num_non_validator_seats);
+
+        for config in configs {
+            assert_eq!(config.archive, false);
+            assert_eq!(config.tracked_shards, tracked_shards);
+        }
+
+        assert_eq!(genesis.config.validators.len() as u64, num_shards);
+        assert_eq!(genesis.config.shard_layout.shard_ids().count() as NumShards, num_shards);
+    }
+
+    #[test]
+    fn test_generate_or_load_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home_dir = tmp.path();
+
+        let gen = move |filename: &str, account: &str, seed: &str| {
+            generate_or_load_key(
+                home_dir,
+                filename,
+                if account.is_empty() { None } else { Some(account.parse().unwrap()) },
+                if seed.is_empty() { None } else { Some(seed) },
+            )
+        };
+
+        let test_ok = |filename: &str, account: &str, seed: &str| {
+            let result = gen(filename, account, seed);
+            let key = result.unwrap().unwrap();
+            assert!(home_dir.join("key").exists());
+            if !account.is_empty() {
+                assert_eq!(account, key.account_id.as_str());
+            }
+            key
+        };
+
+        let test_err = |filename: &str, account: &str, seed: &str| {
+            let result = gen(filename, account, seed);
+            assert!(result.is_err());
+        };
+
+        // account_id == None → do nothing, return None
+        assert!(generate_or_load_key(home_dir, "key", None, None).unwrap().is_none());
+        assert!(!home_dir.join("key").exists());
+
+        // account_id == Some, file doesn’t exist → create new key
+        let key = test_ok("key", "fred", "");
+
+        // file exists → load key, compare account if given
+        assert!(key == test_ok("key", "", ""));
+        assert!(key == test_ok("key", "fred", ""));
+        test_err("key", "barney", "");
+
+        // test_seed == Some → the same key is generated
+        let k1 = test_ok("k1", "fred", "foo");
+        let k2 = test_ok("k2", "barney", "foo");
+        let k3 = test_ok("k3", "fred", "bar");
+
+        assert!(k1.public_key == k2.public_key && k1.secret_key == k2.secret_key);
+        assert!(k1 != k3);
+
+        // file contains invalid JSON -> should return an error
+        {
+            let mut file = std::fs::File::create(&home_dir.join("bad_key")).unwrap();
+            writeln!(file, "not JSON").unwrap();
+        }
+        test_err("bad_key", "fred", "");
+    }
 }

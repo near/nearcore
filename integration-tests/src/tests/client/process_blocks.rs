@@ -15,7 +15,8 @@ use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
     create_chunk_on_height, setup_mock, setup_mock_all_validators, TestEnv,
 };
@@ -70,9 +71,7 @@ use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
-use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
