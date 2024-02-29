@@ -69,6 +69,7 @@ impl FlatStorageManager {
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
+        tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
         let original_value =
             flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);
@@ -164,10 +165,9 @@ impl FlatStorageManager {
             // If flat storage exists, we add a block to it.
             flat_storage.add_delta(delta).map_err(|e| StorageError::from(e))?
         } else {
-            let shard_id = shard_uid.shard_id();
             // Otherwise, save delta to disk so it will be used for flat storage creation later.
-            debug!(target: "store", %shard_id, "Add delta for flat storage creation");
-            let mut store_update = self.0.store.store_update();
+            debug!(target: "store", %shard_uid, "Add delta for flat storage creation");
+            let mut store_update: StoreUpdate = self.0.store.store_update();
             store_helper::set_delta(&mut store_update, shard_uid, &delta);
             store_update
         };
