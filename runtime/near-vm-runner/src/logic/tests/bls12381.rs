@@ -27,6 +27,8 @@ mod tests {
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
+    const MAX_N_PAIRING: usize = 105;
+
     macro_rules! run_bls12381_fn {
         ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
             let mut logic_builder = VMLogicBuilder::default();
@@ -56,6 +58,10 @@ mod tests {
 
     impl G1Operations {
         const POINT_LEN: usize = 96;
+        const MAX_N_SUM: usize = 675;
+        const MAX_N_MULTIEXP: usize = 500;
+        const MAX_N_MAP: usize = 500;
+        const MAX_N_DECOMPRESS: usize = 500;
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP {
             loop {
@@ -84,6 +90,10 @@ mod tests {
 
     impl G2Operations {
         const POINT_LEN: usize = 192;
+        const MAX_N_SUM: usize = 338;
+        const MAX_N_MULTIEXP: usize = 250;
+        const MAX_N_MAP: usize = 250;
+        const MAX_N_DECOMPRESS: usize = 250;
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP2 {
             loop {
@@ -329,6 +339,10 @@ mod tests {
         zero1
     }
 
+    fn get_n(i: usize, max_n: usize) -> usize {
+        if i == 0 { max_n } else { (thread_rng().next_u32() as usize) % max_n }
+    }
+
     fn pairing_check(p1s: Vec<ECP>, p2s: Vec<ECP2>) -> u64 {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
@@ -357,13 +371,11 @@ mod tests {
 
     macro_rules! test_bls12381_sum {
         (
-            $GOperations:ident,
+            $GOp:ident,
             $serialize_uncompressed:ident,
             $deserialize:ident,
             $subgroup_check:ident,
-            $MAX_N:expr,
             $ECP:ident,
-            $MAX_N_MULTIEXP:expr,
             $bls12381_sum:ident,
             $check_sum:ident,
             $test_bls12381_sum_edge_cases:ident,
@@ -377,38 +389,38 @@ mod tests {
             #[test]
             fn $test_bls12381_sum_edge_cases() {
                 // 0 + 0
-                let zero = get_zero($GOperations::POINT_LEN);
-                assert_eq!(zero.to_vec(), $GOperations::get_sum(0, &zero, 0, &zero));
+                let zero = get_zero($GOp::POINT_LEN);
+                assert_eq!(zero.to_vec(), $GOp::get_sum(0, &zero, 0, &zero));
 
                 // 0 + P = P + 0 = P
                 let mut rnd = get_rnd();
                 for _ in 0..10 {
-                    let p = $GOperations::get_random_g_point(&mut rnd);
+                    let p = $GOp::get_random_g_point(&mut rnd);
                     let p_ser = $serialize_uncompressed(&p);
-                    assert_eq!(p_ser.to_vec(), $GOperations::get_sum(0, &zero, 0, &p_ser));
-                    assert_eq!(p_ser.to_vec(), $GOperations::get_sum(0, &p_ser, 0, &zero));
+                    assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &zero, 0, &p_ser));
+                    assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &zero));
                 }
 
                 // P + P
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
                 for _ in 0..10 {
-                    let mut p = $GOperations::get_random_curve_point(&mut rnd);
+                    let mut p = $GOp::get_random_curve_point(&mut rnd);
                     let p_ser = $serialize_uncompressed(&p);
 
                     let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
                     let pmul2_ser = $serialize_uncompressed(&pmul2);
-                    assert_eq!(pmul2_ser.to_vec(), $GOperations::get_sum(0, &p_ser, 0, &p_ser));
+                    assert_eq!(pmul2_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_ser));
 
                     p.neg();
                     let p_neg_ser = $serialize_uncompressed(&p);
 
-                    assert_eq!(zero.to_vec(), $GOperations::get_sum(0, &p_neg_ser, 0, &p_ser));
-                    assert_eq!(zero.to_vec(), $GOperations::get_sum(0, &p_ser, 0, &p_neg_ser));
+                    assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_neg_ser, 0, &p_ser));
+                    assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_neg_ser));
 
                     pmul2.neg();
                     let pmul2_neg = $serialize_uncompressed(&pmul2);
-                    assert_eq!(p_neg_ser.to_vec(), $GOperations::get_sum(0, &p_ser, 0, &pmul2_neg));
+                    assert_eq!(p_neg_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &pmul2_neg));
                 }
             }
 
@@ -417,8 +429,8 @@ mod tests {
                 let q_ser = $serialize_uncompressed(&q);
 
                 // P + Q = Q + P
-                let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
-                let got2 = $GOperations::get_sum(0, &q_ser, 0, &p_ser);
+                let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
+                let got2 = $GOp::get_sum(0, &q_ser, 0, &p_ser);
                 assert_eq!(got1, got2);
 
                 // compare with library results
@@ -427,7 +439,7 @@ mod tests {
 
                 assert_eq!(library_sum.to_vec(), got1);
 
-                let p_inv = $GOperations::get_inverse(&library_sum);
+                let p_inv = $GOp::get_inverse(&library_sum);
                 p.neg();
                 let p_neg_ser = $serialize_uncompressed(&p);
 
@@ -439,20 +451,20 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for _ in 0..100 {
-                    let p = $GOperations::get_random_curve_point(&mut rnd);
-                    let q = $GOperations::get_random_curve_point(&mut rnd);
+                    let p = $GOp::get_random_curve_point(&mut rnd);
+                    let q = $GOp::get_random_curve_point(&mut rnd);
 
                     $check_sum(p, q);
                 }
 
                 for _ in 0..100 {
-                    let p = $GOperations::get_random_g_point(&mut rnd);
-                    let q = $GOperations::get_random_g_point(&mut rnd);
+                    let p = $GOp::get_random_g_point(&mut rnd);
+                    let q = $GOp::get_random_g_point(&mut rnd);
 
                     let p_ser = $serialize_uncompressed(&p);
                     let q_ser = $serialize_uncompressed(&q);
 
-                    let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
+                    let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
 
                     let result_point = $deserialize(&got1).unwrap();
                     assert!($subgroup_check(&result_point));
@@ -465,8 +477,8 @@ mod tests {
 
                 //points not from G
                 for _ in 0..100 {
-                    let p = $GOperations::get_random_not_g_curve_point(&mut rnd);
-                    let q = $GOperations::get_random_not_g_curve_point(&mut rnd);
+                    let p = $GOp::get_random_not_g_curve_point(&mut rnd);
+                    let q = $GOp::get_random_not_g_curve_point(&mut rnd);
 
                     $check_sum(p, q);
                 }
@@ -476,39 +488,39 @@ mod tests {
             fn $test_bls12381_sum_inverse() {
                 let mut rnd = get_rnd();
 
-                let mut zero: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
+                let mut zero: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
                 zero[0] = 64;
 
                 for _ in 0..10 {
-                    let p = $GOperations::get_random_curve_point(&mut rnd);
+                    let p = $GOp::get_random_curve_point(&mut rnd);
                     let p_ser = $serialize_uncompressed(&p);
 
                     // P - P = - P + P = 0
-                    let got1 = $GOperations::get_sum(1, &p_ser, 0, &p_ser);
-                    let got2 = $GOperations::get_sum(0, &p_ser, 1, &p_ser);
+                    let got1 = $GOp::get_sum(1, &p_ser, 0, &p_ser);
+                    let got2 = $GOp::get_sum(0, &p_ser, 1, &p_ser);
                     assert_eq!(got1, got2);
                     assert_eq!(got1, zero.to_vec());
 
                     // -(-P)
-                    let p_inv = $GOperations::get_inverse(&p_ser);
-                    let p_inv_inv = $GOperations::get_inverse(p_inv.as_slice());
+                    let p_inv = $GOp::get_inverse(&p_ser);
+                    let p_inv_inv = $GOp::get_inverse(p_inv.as_slice());
 
                     assert_eq!(p_ser.to_vec(), p_inv_inv);
                 }
 
                 // P in G => -P in G
                 for _ in 0..10 {
-                    let p = $GOperations::get_random_g_point(&mut rnd);
+                    let p = $GOp::get_random_g_point(&mut rnd);
                     let p_ser = $serialize_uncompressed(&p);
 
-                    let p_inv = $GOperations::get_inverse(&p_ser);
+                    let p_inv = $GOp::get_inverse(&p_ser);
 
                     let result_point = $deserialize(&p_inv).unwrap();
                     assert!($subgroup_check(&result_point));
                 }
 
                 // -0
-                let zero_inv = $GOperations::get_inverse(&zero);
+                let zero_inv = $GOp::get_inverse(&zero);
                 assert_eq!(zero.to_vec(), zero_inv);
             }
 
@@ -516,30 +528,27 @@ mod tests {
             fn $test_bls12381_sum_many_points() {
                 let mut rnd = get_rnd();
 
-                let mut zero: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
+                let mut zero: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
                 zero[0] = 64;
 
                 //empty input
-                let res = $GOperations::get_sum_many_points(&vec![]);
+                let res = $GOp::get_sum_many_points(&vec![]);
                 assert_eq!(zero.to_vec(), res);
 
-                for _ in 0..100 {
-                    let n: usize = (thread_rng().next_u32() as usize) % $MAX_N;
-                    $GOperations::check_multipoint_sum(n, &mut rnd);
+                for i in 0..100 {
+                    $GOp::check_multipoint_sum(get_n(i, $GOp::MAX_N_SUM), &mut rnd);
                 }
+                $GOp::check_multipoint_sum(1, &mut rnd);
 
-                $GOperations::check_multipoint_sum($MAX_N - 1, &mut rnd);
-                $GOperations::check_multipoint_sum(1, &mut rnd);
-
-                for _ in 0..10 {
-                    let n: usize = (thread_rng().next_u32() as usize) % $MAX_N;
+                for i in 0..10 {
+                    let n = get_n(i, $GOp::MAX_N_SUM);
                     let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
                         points
-                            .push((rnd.getbyte() % 2, $GOperations::get_random_g_point(&mut rnd)));
+                            .push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
                     }
 
-                    let res1 = $GOperations::get_sum_many_points(&points);
+                    let res1 = $GOp::get_sum_many_points(&points);
                     let sum = $deserialize(&res1).unwrap();
 
                     assert!($subgroup_check(&sum));
@@ -550,30 +559,30 @@ mod tests {
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
                 let mut rnd = get_rnd();
 
-                for _ in 0..10 {
-                    let n: usize = (thread_rng().next_u32() as usize) % $MAX_N_MULTIEXP;
+                for i in 0..10 {
+                    let n = get_n(i, $GOp::MAX_N_MULTIEXP);
 
                     let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
                         points
-                            .push((rnd.getbyte() % 2, $GOperations::get_random_g_point(&mut rnd)));
+                            .push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
                     }
 
-                    let res1 = $GOperations::get_sum_many_points(&points);
-                    let res2 = $GOperations::get_multiexp_many_points(&points);
+                    let res1 = $GOp::get_sum_many_points(&points);
+                    let res2 = $GOp::get_multiexp_many_points(&points);
                     assert_eq!(res1, res2);
                 }
             }
 
             #[test]
             fn $test_bls12381_sum_incorrect_input() {
-                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOperations::get_incorrect_points()
+                let mut test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
                     .into_iter()
                     .map(|test| vec![vec![0u8], test])
                     .collect();
 
                 // Incorrect sign encoding
-                test_vecs.push(vec![vec![2u8], get_zero($GOperations::POINT_LEN)]);
+                test_vecs.push(vec![vec![2u8], get_zero($GOp::POINT_LEN)]);
 
                 for i in 0..test_vecs.len() {
                     run_bls12381_fn!($bls12381_sum, test_vecs[i], 1);
@@ -587,9 +596,7 @@ mod tests {
         serialize_uncompressed_g1,
         deserialize_g1,
         subgroup_check_g1,
-        676,
         ECP,
-        500,
         bls12381_p1_sum,
         check_sum_p1,
         test_bls12381_p1_sum_edge_cases,
@@ -605,9 +612,7 @@ mod tests {
         serialize_uncompressed_g2,
         deserialize_g2,
         subgroup_check_g2,
-        338,
         ECP2,
-        250,
         bls12381_p2_sum,
         check_sum_p2,
         test_bls12381_p2_sum_edge_cases,
@@ -670,9 +675,8 @@ mod tests {
 
     macro_rules! test_bls12381_multiexp {
         (
-            $GOperations:ident,
+            $GOp:ident,
             $serialize_uncompressed:ident,
-            $MAX_N:expr,
             $ECP:ident,
             $add_p_y:ident,
             $bls12381_multiexp:ident,
@@ -688,12 +692,12 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for _ in 0..100 {
-                    let p = $GOperations::get_random_curve_point(&mut rnd);
+                    let p = $GOp::get_random_curve_point(&mut rnd);
                     let n = rnd.getbyte();
 
                     let points: Vec<(u8, $ECP)> = vec![(0, p.clone()); n as usize];
-                    let res1 = $GOperations::get_sum_many_points(&points);
-                    let res2 = $GOperations::get_multiexp_small(&vec![(n, p.clone())]);
+                    let res1 = $GOp::get_sum_many_points(&points);
+                    let res2 = $GOp::get_multiexp_small(&vec![(n, p.clone())]);
 
                     assert_eq!(res1, res2);
 
@@ -703,11 +707,11 @@ mod tests {
                 }
 
                 for _ in 0..100 {
-                    let p = $GOperations::get_random_curve_point(&mut rnd);
+                    let p = $GOp::get_random_curve_point(&mut rnd);
                     let mut n = Big::random(&mut rnd);
                     n.mod2m(32 * 8);
 
-                    let res1 = $GOperations::get_multiexp(&vec![(n.clone(), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(n.clone(), p.clone())]);
                     let res2 = p.mul(&n);
 
                     assert_eq!(res1, $serialize_uncompressed(&res2));
@@ -719,20 +723,18 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for i in 0..10 {
-                    let n: usize =
-                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
-
+                    let n = get_n(i, $GOp::MAX_N_MULTIEXP);
                     let mut res2 = $ECP::new();
 
                     let mut points: Vec<(Big, $ECP)> = vec![];
                     for i in 0..n {
                         let mut scalar = Big::random(&mut rnd);
                         scalar.mod2m(32 * 8);
-                        points.push((scalar, $GOperations::get_random_curve_point(&mut rnd)));
+                        points.push((scalar, $GOp::get_random_curve_point(&mut rnd)));
                         res2.add(&points[i].1.mul(&points[i].0));
                     }
 
-                    let res1 = $GOperations::get_multiexp(&points);
+                    let res1 = $GOp::get_multiexp(&points);
                     assert_eq!(res1, $serialize_uncompressed(&res2));
                 }
             }
@@ -741,7 +743,7 @@ mod tests {
             fn $test_bls12381_multiexp_incorrect_input() {
                 let zero_scalar = vec![0u8; 32];
 
-                let test_vecs: Vec<Vec<Vec<u8>>> = $GOperations::get_incorrect_points()
+                let test_vecs: Vec<Vec<Vec<u8>>> = $GOp::get_incorrect_points()
                     .into_iter()
                     .map(|test| vec![test, zero_scalar.clone()])
                     .collect();
@@ -753,44 +755,44 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_invariants_checks() {
-                let mut zero1: [u8; $GOperations::POINT_LEN] = [0; $GOperations::POINT_LEN];
+                let mut zero1: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
                 zero1[0] |= 0x40;
 
                 let mut rnd = get_rnd();
                 let r = Big::from_string(R.to_string());
 
                 for _ in 0..10 {
-                    let p = $GOperations::get_random_g_point(&mut rnd);
+                    let p = $GOp::get_random_g_point(&mut rnd);
 
                     // group_order * P = 0
-                    let res = $GOperations::get_multiexp(&vec![(r.clone(), p.clone())]);
+                    let res = $GOp::get_multiexp(&vec![(r.clone(), p.clone())]);
                     assert_eq!(res.as_slice(), zero1);
 
                     let mut scalar = Big::random(&mut rnd);
                     scalar.mod2m(32 * 7);
 
                     // (scalar + group_order) * P = scalar * P
-                    let res1 = $GOperations::get_multiexp(&vec![(scalar.clone(), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(scalar.clone(), p.clone())]);
                     scalar.add(&r);
-                    let res2 = $GOperations::get_multiexp(&vec![(scalar.clone(), p.clone())]);
+                    let res2 = $GOp::get_multiexp(&vec![(scalar.clone(), p.clone())]);
                     assert_eq!(res1, res2);
 
                     // P + P + ... + P = N * P
                     let n = rnd.getbyte();
                     let res1 =
-                        $GOperations::get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
-                    let res2 = $GOperations::get_multiexp(&vec![(
+                        $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
+                    let res2 = $GOp::get_multiexp(&vec![(
                         Big::new_int(n.clone() as isize),
                         p.clone(),
                     )]);
                     assert_eq!(res1, res2);
 
                     // 0 * P = 0
-                    let res1 = $GOperations::get_multiexp(&vec![(Big::new_int(0), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(0), p.clone())]);
                     assert_eq!(res1, zero1);
 
                     // 1 * P = P
-                    let res1 = $GOperations::get_multiexp(&vec![(Big::new_int(1), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone())]);
                     assert_eq!(res1, $serialize_uncompressed(&p));
                 }
             }
@@ -801,7 +803,7 @@ mod tests {
                 let zero_scalar = vec![0u8; 32];
 
                 //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-                let p = $GOperations::get_random_curve_point(&mut rnd);
+                let p = $GOp::get_random_curve_point(&mut rnd);
                 let p_ser = $add_p_y(&p).to_vec();
                 run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.clone()], 1);
                 run_bls12381_fn!($bls12381_multiexp, vec![p_ser, zero_scalar.clone()], 1);
@@ -812,7 +814,6 @@ mod tests {
     test_bls12381_multiexp!(
         G1Operations,
         serialize_uncompressed_g1,
-        500,
         ECP,
         add_p_y,
         bls12381_p1_multiexp,
@@ -826,7 +827,6 @@ mod tests {
     test_bls12381_multiexp!(
         G2Operations,
         serialize_uncompressed_g2,
-        250,
         ECP2,
         add2_p_y,
         bls12381_p2_multiexp,
@@ -858,9 +858,8 @@ mod tests {
 
     macro_rules! test_bls12381_map_fp_to_g {
         (
-            $GOperations:ident,
+            $GOp:ident,
             $map_to_curve_g:ident,
-            $MAX_N:expr,
             $FP:ident,
             $serialize_uncompressed_g:ident,
             $test_bls12381_map_fp_to_g:ident,
@@ -871,11 +870,11 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for _ in 0..100 {
-                    let fp = $GOperations::get_random_fp(&mut rnd);
-                    let res1 = $GOperations::map_fp_to_g(vec![fp.clone()]);
+                    let fp = $GOp::get_random_fp(&mut rnd);
+                    let res1 = $GOp::map_fp_to_g(vec![fp.clone()]);
 
                     let mut res2 = $map_to_curve_g(fp);
-                    $GOperations::clear_cofactor(&mut res2);
+                    $GOp::clear_cofactor(&mut res2);
 
                     assert_eq!(res1, $serialize_uncompressed_g(&res2));
                 }
@@ -886,21 +885,20 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for i in 0..10 {
-                    let n: usize =
-                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
+                    let n = get_n(i, $GOp::MAX_N_MAP);
 
                     let mut fps: Vec<$FP> = vec![];
                     let mut res2_mul: Vec<u8> = vec![];
                     for i in 0..n {
-                        fps.push($GOperations::get_random_fp(&mut rnd));
+                        fps.push($GOp::get_random_fp(&mut rnd));
 
                         let mut res2 = $map_to_curve_g(fps[i].clone());
-                        $GOperations::clear_cofactor(&mut res2);
+                        $GOp::clear_cofactor(&mut res2);
 
                         res2_mul.append(&mut $serialize_uncompressed_g(&res2).to_vec());
                     }
 
-                    let res1 = $GOperations::map_fp_to_g(fps);
+                    let res1 = $GOp::map_fp_to_g(fps);
                     assert_eq!(res1, res2_mul);
                 }
             }
@@ -910,7 +908,6 @@ mod tests {
     test_bls12381_map_fp_to_g!(
         G1Operations,
         map_to_curve_g1,
-        500,
         FP,
         serialize_uncompressed_g1,
         test_bls12381_map_fp_to_g1,
@@ -920,7 +917,6 @@ mod tests {
     test_bls12381_map_fp_to_g!(
         G2Operations,
         map_to_curve_g2,
-        250,
         FP2,
         serialize_uncompressed_g2,
         test_bls12381_map_fp2_to_g2,
@@ -961,11 +957,10 @@ mod tests {
 
     macro_rules! test_bls12381_decompress {
         (
-            $GOperations:ident,
+            $GOp:ident,
             $serialize_uncompressed_g:ident,
             $serialize_g:ident,
             $POINT_LEN:expr,
-            $MAX_N:expr,
             $ECP:ident,
             $bls12381_decompress:ident,
             $add_p:ident,
@@ -978,13 +973,13 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for _ in 0..100 {
-                    let p1 = $GOperations::get_random_curve_point(&mut rnd);
-                    let res1 = $GOperations::decompress_p(vec![p1.clone()]);
+                    let p1 = $GOp::get_random_curve_point(&mut rnd);
+                    let res1 = $GOp::decompress_p(vec![p1.clone()]);
 
                     assert_eq!(res1, $serialize_uncompressed_g(&p1));
 
                     let p1_neg = p1.mul(&Big::new_int(-1));
-                    let res1_neg = $GOperations::decompress_p(vec![p1_neg.clone()]);
+                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone()]);
 
                     assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
                     assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
@@ -992,7 +987,7 @@ mod tests {
                 }
 
                 let zero1 = $ECP::new();
-                let res1 = $GOperations::decompress_p(vec![zero1.clone()]);
+                let res1 = $GOp::decompress_p(vec![zero1.clone()]);
 
                 assert_eq!(res1, $serialize_uncompressed_g(&zero1));
             }
@@ -1002,25 +997,24 @@ mod tests {
                 let mut rnd = get_rnd();
 
                 for i in 0..10 {
-                    let n: usize =
-                        if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
+                    let n = get_n(i, $GOp::MAX_N_DECOMPRESS);
 
                     let mut p1s: Vec<$ECP> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOperations::get_random_curve_point(&mut rnd));
+                        p1s.push($GOp::get_random_curve_point(&mut rnd));
                         res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOperations::decompress_p(p1s.clone());
+                    let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
 
                     let mut p1s: Vec<$ECP> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOperations::get_random_g_point(&mut rnd));
+                        p1s.push($GOp::get_random_g_point(&mut rnd));
                         res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOperations::decompress_p(p1s.clone());
+                    let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
                 }
             }
@@ -1040,13 +1034,13 @@ mod tests {
                 zero[0] = 0x40;
                 run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
-                let p = $GOperations::get_random_curve_point(&mut rnd);
+                let p = $GOp::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_g(&p);
                 p_ser[0] ^= 0x80;
                 run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
 
                 //Point with a coordinate larger than 'p'.
-                let p = $GOperations::get_random_curve_point(&mut rnd);
+                let p = $GOp::get_random_curve_point(&mut rnd);
                 run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p)], 1);
             }
         };
@@ -1057,7 +1051,6 @@ mod tests {
         serialize_uncompressed_g1,
         serialize_g1,
         48,
-        500,
         ECP,
         bls12381_p1_decompress,
         add_p_x,
@@ -1071,7 +1064,6 @@ mod tests {
         serialize_uncompressed_g2,
         serialize_g2,
         96,
-        250,
         ECP2,
         bls12381_p2_decompress,
         add2_p_x,
@@ -1176,12 +1168,9 @@ mod tests {
     fn test_bls12381_pairing_check_many_points() {
         let mut rnd = get_rnd();
 
-        const MAX_N: usize = 105;
         let r = Big::from_string(P.to_string());
-
         for i in 0..10 {
-            let n: usize =
-                if i == 0 { MAX_N } else { (thread_rng().next_u32() as usize) % MAX_N } + 1;
+            let n = get_n(i, MAX_N_PAIRING);
 
             let mut scalars_1: Vec<Big> = vec![];
             let mut scalars_2: Vec<Big> = vec![];
