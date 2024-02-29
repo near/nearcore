@@ -392,6 +392,12 @@ mod tests {
                 let library_sum = $serialize_uncompressed(&p);
 
                 assert_eq!(library_sum.to_vec(), got1);
+
+                let p_inv = $GOperations::get_inverse(&library_sum);
+                p.neg();
+                let p_neg_ser = $serialize_uncompressed(&p);
+
+                assert_eq!(p_neg_ser.to_vec(), p_inv);
             }
 
             #[test]
@@ -407,9 +413,9 @@ mod tests {
 
                 for _ in 0..100 {
                     let p = $GOperations::get_random_g_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
-
                     let q = $GOperations::get_random_g_point(&mut rnd);
+
+                    let p_ser = $serialize_uncompressed(&p);
                     let q_ser = $serialize_uncompressed(&q);
 
                     let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
@@ -465,32 +471,6 @@ mod tests {
 
                     let result_point = $deserialize(&p_inv).unwrap();
                     assert!($subgroup_check(&result_point));
-                }
-
-                // Random point check with library
-                for _ in 0..10 {
-                    let mut p = $GOperations::get_random_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
-
-                    let p_inv = $GOperations::get_inverse(&p_ser);
-
-                    p.neg();
-                    let p_neg_ser = $serialize_uncompressed(&p);
-
-                    assert_eq!(p_neg_ser.to_vec(), p_inv);
-                }
-
-                // Not from G points
-                for _ in 0..10 {
-                    let mut p = $GOperations::get_random_not_g_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
-
-                    let p_inv = $GOperations::get_inverse(&p_ser);
-
-                    p.neg();
-                    let p_neg_ser = $serialize_uncompressed(&p);
-
-                    assert_eq!(p_neg_ser.to_vec(), p_inv);
                 }
 
                 // -0
