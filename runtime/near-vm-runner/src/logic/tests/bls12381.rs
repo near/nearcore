@@ -328,9 +328,10 @@ mod tests {
             $deserialize:ident,
             $subgroup_check:ident,
             $MAX_N:expr,
-            $point_type:ident,
+            $ECP:ident,
             $MAX_N_MULTIEXP:expr,
             $bls12381_sum:ident,
+            $check_sum:ident,
             $test_bls12381_sum_edge_cases:ident,
             $test_bls12381_sum:ident,
             $test_bls12381_sum_not_g_points:ident,
@@ -377,27 +378,31 @@ mod tests {
                 }
             }
 
+            fn $check_sum(mut p: $ECP, q: $ECP) {
+                let p_ser = $serialize_uncompressed(&p);
+                let q_ser = $serialize_uncompressed(&q);
+
+                // P + Q = Q + P
+                let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
+                let got2 = $GOperations::get_sum(0, &q_ser, 0, &p_ser);
+                assert_eq!(got1, got2);
+
+                // compare with library results
+                p.add(&q);
+                let library_sum = $serialize_uncompressed(&p);
+
+                assert_eq!(library_sum.to_vec(), got1);
+            }
+
             #[test]
             fn $test_bls12381_sum() {
                 let mut rnd = get_rnd();
 
                 for _ in 0..100 {
-                    let mut p = $GOperations::get_random_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
-
+                    let p = $GOperations::get_random_curve_point(&mut rnd);
                     let q = $GOperations::get_random_curve_point(&mut rnd);
-                    let q_ser = $serialize_uncompressed(&q);
 
-                    // P + Q = Q + P
-                    let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
-                    let got2 = $GOperations::get_sum(0, &q_ser, 0, &p_ser);
-                    assert_eq!(got1, got2);
-
-                    // compare with library results
-                    p.add(&q);
-                    let library_sum = $serialize_uncompressed(&p);
-
-                    assert_eq!(library_sum.to_vec(), got1);
+                    $check_sum(p, q);
                 }
 
                 for _ in 0..100 {
@@ -420,22 +425,10 @@ mod tests {
 
                 //points not from G
                 for _ in 0..100 {
-                    let mut p = $GOperations::get_random_not_g_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
-
+                    let p = $GOperations::get_random_not_g_curve_point(&mut rnd);
                     let q = $GOperations::get_random_not_g_curve_point(&mut rnd);
-                    let q_ser = $serialize_uncompressed(&q);
 
-                    // P + Q = Q + P
-                    let got1 = $GOperations::get_sum(0, &p_ser, 0, &q_ser);
-                    let got2 = $GOperations::get_sum(0, &q_ser, 0, &p_ser);
-                    assert_eq!(got1, got2);
-
-                    // compare with library results
-                    p.add(&q);
-                    let library_sum = $serialize_uncompressed(&p);
-
-                    assert_eq!(library_sum.to_vec(), got1);
+                    $check_sum(p, q);
                 }
             }
 
@@ -495,7 +488,6 @@ mod tests {
                     let p_inv = $GOperations::get_inverse(&p_ser);
 
                     p.neg();
-
                     let p_neg_ser = $serialize_uncompressed(&p);
 
                     assert_eq!(p_neg_ser.to_vec(), p_inv);
@@ -527,7 +519,7 @@ mod tests {
 
                 for _ in 0..10 {
                     let n: usize = (thread_rng().next_u32() as usize) % $MAX_N;
-                    let mut points: Vec<(u8, $point_type)> = vec![];
+                    let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
                         points
                             .push((rnd.getbyte() % 2, $GOperations::get_random_g_point(&mut rnd)));
@@ -547,7 +539,7 @@ mod tests {
                 for _ in 0..10 {
                     let n: usize = (thread_rng().next_u32() as usize) % $MAX_N_MULTIEXP;
 
-                    let mut points: Vec<(u8, $point_type)> = vec![];
+                    let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
                         points
                             .push((rnd.getbyte() % 2, $GOperations::get_random_g_point(&mut rnd)));
@@ -608,6 +600,7 @@ mod tests {
         ECP,
         500,
         bls12381_p1_sum,
+        check_sum_p1,
         test_bls12381_p1_sum_edge_cases,
         test_bls12381_p1_sum,
         test_bls12381_p1_sum_not_g1_points,
@@ -625,6 +618,7 @@ mod tests {
         ECP2,
         250,
         bls12381_p2_sum,
+        check_sum_p2,
         test_bls12381_p2_sum_edge_cases,
         test_bls12381_p2_sum,
         test_bls12381_p2_sum_not_g2_points,
@@ -688,7 +682,7 @@ mod tests {
             $GOperations:ident,
             $serialize_uncompressed:ident,
             $MAX_N:expr,
-            $point_type:ident,
+            $ECP:ident,
             $add_p_y:ident,
             $bls12381_multiexp:ident,
             $bls12381_sum:ident,
@@ -706,7 +700,7 @@ mod tests {
                     let p = $GOperations::get_random_curve_point(&mut rnd);
                     let n = rnd.getbyte();
 
-                    let points: Vec<(u8, $point_type)> = vec![(0, p.clone()); n as usize];
+                    let points: Vec<(u8, $ECP)> = vec![(0, p.clone()); n as usize];
                     let res1 = $GOperations::get_sum_many_points(&points);
                     let res2 = $GOperations::get_multiexp_small(&vec![(n, p.clone())]);
 
@@ -737,9 +731,9 @@ mod tests {
                     let n: usize =
                         if i == 0 { $MAX_N } else { (thread_rng().next_u32() as usize) % $MAX_N };
 
-                    let mut res2 = $point_type::new();
+                    let mut res2 = $ECP::new();
 
-                    let mut points: Vec<(Big, $point_type)> = vec![];
+                    let mut points: Vec<(Big, $ECP)> = vec![];
                     for i in 0..n {
                         let mut scalar = Big::random(&mut rnd);
                         scalar.mod2m(32 * 8);
