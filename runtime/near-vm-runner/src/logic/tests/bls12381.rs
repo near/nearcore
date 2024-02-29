@@ -58,20 +58,6 @@ mod tests {
             p
         }
 
-        fn get_random_not_g_curve_point(rnd: &mut RAND) -> ECP {
-            let mut r: Big = Big::random(rnd);
-            r.mod2m(381);
-            let mut p: ECP = ECP::new_big(&r);
-
-            while p.is_infinity() || subgroup_check_g1(&p) {
-                r = Big::random(rnd);
-                r.mod2m(381);
-                p = ECP::new_big(&r);
-            }
-
-            p
-        }
-
         fn clear_cofactor(p: &mut ECP) {
             *p = p.mul(&Big::new_ints(&H_EFF_G1))
         }
@@ -121,27 +107,6 @@ mod tests {
             p
         }
 
-        fn get_random_not_g_curve_point(rnd: &mut RAND) -> ECP2 {
-            let mut c: Big = Big::random(rnd);
-            c.mod2m(381);
-
-            let mut d: Big = Big::random(rnd);
-            d.mod2m(381);
-            let mut p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
-
-            while p.is_infinity() || subgroup_check_g2(&p) {
-                c = Big::random(rnd);
-                c.mod2m(381);
-
-                d = Big::random(rnd);
-                d.mod2m(381);
-
-                p = ECP2::new_fp2(&FP2::new_bigs(c, d));
-            }
-
-            p
-        }
-
         fn clear_cofactor(p: &mut ECP2) {
             p.clear_cofactor()
         }
@@ -175,6 +140,7 @@ mod tests {
         (
             $GOperations:ident,
             $ECP:ident,
+            $subgroup_check_g:ident,
             $serialize_g:ident,
             $serialize_uncompressed_g:ident,
             $bls12381_decompress:ident,
@@ -187,6 +153,15 @@ mod tests {
                     let g: $ECP = $ECP::generator();
 
                     g.mul(&r)
+                }
+
+                fn get_random_not_g_curve_point(rnd: &mut RAND) -> $ECP {
+                    let mut p = Self::get_random_curve_point(rnd);
+                    while $subgroup_check_g(&p) {
+                        p = Self::get_random_curve_point(rnd);
+                    }
+
+                    p
                 }
 
                 fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
@@ -291,6 +266,7 @@ mod tests {
     impl_goperations!(
         G1Operations,
         ECP,
+        subgroup_check_g1,
         serialize_g1,
         serialize_uncompressed_g1,
         bls12381_p1_decompress,
@@ -300,6 +276,7 @@ mod tests {
     impl_goperations!(
         G2Operations,
         ECP2,
+        subgroup_check_g2,
         serialize_g2,
         serialize_uncompressed_g2,
         bls12381_p2_decompress,
