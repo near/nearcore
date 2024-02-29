@@ -245,7 +245,7 @@ impl FlatStorage {
                 )));
             }
         };
-        let metrics = FlatStorageMetrics::new(shard_id);
+        let metrics = FlatStorageMetrics::new(shard_uid);
         metrics.set_flat_head_height(flat_head.height);
 
         let deltas_metadata = store_helper::get_all_deltas_metadata(&store, shard_uid)
