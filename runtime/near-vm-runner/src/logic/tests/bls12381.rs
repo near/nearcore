@@ -27,7 +27,14 @@ mod tests {
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
-    macro_rules! run_bls12381_functoin {
+    macro_rules! run_bls12381_fn {
+        ($fn_name:ident, $buffer:expr, $expected_res:expr) => {{
+            let mut logic_builder = VMLogicBuilder::default();
+            let mut logic = logic_builder.build();
+            let input = logic.internal_mem_write($buffer.concat().as_slice());
+            let res = logic.$fn_name(input.len, input.ptr, 0).unwrap();
+            assert_eq!(res, $expected_res);
+        }};
         ($fn_name:ident, $buffer:expr) => {{
             let mut logic_builder = VMLogicBuilder::default();
             let mut logic = logic_builder.build();
@@ -78,7 +85,7 @@ mod tests {
                 fp_vec.push(fp_slice.to_vec());
             }
 
-            run_bls12381_functoin!(bls12381_map_fp_to_g1, fp_vec)
+            run_bls12381_fn!(bls12381_map_fp_to_g1, fp_vec)
         }
     }
 
@@ -115,7 +122,7 @@ mod tests {
                 fp2_vec.push(fp2_res.to_vec());
             }
 
-            run_bls12381_functoin!(bls12381_map_fp2_to_g2, fp2_vec)
+            run_bls12381_fn!(bls12381_map_fp2_to_g2, fp2_vec)
         }
     }
 
@@ -177,17 +184,17 @@ mod tests {
                         p2s_vec.push($serialize_g(&p2[i]).to_vec());
                     }
 
-                    run_bls12381_functoin!($bls12381_decompress, p2s_vec)
+                    run_bls12381_fn!($bls12381_decompress, p2s_vec)
                 }
 
                 fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
                     let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
-                    run_bls12381_functoin!($bls12381_sum, buffer)
+                    run_bls12381_fn!($bls12381_sum, buffer)
                 }
 
                 fn get_inverse(p: &[u8]) -> Vec<u8> {
                     let buffer = vec![vec![1], p.to_vec()];
-                    run_bls12381_functoin!($bls12381_sum, buffer)
+                    run_bls12381_fn!($bls12381_sum, buffer)
                 }
 
                 fn get_sum_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
@@ -196,7 +203,7 @@ mod tests {
                         buffer.push(vec![points[i].0]);
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
                     }
-                    run_bls12381_functoin!($bls12381_sum, buffer)
+                    run_bls12381_fn!($bls12381_sum, buffer)
                 }
 
                 fn get_multiexp(points: &Vec<(Big, $ECP)>) -> Vec<u8> {
@@ -213,7 +220,7 @@ mod tests {
                         buffer.push(n_vec);
                     }
 
-                    run_bls12381_functoin!($bls12381_multiexp, buffer)
+                    run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
 
                 fn get_multiexp_small(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
@@ -225,7 +232,7 @@ mod tests {
                         buffer.push(n_vec.to_vec());
                     }
 
-                    run_bls12381_functoin!($bls12381_multiexp, buffer)
+                    run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
 
                 fn get_multiexp_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
@@ -240,7 +247,7 @@ mod tests {
                         }
                     }
 
-                    run_bls12381_functoin!($bls12381_multiexp, buffer)
+                    run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
             }
         };
@@ -580,62 +587,38 @@ mod tests {
             fn $test_bls12381_sum_incorrect_input() {
                 let mut rnd = get_rnd();
 
-                let mut logic_builder = VMLogicBuilder::default();
-                let mut logic = logic_builder.build();
-
                 // Incorrect sign encoding
                 let mut buffer = vec![0u8; $GOperations::POINT_LEN + 1];
                 buffer[0] = 2;
-
-                let input = logic.internal_mem_write(buffer.as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![buffer], 1);
 
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 64;
                 zero[$GOperations::POINT_LEN - 1] = 1;
-
-                let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], zero], 1);
 
                 // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
                 let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 192;
-
-                let input = logic.internal_mem_write(vec![vec![0], zero].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], zero], 1);
 
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] |= 0x80;
-
-                let input =
-                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
 
                 // Point not on the curve
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[95] ^= 0x01;
-
-                let input =
-                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
 
                 //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] ^= 0x20;
-
-                let input =
-                    logic.internal_mem_write(vec![vec![0], p_ser.to_vec()].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.to_vec()], 1);
             }
         };
     }
@@ -796,62 +779,36 @@ mod tests {
             #[test]
             fn $test_bls12381_multiexp_incorrect_input() {
                 let mut rnd = get_rnd();
-
-                let mut logic_builder = VMLogicBuilder::default();
-                let mut logic = logic_builder.build();
-
                 let zero_scalar = vec![0u8; 32];
 
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 64;
                 zero[$GOperations::POINT_LEN - 1] = 1;
-
-                let input =
-                    logic.internal_mem_write(vec![zero, zero_scalar.clone()].concat().as_slice());
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_multiexp, vec![zero, zero_scalar.clone()], 1);
 
                 // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
                 let mut zero = vec![0u8; $GOperations::POINT_LEN];
                 zero[0] = 192;
-
-                let input =
-                    logic.internal_mem_write(vec![zero, zero_scalar.clone()].concat().as_slice());
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_multiexp, vec![zero, zero_scalar.clone()], 1);
 
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] |= 0x80;
-
-                let input = logic.internal_mem_write(
-                    vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice(),
-                );
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
 
                 // Point not on the curve
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[$GOperations::POINT_LEN - 1] ^= 0x01;
+                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
 
-                let input = logic.internal_mem_write(
-                    vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice(),
-                );
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
 
                 //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[0] ^= 0x20;
-
-                let input = logic.internal_mem_write(
-                    vec![p_ser.to_vec(), zero_scalar.clone()].concat().as_slice(),
-                );
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
             }
 
             #[test]
@@ -901,25 +858,13 @@ mod tests {
             #[test]
             fn $test_bls12381_error_encoding() {
                 let mut rnd = get_rnd();
-
-                let mut logic_builder = VMLogicBuilder::default();
-                let mut logic = logic_builder.build();
-
                 let zero_scalar = vec![0u8; 32];
 
                 //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let p_ser = $add_p_y(&p).to_vec();
-
-                let input =
-                    logic.internal_mem_write(vec![vec![0], p_ser.clone()].concat().as_slice());
-                let res = logic.$bls12381_sum(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
-
-                let input =
-                    logic.internal_mem_write(vec![p_ser, zero_scalar.clone()].concat().as_slice());
-                let res = logic.$bls12381_multiexp(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.clone()], 1);
+                run_bls12381_fn!($bls12381_multiexp, vec![p_ser, zero_scalar.clone()], 1);
             }
         };
     }
@@ -1063,33 +1008,15 @@ mod tests {
 
     #[test]
     fn test_bls12381_map_fp_to_g1_incorrect_input() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
         let p = hex::decode(P.to_string()).unwrap();
-
-        let input = logic.internal_mem_write(p.as_slice());
-        let res = logic.bls12381_map_fp_to_g1(input.len, input.ptr, 0).unwrap();
-
-        assert_eq!(res, 1);
+        run_bls12381_fn!(bls12381_map_fp_to_g1, vec![p], 1);
     }
 
     #[test]
     fn test_bls12381_map_fp2_to_g2_incorrect_input() {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
         let p = hex::decode(P.to_string()).unwrap();
-
-        let input = logic.internal_mem_write(vec![p.clone(), vec![0u8; 48]].concat().as_slice());
-        let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
-
-        assert_eq!(res, 1);
-
-        let input = logic.internal_mem_write(vec![vec![0u8; 48], p.clone()].concat().as_slice());
-        let res = logic.bls12381_map_fp2_to_g2(input.len, input.ptr, 0).unwrap();
-
-        assert_eq!(res, 1);
+        run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![p.clone(), vec![0u8; 48]], 1);
+        run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![vec![0u8; 48], p.clone()], 1);
     }
 
     macro_rules! test_bls12381_decompress {
@@ -1162,40 +1089,25 @@ mod tests {
             fn $test_bls12381_decompress_incorrect_input() {
                 let mut rnd = get_rnd();
 
-                let mut logic_builder = VMLogicBuilder::default();
-                let mut logic = logic_builder.build();
-
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $POINT_LEN];
                 zero[0] = 0x80 | 0x40;
                 zero[$POINT_LEN - 1] = 1;
-
-                let input = logic.internal_mem_write(zero.as_slice());
-                let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
                 // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
                 let mut zero = vec![0u8; $POINT_LEN];
                 zero[0] = 0x40;
-
-                let input = logic.internal_mem_write(zero.as_slice());
-                let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
                 let p = $GOperations::get_random_curve_point(&mut rnd);
                 let mut p_ser = $serialize_g(&p);
                 p_ser[0] ^= 0x80;
-
-                let input = logic.internal_mem_write(p_ser.as_slice());
-                let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
 
                 //Point with a coordinate larger than 'p'.
                 let p = $GOperations::get_random_curve_point(&mut rnd);
-
-                let input = logic.internal_mem_write($add_p(&p).as_slice());
-                let res = logic.$bls12381_decompress(input.len, input.ptr, 0).unwrap();
-                assert_eq!(res, 1);
+                run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p)], 1);
             }
         };
     }
@@ -1575,7 +1487,7 @@ mod tests {
         }
     }
 
-    macro_rules! run_bls12381_function_raw {
+    macro_rules! run_bls12381_fn_raw {
         ($fn_name_raw:ident, $fn_name_return_value_only:ident, $bls_fn_name:ident) => {
             #[allow(unused)]
             fn $fn_name_raw(input: MemSlice, logic: &mut TestVMLogic) -> Vec<u8> {
@@ -1591,14 +1503,14 @@ mod tests {
         };
     }
 
-    run_bls12381_function_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
-    run_bls12381_function_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
-    run_bls12381_function_raw!(run_sum_g1, sum_g1_return_value, bls12381_p1_sum);
-    run_bls12381_function_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
-    run_bls12381_function_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
-    run_bls12381_function_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
-    run_bls12381_function_raw!(decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
-    run_bls12381_function_raw!(decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
+    run_bls12381_fn_raw!(run_map_fp_to_g1, map_fp_to_g1_return_value, bls12381_map_fp_to_g1);
+    run_bls12381_fn_raw!(run_map_fp2_to_g2, map_fp2tog2_return_value, bls12381_map_fp2_to_g2);
+    run_bls12381_fn_raw!(run_sum_g1, sum_g1_return_value, bls12381_p1_sum);
+    run_bls12381_fn_raw!(run_sum_g2, sum_g2_return_value, bls12381_p2_sum);
+    run_bls12381_fn_raw!(run_multiexp_g1, multiexp_g1_return_value, bls12381_p1_multiexp);
+    run_bls12381_fn_raw!(run_multiexp_g2, multiexp_g2_return_value, bls12381_p2_multiexp);
+    run_bls12381_fn_raw!(decompress_g1, decompress_g1_return_value, bls12381_p1_decompress);
+    run_bls12381_fn_raw!(decompress_g2, decompress_g2_return_value, bls12381_p2_decompress);
     fn run_pairing_check_raw(input: MemSlice, logic: &mut TestVMLogic) -> u64 {
         logic.bls12381_pairing_check(input.len, input.ptr).unwrap()
     }
