@@ -5,38 +5,25 @@
 # upgraded.
 # Usage:
 # python3 pytest/tests/sanity/resharding.py
+# RUST_LOG=info,resharding=debug,sync=debug,catchup=debug python3 pytest/tests/sanity/resharding.py
+
+import pathlib
+import sys
 
 import unittest
-import sys
-import pathlib
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cluster import get_binary_protocol_version, init_cluster, load_config, spin_up_node
+from cluster import init_cluster, spin_up_node
 from utils import MetricsTracker, poll_blocks
-from resharding_lib import get_genesis_shard_layout_version, get_target_shard_layout_version, get_genesis_num_shards, get_target_num_shards, get_epoch_offset, get_genesis_config_changes, get_client_config_changes
+from resharding_lib import ReshardingTestBase, get_genesis_config_changes, get_client_config_changes
 
 
-class ReshardingTest(unittest.TestCase):
+class ReshardingTest(ReshardingTestBase):
 
     def setUp(self) -> None:
-        self.epoch_length = 5
-        self.config = load_config()
-        self.binary_protocol_version = get_binary_protocol_version(self.config)
-        assert self.binary_protocol_version is not None
-
-        self.genesis_shard_layout_version = get_genesis_shard_layout_version(
-            self.binary_protocol_version)
-        self.target_shard_layout_version = get_target_shard_layout_version(
-            self.binary_protocol_version)
-
-        self.genesis_num_shards = get_genesis_num_shards(
-            self.binary_protocol_version)
-        self.target_num_shards = get_target_num_shards(
-            self.binary_protocol_version)
-
-        self.epoch_offset = get_epoch_offset(self.binary_protocol_version)
+        super().setUp(epoch_length=5)
 
     def test_resharding(self):
         logger.info("The resharding test is starting.")
@@ -72,10 +59,8 @@ class ReshardingTest(unittest.TestCase):
         metrics_tracker = MetricsTracker(node0)
 
         for height, hash in poll_blocks(node0):
-            version = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_version")
-            num_shards = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_num_shards")
+            version = self.get_version(metrics_tracker)
+            num_shards = self.get_num_shards(metrics_tracker)
 
             protocol_config = node0.json_rpc(
                 "EXPERIMENTAL_protocol_config",
