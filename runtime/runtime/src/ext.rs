@@ -10,7 +10,7 @@ use near_store::{
     get_code, get_yielded_promise, remove_yielded_promise, KeyLookupMode, TrieUpdate,
     TrieUpdateValuePtr,
 };
-use near_vm_runner::logic::errors::{AnyError, HostError, VMLogicError};
+use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
@@ -228,30 +228,30 @@ impl<'a> External for RuntimeExt<'a> {
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
+    ) -> Result<bool, VMLogicError> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
         if let Some(yielded_promise) =
             get_yielded_promise(self.trie_update, data_id).map_err(wrap_storage_error)?
         {
             // Yields are only resumable by the account which created them
-            if yielded_promise.account_id != *self.account_id {
-                return Err(
-                    HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into()
-                );
+            if &yielded_promise.account_id != self.account_id {
+                return Ok(false);
             }
 
             remove_yielded_promise(self.trie_update, data_id);
-            return self.receipt_manager.create_data_receipt(data_id, data);
+            self.receipt_manager.create_data_receipt(data_id, data)?;
+            return Ok(true);
         }
 
         // If the yielded promise was created by the current transaction, we'll find it in the
         // receipt manager. In such case we erase it from `yielded_data_ids` as there is no longer
         // a need to store it as pending in the trie and enqueue a timeout for it.
-        if self.receipt_manager.yielded_data_ids.remove(&(self.account_id.clone(), data_id)) {
-            return self.receipt_manager.create_data_receipt(data_id, data);
-        }
-
-        Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into())
+        Ok(if self.receipt_manager.yielded_data_ids.remove(&(data_id, self.account_id.clone())) {
+            self.receipt_manager.create_data_receipt(data_id, data)?;
+            true
+        } else {
+            false
+        })
     }
 
     fn append_action_create_account(
