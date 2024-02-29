@@ -1,25 +1,16 @@
 mod tests {
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
-    use amcl::bls381::big::Big;
-    use amcl::bls381::bls381::core::deserialize_g1;
-    use amcl::bls381::bls381::core::deserialize_g2;
-    use amcl::bls381::bls381::core::map_to_curve_g1;
-    use amcl::bls381::bls381::core::map_to_curve_g2;
+    use amcl::bls381::bls381::core::{
+        deserialize_g1, deserialize_g2, map_to_curve_g1, map_to_curve_g2,
+    };
     use amcl::bls381::bls381::utils::{
         serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
         subgroup_check_g1, subgroup_check_g2,
     };
-    use amcl::bls381::ecp::ECP;
-    use amcl::bls381::ecp2::ECP2;
-    use amcl::bls381::fp::FP;
-    use amcl::bls381::fp2::FP2;
-    use amcl::bls381::pair;
-    use amcl::bls381::rom::H_EFF_G1;
+    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp::FP, fp2::FP2, pair, rom::H_EFF_G1};
     use amcl::rand::RAND;
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
-    use rand::RngCore;
+    use rand::{seq::SliceRandom, thread_rng, RngCore};
     use std::fs;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
@@ -334,9 +325,7 @@ mod tests {
         for i in 0..100 {
             raw[i] = i as u8
         }
-
         rnd.seed(100, &raw);
-
         rnd
     }
 
@@ -347,7 +336,7 @@ mod tests {
     }
 
     fn get_n(i: usize, max_n: usize) -> usize {
-        if i == 0 { max_n } else { (thread_rng().next_u32() as usize) % max_n }
+        return if i == 0 { max_n } else { (thread_rng().next_u32() as usize) % max_n };
     }
 
     fn pairing_check(p1s: Vec<ECP>, p2s: Vec<ECP2>) -> u64 {
@@ -551,8 +540,7 @@ mod tests {
                     let n = get_n(i, $GOp::MAX_N_SUM);
                     let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
-                        points
-                            .push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
+                        points.push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
                     }
 
                     let res1 = $GOp::get_sum_many_points(&points);
@@ -571,8 +559,7 @@ mod tests {
 
                     let mut points: Vec<(u8, $ECP)> = vec![];
                     for _ in 0..n {
-                        points
-                            .push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
+                        points.push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
                     }
 
                     let res1 = $GOp::get_sum_many_points(&points);
@@ -785,12 +772,9 @@ mod tests {
 
                     // P + P + ... + P = N * P
                     let n = rnd.getbyte();
-                    let res1 =
-                        $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
-                    let res2 = $GOp::get_multiexp(&vec![(
-                        Big::new_int(n.clone() as isize),
-                        p.clone(),
-                    )]);
+                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
+                    let res2 =
+                        $GOp::get_multiexp(&vec![(Big::new_int(n.clone() as isize), p.clone())]);
                     assert_eq!(res1, res2);
 
                     // 0 * P = 0
