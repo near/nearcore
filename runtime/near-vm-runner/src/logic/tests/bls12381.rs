@@ -129,6 +129,7 @@ mod tests {
             $FP:ident,
             $subgroup_check_g:ident,
             $serialize_g:ident,
+            $add_p_y:ident,
             $serialize_uncompressed_g:ident,
             $bls12381_decompress:ident,
             $bls12381_sum:ident,
@@ -289,6 +290,10 @@ mod tests {
                     p_ser[0] ^= 0x20;
                     res.push(p_ser.to_vec());
 
+                    let p = Self::get_random_curve_point(&mut rnd);
+                    let p_ser = $add_p_y(&p).to_vec();
+                    res.push(p_ser);
+
                     res
                 }
             }
@@ -301,6 +306,7 @@ mod tests {
         FP,
         subgroup_check_g1,
         serialize_g1,
+        add_p_y,
         serialize_uncompressed_g1,
         bls12381_p1_decompress,
         bls12381_p1_sum,
@@ -313,6 +319,7 @@ mod tests {
         FP2,
         subgroup_check_g2,
         serialize_g2,
+        add2_p_y,
         serialize_uncompressed_g2,
         bls12381_p2_decompress,
         bls12381_p2_sum,
@@ -678,7 +685,6 @@ mod tests {
             $GOp:ident,
             $serialize_uncompressed:ident,
             $ECP:ident,
-            $add_p_y:ident,
             $bls12381_multiexp:ident,
             $bls12381_sum:ident,
             $test_bls12381_multiexp_mul:ident,
@@ -796,18 +802,6 @@ mod tests {
                     assert_eq!(res1, $serialize_uncompressed(&p));
                 }
             }
-
-            #[test]
-            fn $test_bls12381_error_encoding() {
-                let mut rnd = get_rnd();
-                let zero_scalar = vec![0u8; 32];
-
-                //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-                let p = $GOp::get_random_curve_point(&mut rnd);
-                let p_ser = $add_p_y(&p).to_vec();
-                run_bls12381_fn!($bls12381_sum, vec![vec![0], p_ser.clone()], 1);
-                run_bls12381_fn!($bls12381_multiexp, vec![p_ser, zero_scalar.clone()], 1);
-            }
         };
     }
 
@@ -815,7 +809,6 @@ mod tests {
         G1Operations,
         serialize_uncompressed_g1,
         ECP,
-        add_p_y,
         bls12381_p1_multiexp,
         bls12381_p1_sum,
         test_bls12381_p1_multiexp_mul,
@@ -828,7 +821,6 @@ mod tests {
         G2Operations,
         serialize_uncompressed_g2,
         ECP2,
-        add2_p_y,
         bls12381_p2_multiexp,
         bls12381_p2_sum,
         test_bls12381_p2_multiexp_mul,
@@ -1241,15 +1233,6 @@ mod tests {
         let p_ser = serialize_uncompressed_g2(&p);
 
         assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
-
-        //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
-        let p = G1Operations::get_random_curve_point(&mut rnd);
-        let mut ybig = p.gety();
-        ybig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_uncompressed_g1(&p);
-        ybig.to_byte_array(&mut p_ser[0..96], 48);
-
-        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
     }
 
     #[test]
