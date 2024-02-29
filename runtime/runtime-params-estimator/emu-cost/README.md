@@ -103,7 +103,7 @@ Thus, when measuring costs we set the operation cost to be:
 We ship prebuilt QEMU and TCG instruction counter plugin, so in many cases one doesn't have to
 build it. However, in case you still want to build it - use the following steps.
 
-First ofall clone QEMU and fetch the submodules:
+First of all clone QEMU and fetch the submodules:
 
     host> git clone https://github.com/qemu/qemu --branch v8.2.1
     host> cd qemu
