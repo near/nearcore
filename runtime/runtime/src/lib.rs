@@ -899,7 +899,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
-            ReceiptEnum::Data(ref data_receipt) | ReceiptEnum::PromiseResume(ref data_receipt) => {
+            ReceiptEnum::Data(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -985,8 +985,7 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt)
-            | ReceiptEnum::PromiseYield(ref action_receipt) => {
+            ReceiptEnum::Action(ref action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1034,6 +1033,86 @@ impl Runtime {
                     );
                     // Save the receipt itself into the state.
                     set_postponed_receipt(state_update, receipt);
+                }
+            }
+            ReceiptEnum::PromiseYield(ref action_receipt) => {
+                // Received a new PromiseYield receipt. We simply postpone it and await
+                // the corresponding PromiseResume receipt.
+
+                // There should be exactly one input data id
+                assert!(action_receipt.input_data_ids.len() == 1);
+
+                // Save a link to this receipt_id for the pending data_id into the state
+                set(
+                    state_update,
+                    TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: action_receipt.input_data_ids[0],
+                    },
+                    &receipt.receipt_id,
+                );
+
+                // Save the receipt itself into the state
+                set_postponed_receipt(state_update, receipt);
+            }
+            ReceiptEnum::PromiseResume(ref data_receipt) => {
+                // Received a new PromiseResume receipt delivering input data for a PromiseYield.
+                // It is guaranteed that the PromiseYield has exactly one input data dependency
+                // and that it arrives first, so we can simply find and execute it.
+
+                // Find postponed receipt anticipating given data_id
+                if let Some(yield_receipt_id) = get(
+                    state_update,
+                    &TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: data_receipt.data_id,
+                    },
+                )? {
+                    // Fetch the PromiseYield receipt itself
+                    let yield_receipt =
+                        get_postponed_receipt(state_update, account_id, yield_receipt_id)?;
+                    if !yield_receipt.as_ref().is_some_and(|receipt| {
+                        matches!(receipt.receipt, ReceiptEnum::PromiseYield(_))
+                    }) {
+                        return Err(StorageError::StorageInconsistentState(
+                            "pending yield receipt should be in the state".to_string(),
+                        )
+                        .into());
+                    }
+                    let yield_receipt = yield_receipt.unwrap();
+
+                    // Remove this pending data_id from the state
+                    state_update.remove(TrieKey::PostponedReceiptId {
+                        receiver_id: account_id.clone(),
+                        data_id: data_receipt.data_id,
+                    });
+                    // Remove the receipt from the state
+                    remove_postponed_receipt(state_update, account_id, yield_receipt_id);
+                    // Save the data into the state keyed by the data_id
+                    set_received_data(
+                        state_update,
+                        account_id.clone(),
+                        data_receipt.data_id,
+                        &ReceivedData { data: data_receipt.data.clone() },
+                    );
+
+                    // Execute the PromiseYield receipt. It will read the input data and clean it
+                    // up from the state.
+                    return self
+                        .apply_action_receipt(
+                            state_update,
+                            apply_state,
+                            &yield_receipt,
+                            outgoing_receipts,
+                            validator_proposals,
+                            stats,
+                            epoch_info_provider,
+                        )
+                        .map(Some);
+                } else {
+                    // If the postponed receipt is not found it means that the user previously
+                    // submitted a PromiseResume for given data_id. We simply ignore this resume.
+                    return Ok(None);
                 }
             }
         };
