@@ -1529,7 +1529,7 @@ impl Runtime {
                 get::<YieldedPromise>(&state_update, &yielded_promise_key)?
             {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
-                let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
+                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt { data_id, data: None });
 
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
