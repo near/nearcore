@@ -75,17 +75,10 @@ mod tests {
             FP::new_big(get_381bit_big(rnd))
         }
 
-        fn map_fp_to_g(fps: Vec<FP>) -> Vec<u8> {
-            let mut fp_vec: Vec<Vec<u8>> = vec![vec![]];
-
-            for i in 0..fps.len() {
-                let mut fp_slice: [u8; 48] = [0u8; 48];
-                fps[i].redc().to_byte_array(&mut fp_slice, 0);
-
-                fp_vec.push(fp_slice.to_vec());
-            }
-
-            run_bls12381_fn!(bls12381_map_fp_to_g1, fp_vec)
+        fn serialize_fp(fp: &FP) -> Vec<u8> {
+            let mut fp_slice: [u8; 48] = [0u8; 48];
+            fp.redc().to_byte_array(&mut fp_slice, 0);
+            fp_slice.to_vec()
         }
     }
 
@@ -106,23 +99,16 @@ mod tests {
         }
 
         fn get_random_fp(rnd: &mut RAND) -> FP2 {
-            let c= get_381bit_big(rnd);
-            let d= get_381bit_big(rnd);
+            let c = get_381bit_big(rnd);
+            let d = get_381bit_big(rnd);
             FP2::new_bigs(c, d)
         }
 
-        fn map_fp_to_g(fp2: Vec<FP2>) -> Vec<u8> {
-            let mut fp2_vec: Vec<Vec<u8>> = vec![vec![]];
-
-            for i in 0..fp2.len() {
-                let mut fp2_res: [u8; 96] = [0u8; 96];
-                fp2[i].getb().to_byte_array(&mut fp2_res, 0);
-                fp2[i].geta().to_byte_array(&mut fp2_res, 48);
-
-                fp2_vec.push(fp2_res.to_vec());
-            }
-
-            run_bls12381_fn!(bls12381_map_fp2_to_g2, fp2_vec)
+        fn serialize_fp(fp2: &FP2) -> Vec<u8> {
+            let mut fp2_res: [u8; 96] = [0u8; 96];
+            fp2.getb().to_byte_array(&mut fp2_res, 0);
+            fp2.geta().to_byte_array(&mut fp2_res, 48);
+            fp2_res.to_vec()
         }
     }
 
@@ -130,12 +116,14 @@ mod tests {
         (
             $GOperations:ident,
             $ECP:ident,
+            $FP:ident,
             $subgroup_check_g:ident,
             $serialize_g:ident,
             $serialize_uncompressed_g:ident,
             $bls12381_decompress:ident,
             $bls12381_sum:ident,
-            $bls12381_multiexp:ident
+            $bls12381_multiexp:ident,
+            $bls12381_map_fp_to_g:ident
         ) => {
             impl $GOperations {
                 fn get_random_g_point(rnd: &mut RAND) -> $ECP {
@@ -249,6 +237,16 @@ mod tests {
 
                     run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
+
+                fn map_fp_to_g(fps: Vec<$FP>) -> Vec<u8> {
+                    let mut fp_vec: Vec<Vec<u8>> = vec![vec![]];
+
+                    for i in 0..fps.len() {
+                        fp_vec.push(Self::serialize_fp(&fps[i]));
+                    }
+
+                    run_bls12381_fn!($bls12381_map_fp_to_g, fp_vec)
+                }
             }
         };
     }
@@ -256,22 +254,26 @@ mod tests {
     impl_goperations!(
         G1Operations,
         ECP,
+        FP,
         subgroup_check_g1,
         serialize_g1,
         serialize_uncompressed_g1,
         bls12381_p1_decompress,
         bls12381_p1_sum,
-        bls12381_p1_multiexp
+        bls12381_p1_multiexp,
+        bls12381_map_fp_to_g1
     );
     impl_goperations!(
         G2Operations,
         ECP2,
+        FP2,
         subgroup_check_g2,
         serialize_g2,
         serialize_uncompressed_g2,
         bls12381_p2_decompress,
         bls12381_p2_sum,
-        bls12381_p2_multiexp
+        bls12381_p2_multiexp,
+        bls12381_map_fp2_to_g2
     );
 
     fn get_rnd() -> RAND {
@@ -802,7 +804,6 @@ mod tests {
                 let mut p_ser = $serialize_uncompressed(&p);
                 p_ser[$GOperations::POINT_LEN - 1] ^= 0x01;
                 run_bls12381_fn!($bls12381_multiexp, vec![p_ser.to_vec(), zero_scalar.clone()], 1);
-
 
                 //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
                 let p = $GOperations::get_random_curve_point(&mut rnd);
