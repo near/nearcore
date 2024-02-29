@@ -45,17 +45,15 @@ mod tests {
         const POINT_LEN: usize = 96;
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP {
-            let mut r: Big = Big::random(rnd);
-            r.mod2m(381);
-            let mut p: ECP = ECP::new_big(&r);
-
-            while p.is_infinity() {
-                r = Big::random(rnd);
+            loop {
+                let mut r: Big = Big::random(rnd);
                 r.mod2m(381);
-                p = ECP::new_big(&r);
-            }
+                let p: ECP = ECP::new_big(&r);
 
-            p
+                if !p.is_infinity() {
+                    return p;
+                }
+            }
         }
 
         fn clear_cofactor(p: &mut ECP) {
@@ -87,24 +85,18 @@ mod tests {
         const POINT_LEN: usize = 192;
 
         fn get_random_curve_point(rnd: &mut RAND) -> ECP2 {
-            let mut c: Big = Big::random(rnd);
-            c.mod2m(381);
-
-            let mut d: Big = Big::random(rnd);
-            d.mod2m(381);
-            let mut p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
-
-            while p.is_infinity() {
-                c = Big::random(rnd);
+            loop {
+                let mut c: Big = Big::random(rnd);
                 c.mod2m(381);
 
-                d = Big::random(rnd);
+                let mut d: Big = Big::random(rnd);
                 d.mod2m(381);
+                let p: ECP2 = ECP2::new_fp2(&FP2::new_bigs(c, d));
 
-                p = ECP2::new_fp2(&FP2::new_bigs(c, d));
+                if !p.is_infinity() {
+                    return p;
+                }
             }
-
-            p
         }
 
         fn clear_cofactor(p: &mut ECP2) {
