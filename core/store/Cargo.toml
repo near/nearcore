@@ -99,4 +99,5 @@ nightly = [
   "near-primitives/nightly",
   "near-vm-runner/nightly",
   "nightly_protocol",
+  "yield_resume",
 ]
