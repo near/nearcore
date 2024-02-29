@@ -1219,41 +1219,21 @@ mod tests {
         assert_eq!(pairing_check(vec![p1_not_from_g1.clone()], vec![p2.clone()]), 1);
         assert_eq!(pairing_check(vec![p1.clone()], vec![p2_not_from_g2.clone()]), 1);
 
-        // Incorrect encoding of the point at infinity
-        let mut zero = vec![0u8; 96];
-        zero[0] = 64;
-        zero[95] = 1;
-        assert_eq!(pairing_check_vec(zero.clone(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+        let p1_ser = serialize_uncompressed_g1(&p1).to_vec();
+        let p2_ser = serialize_uncompressed_g2(&p2).to_vec();
+        let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points();
+        for i in 0..test_vecs.len() {
+            assert_eq!(pairing_check_vec(test_vecs[i].clone(), p2_ser.clone()), 1);
+        }
 
-        // Erroneous coding of field elements with an incorrect extra bit in the decompressed encoding.
-        let mut zero = vec![0u8; 96];
-        zero[0] = 192;
-        assert_eq!(pairing_check_vec(zero.clone(), serialize_uncompressed_g2(&p2).to_vec()), 1);
-
-        let p = G1Operations::get_random_curve_point(&mut rnd);
-        let mut p_ser = serialize_uncompressed_g1(&p);
-        p_ser[0] |= 0x80;
-
-        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
-
-        // G1 point not on the curve
-        let p = G1Operations::get_random_curve_point(&mut rnd);
-        let mut p_ser = serialize_uncompressed_g1(&p);
-        p_ser[95] ^= 0x01;
-
-        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
-
-        // G2 point not on the curve
-        let p = G2Operations::get_random_curve_point(&mut rnd);
-        let mut p_ser = serialize_uncompressed_g2(&p);
-        p_ser[191] ^= 0x01;
-
-        assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
+        let test_vecs: Vec<Vec<u8>> = G2Operations::get_incorrect_points();
+        for i in 0..test_vecs.len() {
+            assert_eq!(pairing_check_vec(p1_ser.clone(), test_vecs[i].clone()), 1);
+        }
 
         // not G1 point
         let p = G1Operations::get_random_not_g_curve_point(&mut rnd);
         let p_ser = serialize_uncompressed_g1(&p);
-
         assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
 
         // not G2 point
@@ -1261,13 +1241,6 @@ mod tests {
         let p_ser = serialize_uncompressed_g2(&p);
 
         assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
-
-        //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-        let p = G1Operations::get_random_curve_point(&mut rnd);
-        let mut p_ser = serialize_uncompressed_g1(&p);
-        p_ser[0] ^= 0x20;
-
-        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
 
         //Erroneous coding of field elements resulting in a correct element on the curve modulo p.
         let p = G1Operations::get_random_curve_point(&mut rnd);
