@@ -415,11 +415,10 @@ impl FlatStorage {
     pub fn add_delta(&self, delta: FlatStateDelta) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
-        let shard_id = shard_uid.shard_id();
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;
-        debug!(target: "store", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
+        debug!(target: "store", %shard_uid, %block_hash, %block_height, "Adding block to flat storage");
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }
