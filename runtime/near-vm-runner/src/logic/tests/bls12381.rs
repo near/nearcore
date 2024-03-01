@@ -8,18 +8,20 @@ mod tests {
     };
     use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp2::FP2, pair};
     use amcl::rand::RAND;
-    use ark_bls12_381::{Fq, Fq2, G1Affine, G2Affine};
-    use ark_ec::AffineRepr;
+    use ark_bls12_381::{Fr, Fq, Fq2, G1Affine, G2Affine};
+    use ark_ec::bls12::Bls12Config;
     use ark_ec::hashing::curve_maps::wb::WBMap;
     use ark_ec::hashing::map_to_curve_hasher::MapToCurve;
-    use ark_ec::bls12::Bls12Config;
-    use ark_ff::PrimeField;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
     use ark_ff::Field;
+    use ark_ff::PrimeField;
     use ark_serialize::CanonicalSerialize;
-    use ark_std::{UniformRand, test_rng};
-    use rand::{seq::SliceRandom, thread_rng, RngCore, Rng};
+    use ark_std::{test_rng, UniformRand};
+    use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
     use std::fs;
     use std::str::FromStr;
+    use std::ops::{Mul, Neg};
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
     const P_MINUS_1: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559786";
@@ -81,7 +83,7 @@ mod tests {
             let mut result = [0u8; 48];
             let rep = fq.into_bigint();
             for i in 0..6 {
-                result[i*8..(i + 1)*8].copy_from_slice(&rep.0[5 - i].to_be_bytes());
+                result[i * 8..(i + 1) * 8].copy_from_slice(&rep.0[5 - i].to_be_bytes());
             }
             result.to_vec()
         }
@@ -142,6 +144,22 @@ mod tests {
                     let g: $ECP = $ECP::generator();
 
                     g.mul(&r)
+                }
+
+                fn _get_random_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                    loop {
+                        let x = Self::_get_random_fp(rng);
+                        let greatest = rng.gen();
+
+                        if let Some(p) = $GAffine::get_point_from_x_unchecked(x, greatest) {
+                            return p;
+                        }
+                    }
+                }
+
+                fn _get_random_g_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                    let p = Self::_get_random_curve_point(rng);
+                    p.clear_cofactor()
                 }
 
                 fn get_random_not_g_curve_point(rnd: &mut RAND) -> $ECP {
@@ -298,7 +316,8 @@ mod tests {
                 }
 
                 fn map_to_curve_g(fp: $FP) -> $GAffine {
-                    let wbmap = WBMap::<<ark_bls12_381::Config as Bls12Config>::$GConfig>::new().unwrap();
+                    let wbmap =
+                        WBMap::<<ark_bls12_381::Config as Bls12Config>::$GConfig>::new().unwrap();
                     let res = wbmap.map_to_curve(fp).unwrap();
                     if res.infinity {
                         return $GAffine::identity();
@@ -307,10 +326,10 @@ mod tests {
                     $GAffine::new_unchecked(res.x, res.y)
                 }
 
-
                 fn serialize_uncompressed_g(p: &$GAffine) -> Vec<u8> {
                     let mut serialized = vec![0u8; Self::POINT_LEN];
-                    p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::No).unwrap();
+                    p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::No)
+                        .unwrap();
 
                     serialized
                 }
@@ -420,10 +439,10 @@ mod tests {
                 assert_eq!(zero.to_vec(), $GOp::get_sum(0, &zero, 0, &zero));
 
                 // 0 + P = P + 0 = P
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
+                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
                     assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &zero, 0, &p_ser));
                     assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &zero));
                 }
@@ -432,21 +451,21 @@ mod tests {
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
                 for _ in 0..TESTS_ITERATIONS {
-                    let mut p = $GOp::get_random_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
+                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
 
-                    let mut pmul2 = p.mul(&Big::from_bytes(&[2]));
-                    let pmul2_ser = $serialize_uncompressed(&pmul2);
+                    let pmul2 = p.mul(Fr::from(2));
+                    let pmul2_ser = $GOp::serialize_uncompressed_g(&pmul2.into_affine());
                     assert_eq!(pmul2_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_ser));
 
-                    p.neg();
-                    let p_neg_ser = $serialize_uncompressed(&p);
+                    let pneg = p.neg();
+                    let p_neg_ser = $GOp::serialize_uncompressed_g(&pneg);
 
                     assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_neg_ser, 0, &p_ser));
                     assert_eq!(zero.to_vec(), $GOp::get_sum(0, &p_ser, 0, &p_neg_ser));
 
-                    pmul2.neg();
-                    let pmul2_neg = $serialize_uncompressed(&pmul2);
+                    let pmul2neg = pmul2.neg();
+                    let pmul2_neg = $GOp::serialize_uncompressed_g(&pmul2neg.into_affine());
                     assert_eq!(p_neg_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &pmul2_neg));
                 }
             }
