@@ -43,6 +43,12 @@ fn push_stats<T: Default + Clone + std::fmt::Debug>(
     }
 }
 
+fn push_header(header_parts: &mut Vec<String>, name: String, num_shards: usize) {
+    for i in 0..num_shards {
+        header_parts.push(format!("{name}_{i}"));
+    }
+}
+
 impl BlockStats {
     pub fn print(&self) {
         let mut stat_line = format!("{}", self.height).to_owned();
@@ -57,22 +63,15 @@ impl BlockStats {
 
     pub fn print_header() {
         let mut header_parts = vec!["height".to_string()];
-        for i in 0..4 {
-            header_parts.push(format!("has_chunk_{i}"));
-        }
-        for i in 0..4 {
-            header_parts.push(format!("gas_used_{i}"));
-        }
-        for i in 0..4 {
-            header_parts.push(format!("gas_used_by_account_{i}"));
-        }
-        for i in 0..4 {
-            header_parts.push(format!("tx_by_account_{i}"));
-        }
-        for i in 0..4 {
-            header_parts.push(format!("receipts_by_account_{i}"));
-        }
-        println!("{:?}", header_parts.join("\t"));
+        let num_shards = 4;
+        push_header(&mut header_parts, "has_chunk".to_string(), num_shards);
+        push_header(&mut header_parts, "gas_used".to_string(), num_shards);
+        push_header(&mut header_parts, "gas_used_by_account".to_string(), num_shards);
+        push_header(&mut header_parts, "tx_by_account".to_string(), num_shards);
+        push_header(&mut header_parts, "receipts_by_account".to_string(), num_shards);
+
+        let header = header_parts.join("\t");
+        println!("{header}");
     }
 }
 
