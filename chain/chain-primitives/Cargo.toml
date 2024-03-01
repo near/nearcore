@@ -16,6 +16,7 @@ thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-primitives.workspace = true
 near-crypto.workspace = true
 

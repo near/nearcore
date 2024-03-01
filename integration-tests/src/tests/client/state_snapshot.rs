@@ -1,5 +1,5 @@
 use near_chain::{ChainStoreAccess, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -15,9 +15,7 @@ use near_store::{
     StoreConfig, TrieConfig,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use std::path::PathBuf;
 
 struct StateSnaptshotTestEnv {

@@ -7,7 +7,6 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermi
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[test]

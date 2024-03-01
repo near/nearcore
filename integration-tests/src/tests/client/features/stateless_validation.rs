@@ -1,7 +1,6 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;

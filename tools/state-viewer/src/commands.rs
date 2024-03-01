@@ -39,6 +39,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
 use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
+use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -1329,7 +1330,6 @@ mod tests {
     use near_primitives::types::AccountId;
     use near_store::genesis::initialize_genesis_state;
     use nearcore::config::Config;
-    use nearcore::config::GenesisExt;
     use nearcore::{NearConfig, NightshadeRuntime};
     use std::sync::Arc;
 

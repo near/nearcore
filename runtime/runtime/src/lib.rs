@@ -36,7 +36,8 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
+    create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
+    create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
@@ -505,10 +506,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt = match &receipt.receipt {
-            ReceiptEnum::Action(action_receipt) => action_receipt,
-            _ => unreachable!("given receipt should be an action receipt"),
-        };
+        let action_receipt =
+            &receipt.receipt.action().expect("given receipt should be an action receipt");
         let account_id = &receipt.receiver_id;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -552,9 +551,9 @@ impl Runtime {
         result.compute_usage = exec_fees;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let action_hash = create_action_hash(
+            let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
-                receipt,
+                &receipt.receipt_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 action_index,
@@ -735,7 +734,8 @@ impl Runtime {
                     .expect("the receipt for the given receipt index should exist")
                     .receipt
                 {
-                    ReceiptEnum::Action(ref mut new_action_receipt) => new_action_receipt
+                    ReceiptEnum::Action(ref mut new_action_receipt)
+                    | ReceiptEnum::PromiseYield(ref mut new_action_receipt) => new_action_receipt
                         .output_data_receivers
                         .extend_from_slice(&action_receipt.output_data_receivers),
                     _ => unreachable!("the receipt should be an action receipt"),
@@ -775,7 +775,7 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = matches!(&new_receipt.receipt, ReceiptEnum::Action(_));
+                let is_action = new_receipt.receipt.is_action();
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -899,7 +899,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
-            ReceiptEnum::Data(ref data_receipt) => {
+            ReceiptEnum::Data(ref data_receipt) | ReceiptEnum::PromiseResume(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -985,7 +985,8 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt) => {
+            ReceiptEnum::Action(ref action_receipt)
+            | ReceiptEnum::PromiseYield(ref action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1529,7 +1530,7 @@ impl Runtime {
                 get::<YieldedPromise>(&state_update, &yielded_promise_key)?
             {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
-                let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
+                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt { data_id, data: None });
 
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,

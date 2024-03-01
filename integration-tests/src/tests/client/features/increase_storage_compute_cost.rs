@@ -22,7 +22,6 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::AccountId;
 use near_primitives::version::ProtocolFeature;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Tracked in https://github.com/near/nearcore/issues/8938

@@ -17,12 +17,12 @@ use crate::types::{Balance, BlockHeight, EpochId, Gas, NumBlocks, StateRoot};
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use crate::version::{ProtocolVersion, SHARD_CHUNK_HEADER_UPGRADE_VERSION};
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Utc;
 use near_crypto::Signature;
 use near_primitives_core::types::ShardId;
 use primitive_types::U256;
 use std::ops::Index;
 use std::sync::Arc;
-use time::OffsetDateTime as Utc;
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq, Default)]
 pub struct GenesisId {

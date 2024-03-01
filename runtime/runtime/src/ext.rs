@@ -4,7 +4,7 @@ use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::create_data_id;
+use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
 use near_store::{
     get_code, get_yielded_promise, remove_yielded_promise, KeyLookupMode, TrieUpdate,
@@ -176,7 +176,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        let data_id = create_data_id(
+        let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
             self.action_hash,
             self.prev_block_hash,

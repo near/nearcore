@@ -1,4 +1,5 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
+use near_chain::runtime::migrations::load_migration_data;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -7,8 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolFeature;
-use nearcore::config::GenesisExt;
-use nearcore::migrations::load_migration_data;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 

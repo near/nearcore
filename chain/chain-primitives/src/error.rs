@@ -1,3 +1,4 @@
+use near_async::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
@@ -5,7 +6,6 @@ use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
 use std::io;
-use time::OffsetDateTime as Utc;
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {

@@ -110,7 +110,7 @@ impl QemuCommandBuilder {
             cmd.args(&["-d", "plugin"]);
         }
 
-        cmd.args(&["-cpu", "Westmere-v1"]);
+        cmd.args(&["-cpu", "Haswell-v4"]);
         cmd.arg(inner_cmd);
 
         Ok(cmd)

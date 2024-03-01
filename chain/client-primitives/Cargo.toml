@@ -22,6 +22,7 @@ time.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 
+near-async.workspace = true
 near-chain-primitives.workspace = true
 near-chain-configs.workspace = true
 near-chunks-primitives.workspace = true

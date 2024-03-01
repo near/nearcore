@@ -123,7 +123,8 @@ new_epoch_sync = [
   "near-client/new_epoch_sync"
 ]
 yield_resume = [
-  "near-store/yield_resume"
+  "near-store/yield_resume",
+  "near-primitives/yield_resume",
 ]
 
 serialize_all_state_changes = ["near-store/serialize_all_state_changes"]

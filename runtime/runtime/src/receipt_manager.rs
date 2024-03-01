@@ -33,6 +33,8 @@ pub struct ReceiptMetadata {
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
+    /// Indicates whether the receipt was created via `promise_yield_create` host function.
+    pub is_promise_yield: bool,
 }
 
 #[derive(Default, Clone, PartialEq)]
@@ -102,8 +104,12 @@ impl ReceiptManager {
                 .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
         }
 
-        let new_receipt =
-            ReceiptMetadata { output_data_receivers: vec![], input_data_ids, actions: vec![] };
+        let new_receipt = ReceiptMetadata {
+            output_data_receivers: vec![],
+            input_data_ids,
+            actions: vec![],
+            is_promise_yield: false,
+        };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
         self.action_receipts.push((receiver_id, new_receipt));
         Ok(new_receipt_index)
@@ -127,6 +133,7 @@ impl ReceiptManager {
             output_data_receivers: vec![],
             input_data_ids: vec![input_data_id],
             actions: vec![],
+            is_promise_yield: true,
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
         self.action_receipts.push((receiver_id.clone(), new_receipt));

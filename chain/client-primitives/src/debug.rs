@@ -1,6 +1,7 @@
 //! Structs in this module are used for debug purposes, and might change at any time
 //! without backwards compatibility of JSON encoding.
 use crate::types::StatusError;
+use near_async::time::Utc;
 use near_primitives::types::EpochId;
 use near_primitives::views::{
     CatchupStatusView, ChainProcessingInfo, EpochValidatorInfo, RequestedStatePartsView,
@@ -14,7 +15,6 @@ use near_primitives::{
     views::ValidatorInfo,
 };
 use std::collections::HashMap;
-use time::OffsetDateTime as Utc;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct TrackedShardsView {
