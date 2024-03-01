@@ -450,6 +450,8 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Save only the data necessary for validation.
+    validator_minimal_store: bool,
 }
 
 fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
@@ -464,7 +466,12 @@ where
 }
 
 impl ChainStore {
-    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> ChainStore {
+    pub fn new(
+        store: Store,
+        genesis_height: BlockHeight,
+        save_trie_changes: bool,
+        validator_minimal_store: bool,
+    ) -> ChainStore {
         ChainStore {
             store,
             genesis_height,
@@ -492,6 +499,7 @@ impl ChainStore {
             block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
+            validator_minimal_store,
         }
     }
 
@@ -2425,7 +2433,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             };
 
-            if false {
+            if !self.chain_store.validator_minimal_store {
                 // Increase transaction refcounts for all included txs
                 for tx in chunk.transactions().iter() {
                     let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
@@ -2492,7 +2500,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        if false {
+        if !self.chain_store.validator_minimal_store {
             for ((outcome_id, block_hash), outcome_with_proof) in
                 self.chain_store_cache_update.outcomes.iter()
             {

@@ -336,9 +336,15 @@ impl Chain {
         chain_genesis: &ChainGenesis,
         doomslug_threshold_mode: DoomslugThresholdMode,
         save_trie_changes: bool,
+        validator_minimal_store: bool,
     ) -> Result<Chain, Error> {
         let store = runtime_adapter.store();
-        let chain_store = ChainStore::new(store.clone(), chain_genesis.height, save_trie_changes);
+        let chain_store = ChainStore::new(
+            store.clone(),
+            chain_genesis.height,
+            save_trie_changes,
+            validator_minimal_store,
+        );
         let genesis = Self::make_genesis_block(
             epoch_manager.as_ref(),
             runtime_adapter.as_ref(),
@@ -390,6 +396,7 @@ impl Chain {
             runtime_adapter.store().clone(),
             chain_genesis.height,
             chain_config.save_trie_changes,
+            chain_config.validator_minimal_store,
         );
         let genesis_chunks = genesis_chunks(
             state_roots.clone(),

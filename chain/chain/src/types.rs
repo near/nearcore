@@ -216,6 +216,8 @@ pub struct ChainGenesis {
 pub struct ChainConfig {
     /// Whether to save `TrieChanges` on disk or not.
     pub save_trie_changes: bool,
+    /// Save only the data necessary for validation.
+    pub validator_minimal_store: bool,
     /// Number of threads to execute background migration work.
     /// Currently used for flat storage background creation.
     pub background_migration_threads: usize,
@@ -227,6 +229,7 @@ impl ChainConfig {
     pub fn test() -> Self {
         Self {
             save_trie_changes: true,
+            validator_minimal_store: false,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
