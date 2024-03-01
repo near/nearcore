@@ -176,7 +176,7 @@ pub(crate) fn check_balance(
                 ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => {
                     Some(Ok((account_id.clone(), receipt.receipt_id)))
                 }
-                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+                ReceiptEnum::Data(data_receipt) => {
                     let result = get(
                         initial_state,
                         &TrieKey::PostponedReceiptId {
@@ -188,6 +188,22 @@ pub(crate) fn check_balance(
                         Err(err) => Some(Err(err)),
                         Ok(None) => None,
                         Ok(Some(receipt_id)) => Some(Ok((account_id.clone(), receipt_id))),
+                    }
+                }
+                ReceiptEnum::PromiseResume(data_receipt) => {
+                    let result = get::<Receipt>(
+                        initial_state,
+                        &TrieKey::PromiseYieldReceipt {
+                            receiver_id: account_id.clone(),
+                            data_id: data_receipt.data_id,
+                        },
+                    );
+                    match result {
+                        Err(err) => Some(Err(err)),
+                        Ok(None) => None,
+                        Ok(Some(yield_receipt)) => {
+                            Some(Ok((account_id.clone(), yield_receipt.receipt_id)))
+                        }
                     }
                 }
             }

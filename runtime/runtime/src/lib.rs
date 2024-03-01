@@ -19,7 +19,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    YieldedPromise, YieldedPromiseQueueIndices,
+    YieldedPromiseQueueEntry, YieldedPromiseQueueIndices,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -41,9 +41,10 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, has_received_data,
-    remove_postponed_receipt, set, set_account, set_delayed_receipt, set_postponed_receipt,
-    set_received_data, PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_received_data, get_yielded_promise,
+    has_received_data, remove_postponed_receipt, remove_yielded_promise, set, set_account,
+    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise,
+    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
@@ -1035,59 +1036,21 @@ impl Runtime {
                     set_postponed_receipt(state_update, receipt);
                 }
             }
-            ReceiptEnum::PromiseYield(ref action_receipt) => {
-                // Received a new PromiseYield receipt. We simply postpone it and await
+            ReceiptEnum::PromiseYield(_) => {
+                // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
-
-                // There should be exactly one input data id
-                assert!(action_receipt.input_data_ids.len() == 1);
-
-                // Save a link to this receipt_id for the pending data_id into the state
-                set(
-                    state_update,
-                    TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: action_receipt.input_data_ids[0],
-                    },
-                    &receipt.receipt_id,
-                );
-
-                // Save the receipt itself into the state
-                set_postponed_receipt(state_update, receipt);
+                set_yielded_promise(state_update, receipt);
             }
             ReceiptEnum::PromiseResume(ref data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
-
-                // Find postponed receipt anticipating given data_id
-                if let Some(yield_receipt_id) = get(
-                    state_update,
-                    &TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
-                    },
-                )? {
-                    // Fetch the PromiseYield receipt itself
-                    let yield_receipt =
-                        get_postponed_receipt(state_update, account_id, yield_receipt_id)?;
-                    if !yield_receipt.as_ref().is_some_and(|receipt| {
-                        matches!(receipt.receipt, ReceiptEnum::PromiseYield(_))
-                    }) {
-                        return Err(StorageError::StorageInconsistentState(
-                            "pending yield receipt should be in the state".to_string(),
-                        )
-                        .into());
-                    }
-                    let yield_receipt = yield_receipt.unwrap();
-
-                    // Remove this pending data_id from the state
-                    state_update.remove(TrieKey::PostponedReceiptId {
-                        receiver_id: account_id.clone(),
-                        data_id: data_receipt.data_id,
-                    });
+                if let Some(yield_receipt) =
+                    get_yielded_promise(state_update, account_id, data_receipt.data_id)?
+                {
                     // Remove the receipt from the state
-                    remove_postponed_receipt(state_update, account_id, yield_receipt_id);
+                    remove_yielded_promise(state_update, account_id, data_receipt.data_id);
+
                     // Save the data into the state keyed by the data_id
                     set_received_data(
                         state_update,
@@ -1110,8 +1073,9 @@ impl Runtime {
                         )
                         .map(Some);
                 } else {
-                    // If the postponed receipt is not found it means that the user previously
-                    // submitted a PromiseResume for given data_id. We simply ignore this resume.
+                    // If the user happens to call `promise_yield_resume` multiple times, it may so
+                    // happen that multiple PromiseResume receipts are delivered. We can safely
+                    // ignore all but the first.
                     return Ok(None);
                 }
             }
@@ -1590,8 +1554,8 @@ impl Runtime {
             let queue_entry_key =
                 TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
 
-            let (data_id, expires_at): (CryptoHash, BlockHeight) =
-                get(&state_update, &queue_entry_key)?.ok_or_else(|| {
+            let queue_entry = get::<YieldedPromiseQueueEntry>(&state_update, &queue_entry_key)?
+                .ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "Yielded promise queue entry #{} should be in the state",
                         yielded_promise_indices.first_index
@@ -1599,21 +1563,25 @@ impl Runtime {
                 })?;
 
             // Queue entries are ordered by expires_at
-            if expires_at > apply_state.block_height {
+            if queue_entry.expires_at > apply_state.block_height {
                 break;
             }
 
             // Check if the yielded promise still needs to be resolved
-            let yielded_promise_key = TrieKey::YieldedPromise { data_id };
-            if let Some(yielded_promise) =
-                get::<YieldedPromise>(&state_update, &yielded_promise_key)?
-            {
+            let yielded_promise_key = TrieKey::PromiseYieldReceipt {
+                receiver_id: queue_entry.account_id.clone(),
+                data_id: queue_entry.data_id.clone(),
+            };
+            if state_update.contains_key(&yielded_promise_key)? {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
-                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt { data_id, data: None });
+                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt {
+                    data_id: queue_entry.data_id,
+                    data: None,
+                });
 
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    &data_id,
+                    &queue_entry.data_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     new_receipt_index,
@@ -1621,8 +1589,8 @@ impl Runtime {
                 new_receipt_index += 1;
 
                 outgoing_receipts.push(Receipt {
-                    predecessor_id: yielded_promise.account_id.clone(),
-                    receiver_id: yielded_promise.account_id,
+                    predecessor_id: queue_entry.account_id.clone(),
+                    receiver_id: queue_entry.account_id.clone(),
                     receipt_id: new_receipt_id,
                     receipt: new_receipt,
                 });
