@@ -24,6 +24,7 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
     StateChangesForResharding, StateRoot, StateRootNode,
 };
+use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
@@ -234,7 +235,8 @@ impl ChainConfig {
 impl ChainGenesis {
     pub fn new(genesis_config: &GenesisConfig) -> Self {
         Self {
-            time: Utc::from_unix_timestamp(genesis_config.genesis_time.timestamp()).unwrap(),
+            time: Utc::from_unix_timestamp_nanos(to_timestamp(genesis_config.genesis_time) as i128)
+                .unwrap(),
             height: genesis_config.genesis_height,
             gas_limit: genesis_config.gas_limit,
             min_gas_price: genesis_config.min_gas_price,
