@@ -120,7 +120,7 @@ class ReshardingTest(ReshardingTestBase):
         node0.start()
 
         check_count = 0
-        for height, _ in poll_blocks(node0):
+        for height, hash in poll_blocks(node0):
             if height > 4 * self.epoch_length:
                 break
 
