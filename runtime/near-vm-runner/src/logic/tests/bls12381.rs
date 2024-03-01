@@ -19,9 +19,10 @@ mod tests {
     use ark_std::{UniformRand, test_rng};
     use rand::{seq::SliceRandom, thread_rng, RngCore, Rng};
     use std::fs;
+    use std::str::FromStr;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
-    const _P_MINUS_1: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa";
+    const P_MINUS_1: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559786";
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
@@ -935,7 +936,7 @@ mod tests {
     #[test]
     fn test_bls12381_map_fp_to_g1_edge_cases() {
         check_map_fp(Fq::ZERO);
-        //check_map_fp(FP::new_big(Big::from_string(P_MINUS_1.to_string())));
+        check_map_fp(Fq::from_str(P_MINUS_1).unwrap());
     }
 
     #[test]
