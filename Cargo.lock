@@ -4392,6 +4392,7 @@ dependencies = [
  "actix",
  "awc",
  "futures",
+ "near-async",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",

@@ -256,3 +256,59 @@ impl Interval {
             );
     }
 }
+
+/// Provides serialization of Duration as std::time::Duration.
+pub mod serde_duration_as_std {
+    use crate::time::Duration;
+    use serde::Deserialize;
+    use serde::Serialize;
+
+    pub fn serialize<S>(dur: &Duration, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let std: std::time::Duration = (*dur)
+            .try_into()
+            .map_err(|_| serde::ser::Error::custom("Duration conversion failed"))?;
+        std.serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Duration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let std: std::time::Duration = Deserialize::deserialize(d)?;
+        Ok(std.try_into().map_err(|_| serde::de::Error::custom("Duration conversion failed"))?)
+    }
+}
+
+/// Provides serialization of Duration as std::time::Duration.
+pub mod serde_opt_duration_as_std {
+    use crate::time::Duration;
+    use serde::Deserialize;
+    use serde::Serialize;
+
+    pub fn serialize<S>(dur: &Option<Duration>, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let std: Option<std::time::Duration> = dur
+            .map(|dur| {
+                dur.try_into().map_err(|_| serde::ser::Error::custom("Duration conversion failed"))
+            })
+            .transpose()?;
+        std.serialize(s)
+    }
+
+    pub fn deserialize<'de, D>(d: D) -> Result<Option<Duration>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let std: Option<std::time::Duration> = Deserialize::deserialize(d)?;
+        Ok(std
+            .map(|std| {
+                std.try_into().map_err(|_| serde::de::Error::custom("Duration conversion failed"))
+            })
+            .transpose()?)
+    }
+}

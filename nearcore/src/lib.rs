@@ -42,6 +42,8 @@ use tracing::info;
 pub mod append_only_map;
 pub mod cold_storage;
 pub mod config;
+#[cfg(test)]
+mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;

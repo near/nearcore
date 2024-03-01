@@ -3,10 +3,10 @@ mod metrics;
 use actix::{Actor, Context, Handler};
 use awc::{Client, Connector};
 use futures::FutureExt;
+use near_async::time::{Duration, Instant};
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use std::ops::Sub;
-use time::{Duration, Instant};
 
 /// Timeout for establishing connection.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -16,6 +16,7 @@ pub struct TelemetryConfig {
     pub endpoints: Vec<String>,
     /// Only one request will be allowed in the specified time interval.
     #[serde(default = "default_reporting_interval")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub reporting_interval: Duration,
 }
 

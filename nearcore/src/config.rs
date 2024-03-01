@@ -113,12 +113,16 @@ pub struct Consensus {
     /// Minimum number of peers to start syncing.
     pub min_num_peers: usize,
     /// Duration to check for producing / skipping block.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub block_production_tracking_delay: Duration,
     /// Minimum duration before producing block.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub min_block_production_delay: Duration,
     /// Maximum wait for approvals before producing block.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_block_production_delay: Duration,
     /// Maximum duration before skipping given height.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_block_wait_delay: Duration,
     /// Produce empty blocks, use `false` for testing.
     pub produce_empty_blocks: bool,
@@ -127,32 +131,41 @@ pub struct Consensus {
     /// Behind this horizon header fetch kicks in.
     pub block_header_fetch_horizon: BlockHeightDelta,
     /// Time between check to perform catchup.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub catchup_step_period: Duration,
     /// Time between checking to re-request chunks.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub chunk_request_retry_period: Duration,
     /// How much time to wait after initial header sync
     #[serde(default = "default_header_sync_initial_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_initial_timeout: Duration,
     /// How much time to wait after some progress is made in header sync
     #[serde(default = "default_header_sync_progress_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_progress_timeout: Duration,
     /// How much time to wait before banning a peer in header sync if sync is too slow
     #[serde(default = "default_header_sync_stall_ban_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub header_sync_stall_ban_timeout: Duration,
     /// How much to wait for a state sync response before re-requesting
     #[serde(default = "default_state_sync_timeout")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub state_sync_timeout: Duration,
     /// Expected increase of header head weight per second during header sync
     #[serde(default = "default_header_sync_expected_height_per_second")]
     pub header_sync_expected_height_per_second: u64,
     /// How frequently we check whether we need to sync
     #[serde(default = "default_sync_check_period")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub sync_check_period: Duration,
     /// During sync the time we wait before reentering the sync loop
     #[serde(default = "default_sync_step_period")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub sync_step_period: Duration,
     /// Time between running doomslug timer.
     #[serde(default = "default_doomslug_step_period")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub doomslug_step_period: Duration,
     #[serde(default = "default_sync_height_threshold")]
     pub sync_height_threshold: u64,
@@ -218,6 +231,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_trie_changes: Option<bool>,
     pub log_summary_style: LogSummaryStyle,
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub log_summary_period: Duration,
     // Allows more detailed logging, for example a list of orphaned blocks.
     pub enable_multiline_logging: Option<bool>,
@@ -226,6 +240,7 @@ pub struct Config {
     pub gc: GCConfig,
     pub view_client_threads: usize,
     pub epoch_sync_enabled: bool,
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub view_client_throttle_period: Duration,
     pub trie_viewer_state_size_limit: Option<u64>,
     /// If set, overrides value in genesis configuration.
@@ -265,6 +280,7 @@ pub struct Config {
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
+    #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
     /// Optional config for the Chunk Distribution Network feature.
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
@@ -354,9 +370,11 @@ pub struct SplitStorageConfig {
     #[serde(default = "default_cold_store_initial_migration_batch_size")]
     pub cold_store_initial_migration_batch_size: usize,
     #[serde(default = "default_cold_store_initial_migration_loop_sleep_duration")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub cold_store_initial_migration_loop_sleep_duration: Duration,
 
     #[serde(default = "default_cold_store_loop_sleep_duration")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub cold_store_loop_sleep_duration: Duration,
 
     #[serde(default = "default_num_cold_store_read_threads")]

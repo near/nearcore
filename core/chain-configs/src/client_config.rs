@@ -113,6 +113,7 @@ pub struct DumpConfig {
     /// How often to check if a new epoch has started.
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -184,19 +185,23 @@ pub struct ReshardingConfig {
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
     /// with regular node operation.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub batch_delay: Duration,
 
     /// The delay between attempts to start resharding while waiting for the
     /// state snapshot to become available.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub retry_delay: Duration,
 
     /// The delay between the resharding request is received and when the actor
     /// actually starts working on it. This delay should only be used in tests.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub initial_delay: Duration,
 
     /// The maximum time that the actor will wait for the snapshot to be ready,
     /// before starting resharding. Do not wait indefinitely since we want to
     /// report error early enough for the node maintainer to have time to recover.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub max_poll_time: Duration,
 }
 
@@ -310,14 +315,14 @@ pub fn default_orphan_state_witness_pool_size() -> usize {
 /// This allows nodes to push and pull chunks from a central stream.
 /// The two benefits of this approach are: (1) less request/response traffic
 /// on the peer-to-peer network and (2) lower latency for RPC nodes indexing the chain.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ChunkDistributionNetworkConfig {
     pub enabled: bool,
     pub uris: ChunkDistributionUris,
 }
 
 /// URIs for the Chunk Distribution Network feature.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ChunkDistributionUris {
     /// URI for pulling chunks from the stream.
     pub get: String,
