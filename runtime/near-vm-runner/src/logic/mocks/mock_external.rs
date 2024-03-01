@@ -182,9 +182,20 @@ impl External for MockedExternal {
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<(), crate::logic::VMLogicError> {
+    ) -> Result<bool, crate::logic::VMLogicError> {
         self.action_log.push(MockAction::YieldResume { data_id, data });
-        Ok(())
+        for action in &self.action_log {
+            let MockAction::YieldCreate { data_id: did, .. } = action else {
+                continue;
+            };
+            // FIXME: should also check that receiver_id matches current account_id, but there
+            // isn't one tracked by `Self`...
+            if data_id == *did {
+                // NB: does not actually handle timeouts.
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn append_action_create_account(

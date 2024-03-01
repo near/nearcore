@@ -71,7 +71,7 @@ impl FlatStorageShardCreator {
             remaining_state_parts: None,
             fetched_parts_sender,
             fetched_parts_receiver,
-            metrics: FlatStorageCreationMetrics::new(shard_uid.shard_id()),
+            metrics: FlatStorageCreationMetrics::new(shard_uid),
         }
     }
 

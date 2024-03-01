@@ -326,10 +326,7 @@ pub(crate) fn action_function_call(
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                 // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::PromiseResume(DataReceipt {
-                    data_id: data_id,
-                    data: Some(data),
-                }),
+                receipt: ReceiptEnum::PromiseResume(DataReceipt { data_id, data: Some(data) }),
             }
         }));
 
@@ -338,7 +335,7 @@ pub(crate) fn action_function_call(
             get_yielded_promise_indices(state_update).unwrap_or_default();
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
 
-        for (account_id, yielded_data_id) in receipt_manager.yielded_data_ids.iter() {
+        for (yielded_data_id, account_id) in receipt_manager.yielded_data_ids.iter() {
             set_yielded_promise(
                 state_update,
                 &mut yielded_promise_indices,
