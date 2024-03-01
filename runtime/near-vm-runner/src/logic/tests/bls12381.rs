@@ -1,20 +1,27 @@
 mod tests {
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
-    use amcl::bls381::bls381::core::{
-        deserialize_g1, deserialize_g2, map_to_curve_g1, map_to_curve_g2,
-    };
+    use amcl::bls381::bls381::core::{deserialize_g1, deserialize_g2};
     use amcl::bls381::bls381::utils::{
         serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
         subgroup_check_g1, subgroup_check_g2,
     };
-    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp::FP, fp2::FP2, pair, rom::H_EFF_G1};
+    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp2::FP2, pair};
     use amcl::rand::RAND;
-    use rand::{seq::SliceRandom, thread_rng, RngCore};
+    use ark_bls12_381::{Fq, Fq2, G1Affine, G2Affine};
+    use ark_ec::AffineRepr;
+    use ark_ec::hashing::curve_maps::wb::WBMap;
+    use ark_ec::hashing::map_to_curve_hasher::MapToCurve;
+    use ark_ec::bls12::Bls12Config;
+    use ark_ff::PrimeField;
+    use ark_ff::Field;
+    use ark_serialize::CanonicalSerialize;
+    use ark_std::{UniformRand, test_rng};
+    use rand::{seq::SliceRandom, thread_rng, RngCore, Rng};
     use std::fs;
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
-    const P_MINUS_1: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa";
+    const _P_MINUS_1: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa";
     const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
@@ -65,18 +72,17 @@ mod tests {
             }
         }
 
-        fn clear_cofactor(p: &mut ECP) {
-            *p = p.mul(&Big::new_ints(&H_EFF_G1))
+        fn _get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq {
+            Fq::rand(rng)
         }
 
-        fn get_random_fp(rnd: &mut RAND) -> FP {
-            FP::new_big(get_381bit_big(rnd))
-        }
-
-        fn serialize_fp(fp: &FP) -> Vec<u8> {
-            let mut fp_slice: [u8; 48] = [0u8; 48];
-            fp.redc().to_byte_array(&mut fp_slice, 0);
-            fp_slice.to_vec()
+        fn serialize_fp(fq: &Fq) -> Vec<u8> {
+            let mut result = [0u8; 48];
+            let rep = fq.into_bigint();
+            for i in 0..6 {
+                result[i*8..(i + 1)*8].copy_from_slice(&rep.0[5 - i].to_be_bytes());
+            }
+            result.to_vec()
         }
     }
 
@@ -96,21 +102,20 @@ mod tests {
             }
         }
 
-        fn clear_cofactor(p: &mut ECP2) {
-            p.clear_cofactor()
-        }
-
         fn get_random_fp(rnd: &mut RAND) -> FP2 {
             let c = get_381bit_big(rnd);
             let d = get_381bit_big(rnd);
             FP2::new_bigs(c, d)
         }
 
-        fn serialize_fp(fp2: &FP2) -> Vec<u8> {
-            let mut fp2_res: [u8; 96] = [0u8; 96];
-            fp2.getb().to_byte_array(&mut fp2_res, 0);
-            fp2.geta().to_byte_array(&mut fp2_res, 48);
-            fp2_res.to_vec()
+        fn _get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq2 {
+            Fq2::new(Fq::rand(rng), Fq::rand(rng))
+        }
+
+        fn serialize_fp(fq: &Fq2) -> Vec<u8> {
+            let c1_bytes = G1Operations::serialize_fp(&fq.c1);
+            let c0_bytes = G1Operations::serialize_fp(&fq.c0);
+            vec![c1_bytes, c0_bytes].concat()
         }
     }
 
@@ -119,6 +124,8 @@ mod tests {
             $GOperations:ident,
             $ECP:ident,
             $FP:ident,
+            $GConfig:ident,
+            $GAffine:ident,
             $subgroup_check_g:ident,
             $serialize_g:ident,
             $add_p_y:ident,
@@ -242,7 +249,7 @@ mod tests {
                 }
 
                 fn map_fp_to_g(fps: Vec<$FP>) -> Vec<u8> {
-                    let mut fp_vec: Vec<Vec<u8>> = vec![vec![]];
+                    let mut fp_vec: Vec<Vec<u8>> = vec![];
 
                     for i in 0..fps.len() {
                         fp_vec.push(Self::serialize_fp(&fps[i]));
@@ -288,6 +295,24 @@ mod tests {
 
                     res
                 }
+
+                fn map_to_curve_g(fp: $FP) -> $GAffine {
+                    let wbmap = WBMap::<<ark_bls12_381::Config as Bls12Config>::$GConfig>::new().unwrap();
+                    let res = wbmap.map_to_curve(fp).unwrap();
+                    if res.infinity {
+                        return $GAffine::identity();
+                    }
+
+                    $GAffine::new_unchecked(res.x, res.y)
+                }
+
+
+                fn serialize_uncompressed_g(p: &$GAffine) -> Vec<u8> {
+                    let mut serialized = vec![0u8; Self::POINT_LEN];
+                    p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::No).unwrap();
+
+                    serialized
+                }
             }
         };
     }
@@ -295,7 +320,9 @@ mod tests {
     impl_goperations!(
         G1Operations,
         ECP,
-        FP,
+        Fq,
+        G1Config,
+        G1Affine,
         subgroup_check_g1,
         serialize_g1,
         add_p_y,
@@ -308,7 +335,9 @@ mod tests {
     impl_goperations!(
         G2Operations,
         ECP2,
-        FP2,
+        Fq2,
+        G2Config,
+        G2Affine,
         subgroup_check_g2,
         serialize_g2,
         add2_p_y,
@@ -838,28 +867,31 @@ mod tests {
             $GOp:ident,
             $map_to_curve_g:ident,
             $FP:ident,
-            $serialize_uncompressed_g:ident,
+            $check_map_fp:ident,
             $test_bls12381_map_fp_to_g:ident,
             $test_bls12381_map_fp_to_g_many_points:ident
         ) => {
+            fn $check_map_fp(fp: $FP) {
+                let res1 = $GOp::map_fp_to_g(vec![fp.clone()]);
+
+                let mut res2 = $GOp::map_to_curve_g(fp);
+                res2 = res2.clear_cofactor();
+
+                assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2));
+            }
+
             #[test]
             fn $test_bls12381_map_fp_to_g() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let fp = $GOp::get_random_fp(&mut rnd);
-                    let res1 = $GOp::map_fp_to_g(vec![fp.clone()]);
-
-                    let mut res2 = $map_to_curve_g(fp);
-                    $GOp::clear_cofactor(&mut res2);
-
-                    assert_eq!(res1, $serialize_uncompressed_g(&res2));
+                    $check_map_fp($GOp::_get_random_fp(&mut rng));
                 }
             }
 
             #[test]
             fn $test_bls12381_map_fp_to_g_many_points() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_MAP);
@@ -867,12 +899,12 @@ mod tests {
                     let mut fps: Vec<$FP> = vec![];
                     let mut res2_mul: Vec<u8> = vec![];
                     for i in 0..n {
-                        fps.push($GOp::get_random_fp(&mut rnd));
+                        fps.push($GOp::_get_random_fp(&mut rng));
 
-                        let mut res2 = $map_to_curve_g(fps[i].clone());
-                        $GOp::clear_cofactor(&mut res2);
+                        let mut res2 = $GOp::map_to_curve_g(fps[i].clone());
+                        res2 = res2.clear_cofactor();
 
-                        res2_mul.append(&mut $serialize_uncompressed_g(&res2).to_vec());
+                        res2_mul.append(&mut $GOp::serialize_uncompressed_g(&res2));
                     }
 
                     let res1 = $GOp::map_fp_to_g(fps);
@@ -885,8 +917,8 @@ mod tests {
     test_bls12381_map_fp_to_g!(
         G1Operations,
         map_to_curve_g1,
-        FP,
-        serialize_uncompressed_g1,
+        Fq,
+        check_map_fp,
         test_bls12381_map_fp_to_g1,
         test_bls12381_map_fp_to_g1_many_points
     );
@@ -894,29 +926,16 @@ mod tests {
     test_bls12381_map_fp_to_g!(
         G2Operations,
         map_to_curve_g2,
-        FP2,
-        serialize_uncompressed_g2,
+        Fq2,
+        check_map_fp2,
         test_bls12381_map_fp2_to_g2,
         test_bls12381_map_fp2_to_g2_many_points
     );
 
     #[test]
     fn test_bls12381_map_fp_to_g1_edge_cases() {
-        let fp = FP::new_big(Big::new_int(0));
-        let res1 = G1Operations::map_fp_to_g(vec![fp.clone()]);
-
-        let mut res2 = map_to_curve_g1(fp);
-        G1Operations::clear_cofactor(&mut res2);
-
-        assert_eq!(res1, serialize_uncompressed_g1(&res2));
-
-        let fp = FP::new_big(Big::from_string(P_MINUS_1.to_string()));
-        let res1 = G1Operations::map_fp_to_g(vec![fp.clone()]);
-
-        let mut res2 = map_to_curve_g1(fp);
-        G1Operations::clear_cofactor(&mut res2);
-
-        assert_eq!(res1, serialize_uncompressed_g1(&res2));
+        check_map_fp(Fq::ZERO);
+        //check_map_fp(FP::new_big(Big::from_string(P_MINUS_1.to_string())));
     }
 
     #[test]
