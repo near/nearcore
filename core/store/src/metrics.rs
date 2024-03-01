@@ -393,7 +393,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_creation_status",
             "Integer representing status of flat storage creation",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -401,7 +401,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_creation_remaining_state_parts",
             "Number of remaining state parts to fetch to fill flat storage in bytes",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -409,7 +409,7 @@ pub mod flat_state_metrics {
         try_create_int_counter_vec(
             "flat_storage_creation_fetched_state_parts",
             "Number of fetched state parts to fill flat storage in bytes",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -417,7 +417,7 @@ pub mod flat_state_metrics {
         try_create_int_counter_vec(
             "flat_storage_creation_fetched_state_items",
             "Number of fetched items to fill flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -425,7 +425,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_creation_threads_used",
             "Number of currently used threads to fetch state",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -433,7 +433,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_head_height",
             "Height of flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -441,7 +441,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_cached_deltas",
             "Number of cached deltas in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -449,7 +449,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_cached_changes_num_items",
             "Number of items in all cached changes in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -457,7 +457,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_cached_changes_size",
             "Total size of cached changes in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -465,7 +465,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_distance_to_head",
             "Height distance between processed block and flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -473,7 +473,7 @@ pub mod flat_state_metrics {
         try_create_int_gauge_vec(
             "flat_storage_hops_to_head",
             "Number of blocks visited to flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
