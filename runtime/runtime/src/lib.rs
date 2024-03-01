@@ -1594,8 +1594,6 @@ impl Runtime {
                     receipt_id: new_receipt_id,
                     receipt: new_receipt,
                 });
-
-                state_update.remove(yielded_promise_key);
             }
 
             state_update.remove(queue_entry_key);
