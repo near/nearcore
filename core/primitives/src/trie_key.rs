@@ -702,9 +702,18 @@ mod tests {
         let key = TrieKey::YieldedPromiseQueueEntry { index: 0 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::YieldedPromise { data_id: CryptoHash::new() };
-        let raw_key = key.to_vec();
-        assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+        }
     }
 
     #[test]
@@ -771,8 +780,12 @@ mod tests {
             );
             assert_eq!(TrieKey::YieldedPromiseQueueIndices.get_account_id(), None);
             assert_eq!(
-                TrieKey::YieldedPromise { data_id: CryptoHash::new() }.get_account_id(),
-                None
+                TrieKey::PromiseYieldReceipt {
+                    receiver_id: account_id.clone(),
+                    data_id: CryptoHash::new(),
+                }
+                .get_account_id(),
+                Some(account_id.clone())
             );
             assert_eq!(
                 TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }

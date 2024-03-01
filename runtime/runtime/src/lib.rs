@@ -1570,7 +1570,7 @@ impl Runtime {
             // Check if the yielded promise still needs to be resolved
             let yielded_promise_key = TrieKey::PromiseYieldReceipt {
                 receiver_id: queue_entry.account_id.clone(),
-                data_id: queue_entry.data_id.clone(),
+                data_id: queue_entry.data_id,
             };
             if state_update.contains_key(&yielded_promise_key)? {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
