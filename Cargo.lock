@@ -4397,12 +4397,10 @@ dependencies = [
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
- "near-primitives",
  "once_cell",
  "openssl",
  "serde",
  "serde_json",
- "time",
  "tracing",
 ]
 

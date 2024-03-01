@@ -31,10 +31,12 @@ near-primitives.workspace = true
 
 [features]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-primitives/nightly_protocol",
 ]
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-primitives/nightly",
   "nightly_protocol",

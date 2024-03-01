@@ -180,7 +180,7 @@ impl Serializer for DurationCheckSerializer {
     where
         T: Serialize,
     {
-        value.serialize(self.clone())
+        value.serialize(self)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
@@ -251,7 +251,7 @@ impl Serializer for DurationCheckSerializer {
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Ok(self.clone())
+        Ok(self)
     }
 
     fn serialize_struct(

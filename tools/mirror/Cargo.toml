@@ -53,6 +53,7 @@ near-crypto.workspace = true
 
 [features]
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-client-primitives/nightly",
@@ -69,6 +70,7 @@ nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-client-primitives/nightly_protocol",
