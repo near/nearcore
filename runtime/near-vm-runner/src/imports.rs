@@ -250,7 +250,7 @@ imports! {
         data_id_ptr: u64,
         payload_len: u64,
         payload_ptr: u64
-    ] -> []>,
+    ] -> [u32]>,
     // #######################
     // # Promise API results #
     // #######################

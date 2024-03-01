@@ -297,8 +297,12 @@ pub trait External {
 
     /// Creates a DataReceipt under the specified `data_id`.
     ///
-    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or if the
-    /// corresponding ActionReceipt was already resolved, this function will fail with an error.
+    /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been
+    /// successfully resolved.
+    ///
+    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or the data
+    /// dependency could not be resolved for any other reason (e.g. because it timed out,)
+    /// `Ok(false)` is returned.
     ///
     /// # Arguments
     ///
@@ -308,7 +312,7 @@ pub trait External {
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<(), VMLogicError>;
+    ) -> Result<bool, VMLogicError>;
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///

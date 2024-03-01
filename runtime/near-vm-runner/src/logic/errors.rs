@@ -206,8 +206,6 @@ pub enum HostError {
     /// Invalid input to ed25519 signature verification function (e.g. signature cannot be
     /// derived from bytes).
     Ed25519VerifyInvalidInput { msg: String },
-    /// There is no yielded promise associated with the given `data_id`.
-    YieldedPromiseNotFound { data_id: String },
     /// Yield payload length exceeds the maximum permitted.
     YieldPayloadLength { length: u64, limit: u64 },
     /// Yield resumption data id is malformed.
@@ -440,9 +438,6 @@ impl std::fmt::Display for HostError {
             ECRecoverError { msg } => write!(f, "ECDSA recover error: {}", msg),
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
-            }
-            YieldedPromiseNotFound { data_id } => {
-                write!(f, "Attempted to resume invalid yielded promise: {}", data_id)
             }
             YieldPayloadLength { length, limit } => write!(
                 f,
