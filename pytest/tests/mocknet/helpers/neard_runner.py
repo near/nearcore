@@ -61,6 +61,7 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
         self.dispatcher.add_method(server.neard_runner.do_update_binaries,
                                    name="update_binaries")
+        self.dispatcher.add_method(server.neard_runner.do_set_validators, name="set_validators")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -336,6 +337,46 @@ class NeardRunner:
                 'node_key': node_key['public_key'],
                 'listen_port': config['network']['addr'].split(':')[1],
             }
+
+
+    def do_set_validators(self, validators, boot_nodes, epoch_length, num_seats):
+        if not isinstance(validators, list):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='validators argument not a list')
+        if not isinstance(boot_nodes, list):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='boot_nodes argument not a list')
+
+        # TODO: maybe also check validity of these arguments?
+        if len(validators) == 0:
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='validators argument must not be empty')
+        if len(boot_nodes) == 0:
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='boot_nodes argument must not be empty')
+
+        with self.lock:
+            state = self.get_state()
+            if state != TestState.AWAITING_NETWORK_INIT:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600,
+                    message='Can only call network_init after a call to init')
+
+            if len(validators) < 3:
+                with open(self.target_near_home_path('config.json'), 'r') as f:
+                    config = json.load(f)
+                config['consensus']['min_num_peers'] = len(validators) - 1
+                with open(self.target_near_home_path('config.json'), 'w') as f:
+                    json.dump(config, f)
+            with open(self.home_path('validators.json'), 'w') as f:
+                json.dump(validators, f)
+            with open(self.home_path('network_init.json'), 'w') as f:
+                json.dump(
+                    {
+                        'boot_nodes': boot_nodes,
+                        'epoch_length': epoch_length,
+                        'num_seats': num_seats,
+                    }, f)
 
     # After the new_test RPC, we wait to get this RPC that gives us the list of validators
     # and boot nodes for the test network. After this RPC call, we run amend-genesis and

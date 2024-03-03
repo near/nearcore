@@ -271,6 +271,34 @@ ready. After they're ready, you can run `start-traffic`""".format(validators))
             node, validators, boot_nodes, args.epoch_length, args.num_seats,
             args.genesis_protocol_version), all_nodes)
 
+def set_validators(args, traffic_generator, nodes):
+    prompt_setup_flags(args)
+
+    if args.epoch_length <= 0:
+        sys.exit(f'--epoch-length should be positive')
+    if args.num_validators <= 0:
+        sys.exit(f'--num-validators should be positive')
+    if len(nodes) < args.num_validators:
+        sys.exit(
+            f'--num-validators is {args.num_validators} but only found {len(nodes)} under test'
+        )
+
+    all_nodes = nodes + [traffic_generator]
+
+    logger.info(f'resetting/initializing home dirs')
+    test_keys = pmap(neard_runner_new_test, all_nodes)
+
+    validators, boot_nodes = get_network_nodes(
+        zip([n.machine.ip for n in all_nodes], test_keys), args.num_validators)
+
+    logger.info("""setting validators: {0}
+Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
+state roots. This will take a few hours. Run `status` to check if the nodes are \
+ready. After they're ready, you can run `start-traffic`""".format(validators))
+    pmap(
+        lambda node: neard_runner_set_validators(
+            node, validators, boot_nodes, args.epoch_length, args.num_seats,
+            args.genesis_protocol_version), all_nodes)
 
 def status_cmd(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
@@ -357,6 +385,16 @@ def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
                                     'protocol_version': protocol_version,
                                 })
 
+def neard_runner_set_validators(node, validators, boot_nodes, epoch_length,
+                                num_seats):
+    return neard_runner_jsonrpc(node,
+                                'set_validators',
+                                params={
+                                    'validators': validators,
+                                    'boot_nodes': boot_nodes,
+                                    'epoch_length': epoch_length,
+                                    'num_seats': num_seats,
+                                })
 
 def neard_update_config(node, key_value):
     return neard_runner_jsonrpc(
@@ -487,6 +525,19 @@ if __name__ == '__main__':
     new_test_parser.add_argument('--genesis-protocol-version', type=int)
     new_test_parser.add_argument('--yes', action='store_true')
     new_test_parser.set_defaults(func=new_test)
+
+    new_test_parser = subparsers.add_parser('set-validators',
+                                            help='''
+    Sets up new state from the prepared records and genesis files with the number
+    of validators specified. This calls neard amend-genesis to create the new genesis
+    and records files, and then starts the neard nodes and waits for them to be online
+    after computing the genesis state roots. This step takes a long time (a few hours).
+    ''')
+    new_test_parser.add_argument('--epoch-length', type=int)
+    new_test_parser.add_argument('--num-validators', type=int)
+    new_test_parser.add_argument('--num-seats', type=int)
+    new_test_parser.add_argument('--yes', action='store_true')
+    new_test_parser.set_defaults(func=set_validators)
 
     status_parser = subparsers.add_parser(
         'status',
