@@ -9,7 +9,6 @@ use near_mirror::key_mapping::{map_account, map_key};
 use near_o11y::default_subscriber_with_opentelemetry;
 use near_o11y::env_filter::make_env_filter;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
-use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::runtime::config::RuntimeConfig;
@@ -39,6 +38,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use strum::IntoEnumIterator;
+use near_primitives::borsh::BorshDeserialize;
 
 #[derive(clap::Parser)]
 /// Use the following sub-commands:
@@ -405,7 +405,7 @@ impl ForkNetworkCommand {
         {
             let (key, value) = item?;
             let key = String::from_utf8(key.to_vec())?;
-            let state_root = borsh::from_slice(&value)?;
+            let state_root = StateRoot::try_from_slice(&value)?;
             assert_eq!(key, format!("FORK_TOOL_SHARD_ID:{shard_id}"));
             state_roots.push(state_root);
         }
