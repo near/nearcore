@@ -201,3 +201,6 @@ class ReshardingTestBase(unittest.TestCase):
 
     def get_resharding_status(self, metrics_tracker: MetricsTracker):
         return metrics_tracker.get_metric_all_values("near_resharding_status")
+
+    def get_flat_storage_head(self, metrics_tracker: MetricsTracker):
+        return metrics_tracker.get_metric_all_values("flat_storage_head_height")
