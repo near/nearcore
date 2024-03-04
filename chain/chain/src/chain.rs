@@ -104,9 +104,9 @@ use tracing::{debug, debug_span, error, info, warn, Span};
 /// The size of the invalid_blocks in-memory pool
 pub const INVALID_CHUNKS_POOL_SIZE: usize = 5000;
 
-/// 10000 years in seconds. Big constant for sandbox to allow time traveling.
+/// 5000 years in seconds. Big constant for sandbox to allow time traveling.
 #[cfg(feature = "sandbox")]
-const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 10000;
+const ACCEPTABLE_TIME_DIFFERENCE: i64 = 60 * 60 * 24 * 365 * 5000;
 
 // Number of parent blocks traversed to check if the block can be finalized.
 const NUM_PARENTS_TO_CHECK_FINALITY: usize = 20;
