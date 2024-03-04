@@ -4013,6 +4013,7 @@ dependencies = [
  "arc-swap",
  "assert_matches",
  "async-trait",
+ "bolero",
  "borsh 1.0.0",
  "bytes",
  "bytesize",

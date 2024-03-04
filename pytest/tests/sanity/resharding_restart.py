@@ -13,40 +13,28 @@ python3 pytest/tests/sanity/resharding_restart.py
 
 """
 
+from time import sleep
 import unittest
 import sys
 import pathlib
+import base58
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
-from cluster import get_binary_protocol_version, init_cluster, load_config, spin_up_node
+from cluster import BaseNode, init_cluster, spin_up_node
 from utils import MetricsTracker, poll_blocks
-from resharding_lib import get_genesis_shard_layout_version, get_target_shard_layout_version, get_genesis_num_shards, get_target_num_shards, get_epoch_offset, get_genesis_config_changes, get_client_config_changes
+from resharding_lib import ReshardingTestBase, get_genesis_config_changes, get_client_config_changes
+from transaction import sign_payment_tx
 
 
-class ReshardingTest(unittest.TestCase):
+class ReshardingTest(ReshardingTestBase):
 
     def setUp(self) -> None:
         # Note - this test has a really long epoch because it takes the nodes
         # forever to take the flat state snapshot. Ideally this should be
         # fixed and the test shortened.
-        self.epoch_length = 20
-        self.config = load_config()
-        self.binary_protocol_version = get_binary_protocol_version(self.config)
-        assert self.binary_protocol_version is not None
-
-        self.genesis_shard_layout_version = get_genesis_shard_layout_version(
-            self.binary_protocol_version)
-        self.target_shard_layout_version = get_target_shard_layout_version(
-            self.binary_protocol_version)
-
-        self.genesis_num_shards = get_genesis_num_shards(
-            self.binary_protocol_version)
-        self.target_num_shards = get_target_num_shards(
-            self.binary_protocol_version)
-
-        self.epoch_offset = get_epoch_offset(self.binary_protocol_version)
+        super().setUp(epoch_length=20)
 
     def test_resharding_restart(self):
         logger.info("The resharding restart test is starting.")
@@ -84,21 +72,32 @@ class ReshardingTest(unittest.TestCase):
         target_height = 2 * self.epoch_length + self.epoch_offset
         metrics_tracker = MetricsTracker(node0)
 
-        for height, _ in poll_blocks(node0):
-            version = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_version")
-            num_shards = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_num_shards")
-
-            resharding_status = metrics_tracker.get_metric_all_values(
-                "near_resharding_status")
+        for height, hash in poll_blocks(node0):
+            version = self.get_version(metrics_tracker)
+            num_shards = self.get_num_shards(metrics_tracker)
+            resharding_status = self.get_resharding_status(metrics_tracker)
+            flat_storage_head = self.get_flat_storage_head(metrics_tracker)
 
             logger.info(
-                f"#{height} shard layout version: {version}, num shards: {num_shards}, status: {resharding_status}"
+                f"#{height} shard layout version: {version}, num shards: {num_shards}"
+            )
+            logger.info(
+                f"${height} resharding status: {self.__pretty_metric_list(resharding_status)}"
+            )
+            logger.info(
+                f"#{height} flat storage head: {self.__pretty_metric_list(flat_storage_head)}"
             )
 
             self.assertEqual(version, self.genesis_shard_layout_version)
             self.assertEqual(num_shards, self.genesis_num_shards)
+
+            # - before resharding is finished flat storage should only exist for
+            #   the old shards
+            # - after resharding is finished flat storage should exists for both
+            #   old and new shards.
+            # Asserting that condition exactly is prone to race conditions. Here
+            # we only check it briefly but after the restart we check it properly.
+            self.assertGreaterEqual(len(flat_storage_head), num_shards)
 
             self.assertLess(height, 4 * self.epoch_length)
 
@@ -106,8 +105,17 @@ class ReshardingTest(unittest.TestCase):
             # test wouldn't check anything.
             self.assertLess(height, target_height)
 
+            # Send some transactions so that
+            # a) the state gets changed
+            # b) the flat storage gets updated
+            self.__send_tx(node0, hash, height)
+
             if self.__is_resharding_finished(resharding_status):
                 break
+
+        # Wait a little bit to make sure that resharding is correctly
+        # postprocessed.
+        sleep(1)
 
         # Resharding is finished, restart the node now and check that resharding
         # was resumed and not restarted.
@@ -117,40 +125,58 @@ class ReshardingTest(unittest.TestCase):
         node0.start()
 
         check_count = 0
-        for height, _ in poll_blocks(node0):
+        for height, hash in poll_blocks(node0):
             if height > 4 * self.epoch_length:
                 break
 
-            version = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_version")
-            num_shards = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_num_shards")
+            version = self.get_version(metrics_tracker)
+            num_shards = self.get_num_shards(metrics_tracker)
+            resharding_status = self.get_resharding_status(metrics_tracker)
 
-            resharding_status = metrics_tracker.get_metric_all_values(
-                "near_resharding_status")
+            flat_storage_head = self.get_flat_storage_head(metrics_tracker)
 
             # The node needs a short while to set the metrics.
             if version is None or num_shards is None or resharding_status is None:
                 continue
 
             logger.info(
-                f"#{height} shard layout version: {version}, num shards: {num_shards}, status: {resharding_status}"
+                f"#{height} shard layout version: {version}, num shards: {num_shards}"
+            )
+            logger.info(
+                f"${height} resharding status: {self.__pretty_metric_list(resharding_status)}"
+            )
+            logger.info(
+                f"#{height} flat storage head: {self.__pretty_metric_list(flat_storage_head)}"
             )
 
-            # If resharding is correctly resumed the status should remain empty.
-            # If resharding is restarted the status would be non-empty.
-            # If resharding is neither restarted nor resumed the node would get
-            # stuck at target_height - 1.
+            # GOOD If resharding is correctly resumed the status should remain empty.
+            # BAD  If resharding is restarted the status would be non-empty.
+            # BAD  If resharding is neither restarted nor resumed the node would get
+            # stuck at target_height - 1. This is checked below.
             self.assertEqual(resharding_status, [])
+
+            # After the restart, which happens after the resharding is
+            # finished, the flat storage should exist for both old and new
+            # shards. Technically once we move to the new epoch the flat storage
+            # for old shards is not needed anymore but we don't exactly clean up
+            # the metrics so it kinda hangs around until the end of the test.
+            expected_len = self.genesis_num_shards + self.target_num_shards
+            self.assertEqual(len(flat_storage_head), expected_len)
 
             if height <= target_height:
                 self.assertEqual(version, self.genesis_shard_layout_version)
                 self.assertEqual(num_shards, self.genesis_num_shards)
+
             else:
                 self.assertEqual(version, self.target_shard_layout_version)
                 self.assertEqual(num_shards, self.target_num_shards)
 
             check_count += 1
+
+            # Send some transactions so that
+            # a) the state gets changed
+            # b) the flat storage gets updated
+            self.__send_tx(node0, hash, height)
 
         # Make sure that we actually checked something after the restart.
         self.assertGreater(check_count, 0)
@@ -159,6 +185,15 @@ class ReshardingTest(unittest.TestCase):
         node1.kill()
 
         logger.info("The resharding restart test is finished.")
+
+    def __pretty_metric_list(self, metric_list):
+        result = dict()
+        for metric in metric_list:
+            (shard_uid, value) = metric
+            shard_uid = shard_uid.get('shard_uid')
+            result[shard_uid] = value
+
+        return result
 
     def __is_resharding_finished(self, all_shards_status):
         if len(all_shards_status) == 0:
@@ -175,6 +210,18 @@ class ReshardingTest(unittest.TestCase):
                 all_finished = False
 
         return all_finished
+
+    def __send_tx(self, node: BaseNode, block_hash: str, nonce: int):
+        tx = sign_payment_tx(
+            node.signer_key,
+            'test1',
+            1,
+            nonce,
+            base58.b58decode(block_hash.encode('utf8')),
+        )
+        result = node.send_tx(tx)
+        self.assertTrue('result' in result)
+        self.assertTrue('error' not in result)
 
 
 if __name__ == '__main__':

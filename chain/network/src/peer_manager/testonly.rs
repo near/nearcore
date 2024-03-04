@@ -114,9 +114,9 @@ pub(crate) fn make_chain_info(
 }
 
 pub(crate) struct RawConnection {
-    events: broadcast::Receiver<Event>,
-    stream: tcp::Stream,
-    cfg: peer::testonly::PeerConfig,
+    pub events: broadcast::Receiver<Event>,
+    pub stream: tcp::Stream,
+    pub cfg: peer::testonly::PeerConfig,
 }
 
 impl RawConnection {
