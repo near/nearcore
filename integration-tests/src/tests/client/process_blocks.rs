@@ -1222,7 +1222,12 @@ fn test_bad_chunk_mask() {
     // Create a TestEnv with two shards and two validators who track both shards
     let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
-    let genesis = Genesis::test_sharded(accounts.clone(), num_validators, vec![num_validators; 2]);
+    let genesis = Genesis::test_sharded(
+        Clock::real(),
+        accounts.clone(),
+        num_validators,
+        vec![num_validators; 2],
+    );
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts)
         .nightshade_runtimes(&genesis)

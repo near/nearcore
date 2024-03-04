@@ -29,6 +29,7 @@ thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 easy-ext.workspace = true
+tempfile.workspace = true
 
 near-async.workspace = true
 near-cache.workspace = true
@@ -52,7 +53,6 @@ near-mainnet-res.workspace = true
 [dev-dependencies]
 serde_json.workspace = true
 primitive-types.workspace = true
-tempfile.workspace = true
 insta.workspace = true
 assert_matches.workspace = true
 
