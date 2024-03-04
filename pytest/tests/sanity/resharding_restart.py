@@ -13,6 +13,7 @@ python3 pytest/tests/sanity/resharding_restart.py
 
 """
 
+from time import sleep
 import unittest
 import sys
 import pathlib
@@ -111,6 +112,10 @@ class ReshardingTest(ReshardingTestBase):
 
             if self.__is_resharding_finished(resharding_status):
                 break
+
+        # Wait a little bit to make sure that resharding is correctly
+        # postprocessed.
+        sleep(1)
 
         # Resharding is finished, restart the node now and check that resharding
         # was resumed and not restarted.
