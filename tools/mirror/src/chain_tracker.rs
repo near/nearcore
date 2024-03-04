@@ -853,7 +853,7 @@ impl TxTracker {
                     }
                 }
             }
-            _ => {}
+            ReceiptEnumView::Data { .. } => {}
         };
         Ok(())
     }
