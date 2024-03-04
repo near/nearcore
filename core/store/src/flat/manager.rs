@@ -71,12 +71,17 @@ impl FlatStorageManager {
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
         tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard");
         let mut flat_storages = self.0.flat_storages.lock().expect(POISONED_LOCK_ERR);
-        let original_value =
-            flat_storages.insert(shard_uid, FlatStorage::new(self.0.store.clone(), shard_uid)?);
-        // TODO (#7327): maybe we should propagate the error instead of assert here
-        // assert is fine now because this function is only called at construction time, but we
-        // will need to be more careful when we want to implement flat storage for resharding
-        assert!(original_value.is_none());
+        let flat_storage = FlatStorage::new(self.0.store.clone(), shard_uid)?;
+        let original_value = flat_storages.insert(shard_uid, flat_storage);
+        if original_value.is_some() {
+            // Generally speaking this shouldn't happen. It may only happen when
+            // the node is restarted in the middle of resharding.
+            //
+            // TODO(resharding) It would be better to detect when building state
+            // is finished for a shard and skip doing it again after restart. We
+            // can then assert that the flat storage is only created once.
+            tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard that already had flat storage.");
+        }
         Ok(())
     }
 
