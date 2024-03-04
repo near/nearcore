@@ -124,24 +124,6 @@ pub enum ReceiptEnum {
     PromiseResume(DataReceipt),
 }
 
-impl ReceiptEnum {
-    pub fn is_action(&self) -> bool {
-        match self {
-            ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn action(&self) -> Option<&ActionReceipt> {
-        match self {
-            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                Some(action_receipt)
-            }
-            _ => None,
-        }
-    }
-}
-
 impl BorshDeserialize for ReceiptEnum {
     fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // after we stabilize yield_resume we can simply derive BorshDeserialize trait again
