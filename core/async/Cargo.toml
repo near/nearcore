@@ -3,7 +3,6 @@ name = "near-async"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate contains the async helpers specific for nearcore"
 repository.workspace = true
 license.workspace = true
