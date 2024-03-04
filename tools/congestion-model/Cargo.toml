@@ -1,0 +1,15 @@
+[package]
+name = "congestion-model"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anymap = "0.12.1"
+
+[lints]
+workspace = true
