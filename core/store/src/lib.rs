@@ -820,7 +820,7 @@ pub fn get_yielded_promise(
     get(trie, &TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id })
 }
 
-pub fn yielded_promise_exists(
+pub fn has_yielded_promise(
     trie: &dyn TrieAccess,
     receiver_id: AccountId,
     data_id: CryptoHash,

@@ -309,14 +309,12 @@ impl GenesisStateApplier {
                     }
                 }
                 ReceiptEnum::PromiseYield(ref _action_receipt) => {
-                    // TODO: check there there is exactly one input data dependency and that it is
-                    // unsatisfied
                     storage.modify(|state_update| {
                         set_yielded_promise(state_update, &receipt);
                     });
                 }
                 ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
-                    unreachable!("Expected action receipt")
+                    panic!("Expected action receipt")
                 }
             }
         }
