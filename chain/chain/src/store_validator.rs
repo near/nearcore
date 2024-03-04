@@ -382,9 +382,12 @@ impl StoreValidator {
 #[cfg(test)]
 mod tests {
     use near_async::time::Clock;
+    use near_chain_configs::Genesis;
+    use near_epoch_manager::EpochManager;
+    use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
-    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
+    use crate::runtime::NightshadeRuntime;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -392,12 +395,18 @@ mod tests {
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
-        let chain_genesis = ChainGenesis::new(&genesis);
-        let epoch_manager = MockEpochManager::new(store.clone(), chain_genesis.epoch_length);
+        let genesis = Genesis::test(vec!["test".parse().unwrap()], 1);
+        let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime = KeyValueRuntime::new(store.clone(), epoch_manager.as_ref());
+        let runtime = NightshadeRuntime::test(
+            tempdir.path(),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let chain = Chain::new(
             Clock::real(),
             epoch_manager.clone(),
@@ -411,7 +420,15 @@ mod tests {
         .unwrap();
         (
             chain,
-            StoreValidator::new(None, genesis, epoch_manager, shard_tracker, runtime, store, false),
+            StoreValidator::new(
+                None,
+                genesis.config,
+                epoch_manager,
+                shard_tracker,
+                runtime,
+                store,
+                false,
+            ),
         )
     }
 

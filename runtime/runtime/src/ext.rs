@@ -6,10 +6,7 @@ use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
 use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::{
-    get_code, get_yielded_promise, remove_yielded_promise, KeyLookupMode, TrieUpdate,
-    TrieUpdateValuePtr,
-};
+use near_store::{get_code, has_yielded_promise, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
 use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
@@ -230,15 +227,9 @@ impl<'a> External for RuntimeExt<'a> {
         data: Vec<u8>,
     ) -> Result<bool, VMLogicError> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
-        if let Some(yielded_promise) =
-            get_yielded_promise(self.trie_update, data_id).map_err(wrap_storage_error)?
+        if has_yielded_promise(self.trie_update, self.account_id.clone(), data_id)
+            .map_err(wrap_storage_error)?
         {
-            // Yields are only resumable by the account which created them
-            if &yielded_promise.account_id != self.account_id {
-                return Ok(false);
-            }
-
-            remove_yielded_promise(self.trie_update, data_id);
             self.receipt_manager.create_data_receipt(data_id, data)?;
             return Ok(true);
         }
