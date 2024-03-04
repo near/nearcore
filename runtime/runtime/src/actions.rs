@@ -29,9 +29,9 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    get_access_key, get_code, get_yielded_promise_indices, remove_access_key, remove_account,
-    set_access_key, set_code, set_yielded_promise, set_yielded_promise_indices, StorageError,
-    TrieUpdate,
+    enqueue_yielded_promise, get_access_key, get_code, get_yielded_promise_indices,
+    remove_access_key, remove_account, set_access_key, set_code, set_yielded_promise_indices,
+    StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
     CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
@@ -336,7 +336,7 @@ pub(crate) fn action_function_call(
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
 
         for (yielded_data_id, account_id) in receipt_manager.yielded_data_ids.iter() {
-            set_yielded_promise(
+            enqueue_yielded_promise(
                 state_update,
                 &mut yielded_promise_indices,
                 account_id.clone(),

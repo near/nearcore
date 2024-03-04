@@ -47,11 +47,12 @@ pub mod col {
     pub const YIELDED_PROMISE_QUEUE_INDICES: u8 = 10;
     /// This column id is used when storing the entries of the yielded promises queue.
     pub const YIELDED_PROMISE_QUEUE_ENTRY: u8 = 11;
-    /// This column id is used to store yielded promises by their data id.
-    pub const YIELDED_PROMISE: u8 = 12;
+    /// This column id is used when storing the postponed promise yield receipts
+    /// (`primitives::receipt::Receipt`).
+    pub const PROMISE_YIELD_RECEIPT: u8 = 12;
     /// All columns except those used for the delayed receipts queue and the yielded promises
     /// queue, which are both global state for the shard.
-    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 8] = [
+    pub const COLUMNS_WITH_ACCOUNT_ID_IN_KEY: [(u8, &str); 9] = [
         (ACCOUNT, "Account"),
         (CONTRACT_CODE, "ContractCode"),
         (ACCESS_KEY, "AccessKey"),
@@ -60,6 +61,7 @@ pub mod col {
         (PENDING_DATA_COUNT, "PendingDataCount"),
         (POSTPONED_RECEIPT, "PostponedReceipt"),
         (CONTRACT_DATA, "ContractData"),
+        (PROMISE_YIELD_RECEIPT, "PromiseYieldReceipt"),
     ];
 }
 
@@ -104,8 +106,9 @@ pub enum TrieKey {
     /// Used to store the element at given index `u64` in the yielded promises queue.
     /// The queue is unique per shard.
     YieldedPromiseQueueEntry { index: u64 },
-    /// Used to store information about the yielded promise associated with a given `data_id`.
-    YieldedPromise { data_id: CryptoHash },
+    /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
+    /// for a given receiver's `AccountId` and a given `data_id`.
+    PromiseYieldReceipt { receiver_id: AccountId, data_id: CryptoHash },
 }
 
 /// Provides `len` function.
@@ -163,7 +166,12 @@ impl TrieKey {
             TrieKey::YieldedPromiseQueueEntry { .. } => {
                 col::YIELDED_PROMISE_QUEUE_ENTRY.len() + size_of::<u64>()
             }
-            TrieKey::YieldedPromise { .. } => col::YIELDED_PROMISE.len() + size_of::<CryptoHash>(),
+            TrieKey::PromiseYieldReceipt { receiver_id, data_id } => {
+                col::PROMISE_YIELD_RECEIPT.len()
+                    + receiver_id.len()
+                    + ACCOUNT_DATA_SEPARATOR.len()
+                    + data_id.as_ref().len()
+            }
             TrieKey::ContractData { account_id, key } => {
                 col::CONTRACT_DATA.len()
                     + account_id.len()
@@ -236,8 +244,10 @@ impl TrieKey {
                 buf.push(col::YIELDED_PROMISE_QUEUE_ENTRY);
                 buf.extend(&index.to_le_bytes());
             }
-            TrieKey::YieldedPromise { data_id } => {
-                buf.push(col::YIELDED_PROMISE);
+            TrieKey::PromiseYieldReceipt { receiver_id, data_id } => {
+                buf.push(col::PROMISE_YIELD_RECEIPT);
+                buf.extend(receiver_id.as_bytes());
+                buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(data_id.as_ref());
             }
         };
@@ -265,7 +275,7 @@ impl TrieKey {
             TrieKey::ContractData { account_id, .. } => Some(account_id.clone()),
             TrieKey::YieldedPromiseQueueIndices => None,
             TrieKey::YieldedPromiseQueueEntry { .. } => None,
-            TrieKey::YieldedPromise { .. } => None,
+            TrieKey::PromiseYieldReceipt { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
 }
@@ -692,9 +702,18 @@ mod tests {
         let key = TrieKey::YieldedPromiseQueueEntry { index: 0 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::YieldedPromise { data_id: CryptoHash::new() };
-        let raw_key = key.to_vec();
-        assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
+        for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: account_id.clone(),
+                data_id: CryptoHash::default(),
+            };
+            let raw_key = key.to_vec();
+            assert_eq!(raw_key.len(), key.len());
+            assert_eq!(
+                trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().unwrap(),
+                account_id
+            );
+        }
     }
 
     #[test]
@@ -761,8 +780,12 @@ mod tests {
             );
             assert_eq!(TrieKey::YieldedPromiseQueueIndices.get_account_id(), None);
             assert_eq!(
-                TrieKey::YieldedPromise { data_id: CryptoHash::new() }.get_account_id(),
-                None
+                TrieKey::PromiseYieldReceipt {
+                    receiver_id: account_id.clone(),
+                    data_id: CryptoHash::new(),
+                }
+                .get_account_id(),
+                Some(account_id.clone())
             );
             assert_eq!(
                 TrieKey::ContractData { account_id: account_id.clone(), key: Default::default() }
