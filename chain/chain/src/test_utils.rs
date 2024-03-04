@@ -1,24 +1,21 @@
 mod kv_runtime;
 mod validator_schedule;
 
-use chrono::{DateTime, Utc};
-use near_chain_configs::GenesisConfig;
-use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-pub use self::kv_runtime::account_id_to_shard_id;
-pub use self::kv_runtime::KeyValueRuntime;
-pub use self::kv_runtime::MockEpochManager;
-pub use self::validator_schedule::ValidatorSchedule;
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
+use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
 use crate::DoomslugThresholdMode;
 use crate::{BlockProcessingArtifact, Provenance};
+use chrono::{DateTime, Utc};
+use near_chain_configs::Genesis;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManager;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::static_clock::StaticClock;
@@ -27,9 +24,14 @@ use near_primitives::types::{AccountId, NumBlocks, NumShards};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::DBCol;
+use num_rational::Ratio;
 use tracing::debug;
+
+pub use self::kv_runtime::{account_id_to_shard_id, KeyValueRuntime, MockEpochManager};
+pub use self::validator_schedule::ValidatorSchedule;
 
 pub fn get_chain() -> Chain {
     get_chain_with_epoch_length_and_num_shards(10, 1)
@@ -48,13 +50,19 @@ pub fn get_chain_with_epoch_length_and_num_shards(
     num_shards: NumShards,
 ) -> Chain {
     let store = create_test_store();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
-    let vs = ValidatorSchedule::new()
-        .block_producers_per_epoch(vec![vec!["test1".parse().unwrap()]])
-        .num_shards(num_shards);
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let mut genesis = Genesis::test_sharded(
+        vec!["test1".parse::<AccountId>().unwrap()],
+        1,
+        vec![1; num_shards as usize],
+    );
+    genesis.config.epoch_length = epoch_length;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
     Chain::new(
         epoch_manager,
         shard_tracker,
