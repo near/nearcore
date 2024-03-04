@@ -785,6 +785,8 @@ class NeardRunner:
             self.home_path('validators.json'),
             '--epoch-length',
             str(n['epoch_length']),
+            '--num-seats',
+            str(n['num_seats']),
         ]
 
         self.run_neard(cmd)

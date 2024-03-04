@@ -106,6 +106,8 @@ struct SetValidatorsCmd {
     pub epoch_length: NumBlocks,
     #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
     pub chain_id_suffix: String,
+    #[arg(short, long)]
+    pub num_seats: u64,
 }
 
 #[derive(clap::Parser)]
@@ -181,10 +183,12 @@ impl ForkNetworkCommand {
                 validators,
                 epoch_length,
                 chain_id_suffix,
+                num_seats,
             }) => {
                 self.set_validators(
                     validators,
                     *epoch_length,
+                    *num_seats,
                     chain_id_suffix,
                     near_config,
                     home_dir,
@@ -347,6 +351,7 @@ impl ForkNetworkCommand {
         &self,
         validators: &Path,
         epoch_length: u64,
+        num_seats: u64,
         chain_id_suffix: &str,
         near_config: &mut NearConfig,
         home_dir: &Path,
@@ -380,6 +385,7 @@ impl ForkNetworkCommand {
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
             epoch_length,
+            num_seats,
             block_height,
             chain_id_suffix,
             &epoch_id,
@@ -767,6 +773,7 @@ impl ForkNetworkCommand {
     fn make_and_write_genesis(
         &self,
         epoch_length: u64,
+        num_seats: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
         epoch_id: &EpochId,
@@ -785,7 +792,7 @@ impl ForkNetworkCommand {
             genesis_height: height,
             genesis_time: chrono::Utc::now(),
             epoch_length,
-            num_block_producer_seats: epoch_config.num_block_producer_seats,
+            num_block_producer_seats: num_seats,
             num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
             avg_hidden_validator_seats_per_shard: epoch_config.avg_hidden_validator_seats_per_shard,
             block_producer_kickout_threshold: 0,
