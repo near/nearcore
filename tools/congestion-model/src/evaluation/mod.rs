@@ -3,8 +3,8 @@ pub use transaction_progress::TransactionStatus;
 use crate::{GGas, Model, ShardId};
 use std::collections::HashMap;
 
-mod transaction_progress;
 pub mod summary_table;
+mod transaction_progress;
 
 #[derive(Debug, Clone)]
 pub struct ShardQueueLengths {

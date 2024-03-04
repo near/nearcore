@@ -47,7 +47,11 @@ impl TransactionBuilder {
         }
     }
 
-    pub fn add_first_receipt(&mut self, def: ReceiptDefinition, conversion_cost: GGas) -> ReceiptId {
+    pub fn add_first_receipt(
+        &mut self,
+        def: ReceiptDefinition,
+        conversion_cost: GGas,
+    ) -> ReceiptId {
         assert!(
             self.receipts.is_empty(),
             "`add_first_receipt` called with receipts in transaction"
