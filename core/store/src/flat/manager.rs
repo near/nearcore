@@ -64,8 +64,9 @@ impl FlatStorageManager {
         );
     }
 
-    /// Creates flat storage instance for shard `shard_uid`. The function also checks that
-    /// the shard's flat storage state hasn't been set before, otherwise it panics.
+    /// Creates flat storage instance for shard `shard_uid`. This function
+    /// allows creating flat storage if it already exists even though it's not
+    /// desired. It needs to allow that to cover a resharding restart case.
     /// TODO (#7327): this behavior may change when we implement support for state sync
     /// and resharding.
     pub fn create_flat_storage_for_shard(&self, shard_uid: ShardUId) -> Result<(), StorageError> {
@@ -80,7 +81,7 @@ impl FlatStorageManager {
             // TODO(resharding) It would be better to detect when building state
             // is finished for a shard and skip doing it again after restart. We
             // can then assert that the flat storage is only created once.
-            tracing::debug!(target: "store", ?shard_uid, "Creating flat storage for shard that already had flat storage.");
+            tracing::warn!(target: "store", ?shard_uid, "Creating flat storage for shard that already has flat storage.");
         }
         Ok(())
     }
