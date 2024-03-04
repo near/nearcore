@@ -108,6 +108,7 @@ class TestState(Enum):
     RUNNING = 5
     STOPPED = 6
     RESETTING = 7
+    AWAITING_SET_VALIDATORS = 8
 
 
 class NeardRunner:
@@ -361,6 +362,9 @@ class NeardRunner:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
                     message='Can only call network_init after a call to init')
+
+            self.set_state(TestState.AWAITING_SET_VALIDATORS)
+            self.save_data()
 
             if len(validators) < 3:
                 with open(self.target_near_home_path('config.json'), 'r') as f:
@@ -753,6 +757,40 @@ class NeardRunner:
         self.set_state(TestState.AMEND_GENESIS)
         self.save_data()
 
+    def set_validators(self):
+        # wait til we get a network_init RPC
+        if not os.path.exists(self.home_path('validators.json')):
+            return
+
+        with open(self.home_path('network_init.json'), 'r') as f:
+            n = json.load(f)
+        with open(self.target_near_home_path('node_key.json'), 'r') as f:
+            node_key = json.load(f)
+        with open(self.target_near_home_path('config.json'), 'r') as f:
+            config = json.load(f)
+        boot_nodes = []
+        for b in n['boot_nodes']:
+            if node_key['public_key'] != b.split('@')[0]:
+                boot_nodes.append(b)
+
+        config['network']['boot_nodes'] = ','.join(boot_nodes)
+        with open(self.target_near_home_path('config.json'), 'w') as f:
+            config = json.dump(config, f, indent=2)
+
+        cmd = [
+            self.data['binaries'][0]['system_path'],
+            'fork-network',
+            'set-validators',
+            '--validators',
+            self.home_path('validators.json'),
+            '--epoch-length',
+            str(n['epoch_length']),
+        ]
+
+        self.run_neard(cmd)
+        self.set_state(TestState.STOPPED)
+        self.save_data()
+
     def check_amend_genesis(self):
         path, running, exit_code = self.poll_neard()
         if path is None:
@@ -880,6 +918,8 @@ class NeardRunner:
                     self.check_upgrade_neard()
                 elif state == TestState.RESETTING:
                     self.reset_near_home()
+                elif state == TestState.AWAITING_SET_VALIDATORS:
+                    self.set_validators()
             time.sleep(10)
 
     def serve(self, port):
