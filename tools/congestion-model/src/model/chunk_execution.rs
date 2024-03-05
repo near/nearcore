@@ -1,10 +1,10 @@
 use super::queue_bundle::QueueBundle;
 use super::transaction_registry::TransactionRegistry;
+use super::BlockInfo;
 use crate::model::transaction::ExecutionResult;
 use crate::{
     GGas, Queue, QueueId, Receipt, Round, ShardId, TransactionId, GAS_LIMIT, TX_GAS_LIMIT,
 };
-use anymap::AnyMap;
 use std::collections::{BTreeMap, VecDeque};
 
 /// Transient struct created once for each shard per model execution round,
@@ -12,20 +12,20 @@ use std::collections::{BTreeMap, VecDeque};
 pub struct ChunkExecutionContext<'model> {
     queues: &'model mut QueueBundle,
     transactions: &'model mut TransactionRegistry,
-    prev_block_info: &'model BTreeMap<ShardId, AnyMap>,
+    prev_block_info: &'model BTreeMap<ShardId, BlockInfo>,
 
     round: Round,
     shard: ShardId,
     gas_burnt: GGas,
     outgoing_receipts: Vec<Receipt>,
-    block_info_output: AnyMap,
+    block_info_output: BlockInfo,
 }
 
 impl<'model> ChunkExecutionContext<'model> {
     pub(super) fn new(
         queues: &'model mut QueueBundle,
         transactions: &'model mut TransactionRegistry,
-        prev_block_info: &'model BTreeMap<ShardId, AnyMap>,
+        prev_block_info: &'model BTreeMap<ShardId, BlockInfo>,
         round: Round,
         shard_id: ShardId,
     ) -> Self {
@@ -37,18 +37,18 @@ impl<'model> ChunkExecutionContext<'model> {
             shard: shard_id,
             gas_burnt: 0,
             outgoing_receipts: vec![],
-            block_info_output: AnyMap::new(),
+            block_info_output: BlockInfo::default(),
         }
     }
 
-    /// Mutable reference to an AnyMap to put data inside a block and make it
+    /// Mutable reference to a BlockInfo to put data inside a block and make it
     /// available to all shards for the next round.
-    pub fn current_block_info(&mut self) -> &mut AnyMap {
+    pub fn current_block_info(&mut self) -> &mut BlockInfo {
         &mut self.block_info_output
     }
 
     /// Block information from the previous round, as provided by each shard.
-    pub fn prev_block_info(&self) -> &BTreeMap<ShardId, AnyMap> {
+    pub fn prev_block_info(&self) -> &BTreeMap<ShardId, BlockInfo> {
         self.prev_block_info
     }
 
@@ -108,7 +108,7 @@ impl<'model> ChunkExecutionContext<'model> {
 
     /// Finalize the chunk execution and return the output to the model to
     /// integrate with the global execution context.
-    pub(crate) fn finish(self) -> (Vec<Receipt>, anymap::Map) {
+    pub(crate) fn finish(self) -> (Vec<Receipt>, BlockInfo) {
         (self.outgoing_receipts, self.block_info_output)
     }
 }

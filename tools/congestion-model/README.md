@@ -83,9 +83,8 @@ fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
 }
 ```
 
-Internally, this uses an [`AnyMap`](https://github.com/chris-morgan/anymap)
-allowing to store any retrieve any data in a type-safe way without
-data serialization.
+Internally, this uses a `HashMap<TypeId, Box<dyn Any>>` allowing to store any
+retrieve any data in a type-safe way without data serialization.
 
 In the end, go to [src/main.rs] and add your strategy to the list of tested
 strategies.

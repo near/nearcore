@@ -9,7 +9,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
-anymap = "0.12.1"
 
 [lints]
 workspace = true

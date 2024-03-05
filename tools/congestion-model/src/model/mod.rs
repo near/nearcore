@@ -1,9 +1,11 @@
+mod block_info;
 mod chunk_execution;
 mod queue;
 mod queue_bundle;
 mod transaction;
 mod transaction_registry;
 
+pub use block_info::BlockInfo;
 pub use chunk_execution::*;
 pub use queue::*;
 pub use queue_bundle::*;
@@ -14,7 +16,6 @@ pub(crate) use transaction::Transaction;
 
 use crate::workload::Producer;
 use crate::{CongestionStrategy, Round};
-use anymap::AnyMap;
 use std::collections::BTreeMap;
 use transaction_registry::TransactionRegistry;
 
@@ -28,7 +29,7 @@ pub struct Model {
     // Congestion strategy state
     pub(crate) shards: Vec<Box<dyn CongestionStrategy>>,
     pub(crate) shard_ids: Vec<ShardId>,
-    pub(crate) block_info: BTreeMap<ShardId, AnyMap>,
+    pub(crate) block_info: BTreeMap<ShardId, BlockInfo>,
     pub(crate) queues: QueueBundle,
 
     // Workload state
