@@ -1,7 +1,6 @@
 mod tests {
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
-    use amcl::bls381::bls381::core::{deserialize_g1, deserialize_g2};
     use amcl::bls381::bls381::utils::{
         serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
         subgroup_check_g1, subgroup_check_g2,
@@ -180,28 +179,28 @@ mod tests {
                     p
                 }
 
-                fn check_multipoint_sum(n: usize, rnd: &mut RAND) {
-                    let mut res3 = $ECP::new();
+                fn check_multipoint_sum<R: Rng + ?Sized>(n: usize, rng: &mut R) {
+                    let mut res3 = $GAffine::identity();
 
-                    let mut points: Vec<(u8, $ECP)> = vec![];
+                    let mut points: Vec<(u8, $GAffine)> = vec![];
                     for i in 0..n {
-                        points.push((rnd.getbyte() % 2, Self::get_random_curve_point(rnd)));
+                        points.push((rng.gen_range(0..=1), Self::_get_random_curve_point(rng)));
 
                         let mut current_point = points[i].1.clone();
                         if points[i].0 == 1 {
-                            current_point.neg();
+                            current_point = current_point.neg();
                         }
 
-                        res3.add(&current_point);
+                        res3 = res3.add(&current_point).into();
                     }
 
-                    let res1 = Self::get_sum_many_points(&points);
+                    let res1 = Self::_get_sum_many_points(&points);
 
                     points.shuffle(&mut thread_rng());
-                    let res2 = Self::get_sum_many_points(&points);
+                    let res2 = Self::_get_sum_many_points(&points);
                     assert_eq!(res1, res2);
 
-                    assert_eq!(res1, $serialize_uncompressed_g(&res3).to_vec());
+                    assert_eq!(res1, Self::serialize_uncompressed_g(&res3).to_vec());
                 }
 
                 fn decompress_p(p2: Vec<$ECP>) -> Vec<u8> {
@@ -228,6 +227,15 @@ mod tests {
                     for i in 0..points.len() {
                         buffer.push(vec![points[i].0]);
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                    }
+                    run_bls12381_fn!($bls12381_sum, buffer)
+                }
+
+                fn _get_sum_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push(vec![points[i].0]);
+                        buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
                     }
                     run_bls12381_fn!($bls12381_sum, buffer)
                 }
@@ -265,6 +273,21 @@ mod tests {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                        if points[i].0 == 0 {
+                            buffer.push(vec![vec![1], vec![0; 31]].concat());
+                        } else {
+                            buffer
+                                .push(hex::decode(R_MINUS_1).unwrap().into_iter().rev().collect());
+                        }
+                    }
+
+                    run_bls12381_fn!($bls12381_multiexp, buffer)
+                }
+
+                fn _get_multiexp_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
                         if points[i].0 == 0 {
                             buffer.push(vec![vec![1], vec![0; 31]].concat());
                         } else {
@@ -546,14 +569,12 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_inverse() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
-                let mut zero: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
-                zero[0] = 64;
-
+                let zero = get_zero($GOp::POINT_LEN);
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
+                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     // P - P = - P + P = 0
                     let got1 = $GOp::get_sum(1, &p_ser, 0, &p_ser);
@@ -570,13 +591,13 @@ mod tests {
 
                 // P in G => -P in G
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rnd);
-                    let p_ser = $serialize_uncompressed(&p);
+                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     let p_inv = $GOp::get_inverse(&p_ser);
 
-                    let result_point = $deserialize(&p_inv).unwrap();
-                    assert!($subgroup_check(&result_point));
+                    let result_point = $GOp::deserialize_g(p_inv);
+                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
                 }
 
                 // -0
@@ -586,48 +607,46 @@ mod tests {
 
             #[test]
             fn $test_bls12381_sum_many_points() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
-                let mut zero: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
-                zero[0] = 64;
-
+                let zero = get_zero($GOp::POINT_LEN);
                 //empty input
-                let res = $GOp::get_sum_many_points(&vec![]);
+                let res = $GOp::_get_sum_many_points(&vec![]);
                 assert_eq!(zero.to_vec(), res);
 
                 for i in 0..TESTS_ITERATIONS {
-                    $GOp::check_multipoint_sum(get_n(i, $GOp::MAX_N_SUM), &mut rnd);
+                    $GOp::check_multipoint_sum(get_n(i, $GOp::MAX_N_SUM), &mut rng);
                 }
-                $GOp::check_multipoint_sum(1, &mut rnd);
+                $GOp::check_multipoint_sum(1, &mut rng);
 
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_SUM);
-                    let mut points: Vec<(u8, $ECP)> = vec![];
+                    let mut points: Vec<(u8, $GAffine)> = vec![];
                     for _ in 0..n {
-                        points.push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
+                        points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
                     }
 
-                    let res1 = $GOp::get_sum_many_points(&points);
-                    let sum = $deserialize(&res1).unwrap();
+                    let res1 = $GOp::_get_sum_many_points(&points);
+                    let sum = $GOp::deserialize_g(res1);
 
-                    assert!($subgroup_check(&sum));
+                    assert!(sum.is_in_correct_subgroup_assuming_on_curve());
                 }
             }
 
             #[test]
             fn $test_bls12381_crosscheck_sum_and_multiexp() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_MULTIEXP);
 
-                    let mut points: Vec<(u8, $ECP)> = vec![];
+                    let mut points: Vec<(u8, $GAffine)> = vec![];
                     for _ in 0..n {
-                        points.push((rnd.getbyte() % 2, $GOp::get_random_g_point(&mut rnd)));
+                        points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
                     }
 
-                    let res1 = $GOp::get_sum_many_points(&points);
-                    let res2 = $GOp::get_multiexp_many_points(&points);
+                    let res1 = $GOp::_get_sum_many_points(&points);
+                    let res2 = $GOp::_get_multiexp_many_points(&points);
                     assert_eq!(res1, res2);
                 }
             }
