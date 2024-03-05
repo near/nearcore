@@ -337,16 +337,19 @@ pub(crate) fn action_function_call(
 
         // Create data receipts for resumed yields
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
+            let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
+
             Receipt {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                 // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::PromiseResume(DataReceipt {
-                    data_id: receipt.data_id,
-                    data: receipt.data,
-                }),
+                receipt: if receipt.is_promise_resume {
+                    ReceiptEnum::PromiseResume(new_data_receipt)
+                } else {
+                    ReceiptEnum::Data(new_data_receipt)
+                },
             }
         }));
 
