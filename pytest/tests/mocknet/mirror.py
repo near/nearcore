@@ -198,9 +198,6 @@ def hard_reset_cmd(args, traffic_generator, nodes):
         Continue? [yes/no]""")
     if sys.stdin.readline().strip() != 'yes':
         return
-    all_nodes = nodes + [traffic_generator]
-    pmap(stop_neard_runner, all_nodes)
-    mocknet.stop_nodes(all_nodes)
     init_neard_runners(args, traffic_generator, nodes, remove_home_dir=True)
 
 
