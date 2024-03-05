@@ -142,7 +142,7 @@ impl ReceiptManager {
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError> {
         let new_receipt = ActionReceiptMetadata {
-            receiver_id: receiver_id.clone(),
+            receiver_id,
             output_data_receivers: vec![],
             input_data_ids: vec![input_data_id],
             actions: vec![],
