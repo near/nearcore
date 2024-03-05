@@ -514,7 +514,6 @@ impl Runtime {
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = &receipt.receiver_id;
-
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -551,6 +550,9 @@ impl Runtime {
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let mut nonrefundable_amount_burnt: Balance = 0;
+
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
@@ -592,13 +594,12 @@ impl Runtime {
                 break;
             }
 
-            // We update `other_burnt_amount` statistic with the non-refundable storage transfer amount being burnt.
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             if let Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
                 deposit,
             }) = action
             {
-                stats.other_burnt_amount = safe_add_balance(stats.other_burnt_amount, *deposit)?
+                nonrefundable_amount_burnt = safe_add_balance(nonrefundable_amount_burnt, *deposit)?
             }
         }
 
@@ -682,6 +683,12 @@ impl Runtime {
                 state_update.rollback();
             }
         };
+        // If the receipt was successfully applied, we update `other_burnt_amount` statistic with the non-refundable amount burnt.
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        if result.result.is_ok() {
+            stats.other_burnt_amount =
+                safe_add_balance(stats.other_burnt_amount, nonrefundable_amount_burnt)?;
+        }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };

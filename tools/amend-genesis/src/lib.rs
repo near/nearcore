@@ -472,12 +472,12 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    // `nonrefundable_balance` can be implemented if this is required in state records.
-                    let nonrefundable_balance = 0;
+                    // `permanent_storage_bytes` can be implemented if this is required in state records.
+                    let permanent_storage_bytes = 0;
                     let account = Account::new(
                         *amount,
                         *locked,
-                        nonrefundable_balance,
+                        permanent_storage_bytes,
                         CryptoHash::default(),
                         *storage_usage,
                         PROTOCOL_VERSION,

@@ -48,14 +48,15 @@ impl TryFrom<u8> for AccountVersion {
 )]
 #[derive(serde::Serialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    /// The total not locked, refundable tokens.
+    /// The total not locked tokens.
     #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
     #[serde(with = "dec_format")]
     locked: Balance,
-    /// Permanent storage allowance, additional to what is given by storage staking.
+    /// Permanent storage allowance, additional to what storage staking gives.
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    #[serde(with = "dec_format")]
     permanent_storage_bytes: StorageUsage,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
@@ -237,7 +238,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
                 if version < AccountVersion::V2 && permanent_storage_bytes > 0 {
                     return Err(serde::de::Error::custom(
-                        "non-refundable positive amount exists for account version older than V2",
+                        "permanent storage bytes positive amount exists for account version older than V2",
                     ));
                 }
 
@@ -472,7 +473,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_v1_account_cannot_have_nonrefundable_amount() {
+    fn test_v1_account_cannot_have_permanent_storage_bytes() {
         #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
         let protocol_version = crate::version::PROTOCOL_VERSION;
 
@@ -548,7 +549,7 @@ mod tests {
     /// It is impossible to construct V1 account with permanent_storage_bytes greater than 0.
     /// So the situation in this test is theoretical.
     ///
-    /// Serialization of account V1 with non-refundable amount greater than 0 would pass without an error,
+    /// Serialization of account V1 with permanent_storage_bytes amount greater than 0 would pass without an error,
     /// but an error would be raised on deserialization of such invalid data.
     #[test]
     fn test_account_v1_serde_serialization_invalid_data() {
@@ -650,7 +651,7 @@ mod tests {
         };
         let serialized_account = borsh::to_vec(&account).unwrap();
         if cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491") {
-            expect_test::expect!("A3Ypkhkm6G5PYwHZw1eKYVunEzafLu8fbTAYLGts2AGy")
+            expect_test::expect!("G2Dn8ABMPqsoXuQCPR9yV19HgBi3ZJNqEMEntyLqveDR")
         } else {
             expect_test::expect!("EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ")
         }
