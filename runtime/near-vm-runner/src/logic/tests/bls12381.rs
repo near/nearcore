@@ -17,11 +17,12 @@ mod tests {
     use ark_ff::Field;
     use ark_ff::PrimeField;
     use ark_serialize::CanonicalSerialize;
+    use ark_serialize::CanonicalDeserialize;
     use ark_std::{test_rng, UniformRand};
     use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
     use std::fs;
     use std::str::FromStr;
-    use std::ops::{Mul, Neg};
+    use std::ops::{Mul, Neg, Add};
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
     const P_MINUS_1: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559786";
@@ -160,6 +161,14 @@ mod tests {
                 fn _get_random_g_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
                     let p = Self::_get_random_curve_point(rng);
                     p.clear_cofactor()
+                }
+
+                fn _get_random_not_g_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                    let mut p = Self::_get_random_curve_point(rng);
+                    while p.is_in_correct_subgroup_assuming_on_curve() {
+                        p = Self::_get_random_curve_point(rng);
+                    }
+                    p
                 }
 
                 fn get_random_not_g_curve_point(rnd: &mut RAND) -> $ECP {
@@ -333,6 +342,10 @@ mod tests {
 
                     serialized
                 }
+
+                fn deserialize_g(p: Vec<u8>) -> $GAffine {
+                    $GAffine::deserialize_with_mode(p.as_slice(), ark_serialize::Compress::No, ark_serialize::Validate::No).unwrap()
+                }
             }
         };
     }
@@ -422,6 +435,7 @@ mod tests {
             $deserialize:ident,
             $subgroup_check:ident,
             $ECP:ident,
+            $GAffine:ident,
             $bls12381_sum:ident,
             $check_sum:ident,
             $test_bls12381_sum_edge_cases:ident,
@@ -470,9 +484,9 @@ mod tests {
                 }
             }
 
-            fn $check_sum(mut p: $ECP, q: $ECP) {
-                let p_ser = $serialize_uncompressed(&p);
-                let q_ser = $serialize_uncompressed(&q);
+            fn $check_sum(p: $GAffine, q: $GAffine) {
+                let p_ser = $GOp::serialize_uncompressed_g(&p);
+                let q_ser = $GOp::serialize_uncompressed_g(&q);
 
                 // P + Q = Q + P
                 let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
@@ -480,51 +494,51 @@ mod tests {
                 assert_eq!(got1, got2);
 
                 // compare with library results
-                p.add(&q);
-                let library_sum = $serialize_uncompressed(&p);
+                let psum = p.add(&q);
+                let library_sum = $GOp::serialize_uncompressed_g(&psum.into_affine());
 
                 assert_eq!(library_sum.to_vec(), got1);
 
                 let p_inv = $GOp::get_inverse(&library_sum);
-                p.neg();
-                let p_neg_ser = $serialize_uncompressed(&p);
+                let pneg = psum.neg();
+                let p_neg_ser = $GOp::serialize_uncompressed_g(&pneg.into_affine());
 
                 assert_eq!(p_neg_ser.to_vec(), p_inv);
             }
 
             #[test]
             fn $test_bls12381_sum() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rnd);
-                    let q = $GOp::get_random_curve_point(&mut rnd);
+                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let q = $GOp::_get_random_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rnd);
-                    let q = $GOp::get_random_g_point(&mut rnd);
+                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let q = $GOp::_get_random_g_point(&mut rng);
 
-                    let p_ser = $serialize_uncompressed(&p);
-                    let q_ser = $serialize_uncompressed(&q);
+                    let p_ser = $GOp::serialize_uncompressed_g(&p);
+                    let q_ser = $GOp::serialize_uncompressed_g(&q);
 
                     let got1 = $GOp::get_sum(0, &p_ser, 0, &q_ser);
 
-                    let result_point = $deserialize(&got1).unwrap();
-                    assert!($subgroup_check(&result_point));
+                    let result_point = $GOp::deserialize_g(got1);
+                    assert!(result_point.is_in_correct_subgroup_assuming_on_curve());
                 }
             }
 
             #[test]
             fn $test_bls12381_sum_not_g_points() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 //points not from G
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_not_g_curve_point(&mut rnd);
-                    let q = $GOp::get_random_not_g_curve_point(&mut rnd);
+                    let p = $GOp::_get_random_not_g_curve_point(&mut rng);
+                    let q = $GOp::_get_random_not_g_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
@@ -641,6 +655,7 @@ mod tests {
         deserialize_g1,
         subgroup_check_g1,
         ECP,
+        G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
         test_bls12381_p1_sum_edge_cases,
@@ -657,6 +672,7 @@ mod tests {
         deserialize_g2,
         subgroup_check_g2,
         ECP2,
+        G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
         test_bls12381_p2_sum_edge_cases,
