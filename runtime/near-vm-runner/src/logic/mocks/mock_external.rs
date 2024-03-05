@@ -158,7 +158,7 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
@@ -168,7 +168,7 @@ impl External for MockedExternal {
         Ok(index as u64)
     }
 
-    fn yield_create_action_receipt(
+    fn create_promise_yield_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
@@ -178,7 +178,7 @@ impl External for MockedExternal {
         Ok((index as u64, data_id))
     }
 
-    fn yield_submit_data_receipt(
+    fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,

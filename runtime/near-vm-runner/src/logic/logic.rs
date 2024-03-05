@@ -1461,7 +1461,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.ext.create_receipt(vec![], account_id)?;
+        let new_receipt_idx = self.ext.create_action_receipt(vec![], account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1518,7 +1518,7 @@ impl<'a> VMLogic<'a> {
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
-        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id)?;
+        let new_receipt_idx = self.ext.create_action_receipt(receipt_dependencies, account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -2092,7 +2092,7 @@ impl<'a> VMLogic<'a> {
         // resolved by the resume call.
         self.pay_gas_for_new_receipt(true, &[true])?;
         let (new_receipt_idx, data_id) =
-            self.ext.yield_create_action_receipt(self.context.current_account_id.clone())?;
+            self.ext.create_promise_yield_receipt(self.context.current_account_id.clone())?;
 
         let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
         self.pay_action_base(ActionCosts::function_call_base, true)?;
@@ -2172,7 +2172,7 @@ impl<'a> VMLogic<'a> {
             (&*data_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
         let data_id = CryptoHash(data_id);
         let payload = payload.into_owned();
-        self.ext.yield_submit_data_receipt(data_id, payload).map(u32::from)
+        self.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the

@@ -87,7 +87,7 @@ impl ReceiptManager {
     /// * `generate_data_id` - function to generate a data id to connect receipt output to
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
-    pub(super) fn create_receipt(
+    pub(super) fn create_action_receipt(
         &mut self,
         input_data_ids: Vec<CryptoHash>,
         receipt_indices: Vec<ReceiptIndex>,
@@ -123,7 +123,7 @@ impl ReceiptManager {
     ///
     /// * `input_data_id` - data id which will be used to later submit the receipt input
     /// * `receiver_id` - account id of the receiver of the receipt created
-    pub(super) fn create_yielded_action_receipt(
+    pub(super) fn create_promise_yield_receipt(
         &mut self,
         input_data_id: CryptoHash,
         receiver_id: AccountId,
@@ -148,7 +148,7 @@ impl ReceiptManager {
     ///
     /// * `data_id` - id of the DataReceipt being submitted
     /// * `data` - contents of the DataReceipt
-    pub(super) fn create_data_receipt(
+    pub(super) fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
