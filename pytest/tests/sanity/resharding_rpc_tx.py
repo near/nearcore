@@ -8,6 +8,7 @@ We submit a transfer transaction between the accounts and verify the transaction
 import sys
 import unittest
 import pathlib
+import copy
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -51,6 +52,20 @@ class ReshardingRpcTx(ReshardingTestBase):
     def __verify_tx_status(self, transfer_response, sender_account_id):
         tx_hash = transfer_response['result']['transaction']['hash']
         response = self.node.get_tx(tx_hash, sender_account_id)
+
+        self.assertEqual(
+            transfer_response['result']['final_execution_status'],
+            'EXECUTED',
+        )
+        self.assertEqual(
+            response['result']['final_execution_status'],
+            'FINAL',
+        )
+
+        transfer_response = copy.deepcopy(transfer_response)
+        transfer_response['result']['final_execution_status'] = "IGNORE_ME"
+        response['result']['final_execution_status'] = "IGNORE_ME"
+
         assert response == transfer_response, response
         pass
 
