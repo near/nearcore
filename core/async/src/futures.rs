@@ -1,3 +1,4 @@
+use crate::time::Duration;
 use actix::Actor;
 pub use futures::future::BoxFuture; // pub for macros
 use futures::FutureExt;
@@ -72,7 +73,7 @@ pub trait DelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     );
 }
@@ -81,7 +82,7 @@ pub trait DelayedActionRunnerExt<T> {
     fn run_later(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     );
 }
@@ -93,7 +94,7 @@ where
     fn run_later(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
         self.run_later_boxed(name, dur, Box::new(f));
@@ -104,7 +105,7 @@ impl<T> DelayedActionRunnerExt<T> for dyn DelayedActionRunner<T> + '_ {
     fn run_later(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         f: impl FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static,
     ) {
         self.run_later_boxed(name, dur, Box::new(f));
@@ -123,11 +124,13 @@ where
     fn run_later_boxed(
         &mut self,
         _name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {
-        near_performance_metrics::actix::run_later(self, dur, move |obj, ctx| {
-            f(obj.deref_mut(), ctx)
-        });
+        near_performance_metrics::actix::run_later(
+            self,
+            dur.max(Duration::ZERO).unsigned_abs(),
+            move |obj, ctx| f(obj.deref_mut(), ctx),
+        );
     }
 }

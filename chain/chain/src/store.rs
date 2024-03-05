@@ -2750,6 +2750,7 @@ impl<'a> ChainStoreUpdate<'a> {
 
 #[cfg(test)]
 mod tests {
+    use near_async::time::Clock;
     use std::sync::Arc;
 
     use crate::test_utils::get_chain;
@@ -2763,10 +2764,11 @@ mod tests {
     #[test]
     fn test_tx_validity_long_fork() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork = vec![TestBlockBuilder::new(&genesis, signer.clone()).build()];
+        let short_fork =
+            vec![TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();
@@ -2784,7 +2786,8 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 3) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -2817,14 +2820,15 @@ mod tests {
     #[test]
     fn test_tx_validity_normal_case() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
         let mut blocks = vec![];
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             store_update
@@ -2843,7 +2847,7 @@ mod tests {
                 transaction_validity_period
             )
             .is_ok());
-        let new_block = TestBlockBuilder::new(&blocks.last().unwrap(), signer)
+        let new_block = TestBlockBuilder::new(Clock::real(), &blocks.last().unwrap(), signer)
             .height(transaction_validity_period + 3)
             .build();
 
@@ -2866,7 +2870,7 @@ mod tests {
     #[test]
     fn test_tx_validity_off_by_one() {
         let transaction_validity_period = 5;
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let genesis_hash = *genesis.hash();
         let signer = Arc::new(create_test_signer("test1"));
@@ -2874,7 +2878,8 @@ mod tests {
         let mut prev_block = genesis.clone();
         for i in 1..(transaction_validity_period + 2) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             short_fork.push(block);
@@ -2894,7 +2899,8 @@ mod tests {
         let mut prev_block = genesis;
         for i in 1..(transaction_validity_period * 5) {
             let mut store_update = chain.mut_chain_store().store_update();
-            let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+            let block =
+                TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
             prev_block = block.clone();
             store_update.save_block_header(block.header().clone()).unwrap();
             long_fork.push(block);
@@ -2913,10 +2919,10 @@ mod tests {
 
     #[test]
     fn test_cache_invalidation() {
-        let mut chain = get_chain();
+        let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let block1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+        let block1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         let mut block2 = block1.clone();
         block2.mut_header().get_mut().inner_lite.epoch_id = EpochId(hash(&[1, 2, 3]));
         block2.mut_header().resign(&*signer);

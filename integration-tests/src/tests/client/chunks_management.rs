@@ -2,7 +2,7 @@ use crate::test_helpers::heavy_test;
 use actix::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
-use near_async::time;
+use near_async::time::{self, Clock};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain_configs::{ChunkDistributionNetworkConfig, ChunkDistributionUris};
 use near_chunks::{
@@ -115,6 +115,7 @@ impl Test {
         let mut partial_chunk_request_msgs = 0;
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,

@@ -1,3 +1,4 @@
+use near_async::time::Clock;
 use near_epoch_manager::types::BlockHeaderInfo;
 use rand::Rng;
 use std::sync::Arc;
@@ -53,7 +54,7 @@ fn do_fork(
             .get_next_epoch_id_from_prev_block(prev_block.hash())
             .expect("block must exist");
         let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-            TestBlockBuilder::new(&prev_block, signer.clone()).build()
+            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).build()
         } else {
             let prev_hash = prev_block.hash();
             let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -71,7 +72,7 @@ fn do_fork(
                 &prev_hash,
             )
             .unwrap();
-            TestBlockBuilder::new(&prev_block, signer.clone())
+            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone())
                 .epoch_id(epoch_id)
                 .next_epoch_id(next_epoch_id)
                 .next_bp_hash(next_bp_hash)
@@ -156,7 +157,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
     let num_shards = rand::thread_rng().gen_range(1..3);
 
     // Init Chain 1
-    let mut chain1 = get_chain_with_num_shards(num_shards);
+    let mut chain1 = get_chain_with_num_shards(Clock::real(), num_shards);
     let tries1 = chain1.runtime_adapter.get_tries();
     let mut rng = rand::thread_rng();
     let shard_to_check_trie = rng.gen_range(0..num_shards);
@@ -193,7 +194,7 @@ fn gc_fork_common(simple_chains: Vec<SimpleChain>, max_changes: usize) {
         .clear_data(tries1.clone(), &GCConfig { gc_blocks_limit: 1000, ..GCConfig::default() })
         .unwrap();
 
-    let tries2 = get_chain_with_num_shards(num_shards).runtime_adapter.get_tries();
+    let tries2 = get_chain_with_num_shards(Clock::real(), num_shards).runtime_adapter.get_tries();
 
     // Find gc_height
     let mut gc_height = simple_chains[0].length - 41;
@@ -608,7 +609,8 @@ fn test_fork_far_away_from_epoch_end() {
     ];
 
     let num_shards = 1;
-    let mut chain = get_chain_with_epoch_length_and_num_shards(epoch_length, num_shards);
+    let mut chain =
+        get_chain_with_epoch_length_and_num_shards(Clock::real(), epoch_length, num_shards);
     let tries = chain.runtime_adapter.get_tries();
     let genesis = chain.get_block_by_height(0).unwrap();
     let mut states = vec![(
@@ -703,7 +705,7 @@ fn test_fork_far_away_from_epoch_end() {
 #[test]
 fn test_clear_old_data() {
     let max_height = 14usize;
-    let mut chain = get_chain_with_epoch_length(1);
+    let mut chain = get_chain_with_epoch_length(Clock::real(), 1);
     let epoch_manager = chain.epoch_manager.clone();
     let genesis = chain.get_block_by_height(0).unwrap();
     let signer = Arc::new(create_test_signer("test1"));
@@ -749,7 +751,7 @@ fn add_block(
     let mut store_update = chain.mut_chain_store().store_update();
 
     let block = if next_epoch_id == *prev_block.header().next_epoch_id() {
-        TestBlockBuilder::new(&prev_block, signer).height(height).build()
+        TestBlockBuilder::new(Clock::real(), &prev_block, signer).height(height).build()
     } else {
         let prev_hash = prev_block.hash();
         let epoch_id = prev_block.header().next_epoch_id().clone();
@@ -760,7 +762,7 @@ fn add_block(
             &prev_hash,
         )
         .unwrap();
-        TestBlockBuilder::new(&prev_block, signer)
+        TestBlockBuilder::new(Clock::real(), &prev_block, signer)
             .height(height)
             .epoch_id(epoch_id)
             .next_epoch_id(next_epoch_id)
@@ -790,7 +792,7 @@ fn add_block(
 
 #[test]
 fn test_clear_old_data_fixed_height() {
-    let mut chain = get_chain();
+    let mut chain = get_chain(Clock::real());
     let epoch_manager = chain.epoch_manager.clone();
     let genesis = chain.get_block_by_height(0).unwrap();
     let signer = Arc::new(create_test_signer("test1"));
@@ -866,7 +868,7 @@ fn test_clear_old_data_too_many_heights() {
 }
 
 fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
-    let mut chain = get_chain_with_epoch_length(1);
+    let mut chain = get_chain_with_epoch_length(Clock::real(), 1);
     let genesis = chain.get_block_by_height(0).unwrap();
     let signer = Arc::new(create_test_signer("test1"));
     let mut prev_block = genesis;
@@ -878,7 +880,8 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
         store_update.commit().unwrap();
     }
     for i in 1..1000 {
-        let block = TestBlockBuilder::new(&prev_block, signer.clone()).height(i).build();
+        let block =
+            TestBlockBuilder::new(Clock::real(), &prev_block, signer.clone()).height(i).build();
         blocks.push(block.clone());
 
         let mut store_update = chain.mut_chain_store().store_update();
@@ -947,7 +950,7 @@ fn test_clear_old_data_too_many_heights_common(gc_blocks_limit: NumBlocks) {
 
 #[test]
 fn test_fork_chunk_tail_updates() {
-    let mut chain = get_chain();
+    let mut chain = get_chain(Clock::real());
     let epoch_manager = chain.epoch_manager.clone();
     let genesis = chain.get_block_by_height(0).unwrap();
     let signer = Arc::new(create_test_signer("test1"));

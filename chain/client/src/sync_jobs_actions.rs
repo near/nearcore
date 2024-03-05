@@ -1,5 +1,6 @@
 use near_async::futures::{FutureSpawner, FutureSpawnerExt};
 use near_async::messaging::{CanSend, Sender};
+use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
@@ -11,7 +12,6 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
 use near_store::DBCol;
-use std::time::Duration;
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
 #[multi_send_message_derive(Debug)]
@@ -134,7 +134,7 @@ impl SyncJobsActions {
             future_spawner.spawn("resharding initial delay", {
                 let sender = self.sync_jobs_sender.clone();
                 async move {
-                    tokio::time::sleep(initial_delay).await;
+                    tokio::time::sleep(initial_delay.max(Duration::ZERO).unsigned_abs()).await;
                     sender.send(resharding_request);
                 }
             });
@@ -150,7 +150,7 @@ impl SyncJobsActions {
             future_spawner.spawn("resharding retry", {
                 let sender = self.sync_jobs_sender.clone();
                 async move {
-                    tokio::time::sleep(retry_delay).await;
+                    tokio::time::sleep(retry_delay.max(Duration::ZERO).unsigned_abs()).await;
                     sender.send(resharding_request);
                 }
             });

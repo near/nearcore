@@ -17,6 +17,7 @@ use crate::{metrics, StatusResponse};
 use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt, FutureSpawner};
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Utc};
+use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
@@ -54,10 +55,9 @@ use near_primitives::block_header::ApprovalType;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::BlockHeight;
 use near_primitives::unwrap_or_return;
-use near_primitives::utils::{from_timestamp, MaybeValidated};
+use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{DetailedDebugStatus, ValidatorInfo};
@@ -70,12 +70,11 @@ use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
-const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
+const STATUS_WAIT_TIME_MULTIPLIER: i32 = 10;
 /// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
 /// the current `head`
 const HEAD_STALL_MULTIPLIER: u32 = 4;
@@ -156,7 +155,8 @@ impl ClientActions {
         if let Some(vs) = &validator_signer {
             info!(target: "client", "Starting validator node: {}", vs.validator_id());
         }
-        let info_helper = InfoHelper::new(telemetry_sender, &config, validator_signer.clone());
+        let info_helper =
+            InfoHelper::new(clock.clone(), telemetry_sender, &config, validator_signer.clone());
 
         let now = clock.now_utc();
         Ok(ClientActions {
@@ -515,12 +515,9 @@ impl ClientActionHandler<Status> for ClientActions {
             let block_timestamp =
                 Utc::from_unix_timestamp_nanos(latest_block_time as i128).unwrap();
             if now > block_timestamp {
-                let elapsed = (now - block_timestamp).unsigned_abs();
+                let elapsed = now - block_timestamp;
                 if elapsed
-                    > Duration::from_millis(
-                        self.client.config.max_block_production_delay.as_millis() as u64
-                            * STATUS_WAIT_TIME_MULTIPLIER,
-                    )
+                    > self.client.config.max_block_production_delay * STATUS_WAIT_TIME_MULTIPLIER
                 {
                     return Err(StatusError::NoNewBlocks { elapsed });
                 }
@@ -591,12 +588,12 @@ impl ClientActionHandler<Status> for ClientActions {
                     .client
                     .config
                     .min_block_production_delay
-                    .as_millis() as u64,
+                    .whole_milliseconds() as u64,
             })
         } else {
             None
         };
-        let uptime_sec = StaticClock::utc().timestamp() - self.info_helper.boot_time_seconds;
+        let uptime_sec = self.clock.now_utc().unix_timestamp() - self.info_helper.boot_time_seconds;
         Ok(StatusResponse {
             version: self.client.config.version.clone(),
             protocol_version,
@@ -608,7 +605,8 @@ impl ClientActionHandler<Status> for ClientActions {
                 latest_block_hash: head.last_block_hash,
                 latest_block_height: head.height,
                 latest_state_root,
-                latest_block_time: from_timestamp(latest_block_time),
+                latest_block_time: Utc::from_unix_timestamp_nanos(latest_block_time as i128)
+                    .unwrap(),
                 syncing: self.client.sync_status.is_syncing(),
                 earliest_block_hash,
                 earliest_block_height,
@@ -773,7 +771,7 @@ impl ClientActions {
             Some(signer) => signer,
         };
 
-        let now = StaticClock::instant();
+        let now = self.clock.now();
         // Check that we haven't announced it too recently
         if let Some(last_validator_announce_time) = self.last_validator_announce_time {
             // Don't make announcement if have passed less than half of the time in which other peers
@@ -859,7 +857,7 @@ impl ClientActions {
         let delta_time = self.client.sandbox_delta_time();
         let new_latest_known = near_chain::types::LatestKnown {
             height: block_height + delta_height,
-            seen: near_primitives::utils::to_timestamp(StaticClock::utc() + delta_time),
+            seen: (self.clock.now_utc() + delta_time).unix_timestamp_nanos() as u64,
         };
 
         Ok(Some(new_latest_known))
@@ -970,7 +968,6 @@ impl ClientActions {
                     || num_chunks == self.client.epoch_manager.shard_ids(&epoch_id).unwrap().len();
 
                 if self.client.doomslug.ready_to_produce_block(
-                    StaticClock::instant(),
                     height,
                     have_all_chunks,
                     log_block_production_info,
@@ -1079,7 +1076,7 @@ impl ClientActions {
         );
         delay = core::cmp::min(delay, self.log_summary_timer_next_attempt - now);
         timer.observe_duration();
-        core::cmp::max(delay, near_async::time::Duration::ZERO).unsigned_abs()
+        delay
     }
 
     /// "Unfinished" blocks means that blocks that client has started the processing and haven't
@@ -1112,7 +1109,7 @@ impl ClientActions {
     fn try_doomslug_timer(&mut self) {
         let _span = tracing::debug_span!(target: "client", "try_doomslug_timer").entered();
         let _ = self.client.check_and_update_doomslug_tip();
-        let approvals = self.client.doomslug.process_timer(StaticClock::instant());
+        let approvals = self.client.doomslug.process_timer();
 
         // Important to save the largest approval target height before sending approvals, so
         // that if the node crashes in the meantime, we cannot get slashed on recovery
@@ -1735,7 +1732,7 @@ impl ClientActions {
                 }
             } else if block_hash == sync_hash {
                 // The first block of the new epoch.
-                self.client.chain.save_orphan(block, Provenance::NONE, None, false);
+                self.client.chain.save_orphan(block, Provenance::NONE, false);
             }
         }
         true

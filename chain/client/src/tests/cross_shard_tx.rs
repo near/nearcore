@@ -5,6 +5,7 @@ use crate::{ClientActor, Query, ViewClientActor};
 use actix::{Addr, MailboxError, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_chain::test_utils::{account_id_to_shard_id, ValidatorSchedule};
 use near_crypto::{InMemorySigner, KeyType};
 use near_network::client::{ProcessTxRequest, ProcessTxResponse};
@@ -44,6 +45,7 @@ fn test_keyvalue_runtime_balances() {
         let key_pairs =
             vec![PeerInfo::random(), PeerInfo::random(), PeerInfo::random(), PeerInfo::random()];
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -447,6 +449,7 @@ fn test_cross_shard_tx_common(
         }
 
         let (genesis_block, conn, block_stats) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,

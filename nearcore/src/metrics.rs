@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use actix_rt::ArbiterHandle;
+use near_async::time::Duration;
 use near_chain::{Block, ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
 use near_o11y::metrics::{
@@ -192,13 +193,13 @@ fn get_postponed_receipt_count_for_trie(trie: Trie) -> Result<i64, anyhow::Error
 pub fn spawn_trie_metrics_loop(
     near_config: NearConfig,
     store: Store,
-    period: std::time::Duration,
+    period: Duration,
 ) -> anyhow::Result<ArbiterHandle> {
     tracing::debug!(target:"metrics", "Spawning the trie metrics loop.");
     let arbiter = actix_rt::Arbiter::new();
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period);
+    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     arbiter.spawn(async move {

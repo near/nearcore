@@ -37,6 +37,7 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 
 use super::*;
 
+use near_async::time::Clock;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -1519,7 +1520,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {
@@ -1532,6 +1533,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     );
 
     let chain = Chain::new(
+        Clock::real(),
         env.epoch_manager.clone(),
         ShardTracker::new_empty(env.epoch_manager.clone()),
         env.runtime.clone(),

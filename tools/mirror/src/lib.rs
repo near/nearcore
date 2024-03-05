@@ -894,7 +894,8 @@ impl<T: ChainAccess> TxMirror<T> {
             target_genesis_height: target_config.genesis.config.genesis_height,
             target_min_block_production_delay: target_config
                 .client_config
-                .min_block_production_delay,
+                .min_block_production_delay
+                .unsigned_abs(),
             tracked_shards: target_config.config.tracked_shards,
             secret,
             default_extra_key,
@@ -1699,7 +1700,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 }
                 // If we don't have any upcoming sets of transactions to send already built, we probably fell behind in the source
                 // chain and can't fetch the transactions. Check if we have them now here.
-                _ = tokio::time::sleep(Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
+                _ = tokio::time::sleep(std::time::Duration::from_millis(200)), if tracker.num_blocks_queued() == 0 => {
                     self.queue_txs(&mut tracker, target_head, true).await?;
                 }
             };

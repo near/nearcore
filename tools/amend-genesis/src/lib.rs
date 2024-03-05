@@ -418,13 +418,13 @@ pub fn amend_genesis(
 #[cfg(test)]
 mod test {
     use anyhow::Context;
+    use near_async::time::Clock;
     use near_chain_configs::{get_initial_supply, Genesis, GenesisConfig, NEAR_BASE};
     use near_primitives::hash::CryptoHash;
     use near_primitives::shard_layout::ShardLayout;
     use near_primitives::state_record::StateRecord;
-    use near_primitives::static_clock::StaticClock;
     use near_primitives::types::{AccountId, AccountInfo};
-    use near_primitives::utils;
+    use near_primitives::utils::{self, from_timestamp};
     use near_primitives::version::PROTOCOL_VERSION;
     use near_primitives_core::account::{AccessKey, Account};
     use near_primitives_core::types::{Balance, StorageUsage};
@@ -614,7 +614,7 @@ mod test {
 
             let genesis_config = GenesisConfig {
                 protocol_version: PROTOCOL_VERSION,
-                genesis_time: StaticClock::utc(),
+                genesis_time: from_timestamp(Clock::real().now_utc().unix_timestamp_nanos() as u64),
                 chain_id: "rusttestnet".to_string(),
                 genesis_height: 0,
                 num_block_producer_seats: near_chain_configs::NUM_BLOCK_PRODUCER_SEATS,

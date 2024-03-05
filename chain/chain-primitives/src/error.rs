@@ -1,14 +1,11 @@
-use std::io;
-
-use chrono::DateTime;
-use chrono::Utc;
-
+use near_async::time::Utc;
 use near_primitives::block::BlockValidityError;
 use near_primitives::challenge::{ChunkProofs, ChunkState};
 use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::shard_layout::ShardLayoutError;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{BlockHeight, EpochId, ShardId};
+use std::io;
 
 #[derive(thiserror::Error, Debug)]
 pub enum QueryError {
@@ -76,10 +73,10 @@ pub enum Error {
     ChunksMissing(Vec<ShardChunkHeader>),
     /// Block time is before parent block time.
     #[error("Invalid Block Time: block time {1} before previous {0}")]
-    InvalidBlockPastTime(DateTime<Utc>, DateTime<Utc>),
+    InvalidBlockPastTime(Utc, Utc),
     /// Block time is from too much in the future.
     #[error("Invalid Block Time: Too far in the future: {0}")]
-    InvalidBlockFutureTime(DateTime<Utc>),
+    InvalidBlockFutureTime(Utc),
     /// Block height is invalid (not previous + 1).
     #[error("Invalid Block Height {0}")]
     InvalidBlockHeight(BlockHeight),

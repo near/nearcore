@@ -324,7 +324,7 @@ testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
-time = "0.3.9"
+time = { version = "0.3.9", features = ["parsing"] }
 tokio = { version = "1.28", features = [
     "fs",
     "macros",

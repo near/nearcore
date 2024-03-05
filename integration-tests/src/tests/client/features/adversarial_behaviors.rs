@@ -15,6 +15,7 @@ use near_network::{
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
+use near_primitives::utils::from_timestamp;
 use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
@@ -40,9 +41,11 @@ impl AdversarialBehaviorTestData {
 
         let accounts: Vec<AccountId> =
             (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut genesis = Genesis::test(accounts, num_validators as u64);
         {
             let config = &mut genesis.config;
+            config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
             config.shard_layout = ShardLayout::v1_test();
             config.num_block_producer_seats_per_shard = vec![
@@ -56,7 +59,6 @@ impl AdversarialBehaviorTestData {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
         }
-        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let env = TestEnv::builder(&genesis.config)
             .clock(clock.clock())
             .clients_count(num_clients)

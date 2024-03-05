@@ -6,6 +6,7 @@ use crate::types::{
 use crate::Error;
 use borsh::BorshDeserialize;
 use errors::FromStateViewerErrors;
+use near_async::time::{Duration, Instant};
 use near_chain_configs::{
     GenesisConfig, ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, MIN_GC_NUM_EPOCHS_TO_KEEP,
 };
@@ -53,8 +54,6 @@ use node_runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-use std::time::Instant;
 use tracing::{debug, error, info};
 
 pub mod errors;
@@ -402,7 +401,7 @@ impl NightshadeRuntime {
             apply_result.outcomes.iter().map(|tx_result| tx_result.outcome.gas_burnt).sum();
         metrics::APPLY_CHUNK_DELAY
             .with_label_values(&[&format_total_gas_burnt(total_gas_burnt)])
-            .observe(elapsed.as_secs_f64());
+            .observe(elapsed.as_seconds_f64());
         let shard_label = shard_id.to_string();
         metrics::DELAYED_RECEIPTS_COUNT
             .with_label_values(&[&shard_label])
@@ -1056,7 +1055,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         let is_ok = if res.is_ok() { "ok" } else { "error" };
         metrics::STATE_SYNC_OBTAIN_PART_DELAY
             .with_label_values(&[&shard_id.to_string(), is_ok])
-            .observe(elapsed.as_secs_f64());
+            .observe(elapsed.as_seconds_f64());
         res
     }
 

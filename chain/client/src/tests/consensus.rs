@@ -7,6 +7,7 @@ use rand::{thread_rng, Rng};
 
 use crate::test_utils::{setup_mock_all_validators, ActorHandlesForTesting};
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_chain::Block;
 use near_network::client::{BlockApproval, BlockResponse};
 use near_network::types::PeerInfo;
@@ -68,6 +69,7 @@ fn test_consensus_with_epoch_switches() {
         let delayed_blocks = Arc::new(RwLock::new(vec![]));
 
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs.clone(),
             true,

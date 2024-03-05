@@ -861,6 +861,7 @@ mod tests {
     use super::*;
     use actix::System;
     use near_actix_test_utils::run_actix;
+    use near_async::time::Clock;
     use near_client::test_utils::setup_no_network;
     use near_crypto::{KeyType, SecretKey};
     use near_parameters::{RuntimeConfig, RuntimeConfigView};
@@ -901,6 +902,7 @@ mod tests {
         run_actix(async {
             let runtime_config: RuntimeConfigView = RuntimeConfig::test().into();
             let actor_handles = setup_no_network(
+                Clock::real(),
                 vec!["test".parse().unwrap()],
                 "other".parse().unwrap(),
                 true,

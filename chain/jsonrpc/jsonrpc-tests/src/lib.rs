@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use actix::Addr;
 use futures::{future, future::LocalBoxFuture, FutureExt, TryFutureExt};
+use near_async::time::Clock;
 use near_async::{
     actix::AddrWithAutoSpanContextExt,
     messaging::{noop, IntoMultiSender},
@@ -27,16 +28,18 @@ pub enum NodeType {
     NonValidator,
 }
 
-pub fn start_all(node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
-    start_all_with_validity_period_and_no_epoch_sync(node_type, 100, false)
+pub fn start_all(clock: Clock, node_type: NodeType) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
+    start_all_with_validity_period_and_no_epoch_sync(clock, node_type, 100, false)
 }
 
 pub fn start_all_with_validity_period_and_no_epoch_sync(
+    clock: Clock,
     node_type: NodeType,
     transaction_validity_period: NumBlocks,
     enable_doomslug: bool,
 ) -> (Addr<ViewClientActor>, tcp::ListenerAddr) {
     let actor_handles = setup_no_network_with_validity_period_and_no_epoch_sync(
+        clock,
         vec!["test1".parse().unwrap()],
         if let NodeType::Validator = node_type {
             "test1".parse().unwrap()
@@ -66,7 +69,8 @@ macro_rules! test_with_client {
         init_test_logger();
 
         near_actix_test_utils::run_actix(async {
-            let (_view_client_addr, addr) = test_utils::start_all($node_type);
+            let (_view_client_addr, addr) =
+                test_utils::start_all(near_async::time::Clock::real(), $node_type);
 
             let $client = new_client(&format!("http://{}", addr));
 

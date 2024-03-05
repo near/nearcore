@@ -11,7 +11,6 @@ use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_primitives::{
     hash::CryptoHash,
     sharding::{PartialEncodedChunk, ShardChunkHeader},
-    static_clock::StaticClock,
     types::{EpochId, ShardId},
 };
 use std::fmt;
@@ -68,17 +67,16 @@ pub fn request_missing_chunks<C>(
     C: ChunkDistributionClient + Clone + 'static,
     C::Error: fmt::Debug,
 {
-    let now = StaticClock::utc();
     for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
         for chunk in missing_chunks {
-            blocks_delay_tracker.mark_chunk_requested(&chunk, now);
+            blocks_delay_tracker.mark_chunk_requested(&chunk);
             request_missing_chunk(client.clone(), chunk, shards_manager_adapter.clone(), prev_hash);
         }
     }
 
     for OrphanMissingChunks { missing_chunks, epoch_id, ancestor_hash } in orphans_missing_chunks {
         for chunk in missing_chunks {
-            blocks_delay_tracker.mark_chunk_requested(&chunk, now);
+            blocks_delay_tracker.mark_chunk_requested(&chunk);
             request_orphan_chunk(
                 client.clone(),
                 chunk,
@@ -216,7 +214,10 @@ impl ChunkDistributionClient for ChunkDistributionNetwork {
 mod tests {
     use super::*;
     use futures::FutureExt;
-    use near_async::messaging::{CanSend, IntoSender};
+    use near_async::{
+        messaging::{CanSend, IntoSender},
+        time::Clock,
+    };
     use near_primitives::{
         hash::hash,
         sharding::{
@@ -233,7 +234,7 @@ mod tests {
         let (mock_sender, mut message_receiver) = mpsc::unbounded_channel();
         let mut client = MockClient::default();
         let missing_chunk = mock_shard_chunk(0, 0);
-        let mut blocks_delay_tracker = BlocksDelayTracker::default();
+        let mut blocks_delay_tracker = BlocksDelayTracker::new(Clock::real());
         let shards_manager = MockSender::new(mock_sender);
         let shards_manager_adapter = shards_manager.into_sender();
 
