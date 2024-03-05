@@ -230,19 +230,13 @@ impl<'a> External for RuntimeExt<'a> {
         if has_yielded_promise(self.trie_update, self.account_id.clone(), data_id)
             .map_err(wrap_storage_error)?
         {
-            self.receipt_manager.submit_promise_resume_data(data_id, data)?;
+            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }
 
         // If the yielded promise was created by the current transaction, we'll find it in the
-        // receipt manager. In such case we erase it from `yielded_data_ids` as there is no longer
-        // a need to store it as pending in the trie and enqueue a timeout for it.
-        Ok(if self.receipt_manager.yielded_data_ids.remove(&(data_id, self.account_id.clone())) {
-            self.receipt_manager.submit_promise_resume_data(data_id, data)?;
-            true
-        } else {
-            false
-        })
+        // receipt manager.
+        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
     }
 
     fn append_action_create_account(

@@ -10,6 +10,7 @@ use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, Gas, GasWeight, Nonce};
 use near_vm_runner::logic::HostError;
 use near_vm_runner::logic::VMLogicError;
+use std::collections::HashMap;
 
 use crate::config::safe_add_gas;
 
@@ -18,7 +19,6 @@ type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<ActionReceiptMetadata>;
 type DataReceipts = Vec<DataReceiptMetadata>;
-type YieldedDataIds = std::collections::HashSet<(CryptoHash, AccountId)>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActionReceiptMetadata {
@@ -34,7 +34,7 @@ pub struct ActionReceiptMetadata {
     pub input_data_ids: Vec<CryptoHash>,
     /// A list of actions to process when all input_data_ids are filled
     pub actions: Vec<Action>,
-    /// Indicates whether the receipt was created via `promise_yield_create` host function.
+    /// Indicates whether the receipt should have type Action or PromiseYield
     pub is_promise_yield: bool,
 }
 
@@ -44,14 +44,17 @@ pub struct DataReceiptMetadata {
     pub data_id: CryptoHash,
     /// Contents of the receipt
     pub data: Option<Vec<u8>>,
+    /// Indicates whether the receipt should have type Data or PromiseResume
+    pub is_promise_resume: bool,
 }
 
 #[derive(Default, Clone, PartialEq)]
 pub struct ReceiptManager {
     pub(super) action_receipts: ActionReceipts,
-    pub(super) yielded_data_ids: YieldedDataIds,
     pub(super) data_receipts: DataReceipts,
     pub(super) gas_weights: Vec<(FunctionCallActionIndex, GasWeight)>,
+    /// For new promise yields, map from input data id to index in `action_receipts`
+    promise_yield_receipt_index: HashMap<CryptoHash, usize>,
 }
 
 /// Indexes the [`ReceiptManager`]'s action receipts and actions.
@@ -145,27 +148,61 @@ impl ReceiptManager {
             actions: vec![],
             is_promise_yield: true,
         };
-        let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
+        let new_receipt_index = self.action_receipts.len();
         self.action_receipts.push(new_receipt);
-        self.yielded_data_ids.insert((input_data_id, receiver_id));
-        Ok(new_receipt_index)
+        self.promise_yield_receipt_index.insert(input_data_id, new_receipt_index);
+        Ok(new_receipt_index as ReceiptIndex)
     }
 
-    /// Submits a data receipt.
+    /// Creates a PromiseResume receipt.
     ///
     /// Should only be used to resolve dependencies created by `create_yielded_action_receipt`.
     ///
     /// # Arguments
     ///
-    /// * `data_id` - id of the DataReceipt being submitted
-    /// * `data` - contents of the DataReceipt
-    pub(super) fn submit_promise_resume_data(
+    /// * `data_id` - id of the PromiseResume receipt being submitted
+    /// * `data` - contents of the PromiseResume receipt
+    pub(super) fn create_promise_resume_receipt(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.data_receipts.push(DataReceiptMetadata { data_id, data: Some(data) });
+        self.data_receipts.push(DataReceiptMetadata {
+            data_id,
+            data: Some(data),
+            is_promise_resume: true,
+        });
         Ok(())
+    }
+
+    /// Resolves a PromiseYield input dependency previously created under given `data_id`,
+    /// if it exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_id` - id of the Data receipt being submitted
+    /// * `data` - contents of the Data receipt
+    pub(super) fn checked_resolve_promise_yield(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, VMLogicError> {
+        Ok(if let Some(receipt_index) = self.promise_yield_receipt_index.remove(&data_id) {
+            // Convert existing PromiseYield to a standard Action receipt
+            let receipt = &mut self.action_receipts[receipt_index];
+            assert!(receipt.is_promise_yield, "receipt should be promise yield");
+            receipt.is_promise_yield = false;
+
+            // Create Data receipt delivering the payload
+            self.data_receipts.push(DataReceiptMetadata {
+                data_id,
+                data: Some(data),
+                is_promise_resume: false,
+            });
+            true
+        } else {
+            false
+        })
     }
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
@@ -419,8 +456,12 @@ impl ReceiptManager {
     ///
     /// Returns the amount of gas distributed (either `0` or `unused_gas`.)
     pub(super) fn distribute_gas(&mut self, unused_gas: Gas) -> Result<Gas, RuntimeError> {
-        let ReceiptManager { action_receipts, yielded_data_ids: _, data_receipts: _, gas_weights } =
-            self;
+        let ReceiptManager {
+            action_receipts,
+            data_receipts: _,
+            gas_weights,
+            promise_yield_receipt_index: _,
+        } = self;
         let gas_weight_sum: u128 = gas_weights.iter().map(|(_, gv)| u128::from(gv.0)).sum();
         if gas_weight_sum == 0 || unused_gas == 0 {
             return Ok(0);
