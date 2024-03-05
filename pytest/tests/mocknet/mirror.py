@@ -3,58 +3,17 @@
 
 """
 from argparse import ArgumentParser, BooleanOptionalAction
-import cmd_utils
 import pathlib
 import json
 import random
-from rc import pmap, run
-import requests
+from rc import pmap
 import sys
 import time
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
-import mocknet
-
 from configured_logger import logger
-
-
-def get_nodes(args):
-    pattern = args.chain_id + '-' + str(
-        args.start_height) + '-' + args.unique_id
-    all_nodes = mocknet.get_nodes(pattern=pattern)
-    if len(all_nodes) < 1:
-        sys.exit(f'no known nodes matching {pattern}')
-
-    traffic_generator = None
-    nodes = []
-    for n in all_nodes:
-        if n.instance_name.endswith('traffic'):
-            if traffic_generator is not None:
-                sys.exit(
-                    f'more than one traffic generator instance found. {traffic_generator.instance_name} and {n.instance_name}'
-                )
-            traffic_generator = n
-        else:
-            nodes.append(n)
-
-    if traffic_generator is None:
-        sys.exit(f'no traffic generator instance found')
-    return traffic_generator, nodes
-
-
-def wait_node_up(node):
-    while True:
-        try:
-            res = node.get_validators()
-            if 'error' not in res:
-                assert 'result' in res
-                logger.info(f'Node {node.instance_name} is up')
-                return
-        except (ConnectionRefusedError,
-                requests.exceptions.ConnectionError) as e:
-            pass
-        time.sleep(10)
+import remote_node
 
 
 def prompt_setup_flags(args):
@@ -80,45 +39,6 @@ def prompt_setup_flags(args):
     if args.genesis_protocol_version is None:
         print('genesis protocol version?: ')
         args.genesis_protocol_version = int(sys.stdin.readline().strip())
-
-
-def start_neard_runner(node):
-    cmd_utils.run_in_background(node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
-        '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
-        '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
-
-
-def upload_neard_runner(node):
-    node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                        '/home/ubuntu/neard-runner',
-                        switch_user='ubuntu')
-    node.machine.upload('tests/mocknet/helpers/requirements.txt',
-                        '/home/ubuntu/neard-runner',
-                        switch_user='ubuntu')
-
-
-def init_neard_runner(node, config, remove_home_dir=False):
-    stop_neard_runner(node)
-    cmd_utils.init_node(node)
-    if remove_home_dir:
-        cmd_utils.run_cmd(
-            node,
-            'rm -rf /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-runner'
-        )
-    else:
-        cmd_utils.run_cmd(node, 'mkdir -p /home/ubuntu/neard-runner')
-    upload_neard_runner(node)
-    mocknet.upload_json(node, '/home/ubuntu/neard-runner/config.json', config)
-    cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
-    ' && ./venv/bin/pip install -r requirements.txt'
-    cmd_utils.run_cmd(node, cmd)
-    start_neard_runner(node)
-
-
-def stop_neard_runner(node):
-    # this looks for python processes with neard_runner.py in the command line. the first word will
-    # be the pid, which we extract with the last awk command
-    node.machine.run('kill $(ps -C python -o pid=,cmd= | grep neard_runner.py | awk \'{print $1};\')')
 
 
 def prompt_init_flags(args):
@@ -179,9 +99,9 @@ def init_neard_runners(args, traffic_generator, nodes, remove_home_dir=False):
             }]
         }
 
-    init_neard_runner(traffic_generator, traffic_generator_config,
-                      remove_home_dir)
-    pmap(lambda x: init_neard_runner(x[0], x[1], remove_home_dir),
+    traffic_generator.init_neard_runner(traffic_generator_config,
+                                        remove_home_dir)
+    pmap(lambda x: x[0].init_neard_runner(x[1], remove_home_dir),
          zip(nodes, configs))
 
 
@@ -203,10 +123,10 @@ def hard_reset_cmd(args, traffic_generator, nodes):
 
 def restart_cmd(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
-    pmap(stop_neard_runner, all_nodes)
+    pmap(lambda node: node.stop_neard_runner(), all_nodes)
     if args.upload_program:
-        pmap(upload_neard_runner, all_nodes)
-    pmap(start_neard_runner, all_nodes)
+        pmap(lambda node: node.upload_neard_runner(), all_nodes)
+    pmap(lambda node: node.start_neard_runner(), all_nodes)
 
 
 # returns boot nodes and validators we want for the new test network
@@ -255,29 +175,29 @@ def new_test(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
 
     logger.info(f'resetting/initializing home dirs')
-    test_keys = pmap(neard_runner_new_test, all_nodes)
+    test_keys = pmap(lambda node: node.neard_runner_new_test(), all_nodes)
 
     validators, boot_nodes = get_network_nodes(
-        zip([n.machine.ip for n in all_nodes], test_keys), args.num_validators)
+        zip([n.ip_addr() for n in all_nodes], test_keys), args.num_validators)
 
     logger.info("""setting validators: {0}
 Then running neard amend-genesis on all nodes, and starting neard to compute genesis \
 state roots. This will take a few hours. Run `status` to check if the nodes are \
 ready. After they're ready, you can run `start-traffic`""".format(validators))
     pmap(
-        lambda node: neard_runner_network_init(
-            node, validators, boot_nodes, args.epoch_length, args.num_seats,
-            args.genesis_protocol_version), all_nodes)
+        lambda node: node.neard_runner_network_init(
+            validators, boot_nodes, args.epoch_length, args.num_seats, args.
+            genesis_protocol_version), all_nodes)
 
 
 def status_cmd(args, traffic_generator, nodes):
     all_nodes = nodes + [traffic_generator]
-    statuses = pmap(neard_runner_ready, all_nodes)
+    statuses = pmap(lambda node: node.neard_runner_ready(), all_nodes)
     num_ready = 0
     not_ready = []
     for ready, node in zip(statuses, all_nodes):
         if not ready:
-            not_ready.append(node.instance_name)
+            not_ready.append(node.name())
 
     if len(not_ready) == 0:
         print(f'all {len(all_nodes)} nodes ready')
@@ -295,133 +215,64 @@ def reset_cmd(args, traffic_generator, nodes):
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
     all_nodes = nodes + [traffic_generator]
-    pmap(neard_runner_reset, all_nodes)
+    pmap(lambda node: node.neard_runner_reset(), all_nodes)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
 
 
 def stop_nodes_cmd(args, traffic_generator, nodes):
-    pmap(neard_runner_stop, nodes + [traffic_generator])
+    pmap(lambda node: node.neard_runner_stop(), nodes + [traffic_generator])
 
 
 def stop_traffic_cmd(args, traffic_generator, nodes):
-    neard_runner_stop(traffic_generator)
-
-
-def neard_runner_jsonrpc(node, method, params=[]):
-    body = {
-        'method': method,
-        'params': params,
-        'id': 'dontcare',
-        'jsonrpc': '2.0'
-    }
-    body = json.dumps(body)
-    # '"'"' will be interpreted as ending the first quote and then concatenating it with "'",
-    # followed by a new quote started with ' and the rest of the string, to get any single quotes
-    # in method or params into the command correctly
-    body = body.replace("'", "'\"'\"'")
-    r = cmd_utils.run_cmd(node, f'curl localhost:3000 -d \'{body}\'')
-    response = json.loads(r.stdout)
-    if 'error' in response:
-        # TODO: errors should be handled better here in general but just exit for now
-        sys.exit(
-            f'bad response trying to send {method} JSON RPC to neard runner on {node.instance_name}:\n{response}'
-        )
-    return response['result']
-
-
-def neard_runner_start(node):
-    neard_runner_jsonrpc(node, 'start')
-
-
-def neard_runner_stop(node):
-    neard_runner_jsonrpc(node, 'stop')
-
-
-def neard_runner_new_test(node):
-    return neard_runner_jsonrpc(node, 'new_test')
-
-
-def neard_runner_network_init(node, validators, boot_nodes, epoch_length,
-                              num_seats, protocol_version):
-    return neard_runner_jsonrpc(node,
-                                'network_init',
-                                params={
-                                    'validators': validators,
-                                    'boot_nodes': boot_nodes,
-                                    'epoch_length': epoch_length,
-                                    'num_seats': num_seats,
-                                    'protocol_version': protocol_version,
-                                })
-
-
-def neard_update_config(node, key_value):
-    return neard_runner_jsonrpc(
-        node,
-        'update_config',
-        params={
-            "key_value": key_value,
-        },
-    )
+    traffic_generator.neard_runner_stop()
 
 
 def update_config_cmd(args, traffic_generator, nodes):
     nodes = nodes + [traffic_generator]
     results = pmap(
-        lambda node: neard_update_config(
-            node,
-            args.set,
-        ),
+        lambda node: node.neard_update_config(args.set),
         nodes,
     )
     if not all(results):
-        logger.warn('failed to update configs for some nodes')
+        logger.warning('failed to update configs for some nodes')
         return
-
-
-def neard_runner_ready(node):
-    return neard_runner_jsonrpc(node, 'ready')
-
-
-def neard_runner_reset(node):
-    return neard_runner_jsonrpc(node, 'reset')
 
 
 def start_nodes_cmd(args, traffic_generator, nodes):
-    if not all(pmap(neard_runner_ready, nodes)):
-        logger.warn(
+    if not all(pmap(lambda node: node.neard_runner_ready(), nodes)):
+        logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(neard_runner_start, nodes)
-    pmap(wait_node_up, nodes)
+    pmap(lambda node: node.neard_runner_start(), nodes)
+    pmap(lambda node: node.wait_node_up(), nodes)
 
 
 def start_traffic_cmd(args, traffic_generator, nodes):
-    if not all(pmap(neard_runner_ready, nodes + [traffic_generator])):
-        logger.warn(
+    if not all(
+            pmap(lambda node: node.neard_runner_ready(),
+                 nodes + [traffic_generator])):
+        logger.warning(
             'not all nodes are ready to start yet. Run the `status` command to check their statuses'
         )
         return
-    pmap(neard_runner_start, nodes)
+    pmap(lambda node: node.neard_runner_start(), nodes)
     logger.info("waiting for validators to be up")
-    pmap(wait_node_up, nodes)
+    pmap(lambda node: node.wait_node_up(), nodes)
     logger.info(
         "waiting a bit after validators started before starting traffic")
     time.sleep(10)
-    neard_runner_start(traffic_generator)
+    traffic_generator.neard_runner_start()
     logger.info(
-        f'test running. to check the traffic sent, try running "curl http://{traffic_generator.machine.ip}:3030/metrics | grep mirror"'
+        f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:3030/metrics | grep near_mirror"'
     )
 
 
-def neard_runner_update_binaries(node):
-    neard_runner_jsonrpc(node, 'update_binaries')
-
-
 def update_binaries_cmd(args, traffic_generator, nodes):
-    pmap(neard_runner_update_binaries, nodes + [traffic_generator])
+    pmap(lambda node: node.neard_runner_update_binaries(),
+         nodes + [traffic_generator])
 
 
 if __name__ == '__main__':
@@ -534,5 +385,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    traffic_generator, nodes = get_nodes(args)
+    traffic_generator, nodes = remote_node.get_nodes(args.chain_id,
+                                                     args.start_height,
+                                                     args.unique_id)
     args.func(args, traffic_generator, nodes)
