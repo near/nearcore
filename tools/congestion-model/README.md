@@ -66,6 +66,27 @@ When executing receipts or transactions, it potentially produces outgoing
 receipts. These can be forwarded or kept in a queue for later forwarding. It all
 depends on your strategy for applying backpressure.
 
+To communicate between shards, store congestion information in the current
+block. It is accessible by all shards one round later, so they can make
+decisions to throttle their own rate if necessary.
+
+```rust
+fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
+    // store own data in the block
+    let shared_info = MyInfo::new();
+    ctx.current_block_info().insert(shared_info);
+
+    // read data from previous block
+    for shard_info in ctx.prev_block_info().values() {
+        let info = shard_info.get::<MyInfo>().unwrap();
+    }
+}
+```
+
+Internally, this uses an [`AnyMap`](https://github.com/chris-morgan/anymap)
+allowing to store any retrieve any data in a type-safe way without
+data serialization.
+
 In the end, go to [src/main.rs] and add your strategy to the list of tested
 strategies.
 
