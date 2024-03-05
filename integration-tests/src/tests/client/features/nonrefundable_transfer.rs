@@ -17,6 +17,7 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeployContractAction,
     NonrefundableStorageTransferAction, SignedTransaction, TransferAction,
 };
+use near_primitives::types::StorageUsage;
 use near_primitives::types::{AccountId, Balance};
 use near_primitives::utils::{derive_eth_implicit_account_id, derive_near_implicit_account_id};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
@@ -45,6 +46,9 @@ const TEST_CASES: [Transfers; 3] = [
     Transfers { regular_amount: 1, nonrefundable_amount: 1, nonrefundable_transfer_first: true },
     Transfers { regular_amount: 1, nonrefundable_amount: 1, nonrefundable_transfer_first: false },
 ];
+
+/// Contract size that does not fit within Zero-balance account limit.
+const TEST_CONTRACT_SIZE: usize = 1500;
 
 struct TransferConfig {
     /// Describes transfers configuration we are interested in.
@@ -143,12 +147,13 @@ fn exec_transfers(
     config: TransferConfig,
 ) -> Result<FinalExecutionOutcomeView, InvalidTxError> {
     let sender_pre_balance = env.query_balance(sender());
-    let (receiver_before_amount, receiver_before_nonrefundable) = if config.account_creation {
-        (0, 0)
-    } else {
-        let receiver_before = env.query_account(receiver.clone());
-        (receiver_before.amount, receiver_before.nonrefundable)
-    };
+    let (receiver_before_amount, receiver_before_permanent_storage_bytes) =
+        if config.account_creation {
+            (0, 0)
+        } else {
+            let receiver_before = env.query_account(receiver.clone());
+            (receiver_before.amount, receiver_before.permanent_storage_bytes)
+        };
 
     let mut actions = vec![];
 
@@ -175,7 +180,7 @@ fn exec_transfers(
     }
 
     if config.deploy_contract {
-        let contract = near_test_contracts::sized_contract(1500 as usize);
+        let contract = near_test_contracts::sized_contract(TEST_CONTRACT_SIZE);
         actions.push(Action::DeployContract(DeployContractAction { code: contract.to_vec() }))
     }
 
@@ -202,11 +207,15 @@ fn exec_transfers(
     );
 
     let receiver_expected_amount_after = receiver_before_amount + config.transfers.regular_amount;
-    let receiver_expected_non_refundable_after =
-        receiver_before_nonrefundable + config.transfers.nonrefundable_amount;
+    let receiver_expected_permanent_storage_bytes_after = receiver_before_permanent_storage_bytes
+        + (config.transfers.nonrefundable_amount / fee_helper().rt_cfg.storage_amount_per_byte())
+            as StorageUsage;
     let receiver_after = env.query_account(receiver);
     assert_eq!(receiver_after.amount, receiver_expected_amount_after);
-    assert_eq!(receiver_after.nonrefundable, receiver_expected_non_refundable_after);
+    assert_eq!(
+        receiver_after.permanent_storage_bytes,
+        receiver_expected_permanent_storage_bytes_after
+    );
 
     tx_result
 }
@@ -266,7 +275,10 @@ fn deleting_account_with_non_refundable_storage() {
         beneficiary_after.amount,
         beneficiary_before.amount + regular_amount - fee_helper().prepaid_delete_account_cost()
     );
-    assert_eq!(beneficiary_after.nonrefundable, beneficiary_before.nonrefundable);
+    assert_eq!(
+        beneficiary_after.permanent_storage_bytes,
+        beneficiary_before.permanent_storage_bytes
+    );
 }
 
 /// Non-refundable balance cannot be transferred.
@@ -453,7 +465,7 @@ fn reject_non_refundable_transfer_existing_account() {
         assert!(matches!(
             status,
             ExecutionStatusView::Failure(TxExecutionError::ActionError(
-                ActionError { kind: ActionErrorKind::NonRefundableBalanceToExistingAccount { account_id }, .. }
+                ActionError { kind: ActionErrorKind::NonRefundableTransferToExistingAccount { account_id }, .. }
             )) if *account_id == receiver(),
         ));
     }
@@ -468,7 +480,7 @@ fn reject_non_refundable_transfer_existing_account() {
 #[test]
 fn reject_non_refundable_transfer_in_older_versions() {
     let mut env = setup_env_with_protocol_version(Some(
-        ProtocolFeature::NonRefundableBalance.protocol_version() - 1,
+        ProtocolFeature::PermanentStorageBytes.protocol_version() - 1,
     ));
     for transfers in TEST_CASES {
         let tx_result = exec_transfers(
@@ -486,8 +498,8 @@ fn reject_non_refundable_transfer_in_older_versions() {
             tx_result,
             Err(InvalidTxError::ActionsValidation(
                 ActionsValidationError::UnsupportedProtocolFeature {
-                    protocol_feature: "NonRefundableBalance".to_string(),
-                    version: ProtocolFeature::NonRefundableBalance.protocol_version()
+                    protocol_feature: "PermanentStorageBytes".to_string(),
+                    version: ProtocolFeature::PermanentStorageBytes.protocol_version()
                 }
             ))
         );
