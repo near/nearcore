@@ -7,14 +7,16 @@ use std::sync::Arc;
 /// A simple struct to capture a state proof as it's being accumulated.
 pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
+    size: usize,
 }
 
 impl TrieRecorder {
     pub fn new() -> Self {
-        Self { recorded: HashMap::new() }
+        Self { recorded: HashMap::new(), size: 0 }
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
+        self.size += node.len();
         self.recorded.insert(*hash, node);
     }
 
@@ -22,6 +24,10 @@ impl TrieRecorder {
         let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value).collect();
         nodes.sort();
         PartialStorage { nodes: PartialState::TrieValues(nodes) }
+    }
+
+    pub fn recorded_storage_size(&self) -> usize {
+        self.size
     }
 }
 

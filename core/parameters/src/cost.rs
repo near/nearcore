@@ -359,6 +359,9 @@ pub struct RuntimeFeesConfig {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// The maximum size of the state witness after which we defer execution of any new receipts.
+    pub state_witness_size_soft_limit: usize,
 }
 
 /// Describes cost of storage per block
@@ -466,6 +469,7 @@ impl RuntimeFeesConfig {
                     execution: 200_000_000_000,
                 },
             },
+            state_witness_size_soft_limit: usize::MAX,
         }
     }
 
@@ -477,6 +481,7 @@ impl RuntimeFeesConfig {
             storage_usage_config: StorageUsageConfig::free(),
             burnt_gas_reward: Rational32::from_integer(0),
             pessimistic_gas_price_inflation_ratio: Rational32::from_integer(0),
+            state_witness_size_soft_limit: usize::MAX,
         }
     }
 

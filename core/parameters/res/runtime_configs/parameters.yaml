@@ -12,6 +12,9 @@ pessimistic_gas_price_inflation: {
   denominator: 100,
 }
 
+# Stateless validation config
+state_witness_size_soft_limit: 1_000_000_000_000
+
 # Account creation config
 min_allowed_top_level_account_length: 32
 registrar_account_id: "registrar"

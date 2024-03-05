@@ -301,6 +301,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
+                state_witness_size_soft_limit: params.get(Parameter::StateWitnessSizeSoftLimit)?,
             },
             wasm_config: Config {
                 ext_costs: ExtCostsConfig {
