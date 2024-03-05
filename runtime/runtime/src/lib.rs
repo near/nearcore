@@ -507,8 +507,12 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt =
-            &receipt.receipt.action().expect("given receipt should be an action receipt");
+        let action_receipt = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                action_receipt
+            }
+            _ => unreachable!("given receipt should be an action receipt"),
+        };
         let account_id = &receipt.receiver_id;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -776,7 +780,10 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = new_receipt.receipt.is_action();
+                let is_action = matches!(
+                    &new_receipt.receipt,
+                    ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
+                );
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)

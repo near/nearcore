@@ -1296,7 +1296,7 @@ impl<T: ChainAccess> TxMirror<T> {
                 Err(ChainError::Other(e)) => return Err(e),
             };
 
-            if let ReceiptEnum::Action(r) = &receipt.receipt {
+            if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
                 if (provenance.is_create_account() && receipt.predecessor_id == receipt.receiver_id)
                     || (!provenance.is_create_account()
                         && receipt.predecessor_id != receipt.receiver_id)
@@ -1410,7 +1410,7 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &mut crate::chain_tracker::TxTracker,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        if let ReceiptEnum::Action(r) = &receipt.receipt {
+        if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
             if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
