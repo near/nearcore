@@ -770,7 +770,7 @@ pub fn set_yielded_promise_indices(
 }
 
 // Enqueues given yielded promise in the yield timeout queue
-pub fn enqueue_yielded_promise(
+pub fn enqueue_yielded_promise_timeout(
     state_update: &mut TrieUpdate,
     yielded_promise_indices: &mut YieldedPromiseQueueIndices,
     account_id: AccountId,
