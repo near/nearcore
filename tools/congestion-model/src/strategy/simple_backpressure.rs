@@ -1,5 +1,5 @@
-use crate::designs::QueueFactory;
 use crate::model::ChunkExecutionContext;
+use crate::strategy::QueueFactory;
 use crate::{QueueId, Receipt, ShardId, GAS_LIMIT, TX_GAS_LIMIT};
 
 /// Have a fixed max queue size per shard and apply backpressure by stop
@@ -14,7 +14,7 @@ struct CongestedShardsInfo {
     congested: bool,
 }
 
-impl crate::Shard for SimpleBackpressure {
+impl crate::CongestionStrategy for SimpleBackpressure {
     fn init(
         &mut self,
         id: crate::ShardId,

@@ -13,7 +13,7 @@ pub use transaction_registry::TransactionId;
 pub(crate) use transaction::Transaction;
 
 use crate::workload::Producer;
-use crate::{Round, Shard};
+use crate::{CongestionStrategy, Round};
 use anymap::AnyMap;
 use std::collections::BTreeMap;
 use transaction_registry::TransactionRegistry;
@@ -25,8 +25,8 @@ pub struct Model {
     /// execution round. (round = 0 means execution hasn't started, yet)
     pub(crate) round: Round,
 
-    // Congestion design state
-    pub(crate) shards: Vec<Box<dyn Shard>>,
+    // Congestion strategy state
+    pub(crate) shards: Vec<Box<dyn CongestionStrategy>>,
     pub(crate) shard_ids: Vec<ShardId>,
     pub(crate) block_info: BTreeMap<ShardId, AnyMap>,
     pub(crate) queues: QueueBundle,
@@ -40,7 +40,10 @@ pub struct Model {
 pub struct ShardId(usize);
 
 impl Model {
-    pub fn new(mut shards: Vec<Box<dyn Shard>>, mut producer: Box<dyn Producer>) -> Self {
+    pub fn new(
+        mut shards: Vec<Box<dyn CongestionStrategy>>,
+        mut producer: Box<dyn Producer>,
+    ) -> Self {
         let num_shards = shards.len();
         let shard_ids: Vec<_> = (0..num_shards).map(ShardId).collect();
         let mut queues = QueueBundle::new(&shard_ids);
@@ -119,7 +122,7 @@ impl Model {
             .collect()
     }
 
-    pub fn shard(&mut self, id: ShardId) -> &mut dyn Shard {
+    pub fn shard(&mut self, id: ShardId) -> &mut dyn CongestionStrategy {
         self.shards[id.0].as_mut()
     }
 

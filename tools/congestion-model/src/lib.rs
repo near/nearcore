@@ -1,11 +1,11 @@
-pub mod designs;
 mod evaluation;
 mod model;
+pub mod strategy;
 pub mod workload;
 
-pub use designs::Shard;
 pub use evaluation::{summary_table, TransactionStatus};
 pub use model::{Model, Queue, QueueId, Receipt, ShardId, TransactionId};
+pub use strategy::CongestionStrategy;
 pub use workload::{ReceiptDefinition, ReceiptId, TransactionBuilder};
 
 pub(crate) use model::Transaction;

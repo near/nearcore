@@ -1,10 +1,10 @@
-use crate::designs::QueueFactory;
 use crate::model::ChunkExecutionContext;
+use crate::strategy::QueueFactory;
 use crate::{GAS_LIMIT, TX_GAS_LIMIT};
 
 pub struct NoQueueShard {}
 
-impl crate::Shard for NoQueueShard {
+impl crate::CongestionStrategy for NoQueueShard {
     fn init(
         &mut self,
         _id: crate::ShardId,

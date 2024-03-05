@@ -1,6 +1,6 @@
-use congestion_model::designs::{GlobalTxStopShard, NoQueueShard, SimpleBackpressure};
+use congestion_model::strategy::{GlobalTxStopShard, NoQueueShard, SimpleBackpressure};
 use congestion_model::workload::{AllForOneProducer, BalancedProducer, Producer};
-use congestion_model::{summary_table, Model, Shard, PGAS};
+use congestion_model::{summary_table, CongestionStrategy, Model, PGAS};
 
 fn main() {
     let num_shards = 4;
@@ -8,8 +8,8 @@ fn main() {
 
     summary_table::print_summary_header();
     for workload_index in 0..NUM_WORKLOADS {
-        for design_index in 0..NUM_DESIGNS {
-            let (design_name, design) = design_proposal(num_shards, design_index);
+        for design_index in 0..NUM_STRATEGIES {
+            let (design_name, design) = strategy(num_shards, design_index);
             let (workload_name, workload) = workload(workload_index);
             let mut model = Model::new(design, workload);
             for _ in 0..num_rounds {
@@ -30,21 +30,21 @@ fn workload(i: usize) -> (&'static str, Box<dyn Producer>) {
     }
 }
 
-// Add designs here to simulate them with `cargo run`.
-const NUM_DESIGNS: usize = 3;
-fn design_proposal(num_shards: usize, i: usize) -> (&'static str, Vec<Box<dyn Shard>>) {
+// Add strategies here to simulate them with `cargo run`.
+const NUM_STRATEGIES: usize = 3;
+fn strategy(num_shards: usize, i: usize) -> (&'static str, Vec<Box<dyn CongestionStrategy>>) {
     let mut shards = vec![];
     for _ in 0..num_shards {
         let shard = match i {
-            NUM_DESIGNS.. => panic!(),
-            0 => Box::new(NoQueueShard {}) as Box<dyn Shard>,
-            1 => Box::<GlobalTxStopShard>::default() as Box<dyn Shard>,
-            2 => Box::<SimpleBackpressure>::default() as Box<dyn Shard>,
+            NUM_STRATEGIES.. => panic!(),
+            0 => Box::new(NoQueueShard {}) as Box<dyn CongestionStrategy>,
+            1 => Box::<GlobalTxStopShard>::default() as Box<dyn CongestionStrategy>,
+            2 => Box::<SimpleBackpressure>::default() as Box<dyn CongestionStrategy>,
         };
         shards.push(shard);
     }
     let name = match i {
-        NUM_DESIGNS.. => panic!(),
+        NUM_STRATEGIES.. => panic!(),
         0 => "No queues",
         1 => "Global TX stop",
         2 => "Simple backpressure",

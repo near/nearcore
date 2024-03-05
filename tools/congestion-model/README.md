@@ -20,7 +20,7 @@ produces some evaluation output.
 
 ```txt
 WORKLOAD                  DESIGN PROPOSAL
-[trait Producer]          [trait Shard]
+[trait Producer]          [trait CongestionStrategy]
        \                     /
         \                   /
          \                 /
@@ -38,17 +38,17 @@ WORKLOAD                  DESIGN PROPOSAL
 
 Each component of the four components above has its own directors.
 - ./src/workload
-- ./src/designs
+- ./src/strategy
 - ./src/model
 - ./src/evaluation
 
-## Add more designs
+## Add more strategies
 
-To add a new design, create a new module in [./src/designs] and create a
-`struct` in it. Implement the `trait Shard` for your struct.
+To add a new congestion strategy, create a new module in [./src/strategy] and
+create a `struct` in it. Implement the `trait CongestionStrategy` for your struct.
 
 ```rust
-pub trait Shard {
+pub trait CongestionStrategy {
     /// Initial state and register all necessary queues.
     fn init(&mut self, id: ShardId, other_shards: &[ShardId], queue_factory: &mut dyn QueueFactory);
 
@@ -66,8 +66,8 @@ When executing receipts or transactions, it potentially produces outgoing
 receipts. These can be forwarded or kept in a queue for later forwarding. It all
 depends on your strategy for applying backpressure.
 
-In the end, go to [src/main.rs] and add your design to the list of tested
-designs.
+In the end, go to [src/main.rs] and add your strategy to the list of tested
+strategies.
 
 ## Add more workloads
 

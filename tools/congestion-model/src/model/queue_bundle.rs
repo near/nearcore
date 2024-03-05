@@ -1,4 +1,4 @@
-use crate::designs::QueueFactory;
+use crate::strategy::QueueFactory;
 use crate::{Queue, ShardId, TransactionId};
 use std::collections::{HashMap, VecDeque};
 

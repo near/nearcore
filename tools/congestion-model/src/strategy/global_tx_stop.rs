@@ -1,5 +1,5 @@
-use crate::designs::QueueFactory;
 use crate::model::ChunkExecutionContext;
+use crate::strategy::QueueFactory;
 use crate::{GAS_LIMIT, TX_GAS_LIMIT};
 
 /// Stop all shards from accepting new transactions when a limit of delayed
@@ -12,7 +12,7 @@ struct DelayedQueueInfo {
     num_delayed: usize,
 }
 
-impl crate::Shard for GlobalTxStopShard {
+impl crate::CongestionStrategy for GlobalTxStopShard {
     fn init(
         &mut self,
         _id: crate::ShardId,
