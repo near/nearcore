@@ -17,8 +17,8 @@ use crate::config::safe_add_gas;
 type ReceiptIndex = u64;
 
 type ActionReceipts = Vec<ActionReceiptMetadata>;
+type DataReceipts = Vec<DataReceiptMetadata>;
 type YieldedDataIds = std::collections::HashSet<(CryptoHash, AccountId)>;
-type DataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActionReceiptMetadata {
@@ -36,6 +36,14 @@ pub struct ActionReceiptMetadata {
     pub actions: Vec<Action>,
     /// Indicates whether the receipt was created via `promise_yield_create` host function.
     pub is_promise_yield: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataReceiptMetadata {
+    /// Id under which the receipt should be created
+    pub data_id: CryptoHash,
+    /// Contents of the receipt
+    pub data: Option<Vec<u8>>,
 }
 
 #[derive(Default, Clone, PartialEq)]
@@ -156,7 +164,7 @@ impl ReceiptManager {
         data_id: CryptoHash,
         data: Vec<u8>,
     ) -> Result<(), VMLogicError> {
-        self.data_receipts.push((data_id, data));
+        self.data_receipts.push(DataReceiptMetadata { data_id, data: Some(data) });
         Ok(())
     }
 
@@ -485,7 +493,7 @@ mod tests {
         // Assert expected amount of gas was associated with the action
         let mut function_call_gas = 0;
         let mut function_calls_iter = function_calls.iter();
-        for (_, receipt) in receipt_manager.action_receipts {
+        for receipt in receipt_manager.action_receipts {
             for action in receipt.actions {
                 if let Action::FunctionCall(function_call_action) = action {
                     let reference = function_calls_iter.next().unwrap();
