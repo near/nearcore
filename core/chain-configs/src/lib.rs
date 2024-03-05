@@ -63,10 +63,11 @@ pub const GAS_PRICE_ADJUSTMENT_RATE: Rational32 = Rational32::new_raw(1, 100);
 pub const PROTOCOL_REWARD_RATE: Rational32 = Rational32::new_raw(1, 10);
 
 /// Expected block production time in ms.
-pub const MIN_BLOCK_PRODUCTION_DELAY: u64 = 600;
+pub const MIN_BLOCK_PRODUCTION_DELAY: i64 = 600;
 
 /// Expected epoch length.
-pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta = (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY;
+pub const EXPECTED_EPOCH_LENGTH: BlockHeightDelta =
+    (5 * 60 * 1000) / MIN_BLOCK_PRODUCTION_DELAY as u64;
 
 /// Maximum inflation rate per year
 pub const MAX_INFLATION_RATE: Rational32 = Rational32::new_raw(1, 20);

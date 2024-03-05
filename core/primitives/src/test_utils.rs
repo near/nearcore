@@ -1,11 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use near_crypto::vrf::Value;
-use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
-use near_primitives_core::account::id::AccountIdRef;
-use near_primitives_core::types::ProtocolVersion;
-
 use crate::account::{AccessKey, AccessKeyPermission, Account};
 use crate::block::Block;
 use crate::block_body::{BlockBody, ChunkEndorsementSignatures};
@@ -25,6 +17,13 @@ use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
 use crate::version::PROTOCOL_VERSION;
 use crate::views::{ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus};
+use near_async::time::Clock;
+use near_crypto::vrf::Value;
+use near_crypto::{EmptySigner, InMemorySigner, KeyType, PublicKey, SecretKey, Signature, Signer};
+use near_primitives_core::account::id::AccountIdRef;
+use near_primitives_core::types::ProtocolVersion;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub fn account_new(amount: Balance, code_hash: CryptoHash) -> Account {
     Account::new(amount, 0, 0, code_hash, std::mem::size_of::<Account>() as u64, PROTOCOL_VERSION)
@@ -382,6 +381,7 @@ impl BlockBody {
 /// let signer = EmptyValidatorSigner::default();
 /// let test_block = test_utils::TestBlockBuilder::new(prev, signer).height(33).build();
 pub struct TestBlockBuilder {
+    clock: Clock,
     prev: Block,
     signer: Arc<dyn ValidatorSigner>,
     height: u64,
@@ -393,11 +393,12 @@ pub struct TestBlockBuilder {
 }
 
 impl TestBlockBuilder {
-    pub fn new(prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
+    pub fn new(clock: Clock, prev: &Block, signer: Arc<dyn ValidatorSigner>) -> Self {
         let mut tree = PartialMerkleTree::default();
         tree.insert(*prev.hash());
 
         Self {
+            clock,
             prev: prev.clone(),
             signer: signer.clone(),
             height: prev.header().height() + 1,
@@ -463,7 +464,7 @@ impl TestBlockBuilder {
             self.signer.as_ref(),
             self.next_bp_hash,
             self.block_merkle_root,
-            None,
+            self.clock.now_utc(),
         )
     }
 }

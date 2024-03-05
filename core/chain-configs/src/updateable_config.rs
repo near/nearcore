@@ -1,7 +1,9 @@
+use near_async::time::Clock;
 use near_primitives::types::BlockHeight;
 use serde::{Deserialize, Serialize, Serializer};
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
-use std::{fmt::Debug, time::Duration};
+use time::{Duration, OffsetDateTime as Utc};
 
 use crate::ReshardingConfig;
 
@@ -18,7 +20,7 @@ pub struct MutableConfigValue<T> {
     #[cfg(feature = "metrics")]
     // For metrics.
     // Mutable config values are exported to prometheus with labels [field_name][last_update][value].
-    last_update: chrono::DateTime<chrono::Utc>,
+    last_update: Utc,
 }
 
 impl<T: Serialize> Serialize for MutableConfigValue<T> {
@@ -43,7 +45,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
             value: Arc::new(Mutex::new(val)),
             field_name: field_name.to_string(),
             #[cfg(feature = "metrics")]
-            last_update: near_primitives::static_clock::StaticClock::utc(),
+            last_update: Clock::real().now_utc(),
         };
         res.set_metric_value(val, 1);
         res
@@ -76,7 +78,7 @@ impl<T: Copy + PartialEq + Debug> MutableConfigValue<T> {
         crate::metrics::CONFIG_MUTABLE_FIELD
             .with_label_values(&[
                 &self.field_name,
-                &self.last_update.timestamp().to_string(),
+                &self.last_update.unix_timestamp().to_string(),
                 &format!("{:?}", value),
             ])
             .set(metric_value);

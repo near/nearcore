@@ -1,8 +1,8 @@
 //! Simply starts and runs testnet for a while.
 use crate::node::{create_nodes, sample_two_nodes, Node};
 use crate::test_helpers::{heavy_test, wait};
+use near_async::time::Clock;
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
 use std::time::Duration;
 
@@ -19,7 +19,7 @@ fn run_multiple_nodes(num_nodes: usize, num_trials: usize, test_prefix: &str) {
     }
 
     // waiting for nodes to be synced
-    let started = StaticClock::instant();
+    let started = Clock::real().now();
     loop {
         if started.elapsed() > Duration::from_secs(10) {
             panic!("nodes are not synced in 10s");

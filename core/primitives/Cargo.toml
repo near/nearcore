@@ -40,6 +40,7 @@ strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-crypto.workspace = true
 near-fmt.workspace = true
 near-primitives-core.workspace = true
@@ -57,6 +58,7 @@ protocol_feature_nonrefundable_transfer_nep491 = ["near-primitives-core/protocol
 yield_resume = ["near-primitives-core/yield_resume"]
 
 nightly = [
+  "near-async/nightly",
   "near-fmt/nightly",
   "near-parameters/nightly",
   "near-primitives-core/nightly",
@@ -70,6 +72,7 @@ nightly = [
 ]
 
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",

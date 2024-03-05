@@ -1,13 +1,13 @@
+use near_async::time::Clock;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::account::{AccessKey, Account};
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
     AccountId, AccountInfo, Balance, BlockHeightDelta, NumSeats, NumShards,
 };
-use near_primitives::utils::generate_random_string;
+use near_primitives::utils::{from_timestamp, generate_random_string};
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
 
@@ -27,9 +27,9 @@ pub const TESTING_INIT_STAKE: Balance = 50_000_000 * NEAR_BASE;
 pub const FAST_EPOCH_LENGTH: BlockHeightDelta = 60;
 
 impl GenesisConfig {
-    pub fn test() -> Self {
+    pub fn test(clock: Clock) -> Self {
         GenesisConfig {
-            genesis_time: StaticClock::utc(),
+            genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             genesis_height: 0,
             gas_limit: 10u64.pow(15),
             min_gas_price: 0,
@@ -48,6 +48,7 @@ impl Genesis {
     // Creates new genesis with a given set of accounts and shard layout.
     // The first num_validator_seats from accounts will be treated as 'validators'.
     pub fn test_with_seeds(
+        clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
@@ -78,7 +79,7 @@ impl Genesis {
         add_protocol_account(&mut records);
         let config = GenesisConfig {
             protocol_version: PROTOCOL_VERSION,
-            genesis_time: StaticClock::utc(),
+            genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
             chain_id: random_chain_id(),
             num_block_producer_seats: num_validator_seats,
             num_block_producer_seats_per_shard: num_validator_seats_per_shard.clone(),
@@ -107,6 +108,7 @@ impl Genesis {
 
     pub fn test(accounts: Vec<AccountId>, num_validator_seats: NumSeats) -> Self {
         Self::test_with_seeds(
+            Clock::real(),
             accounts,
             num_validator_seats,
             vec![num_validator_seats],
@@ -115,12 +117,14 @@ impl Genesis {
     }
 
     pub fn test_sharded(
+        clock: Clock,
         accounts: Vec<AccountId>,
         num_validator_seats: NumSeats,
         num_validator_seats_per_shard: Vec<NumSeats>,
     ) -> Self {
         let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::test_with_seeds(
+            clock,
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,
@@ -135,6 +139,7 @@ impl Genesis {
     ) -> Self {
         let num_shards = num_validator_seats_per_shard.len() as NumShards;
         Self::test_with_seeds(
+            Clock::real(),
             accounts,
             num_validator_seats,
             num_validator_seats_per_shard,

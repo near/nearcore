@@ -404,7 +404,7 @@ impl Chain {
 
             // sleep between batches in order to throttle resharding and leave
             // some resource for the regular node operation
-            std::thread::sleep(config.get().batch_delay);
+            std::thread::sleep(config.get().batch_delay.unsigned_abs());
         }
 
         state_roots = apply_delayed_receipts(

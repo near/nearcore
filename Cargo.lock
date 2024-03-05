@@ -2363,6 +2363,7 @@ dependencies = [
  "borsh 1.0.0",
  "clap",
  "indicatif",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-crypto",
@@ -3296,14 +3297,14 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "0.8.6"
+version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b9d9a46eff5b4ff64b45a9e316a6d1e0bc719ef429cbec4dc630684212bfdf9"
+checksum = "a4a650543ca06a924e8b371db273b2756685faae30f8487da1b56505a8f78b0c"
 dependencies = [
  "libc",
  "log",
  "wasi 0.11.0+wasi-snapshot-preview1",
- "windows-sys 0.45.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3398,6 +3399,7 @@ dependencies = [
  "anyhow",
  "borsh 1.0.0",
  "clap",
+ "near-async",
  "near-chain-configs",
  "near-crypto",
  "near-primitives",
@@ -3503,6 +3505,7 @@ dependencies = [
  "bytesize",
  "chrono",
  "derive_more",
+ "near-async",
  "near-config-utils",
  "near-crypto",
  "near-o11y",
@@ -3514,6 +3517,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smart-default",
+ "time",
  "tracing",
 ]
 
@@ -3521,10 +3525,11 @@ dependencies = [
 name = "near-chain-primitives"
 version = "0.0.0"
 dependencies = [
- "chrono",
+ "near-async",
  "near-crypto",
  "near-primitives",
  "thiserror",
+ "time",
  "tracing",
 ]
 
@@ -3633,6 +3638,7 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "chrono",
+ "near-async",
  "near-chain-configs",
  "near-chain-primitives",
  "near-chunks-primitives",
@@ -3642,6 +3648,7 @@ dependencies = [
  "serde_json",
  "strum",
  "thiserror",
+ "time",
  "tracing",
  "yansi",
 ]
@@ -3709,6 +3716,7 @@ name = "near-dyn-configs"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "near-async",
  "near-chain-configs",
  "near-o11y",
  "near-primitives",
@@ -3907,6 +3915,7 @@ dependencies = [
  "arbitrary",
  "awc",
  "libfuzzer-sys",
+ "near-async",
  "near-jsonrpc",
  "near-jsonrpc-primitives",
  "near-jsonrpc-tests",
@@ -3930,6 +3939,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "time",
 ]
 
 [[package]]
@@ -3979,6 +3989,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -4187,6 +4198,7 @@ dependencies = [
  "hex",
  "insta",
  "itertools",
+ "near-async",
  "near-crypto",
  "near-fmt",
  "near-parameters",
@@ -4247,6 +4259,7 @@ dependencies = [
  "insta",
  "near-account-id",
  "near-actix-test-utils",
+ "near-async",
  "near-chain-configs",
  "near-client",
  "near-client-primitives",
@@ -4351,6 +4364,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lru",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chunks",
@@ -4383,10 +4397,10 @@ dependencies = [
  "actix",
  "awc",
  "futures",
+ "near-async",
  "near-o11y",
  "near-performance-metrics",
  "near-performance-metrics-macros",
- "near-primitives",
  "once_cell",
  "openssl",
  "serde",
@@ -6658,6 +6672,7 @@ version = "0.0.0"
 dependencies = [
  "borsh 1.0.0",
  "clap",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-chain-primitives",
@@ -6700,6 +6715,7 @@ dependencies = [
  "cloud-storage",
  "insta",
  "itertools",
+ "near-async",
  "near-chain",
  "near-chain-configs",
  "near-client",

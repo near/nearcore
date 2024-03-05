@@ -1,8 +1,9 @@
-use std::{sync::Arc, time::Duration};
-
+use crate::{
+    adapter::ShardsManagerRequestFromClient, client::ShardsManagerResponse, ShardsManager,
+};
 use actix::{Actor, Addr, Arbiter, ArbiterHandle, Context, Handler};
 use near_async::messaging::Sender;
-use near_async::time;
+use near_async::time::{Clock, Duration};
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip};
 use near_epoch_manager::{shard_tracker::ShardTracker, EpochManagerAdapter};
 use near_network::{
@@ -12,10 +13,7 @@ use near_o11y::WithSpanContext;
 use near_performance_metrics_macros::perf;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
-
-use crate::{
-    adapter::ShardsManagerRequestFromClient, client::ShardsManagerResponse, ShardsManager,
-};
+use std::sync::Arc;
 
 pub struct ShardsManagerActor {
     shards_mgr: ShardsManager,
@@ -32,7 +30,7 @@ impl ShardsManagerActor {
 
         near_performance_metrics::actix::run_later(
             ctx,
-            self.chunk_request_retry_period,
+            self.chunk_request_retry_period.max(Duration::ZERO).unsigned_abs(),
             move |act, ctx| {
                 act.periodically_resend_chunk_requests(ctx);
             },
@@ -96,7 +94,7 @@ pub fn start_shards_manager(
         .expect("ShardsManager must be initialized after the chain is initialized");
     let chunks_store = ReadOnlyChunksStore::new(store);
     let shards_manager = ShardsManager::new(
-        time::Clock::real(),
+        Clock::real(),
         me,
         epoch_manager,
         shard_tracker,

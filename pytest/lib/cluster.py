@@ -485,7 +485,7 @@ class LocalNode(BaseNode):
             self.wait_for_rpc(10)
         except:
             logger.error(
-                '=== failed to start node, rpc does not ready in 10 seconds')
+                '=== failed to start node, rpc is not ready in 10 seconds')
 
     def run_cmd(self, *, cmd: tuple, extra_env: typing.Dict[str, str] = dict()):
 

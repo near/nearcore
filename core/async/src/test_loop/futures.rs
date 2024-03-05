@@ -1,5 +1,6 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 use crate::futures::DelayedActionRunner;
+use crate::time::Duration;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
@@ -139,7 +140,7 @@ impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {
         self.sender.send_with_delay(

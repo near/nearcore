@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 
+use near_async::time::Duration;
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
@@ -25,7 +26,6 @@ use nearcore::state_sync::spawn_state_sync_dump;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and

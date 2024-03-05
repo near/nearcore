@@ -124,24 +124,6 @@ pub enum ReceiptEnum {
     PromiseResume(DataReceipt),
 }
 
-impl ReceiptEnum {
-    pub fn is_action(&self) -> bool {
-        match self {
-            ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn action(&self) -> Option<&ActionReceipt> {
-        match self {
-            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
-                Some(action_receipt)
-            }
-            _ => None,
-        }
-    }
-}
-
 impl BorshDeserialize for ReceiptEnum {
     fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
         // after we stabilize yield_resume we can simply derive BorshDeserialize trait again
@@ -267,17 +249,12 @@ impl YieldedPromiseQueueIndices {
 /// Entries in the queue of yielded promises.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
 pub struct YieldedPromiseQueueEntry {
+    /// The account on which the yielded promise was created
+    pub account_id: AccountId,
     /// The `data_id` used to identify the awaited input data
     pub data_id: CryptoHash,
     /// The block height before which the data must be submitted
     pub expires_at: BlockHeight,
-}
-
-/// Information related to a yielded promise.
-#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
-pub struct YieldedPromise {
-    /// The account on which the yielded promise was created
-    pub account_id: AccountId,
 }
 
 /// Map of shard to list of receipts to send to it.

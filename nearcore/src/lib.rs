@@ -42,6 +42,8 @@ use tracing::info;
 pub mod append_only_map;
 pub mod cold_storage;
 pub mod config;
+#[cfg(test)]
+mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
@@ -311,6 +313,7 @@ pub fn start_with_config_and_synchronization(
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
+        Clock::real(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         view_epoch_manager.clone(),

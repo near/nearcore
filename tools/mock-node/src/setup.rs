@@ -2,6 +2,7 @@
 
 use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
+use near_async::time::Clock;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
@@ -73,7 +74,7 @@ fn setup_mock_peer(
             mock_listen_addr,
             chain_id,
             archival,
-            block_production_delay,
+            block_production_delay.unsigned_abs(),
             num_shards,
             network_start_height,
             network_config,
@@ -238,6 +239,7 @@ pub fn setup_mock_node(
     }
 
     let chain = Chain::new_for_view_client(
+        Clock::real(),
         mock_network_epoch_manager.clone(),
         mock_network_shard_tracker,
         mock_network_runtime,

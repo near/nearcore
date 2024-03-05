@@ -518,6 +518,7 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     setup_client_with_runtime(
+                        clock.clone(),
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
                         false,

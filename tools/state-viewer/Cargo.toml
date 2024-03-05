@@ -35,6 +35,7 @@ thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-client.workspace = true
@@ -61,6 +62,7 @@ protocol_feature_nonrefundable_transfer_nep491 = [
 ]
 
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-client/nightly",
@@ -77,6 +79,7 @@ nightly = [
   "testlib/nightly",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-client/nightly_protocol",

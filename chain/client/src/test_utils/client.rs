@@ -250,7 +250,7 @@ pub fn create_chunk(
         &*client.validator_signer.as_ref().unwrap().clone(),
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        client.clock.now_utc(),
     );
     (
         ProduceChunkResult {

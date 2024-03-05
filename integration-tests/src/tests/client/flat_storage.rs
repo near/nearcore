@@ -1,5 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
+use near_async::time::Clock;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -450,6 +451,7 @@ fn test_flat_storage_iter() {
         ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], None, 0);
 
     let genesis = Genesis::test_with_seeds(
+        Clock::real(),
         vec!["test0".parse().unwrap()],
         1,
         vec![1; num_shards],

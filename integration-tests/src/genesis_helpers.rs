@@ -1,3 +1,4 @@
+use near_async::time::Clock;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManager;
 use near_store::genesis::initialize_genesis_state;
@@ -27,6 +28,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let runtime =
         NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,
@@ -50,6 +52,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let runtime =
         NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,

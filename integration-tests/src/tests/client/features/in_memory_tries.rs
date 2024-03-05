@@ -13,6 +13,7 @@ use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountInfo, EpochId};
+use near_primitives::utils::from_timestamp;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
@@ -34,7 +35,9 @@ fn test_in_memory_trie_node_consistency() {
     let initial_balance = 10000 * ONE_NEAR;
     let accounts =
         (0..100).map(|i| format!("account{}", i).parse().unwrap()).collect::<Vec<AccountId>>();
+    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     let mut genesis_config = GenesisConfig {
+        genesis_time: from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64),
         // Use the latest protocol version. Otherwise, the version may be too
         // old that e.g. blocks don't even store previous heights.
         protocol_version: PROTOCOL_VERSION,
@@ -124,7 +127,6 @@ fn test_in_memory_trie_node_consistency() {
     }
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
 
-    let mut clock = FakeClock::new(Utc::UNIX_EPOCH);
     // Create two stores, one for each node. We'll be reusing the stores later
     // to emulate node restarts.
     let stores = vec![create_test_store(), create_test_store()];

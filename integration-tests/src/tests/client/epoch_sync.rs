@@ -4,6 +4,7 @@ use actix::Actor;
 use actix_rt::System;
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::time::Clock;
 use near_chain::Provenance;
 use near_chain::{BlockProcessingArtifact, ChainStoreAccess};
 use near_chain_configs::Genesis;
@@ -156,8 +157,14 @@ fn test_continuous_epoch_sync_info_population_on_header_sync() {
 
             // Generate 4 epochs + 10 blocks
             let signer = create_test_signer("other");
-            let blocks =
-                add_blocks(vec![genesis_block], client1, 210, genesis.config.epoch_length, &signer);
+            let blocks = add_blocks(
+                Clock::real(),
+                vec![genesis_block],
+                client1,
+                210,
+                genesis.config.epoch_length,
+                &signer,
+            );
 
             // Save all finished epoch_ids
             let mut epoch_ids = epoch_ids.write().unwrap();
