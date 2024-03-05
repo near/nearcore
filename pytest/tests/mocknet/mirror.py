@@ -116,8 +116,9 @@ def init_neard_runner(node, config, remove_home_dir=False):
 
 
 def stop_neard_runner(node):
-    # it's probably fine for now, but this is very heavy handed/not precise
-    node.machine.run('kill $(ps -C python -o pid=)')
+    # this looks for python processes with neard_runner.py in the command line. the first word will
+    # be the pid, which we extract with the last awk command
+    node.machine.run('kill $(ps -C python -o pid=,cmd= | grep neard_runner.py | awk \'{print $1};\')')
 
 
 def prompt_init_flags(args):
