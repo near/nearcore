@@ -244,7 +244,7 @@ impl ForkNetworkCommand {
         tracing::info!(?fork_heads);
 
         let chain =
-            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false);
+            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, false, false);
 
         // Move flat storage to the max height for consistency across shards.
         let (block_height, desired_block_hash) =

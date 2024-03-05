@@ -157,7 +157,7 @@ impl FlatStorageCommand {
             &near_config,
             epoch_manager.clone(),
         );
-        let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
+        let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false, false);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
     }

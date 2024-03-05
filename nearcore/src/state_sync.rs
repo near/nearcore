@@ -78,6 +78,7 @@ pub fn spawn_state_sync_dump(
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            false,
         )?;
         let epoch_id = chain.head()?.epoch_id;
         epoch_manager.shard_ids(&epoch_id)
@@ -97,6 +98,7 @@ pub fn spawn_state_sync_dump(
                 runtime.clone(),
                 &chain_genesis,
                 DoomslugThresholdMode::TwoThirds,
+                false,
                 false,
             )
             .unwrap();
