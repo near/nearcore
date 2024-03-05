@@ -293,7 +293,7 @@ pub(crate) fn action_function_call(
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
-            .map(|(receiver_id, receipt)| {
+            .map(|receipt| {
                 let new_action_receipt = ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
@@ -305,7 +305,7 @@ pub(crate) fn action_function_call(
 
                 Receipt {
                     predecessor_id: account_id.clone(),
-                    receiver_id,
+                    receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),

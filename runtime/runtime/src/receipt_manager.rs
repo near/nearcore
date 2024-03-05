@@ -16,12 +16,14 @@ use crate::config::safe_add_gas;
 /// near_vm_runner::types is not public.
 type ReceiptIndex = u64;
 
-type ActionReceipts = Vec<(AccountId, ReceiptMetadata)>;
+type ActionReceipts = Vec<ActionReceiptMetadata>;
 type YieldedDataIds = std::collections::HashSet<(CryptoHash, AccountId)>;
 type DataReceipts = Vec<(CryptoHash, Vec<u8>)>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ReceiptMetadata {
+pub struct ActionReceiptMetadata {
+    /// Receipt destination
+    pub receiver_id: AccountId,
     /// If present, where to route the output data
     pub output_data_receivers: Vec<DataReceiver>,
     /// A list of the input data dependencies for this Receipt to process.
@@ -55,10 +57,11 @@ pub(super) struct FunctionCallActionIndex {
 
 impl ReceiptManager {
     pub(super) fn get_receipt_receiver(&self, receipt_index: ReceiptIndex) -> &AccountId {
-        self.action_receipts
+        &self
+            .action_receipts
             .get(receipt_index as usize)
-            .map(|(id, _)| id)
             .expect("receipt index should be valid for getting receiver")
+            .receiver_id
     }
 
     /// Appends an action and returns the index the action was inserted in the receipt
@@ -67,7 +70,6 @@ impl ReceiptManager {
             .action_receipts
             .get_mut(receipt_index as usize)
             .expect("receipt index should be present")
-            .1
             .actions;
 
         actions.push(action);
@@ -98,19 +100,19 @@ impl ReceiptManager {
             self.action_receipts
                 .get_mut(receipt_index as usize)
                 .ok_or(HostError::InvalidReceiptIndex { receipt_index })?
-                .1
                 .output_data_receivers
                 .push(DataReceiver { data_id: *data_id, receiver_id: receiver_id.clone() });
         }
 
-        let new_receipt = ReceiptMetadata {
+        let new_receipt = ActionReceiptMetadata {
+            receiver_id,
             output_data_receivers: vec![],
             input_data_ids,
             actions: vec![],
             is_promise_yield: false,
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        self.action_receipts.push((receiver_id, new_receipt));
+        self.action_receipts.push(new_receipt);
         Ok(new_receipt_index)
     }
 
@@ -128,14 +130,15 @@ impl ReceiptManager {
         input_data_id: CryptoHash,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError> {
-        let new_receipt = ReceiptMetadata {
+        let new_receipt = ActionReceiptMetadata {
+            receiver_id: receiver_id.clone(),
             output_data_receivers: vec![],
             input_data_ids: vec![input_data_id],
             actions: vec![],
             is_promise_yield: true,
         };
         let new_receipt_index = self.action_receipts.len() as ReceiptIndex;
-        self.action_receipts.push((receiver_id.clone(), new_receipt));
+        self.action_receipts.push(new_receipt);
         self.yielded_data_ids.insert((input_data_id, receiver_id));
         Ok(new_receipt_index)
     }
@@ -421,7 +424,7 @@ impl ReceiptManager {
             let FunctionCallActionIndex { receipt_index, action_index } = *index;
             let Some(Action::FunctionCall(action)) = action_receipts
                 .get_mut(receipt_index)
-                .and_then(|(_, receipt)| receipt.actions.get_mut(action_index))
+                .and_then(|receipt| receipt.actions.get_mut(action_index))
             else {
                 panic!(
                         "Invalid function call index (promise_index={receipt_index}, action_index={action_index})",
@@ -458,7 +461,7 @@ mod tests {
         let mut receipt_manager = super::ReceiptManager::default();
         for &(static_gas, gas_weight, _) in function_calls {
             let index = receipt_manager
-                .create_receipt(vec![], vec![], "rick.test".parse().unwrap())
+                .create_action_receipt(vec![], vec![], "rick.test".parse().unwrap())
                 .unwrap();
             gas_limit = gas_limit.saturating_sub(static_gas);
             receipt_manager
