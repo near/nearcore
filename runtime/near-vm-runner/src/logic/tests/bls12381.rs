@@ -1000,10 +1000,7 @@ mod tests {
         (
             $GOp:ident,
             $GAffine:ident,
-            $serialize_uncompressed_g:ident,
-            $serialize_g:ident,
             $POINT_LEN:expr,
-            $ECP:ident,
             $bls12381_decompress:ident,
             $add_p:ident,
             $test_bls12381_decompress:ident,
@@ -1091,10 +1088,7 @@ mod tests {
     test_bls12381_decompress!(
         G1Operations,
         G1Affine,
-        serialize_uncompressed_g1,
-        serialize_g1,
         48,
-        ECP,
         bls12381_p1_decompress,
         add_p_x,
         test_bls12381_p1_decompress,
@@ -1105,10 +1099,7 @@ mod tests {
     test_bls12381_decompress!(
         G2Operations,
         G2Affine,
-        serialize_uncompressed_g2,
-        serialize_g2,
         96,
-        ECP2,
         bls12381_p2_decompress,
         add2_p_x,
         test_bls12381_p2_decompress,
