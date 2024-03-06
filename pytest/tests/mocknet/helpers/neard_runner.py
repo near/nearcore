@@ -180,7 +180,8 @@ class NeardRunner:
                         f'config should contain one binary with epoch_height 0')
             else:
                 if epoch_height == last_epoch_height:
-                    raise ValueError(f'repeated epoch height in config: {epoch_height}')
+                    raise ValueError(
+                        f'repeated epoch height in config: {epoch_height}')
             last_epoch_height = epoch_height
             binaries.append({
                 'url': b['url'],
@@ -462,9 +463,7 @@ class NeardRunner:
             except ValueError as e:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32603,
-                    message=
-                    f'Internal error downloading binaries: {e}'
-                )
+                    message=f'Internal error downloading binaries: {e}')
                 self.set_state(TestState.ERROR)
                 self.save_data()
             logging.info('update binaries finished')
