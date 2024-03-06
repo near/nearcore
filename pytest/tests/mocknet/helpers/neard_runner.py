@@ -142,6 +142,8 @@ class NeardRunner:
             }
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
+        # TODO: consider locking the TestState variable separately, since there
+        # is no need to block reading that when inside the update_binaries rpc for example
         self.lock = threading.Lock()
 
     def is_traffic_generator(self):
@@ -206,8 +208,7 @@ class NeardRunner:
         else:
             # start at the index of the first missing binary
             # typically it's all or nothing
-            with self.lock:
-                start_index = len(self.data['binaries'])
+            start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
         # dowloaded are still valid and were not touched. Also this assumes that their
@@ -223,11 +224,10 @@ class NeardRunner:
             os.chmod(b['system_path'], 0o755)
             logging.info(f'downloaded binary from {b["url"]}')
 
-            with self.lock:
-                self.data['binaries'].append(b)
-                if self.data['current_neard_path'] is None:
-                    self.reset_current_neard_path()
-                self.save_data()
+            self.data['binaries'].append(b)
+            if self.data['current_neard_path'] is None:
+                self.reset_current_neard_path()
+            self.save_data()
 
     def target_near_home_path(self, *args):
         if self.is_traffic_generator():
@@ -454,9 +454,10 @@ class NeardRunner:
                 )
 
     def do_update_binaries(self):
-        logging.info('update binaries')
-        self.download_binaries(force=True)
-        logging.info('update binaries finished')
+        with self.lock:
+            logging.info('update binaries')
+            self.download_binaries(force=True)
+            logging.info('update binaries finished')
 
     def do_ready(self):
         with self.lock:
@@ -877,7 +878,8 @@ def main():
     runner = NeardRunner(args)
 
     logging.info("downloading binaries")
-    runner.download_binaries(force=False)
+    with runner.lock:
+        runner.download_binaries(force=False)
 
     logging.info("serve")
     runner.serve(args.port)
