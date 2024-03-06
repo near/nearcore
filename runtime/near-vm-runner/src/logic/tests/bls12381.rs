@@ -792,22 +792,23 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_many_points() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_MULTIEXP);
-                    let mut res2 = $ECP::new();
+                    let mut res2 = $GAffine::identity();
 
-                    let mut points: Vec<(Big, $ECP)> = vec![];
+                    let mut points: Vec<(Fr, $GAffine)> = vec![];
                     for i in 0..n {
-                        let mut scalar = Big::random(&mut rnd);
-                        scalar.mod2m(32 * 8);
-                        points.push((scalar, $GOp::get_random_curve_point(&mut rnd)));
-                        res2.add(&points[i].1.mul(&points[i].0));
+                        let distr = ark_std::rand::distributions::Standard;
+                        let scalar: Fr = distr.sample(&mut rng);
+
+                        points.push((scalar, $GOp::_get_random_curve_point(&mut rng)));
+                        res2 = res2.add(&points[i].1.mul(&points[i].0)).into();
                     }
 
-                    let res1 = $GOp::get_multiexp(&points);
-                    assert_eq!(res1, $serialize_uncompressed(&res2));
+                    let res1 = $GOp::_get_multiexp(&points);
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
                 }
             }
 
