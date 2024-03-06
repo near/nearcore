@@ -6,6 +6,7 @@ use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use zstd::encode_all;
 
+use crate::metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME;
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
 };
@@ -86,13 +87,18 @@ impl Client {
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
-        let compressed_bytes = encode_all(witness_bytes.as_slice(), 0)?;
-        metrics::CHUNK_STATE_WITNESS_COMPRESSED_SIZE
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(compressed_bytes.len() as f64);
-        metrics::CHUNK_STATE_WITNESS_COMPRESSION_RATIO
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(compressed_bytes.len() as f64 / witness_size as f64);
+        {
+            let _timer = metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME
+                .with_label_values(&[&shard_id.to_string()])
+                .start_timer();
+            let compressed_bytes = encode_all(witness_bytes.as_slice(), 0)?;
+            metrics::CHUNK_STATE_WITNESS_COMPRESSED_SIZE
+                .with_label_values(&[&shard_id.to_string()])
+                .observe(compressed_bytes.len() as f64);
+            metrics::CHUNK_STATE_WITNESS_COMPRESSION_RATIO
+                .with_label_values(&[&shard_id.to_string()])
+                .observe(compressed_bytes.len() as f64 / witness_size as f64);
+        }
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
             &witness,
