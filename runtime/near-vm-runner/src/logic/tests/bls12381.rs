@@ -454,10 +454,6 @@ mod tests {
     macro_rules! test_bls12381_sum {
         (
             $GOp:ident,
-            $serialize_uncompressed:ident,
-            $deserialize:ident,
-            $subgroup_check:ident,
-            $ECP:ident,
             $GAffine:ident,
             $bls12381_sum:ident,
             $check_sum:ident,
@@ -670,10 +666,6 @@ mod tests {
 
     test_bls12381_sum!(
         G1Operations,
-        serialize_uncompressed_g1,
-        deserialize_g1,
-        subgroup_check_g1,
-        ECP,
         G1Affine,
         bls12381_p1_sum,
         check_sum_p1,
@@ -687,10 +679,6 @@ mod tests {
     );
     test_bls12381_sum!(
         G2Operations,
-        serialize_uncompressed_g2,
-        deserialize_g2,
-        subgroup_check_g2,
-        ECP2,
         G2Affine,
         bls12381_p2_sum,
         check_sum_p2,
