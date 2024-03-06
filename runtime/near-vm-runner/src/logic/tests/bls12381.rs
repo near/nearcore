@@ -1035,27 +1035,27 @@ mod tests {
 
             #[test]
             fn $test_bls12381_decompress_many_points() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for i in 0..TESTS_ITERATIONS {
                     let n = get_n(i, $GOp::MAX_N_DECOMPRESS);
 
-                    let mut p1s: Vec<$ECP> = vec![];
+                    let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOp::get_random_curve_point(&mut rnd));
-                        res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
+                        p1s.push($GOp::_get_random_curve_point(&mut rng));
+                        res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOp::decompress_p(p1s.clone());
+                    let res1 = $GOp::_decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
 
-                    let mut p1s: Vec<$ECP> = vec![];
+                    let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOp::get_random_g_point(&mut rnd));
-                        res2.append(&mut $serialize_uncompressed_g(&p1s[i]).to_vec());
+                        p1s.push($GOp::_get_random_g_point(&mut rng));
+                        res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOp::decompress_p(p1s.clone());
+                    let res1 = $GOp::_decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
                 }
             }
