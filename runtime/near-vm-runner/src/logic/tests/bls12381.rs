@@ -17,8 +17,11 @@ mod tests {
     use ark_ff::PrimeField;
     use ark_serialize::CanonicalSerialize;
     use ark_serialize::CanonicalDeserialize;
+    use ark_serialize::CanonicalSerializeWithFlags;
+    use ark_serialize::EmptyFlags;
     use ark_std::{test_rng, UniformRand};
     use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
+    use rand::distributions::Distribution;
     use std::fs;
     use std::str::FromStr;
     use std::ops::{Mul, Neg, Add};
@@ -194,10 +197,10 @@ mod tests {
                         res3 = res3.add(&current_point).into();
                     }
 
-                    let res1 = Self::_get_sum_many_points(&points);
+                    let res1 = Self::get_sum_many_points(&points);
 
                     points.shuffle(&mut thread_rng());
-                    let res2 = Self::_get_sum_many_points(&points);
+                    let res2 = Self::get_sum_many_points(&points);
                     assert_eq!(res1, res2);
 
                     assert_eq!(res1, Self::serialize_uncompressed_g(&res3).to_vec());
@@ -222,16 +225,7 @@ mod tests {
                     run_bls12381_fn!($bls12381_sum, buffer)
                 }
 
-                fn get_sum_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
-                    let mut buffer: Vec<Vec<u8>> = vec![];
-                    for i in 0..points.len() {
-                        buffer.push(vec![points[i].0]);
-                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
-                    }
-                    run_bls12381_fn!($bls12381_sum, buffer)
-                }
-
-                fn _get_sum_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
+                fn get_sum_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push(vec![points[i].0]);
@@ -257,10 +251,23 @@ mod tests {
                     run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
 
-                fn get_multiexp_small(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
+                fn _get_multiexp(points: &Vec<(Fr, $GAffine)>) -> Vec<u8> {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
-                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
+                        buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
+
+                        let mut n_vec: [u8; 32] = [0u8; 32];
+                        points[i].0.serialize_with_flags(n_vec.as_mut_slice(), EmptyFlags).unwrap();
+                        buffer.push(n_vec.to_vec());
+                    }
+
+                    run_bls12381_fn!($bls12381_multiexp, buffer)
+                }
+
+                fn get_multiexp_small(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
+                    let mut buffer: Vec<Vec<u8>> = vec![];
+                    for i in 0..points.len() {
+                        buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
                         let mut n_vec: [u8; 32] = [0u8; 32];
                         n_vec[0] = points[i].0;
                         buffer.push(n_vec.to_vec());
@@ -607,7 +614,7 @@ mod tests {
 
                 let zero = get_zero($GOp::POINT_LEN);
                 //empty input
-                let res = $GOp::_get_sum_many_points(&vec![]);
+                let res = $GOp::get_sum_many_points(&vec![]);
                 assert_eq!(zero.to_vec(), res);
 
                 for i in 0..TESTS_ITERATIONS {
@@ -622,7 +629,7 @@ mod tests {
                         points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
                     }
 
-                    let res1 = $GOp::_get_sum_many_points(&points);
+                    let res1 = $GOp::get_sum_many_points(&points);
                     let sum = $GOp::deserialize_g(res1);
 
                     assert!(sum.is_in_correct_subgroup_assuming_on_curve());
@@ -641,7 +648,7 @@ mod tests {
                         points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
                     }
 
-                    let res1 = $GOp::_get_sum_many_points(&points);
+                    let res1 = $GOp::get_sum_many_points(&points);
                     let res2 = $GOp::_get_multiexp_many_points(&points);
                     assert_eq!(res1, res2);
                 }
@@ -743,6 +750,7 @@ mod tests {
     macro_rules! test_bls12381_multiexp {
         (
             $GOp:ident,
+            $GAffine:ident,
             $serialize_uncompressed:ident,
             $ECP:ident,
             $bls12381_multiexp:ident,
@@ -755,32 +763,30 @@ mod tests {
         ) => {
             #[test]
             fn $test_bls12381_multiexp_mul() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rnd);
-                    let n = rnd.getbyte();
+                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let n = rng.gen_range(0..200) as usize;
 
-                    let points: Vec<(u8, $ECP)> = vec![(0, p.clone()); n as usize];
+                    let points: Vec<(u8, $GAffine)> = vec![(0, p.clone()); n];
                     let res1 = $GOp::get_sum_many_points(&points);
-                    let res2 = $GOp::get_multiexp_small(&vec![(n, p.clone())]);
+                    let res2 = $GOp::get_multiexp_small(&vec![(n as u8, p.clone())]);
 
                     assert_eq!(res1, res2);
-
-                    let res3 = p.mul(&Big::new_int(n as isize));
-
-                    assert_eq!(res1, $serialize_uncompressed(&res3));
+                    let res3 = p.mul(Fr::from(n as u64));
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&res3.into()));
                 }
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_curve_point(&mut rnd);
-                    let mut n = Big::random(&mut rnd);
-                    n.mod2m(32 * 8);
+                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let distr = ark_std::rand::distributions::Standard;
+                    let n: Fr = distr.sample(&mut rng);
 
-                    let res1 = $GOp::get_multiexp(&vec![(n.clone(), p.clone())]);
+                    let res1 = $GOp::_get_multiexp(&vec![(n.clone(), p.clone())]);
                     let res2 = p.mul(&n);
 
-                    assert_eq!(res1, $serialize_uncompressed(&res2));
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
                 }
             }
 
@@ -864,6 +870,7 @@ mod tests {
 
     test_bls12381_multiexp!(
         G1Operations,
+        G1Affine,
         serialize_uncompressed_g1,
         ECP,
         bls12381_p1_multiexp,
@@ -876,6 +883,7 @@ mod tests {
     );
     test_bls12381_multiexp!(
         G2Operations,
+        G2Affine,
         serialize_uncompressed_g2,
         ECP2,
         bls12381_p2_multiexp,
