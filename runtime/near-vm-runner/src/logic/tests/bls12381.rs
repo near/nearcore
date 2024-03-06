@@ -26,7 +26,8 @@ mod tests {
     use std::str::FromStr;
     use std::ops::{Mul, Neg, Add};
 
-    const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+    const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
+    const P_HEX: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
     const P_MINUS_1: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559786";
     const R: &str = "52435875175126190479447740508185965837690552500527637822603658699938581184513";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
@@ -984,13 +985,13 @@ mod tests {
 
     #[test]
     fn test_bls12381_map_fp_to_g1_incorrect_input() {
-        let p = hex::decode(P.to_string()).unwrap();
+        let p = hex::decode(P_HEX.to_string()).unwrap();
         run_bls12381_fn!(bls12381_map_fp_to_g1, vec![p], 1);
     }
 
     #[test]
     fn test_bls12381_map_fp2_to_g2_incorrect_input() {
-        let p = hex::decode(P.to_string()).unwrap();
+        let p = hex::decode(P_HEX.to_string()).unwrap();
         run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![p.clone(), vec![0u8; 48]], 1);
         run_bls12381_fn!(bls12381_map_fp2_to_g2, vec![vec![0u8; 48], p.clone()], 1);
     }
@@ -1062,7 +1063,7 @@ mod tests {
 
             #[test]
             fn $test_bls12381_decompress_incorrect_input() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 // Incorrect encoding of the point at infinity
                 let mut zero = vec![0u8; $POINT_LEN];
@@ -1075,13 +1076,13 @@ mod tests {
                 zero[0] = 0x40;
                 run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
-                let p = $GOp::get_random_curve_point(&mut rnd);
-                let mut p_ser = $serialize_g(&p);
+                let p = $GOp::_get_random_curve_point(&mut rng);
+                let mut p_ser = $GOp::serialize_g(&p);
                 p_ser[0] ^= 0x80;
                 run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
 
                 //Point with a coordinate larger than 'p'.
-                let p = $GOp::get_random_curve_point(&mut rnd);
+                let p = $GOp::_get_random_curve_point(&mut rng);
                 run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p)], 1);
             }
         };
@@ -1115,21 +1116,21 @@ mod tests {
         test_bls12381_p2_decompress_incorrect_input
     );
 
-    fn add_p_x(point: &ECP) -> [u8; 48] {
-        let mut xbig = point.getx();
-        xbig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_g1(&point);
-        xbig.to_byte_array(&mut p_ser[0..48], 0);
+    fn add_p_x(point: &G1Affine) -> Vec<u8> {
+        let mut xbig = point.x().unwrap().clone();
+        xbig = xbig.add(&Fq::from_str(P).unwrap());
+        let mut p_ser = G1Operations::serialize_g(&point);
+        xbig.serialize_with_flags(p_ser.as_mut_slice(), EmptyFlags).unwrap();
         p_ser[0] |= 0x80;
 
         p_ser
     }
 
-    fn add2_p_x(point: &ECP2) -> [u8; 96] {
-        let mut xabig = point.getx().geta();
-        xabig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_g2(&point);
-        xabig.to_byte_array(&mut p_ser[0..96], 48);
+    fn add2_p_x(point: &G2Affine) -> Vec<u8> {
+        let mut xbig = point.x().unwrap().c1.clone();
+        xbig = xbig.add(&Fq::from_str(P).unwrap());
+        let mut p_ser = G2Operations::serialize_g(&point);
+        xbig.serialize_with_flags(p_ser.as_mut_slice(), EmptyFlags).unwrap();
 
         p_ser
     }
