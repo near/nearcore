@@ -6,7 +6,6 @@ use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use zstd::encode_all;
 
-use crate::metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME;
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
 };
