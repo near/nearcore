@@ -4,6 +4,7 @@ use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use zstd::encode_all;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
@@ -80,10 +81,15 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
-        let witness_size = borsh::to_vec(&witness)?.len();
+        let witness_bytes = borsh::to_vec(&witness)?;
+        let witness_size = witness_bytes.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
+        let compressed_bytes = encode_all(witness_bytes.as_slice(), 0)?;
+        metrics::CHUNK_STATE_WITNESS_COMPRESSION_RATIO
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(compressed_bytes.len() as f64 / witness_size as f64);
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
             &witness,

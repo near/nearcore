@@ -583,6 +583,16 @@ pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compression_ratio",
+        "Stateless validation state witness compression ration",
+        &["shard_id"],
+        Some(exponential_buckets(0.05, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_orphan_chunk_state_witness_total_count",
