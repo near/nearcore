@@ -2835,6 +2835,51 @@ mod tests {
             assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
     }
+
+    #[test]
+    fn test_state_witness_size_soft_limit() {
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+        // Change state_witness_size_soft_limit to a smaller value
+        // The value of 500 is small enough to let the first receipt go through but not the second
+        let mut runtime_config = RuntimeConfig::test();
+        runtime_config.fees.state_witness_size_soft_limit = 500;
+        apply_state.config = Arc::new(runtime_config);
+
+        let receipt1 = create_receipt_with_actions(
+            alice_account(),
+            signer.clone(),
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            })],
+        );
+
+        let receipt2 = create_receipt_with_actions(
+            bob_account(),
+            signer,
+            vec![Action::DeployContract(DeployContractAction {
+                code: near_test_contracts::rs_contract().to_vec(),
+            })],
+        );
+
+        // We must have trie recording reads for the state_witness_size_soft_limit to be enforced
+        let trie = tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads();
+        let apply_result = runtime
+            .apply(
+                trie,
+                &None,
+                &apply_state,
+                &vec![receipt1, receipt2],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        // We should see one delayed receipt from `first_call_receipt`
+        assert_eq!(apply_result.delayed_receipts_count, 1);
+    }
 }
 
 /// Interface provided for gas cost estimations.
