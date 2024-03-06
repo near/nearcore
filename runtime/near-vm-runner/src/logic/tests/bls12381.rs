@@ -19,7 +19,7 @@ mod tests {
     use ark_serialize::CanonicalDeserialize;
     use ark_serialize::CanonicalSerializeWithFlags;
     use ark_serialize::EmptyFlags;
-    use ark_std::{test_rng, UniformRand};
+    use ark_std::{test_rng, UniformRand, One, Zero};
     use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
     use rand::distributions::Distribution;
     use std::fs;
@@ -28,7 +28,7 @@ mod tests {
 
     const P: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
     const P_MINUS_1: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559786";
-    const R: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001";
+    const R: &str = "52435875175126190479447740508185965837690552500527637822603658699938581184513";
     const R_MINUS_1: &str = "73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000000";
 
     const TESTS_ITERATIONS: usize = 100;
@@ -234,24 +234,7 @@ mod tests {
                     run_bls12381_fn!($bls12381_sum, buffer)
                 }
 
-                fn get_multiexp(points: &Vec<(Big, $ECP)>) -> Vec<u8> {
-                    let mut buffer: Vec<Vec<u8>> = vec![];
-                    for i in 0..points.len() {
-                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
-                        let mut n_vec: [u8; 48] = [0u8; 48];
-                        points[i].0.to_byte_array(&mut n_vec, 0);
-
-                        let mut n_vec = n_vec.to_vec();
-                        n_vec.reverse();
-                        n_vec.resize(32, 0);
-
-                        buffer.push(n_vec);
-                    }
-
-                    run_bls12381_fn!($bls12381_multiexp, buffer)
-                }
-
-                fn _get_multiexp(points: &Vec<(Fr, $GAffine)>) -> Vec<u8> {
+                fn get_multiexp(points: &Vec<(Fr, $GAffine)>) -> Vec<u8> {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
@@ -751,8 +734,6 @@ mod tests {
         (
             $GOp:ident,
             $GAffine:ident,
-            $serialize_uncompressed:ident,
-            $ECP:ident,
             $bls12381_multiexp:ident,
             $bls12381_sum:ident,
             $test_bls12381_multiexp_mul:ident,
@@ -783,7 +764,7 @@ mod tests {
                     let distr = ark_std::rand::distributions::Standard;
                     let n: Fr = distr.sample(&mut rng);
 
-                    let res1 = $GOp::_get_multiexp(&vec![(n.clone(), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(n.clone(), p.clone())]);
                     let res2 = p.mul(&n);
 
                     assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
@@ -807,7 +788,7 @@ mod tests {
                         res2 = res2.add(&points[i].1.mul(&points[i].0)).into();
                     }
 
-                    let res1 = $GOp::_get_multiexp(&points);
+                    let res1 = $GOp::get_multiexp(&points);
                     assert_eq!(res1, $GOp::serialize_uncompressed_g(&res2.into()));
                 }
             }
@@ -828,42 +809,40 @@ mod tests {
 
             #[test]
             fn $test_bls12381_multiexp_invariants_checks() {
-                let mut zero1: [u8; $GOp::POINT_LEN] = [0; $GOp::POINT_LEN];
-                zero1[0] |= 0x40;
+                let zero1 = get_zero($GOp::POINT_LEN);
 
-                let mut rnd = get_rnd();
-                let r = Big::from_string(R.to_string());
+                let mut rng = test_rng();
+                let r = Fr::from_str(R).unwrap();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::get_random_g_point(&mut rnd);
+                    let p = $GOp::_get_random_g_point(&mut rng);
 
                     // group_order * P = 0
                     let res = $GOp::get_multiexp(&vec![(r.clone(), p.clone())]);
                     assert_eq!(res.as_slice(), zero1);
 
-                    let mut scalar = Big::random(&mut rnd);
-                    scalar.mod2m(32 * 7);
+                    let distr = ark_std::rand::distributions::Standard;
+                    let mut scalar: Fr = distr.sample(&mut rng);
 
                     // (scalar + group_order) * P = scalar * P
                     let res1 = $GOp::get_multiexp(&vec![(scalar.clone(), p.clone())]);
-                    scalar.add(&r);
+                    scalar = scalar.add(&r);
                     let res2 = $GOp::get_multiexp(&vec![(scalar.clone(), p.clone())]);
                     assert_eq!(res1, res2);
 
                     // P + P + ... + P = N * P
-                    let n = rnd.getbyte();
-                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone()); n as usize]);
-                    let res2 =
-                        $GOp::get_multiexp(&vec![(Big::new_int(n.clone() as isize), p.clone())]);
+                    let n = rng.gen_range(0..200);
+                    let res1 = $GOp::get_multiexp(&vec![(Fr::one(), p.clone()); n as usize]);
+                    let res2 = $GOp::get_multiexp(&vec![(Fr::from(n as u8), p.clone())]);
                     assert_eq!(res1, res2);
 
                     // 0 * P = 0
-                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(0), p.clone())]);
+                    let res1 = $GOp::get_multiexp(&vec![(Fr::zero(), p.clone())]);
                     assert_eq!(res1, zero1);
 
                     // 1 * P = P
-                    let res1 = $GOp::get_multiexp(&vec![(Big::new_int(1), p.clone())]);
-                    assert_eq!(res1, $serialize_uncompressed(&p));
+                    let res1 = $GOp::get_multiexp(&vec![(Fr::one(), p.clone())]);
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p));
                 }
             }
         };
@@ -872,8 +851,6 @@ mod tests {
     test_bls12381_multiexp!(
         G1Operations,
         G1Affine,
-        serialize_uncompressed_g1,
-        ECP,
         bls12381_p1_multiexp,
         bls12381_p1_sum,
         test_bls12381_p1_multiexp_mul,
@@ -885,8 +862,6 @@ mod tests {
     test_bls12381_multiexp!(
         G2Operations,
         G2Affine,
-        serialize_uncompressed_g2,
-        ECP2,
         bls12381_p2_multiexp,
         bls12381_p2_sum,
         test_bls12381_p2_multiexp_mul,
