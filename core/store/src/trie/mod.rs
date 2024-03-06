@@ -1476,7 +1476,7 @@ impl Trie {
     {
         match &self.memtries {
             Some(memtries) => {
-                // If we have in-memory tries, use it to construct the the changes entirely (for
+                // If we have in-memory tries, use it to construct the changes entirely (for
                 // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
                 let mut trie_update = guard.update(self.root, true)?;

@@ -217,7 +217,7 @@ pub struct BlockDebugStatus {
     // Chunk statuses are below:
     // We first sent the request to fetch the chunk
     // Later we get the response from the peer and we try to reconstruct it.
-    // If reconstructions suceeds, the chunk will be marked as complete.
+    // If reconstructions succeeds, the chunk will be marked as complete.
     // If it fails (or fragments are missing) - we're going to re-request the chunk again.
 
     // Chunks that we reqeusted (sent the request to peers).
@@ -2595,7 +2595,7 @@ impl Client {
             tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
 
         // What we really need are: chunk producers, block producers and block approvers for
-        // this epoch and the beginnig of the next epoch (so that all required connections are
+        // this epoch and the beginning of the next epoch (so that all required connections are
         // established in advance). Note that block producers and block approvers are not
         // exactly the same - last blocks of this epoch will also need to be signed by the
         // block producers of the next epoch. On the other hand, block approvers

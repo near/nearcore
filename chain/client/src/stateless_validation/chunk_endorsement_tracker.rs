@@ -171,7 +171,7 @@ impl ChunkEndorsementTracker {
         )?;
         // Get the chunk_endorsements for the chunk from our cache.
         // Note that these chunk endorsements are already validated as part of process_chunk_endorsement.
-        // We can safely rely on the the following details
+        // We can safely rely on the following details
         //    1. The chunk endorsements are from valid chunk_validator for this chunk.
         //    2. The chunk endorsements signatures are valid.
         let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())

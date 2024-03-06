@@ -315,7 +315,7 @@ impl Error {
     }
 
     /// Some blockchain errors are reported in the prometheus metrics. In such cases a report might
-    /// contain a label that specifies the type of error that has occured. For example when the node
+    /// contain a label that specifies the type of error that has occurred. For example when the node
     /// receives a block with an invalid signature this would be reported as:
     ///  `near_num_invalid_blocks{error="invalid_signature"}`.
     /// This function returns the value of the error label for a specific instance of Error.
