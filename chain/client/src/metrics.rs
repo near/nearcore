@@ -588,7 +588,7 @@ pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_RATIO: Lazy<HistogramVec> = La
         "near_chunk_state_witness_compression_ratio",
         "Stateless validation state witness compression ration",
         &["shard_id"],
-        Some(exponential_buckets(0.05, 2.0, 20).unwrap()),
+        Some(linear_buckets(0.00, 0.05, 20).unwrap()),
     )
     .unwrap()
 });
