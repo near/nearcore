@@ -213,7 +213,7 @@ impl BlockSync {
         let mut num_requests = 0;
         for (height, hash) in requests {
             let request_from_archival = self.archive && height < gc_stop_height;
-            // Assume that heads of `highest_height_peers` are are ahead of the blocks we're requesting.
+            // Assume that heads of `highest_height_peers` are ahead of the blocks we're requesting.
             let peer = if request_from_archival {
                 // Normal peers are unlikely to have old blocks, request from an archival node.
                 let archival_peer_iter = highest_height_peers.iter().filter(|p| p.archival);

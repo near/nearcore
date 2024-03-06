@@ -4459,7 +4459,7 @@ pub struct BlockCatchUpResponse {
 /// 3. We've got response from sync jobs actor that block was processed. Block hash, state
 ///     changes from preprocessing and result of processing block are moved to processed blocks
 /// 4. Results are postprocessed. If there is any error block goes back to pending to try again.
-///     Otherwise results are commited, block is moved to done blocks and any blocks that
+///     Otherwise results are committed, block is moved to done blocks and any blocks that
 ///     have this block as previous are added to pending
 pub struct BlocksCatchUpState {
     /// Hash of first block of an epoch

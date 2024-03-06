@@ -19,7 +19,7 @@ where
         Self { inner: Mutex::new(LruCache::<K, V>::new(cap)) }
     }
 
-    /// Returns the number of key-value pairs that are currently in the the cache.
+    /// Returns the number of key-value pairs that are currently in the cache.
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().len()
     }
