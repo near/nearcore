@@ -87,6 +87,9 @@ impl Client {
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
         let compressed_bytes = encode_all(witness_bytes.as_slice(), 0)?;
+        metrics::CHUNK_STATE_WITNESS_COMPRESSED_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(compressed_bytes.len() as f64);
         metrics::CHUNK_STATE_WITNESS_COMPRESSION_RATIO
             .with_label_values(&[&shard_id.to_string()])
             .observe(compressed_bytes.len() as f64 / witness_size as f64);
