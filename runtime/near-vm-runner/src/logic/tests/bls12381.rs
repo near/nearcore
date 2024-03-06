@@ -215,6 +215,15 @@ mod tests {
                     run_bls12381_fn!($bls12381_decompress, p2s_vec)
                 }
 
+                fn _decompress_p(ps: Vec<$GAffine>) -> Vec<u8> {
+                    let mut ps_vec: Vec<Vec<u8>> = vec![vec![]];
+                    for i in 0..ps.len() {
+                        ps_vec.push(Self::serialize_g(&ps[i]).to_vec());
+                    }
+
+                    run_bls12381_fn!($bls12381_decompress, ps_vec)
+                }
+
                 fn get_sum(p_sign: u8, p: &[u8], q_sign: u8, q: &[u8]) -> Vec<u8> {
                     let buffer = vec![vec![p_sign], p.to_vec(), vec![q_sign], q.to_vec()];
                     run_bls12381_fn!($bls12381_sum, buffer)
@@ -351,6 +360,14 @@ mod tests {
                 fn serialize_uncompressed_g(p: &$GAffine) -> Vec<u8> {
                     let mut serialized = vec![0u8; Self::POINT_LEN];
                     p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::No)
+                        .unwrap();
+
+                    serialized
+                }
+
+                fn serialize_g(p: &$GAffine) -> Vec<u8> {
+                    let mut serialized = vec![0u8; Self::POINT_LEN/2];
+                    p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::Yes)
                         .unwrap();
 
                     serialized
@@ -981,6 +998,7 @@ mod tests {
     macro_rules! test_bls12381_decompress {
         (
             $GOp:ident,
+            $GAffine:ident,
             $serialize_uncompressed_g:ident,
             $serialize_g:ident,
             $POINT_LEN:expr,
@@ -993,26 +1011,26 @@ mod tests {
         ) => {
             #[test]
             fn $test_bls12381_decompress() {
-                let mut rnd = get_rnd();
+                let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p1 = $GOp::get_random_curve_point(&mut rnd);
-                    let res1 = $GOp::decompress_p(vec![p1.clone()]);
+                    let p1 = $GOp::_get_random_g_point(&mut rng);
+                    let res1 = $GOp::_decompress_p(vec![p1.clone()]);
 
-                    assert_eq!(res1, $serialize_uncompressed_g(&p1));
+                    assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1));
 
-                    let p1_neg = p1.mul(&Big::new_int(-1));
-                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone()]);
+                    let p1_neg = p1.mul(&Fr::from(-1));
+                    let res1_neg = $GOp::_decompress_p(vec![p1_neg.clone().into()]);
 
                     assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
                     assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
-                    assert_eq!(res1_neg, $serialize_uncompressed_g(&p1_neg));
+                    assert_eq!(res1_neg, $GOp::serialize_uncompressed_g(&p1_neg.into()));
                 }
 
-                let zero1 = $ECP::new();
-                let res1 = $GOp::decompress_p(vec![zero1.clone()]);
+                let zero1 = $GAffine::identity();
+                let res1 = $GOp::_decompress_p(vec![zero1.clone()]);
 
-                assert_eq!(res1, $serialize_uncompressed_g(&zero1));
+                assert_eq!(res1, $GOp::serialize_uncompressed_g(&zero1));
             }
 
             #[test]
@@ -1071,6 +1089,7 @@ mod tests {
 
     test_bls12381_decompress!(
         G1Operations,
+        G1Affine,
         serialize_uncompressed_g1,
         serialize_g1,
         48,
@@ -1084,6 +1103,7 @@ mod tests {
 
     test_bls12381_decompress!(
         G2Operations,
+        G2Affine,
         serialize_uncompressed_g2,
         serialize_g2,
         96,
