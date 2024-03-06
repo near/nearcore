@@ -1242,6 +1242,9 @@ dependencies = [
 [[package]]
 name = "congestion-model"
 version = "0.0.0"
+dependencies = [
+ "clap",
+]
 
 [[package]]
 name = "console"
