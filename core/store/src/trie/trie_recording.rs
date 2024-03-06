@@ -16,8 +16,10 @@ impl TrieRecorder {
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
-        self.size += node.len();
-        self.recorded.insert(*hash, node);
+        match self.recorded.insert(*hash, node.clone()) {
+            Some(old_node) => debug_assert_eq!(old_node, node, "Must record read-only nodes."),
+            None => self.size += node.len(),
+        }
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -27,6 +29,7 @@ impl TrieRecorder {
     }
 
     pub fn recorded_storage_size(&self) -> usize {
+        debug_assert!(self.size == self.recorded.values().map(|v| v.len()).sum::<usize>());
         self.size
     }
 }
