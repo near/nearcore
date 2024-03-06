@@ -24,7 +24,7 @@ pub struct LinearImbalanceProducer {
     pub execution_gas: GGas,
     pub conversion_gas: GGas,
 
-    /// How many message are sent for each directed shard pair (a,b) where a <= b.
+    /// How many messages are sent for each directed shard pair (a,b) where a <= b.
     ///
     /// This value is computed in `init` according to the number of shards and
     /// the configured gas per receipt.
