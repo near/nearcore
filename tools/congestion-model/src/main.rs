@@ -1,5 +1,7 @@
 use congestion_model::strategy::{GlobalTxStopShard, NoQueueShard, SimpleBackpressure};
-use congestion_model::workload::{AllForOneProducer, BalancedProducer, Producer};
+use congestion_model::workload::{
+    AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
+};
 use congestion_model::{summary_table, CongestionStrategy, Model, PGAS};
 
 fn main() {
@@ -21,12 +23,13 @@ fn main() {
 }
 
 // Add workloads here to simulate them with `cargo run`.
-const NUM_WORKLOADS: usize = 2;
+const NUM_WORKLOADS: usize = 3;
 fn workload(i: usize) -> (&'static str, Box<dyn Producer>) {
     match i {
         NUM_WORKLOADS.. => panic!(),
         0 => ("Balanced", Box::<BalancedProducer>::default()),
         1 => ("All to one", Box::<AllForOneProducer>::default()),
+        2 => ("Linear Imbalance", Box::<LinearImbalanceProducer>::default()),
     }
 }
 

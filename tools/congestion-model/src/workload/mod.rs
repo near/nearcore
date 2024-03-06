@@ -1,10 +1,12 @@
 mod all_for_one;
 mod balanced;
+mod linear_imbalance;
 mod transaction_builder;
 mod utils;
 
 pub use all_for_one::AllForOneProducer;
 pub use balanced::BalancedProducer;
+pub use linear_imbalance::LinearImbalanceProducer;
 pub use transaction_builder::{ReceiptDefinition, ReceiptId, TransactionBuilder};
 
 use crate::{Round, ShardId};
