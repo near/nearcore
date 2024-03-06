@@ -200,7 +200,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
@@ -208,20 +208,20 @@ impl<'a> External for RuntimeExt<'a> {
         let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
             .take(receipt_indices.len())
             .collect();
-        self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
+        self.receipt_manager.create_action_receipt(data_ids, receipt_indices, receiver_id)
     }
 
-    fn yield_create_action_receipt(
+    fn create_promise_yield_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
         self.receipt_manager
-            .create_yielded_action_receipt(input_data_id, receiver_id)
+            .create_promise_yield_receipt(input_data_id, receiver_id)
             .map(|receipt_index| (receipt_index, input_data_id))
     }
 
-    fn yield_submit_data_receipt(
+    fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
@@ -230,19 +230,13 @@ impl<'a> External for RuntimeExt<'a> {
         if has_yielded_promise(self.trie_update, self.account_id.clone(), data_id)
             .map_err(wrap_storage_error)?
         {
-            self.receipt_manager.create_data_receipt(data_id, data)?;
+            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
             return Ok(true);
         }
 
         // If the yielded promise was created by the current transaction, we'll find it in the
-        // receipt manager. In such case we erase it from `yielded_data_ids` as there is no longer
-        // a need to store it as pending in the trie and enqueue a timeout for it.
-        Ok(if self.receipt_manager.yielded_data_ids.remove(&(data_id, self.account_id.clone())) {
-            self.receipt_manager.create_data_receipt(data_id, data)?;
-            true
-        } else {
-            false
-        })
+        // receipt manager.
+        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
     }
 
     fn append_action_create_account(

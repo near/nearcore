@@ -868,7 +868,7 @@ impl Runtime {
                 gas_balance_refund = 0;
             }
         } else {
-            // Refund for the difference of the purchased gas price and the the current gas price.
+            // Refund for the difference of the purchased gas price and the current gas price.
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(

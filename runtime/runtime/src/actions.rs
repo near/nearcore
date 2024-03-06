@@ -29,7 +29,7 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_yielded_promise, get_access_key, get_code, get_yielded_promise_indices,
+    enqueue_yielded_promise_timeout, get_access_key, get_code, get_yielded_promise_indices,
     remove_access_key, remove_account, set_access_key, set_code, set_yielded_promise_indices,
     StorageError, TrieUpdate,
 };
@@ -290,10 +290,27 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
+        // Fetch metadata for yielded promises queue
+        let mut yielded_promise_indices =
+            get_yielded_promise_indices(state_update).unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
-            .map(|(receiver_id, receipt)| {
+            .map(|receipt| {
+                // If the newly created receipt is a PromiseYield, enqueue a timeout for it
+                if receipt.is_promise_yield {
+                    enqueue_yielded_promise_timeout(
+                        state_update,
+                        &mut yielded_promise_indices,
+                        account_id.clone(),
+                        receipt.input_data_ids[0],
+                        apply_state.block_height
+                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+                    );
+                }
+
                 let new_action_receipt = ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
@@ -305,7 +322,7 @@ pub(crate) fn action_function_call(
 
                 Receipt {
                     predecessor_id: account_id.clone(),
-                    receiver_id,
+                    receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                     // "Generating receipt IDs" section
                     receipt_id: CryptoHash::default(),
@@ -319,33 +336,24 @@ pub(crate) fn action_function_call(
             .collect();
 
         // Create data receipts for resumed yields
-        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|(data_id, data)| {
+        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
+            let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
+
             Receipt {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
                 // "Generating receipt IDs" section
                 receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::PromiseResume(DataReceipt { data_id, data: Some(data) }),
+                receipt: if receipt.is_promise_resume {
+                    ReceiptEnum::PromiseResume(new_data_receipt)
+                } else {
+                    ReceiptEnum::Data(new_data_receipt)
+                },
             }
         }));
 
-        // Update trie state for newly created yields
-        let mut yielded_promise_indices =
-            get_yielded_promise_indices(state_update).unwrap_or_default();
-        let initial_yielded_promise_indices = yielded_promise_indices.clone();
-
-        for (yielded_data_id, account_id) in receipt_manager.yielded_data_ids.iter() {
-            enqueue_yielded_promise(
-                state_update,
-                &mut yielded_promise_indices,
-                account_id.clone(),
-                *yielded_data_id,
-                apply_state.block_height
-                    + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
-            );
-        }
-
+        // Commit metadata for yielded promises queue
         if yielded_promise_indices != initial_yielded_promise_indices {
             set_yielded_promise_indices(state_update, &yielded_promise_indices);
         }

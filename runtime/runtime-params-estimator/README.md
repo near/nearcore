@@ -91,7 +91,7 @@ done
 ```
 
 When running these command, make sure to run with `sequential` and to disable
-prefetching is disabled, or else the the replaying modes that match requests to
+prefetching is disabled, or else the replaying modes that match requests to
 receipts will not work properly.
 
 ```js
