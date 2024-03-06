@@ -42,6 +42,12 @@ struct TestData {
     network_events: Vec<PeerManagerMessageRequest>,
 }
 
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
 impl TestData {
     fn new(shards_manager: ShardsManager, chain: MockChainForShardsManager) -> Self {
         Self { shards_manager, chain, client_events: vec![], network_events: vec![] }
@@ -177,7 +183,7 @@ fn test_chunk_forward() {
     test.register_handler(forward_client_request_to_shards_manager().widen());
     test.register_handler(forward_network_request_to_shards_manager().widen());
     test.register_handler(periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen());
-    test.register_handler(handle_adhoc_events());
+    test.register_handler(handle_adhoc_events::<TestData>().widen());
 
     // We'll produce a single chunk whose next chunk producer is a chunk-only
     // producer, so that we can test that the chunk is forwarded to the next

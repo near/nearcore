@@ -48,7 +48,7 @@ fn test_actix_component() {
         dummy: (),
         example: ExampleComponent::new(builder.sender().into_sender()),
         outer: OuterComponent::new(
-            builder.wrapped_multi_sender::<ExampleComponentAdapterMessage, _>(),
+            builder.sender().into_wrapped_multi_sender::<ExampleComponentAdapterMessage, _>(),
         ),
         periodic_requests_captured: vec![],
     };
@@ -66,7 +66,7 @@ fn test_actix_component() {
     test.register_handler(example_handler().widen());
 
     // We need to redo whatever the ExampleActor does in its `started` method.
-    test.data.example.start(&mut test.delayed_action_runner());
+    test.data.example.start(&mut test.sender().into_delayed_action_runner());
     // Send some requests; this can be done in the asynchronous context.
     test.future_spawner().spawn("wait for 5", {
         let res = test.data.outer.call_example_component_for_response(5);

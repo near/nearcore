@@ -76,8 +76,8 @@ const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sync_jobs_actions = SyncJobsActions::new(
-        builder.wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-        builder.wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
     );
     let client_config = ClientConfig::test(
         true,
@@ -196,7 +196,7 @@ fn test_client_with_simple_test_loop() {
     let client_actions = ClientActions::new(
         builder.clock(),
         client,
-        builder.wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
@@ -205,8 +205,8 @@ fn test_client_with_simple_test_loop() {
         None,
         Default::default(),
         None,
-        builder.wrapped_multi_sender::<SyncJobsSenderForClientMessage, _>(),
-        Box::new(builder.future_spawner()),
+        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForClientMessage, _>(),
+        Box::new(builder.sender().into_future_spawner()),
     )
     .unwrap();
 
@@ -222,14 +222,17 @@ fn test_client_with_simple_test_loop() {
     test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
-        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(test.future_spawner()).widen(),
+        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
+            test.sender().into_future_spawner(),
+        )
+        .widen(),
     );
     test.register_handler(drive_futures().widen());
     test.register_handler(drive_delayed_action_runners::<ClientActions>().widen());
     test.register_handler(forward_client_request_to_shards_manager().widen());
     // TODO: handle additional events.
 
-    test.delayed_action_runner::<ClientActions>().run_later(
+    test.sender().into_delayed_action_runner::<ClientActions>().run_later(
         "start_client",
         Duration::ZERO,
         |client, runner| {
