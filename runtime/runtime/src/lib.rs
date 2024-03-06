@@ -2847,11 +2847,10 @@ mod tests {
         runtime_config.fees.state_witness_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
-        let inner_signer = signer.clone();
         let create_acc_fn = |account_id| {
             create_receipt_with_actions(
                 account_id,
-                inner_signer.clone(),
+                signer.clone(),
                 vec![Action::DeployContract(DeployContractAction {
                     code: near_test_contracts::sized_contract(5000).to_vec(),
                 })],
