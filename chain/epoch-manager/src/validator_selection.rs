@@ -723,7 +723,7 @@ mod tests {
     fn test_validator_assignment_ratio_condition() {
         // There are more seats than proposals, however the
         // lower proposals are too small relative to the total
-        // (the reason we can't choose them is because the the probability of them actually
+        // (the reason we can't choose them is because the probability of them actually
         // being selected to make a block would be too low since it is done in
         // proportion to stake).
         let epoch_config = create_epoch_config(

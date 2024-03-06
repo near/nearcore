@@ -256,7 +256,7 @@ pub fn publishable_has_license_file(workspace: &Workspace) -> anyhow::Result<()>
 
 const EXPECTED_LICENSE: &str = "MIT OR Apache-2.0";
 
-/// Ensure all non-private crates use the the same expected license
+/// Ensure all non-private crates use the same expected license
 pub fn publishable_has_unified_license(workspace: &Workspace) -> anyhow::Result<()> {
     let outliers = workspace
         .members

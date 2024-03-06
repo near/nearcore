@@ -84,7 +84,7 @@ pub enum InstantiationError {
     #[error("module compiled with CPU feature that is missing from host")]
     CpuFeature(String),
 
-    /// A runtime error occured while invoking the start function
+    /// A runtime error occurred while invoking the start function
     #[error(transparent)]
     Start(RuntimeError),
 }

@@ -1182,7 +1182,7 @@ impl ShardsManager {
                 let parts = forward.parts.into_iter().filter_map(|part| {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         None
                     } else {
                         Some((part_ord, part))
@@ -1195,7 +1195,7 @@ impl ShardsManager {
                 for part in forward.parts {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         continue;
                     }
                     existing_parts.insert(part_ord, part);
@@ -2567,7 +2567,7 @@ mod test {
 
     #[test]
     // Test that when a validator receives a chunk forward before the chunk header, and that the
-    // chunk header first arrives as part of a block, it should store the the forward and use it
+    // chunk header first arrives as part of a block, it should store the forward and use it
     // when it receives the header.
     fn test_receive_forward_before_chunk_header_from_block() {
         let fixture = ChunkTestFixture::default();

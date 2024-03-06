@@ -304,7 +304,7 @@ fn test_transaction_nonce_too_large() {
 ///   the requirement that the block must be in the same epoch as the next block after its accepted ancestor
 /// - test1 processes partial chunk responses for block 8 and 9
 /// - check that test1 sends missing chunk requests for block 11 to 10+NUM_ORPHAN_ANCESTORS+CHECK,
-///   since now they satisfy the the requirements for requesting chunks for orphans
+///   since now they satisfy the requirements for requesting chunks for orphans
 /// - process the rest of blocks
 #[test]
 fn test_request_chunks_for_orphan() {
