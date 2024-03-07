@@ -1450,6 +1450,8 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let check_state_witness_size_limit =
+            checked_feature!("stable", StateWitnessSizeLimit, protocol_version);
         let state_witness_size_limit = apply_state.config.fees.state_witness_size_soft_limit;
 
         // We first process local receipts. They contain staking, local contract calls, etc.
@@ -1460,7 +1462,8 @@ impl Runtime {
         }
         for receipt in local_receipts.iter() {
             if total_compute_usage >= compute_limit
-                || state_update.trie.recorded_storage_size() >= state_witness_size_limit
+                || (check_state_witness_size_limit
+                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1479,7 +1482,8 @@ impl Runtime {
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total_compute_usage >= compute_limit
-                || state_update.trie.recorded_storage_size() >= state_witness_size_limit
+                || (check_state_witness_size_limit
+                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
             {
                 break;
             }
@@ -1539,7 +1543,8 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if total_compute_usage >= compute_limit
-                || state_update.trie.recorded_storage_size() >= state_witness_size_limit
+                || (check_state_witness_size_limit
+                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -2838,6 +2843,9 @@ mod tests {
 
     #[test]
     fn test_state_witness_size_soft_limit() {
+        if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+            return;
+        }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
