@@ -24,7 +24,6 @@ pub fn random_config() -> RuntimeConfig {
                 (101 + rng.next_u32() % 10).try_into().unwrap(),
                 100,
             ),
-            storage_proof_size_soft_limit: (rng.next_u64() % 10000) as usize,
         },
         ..RuntimeConfig::test()
     }
