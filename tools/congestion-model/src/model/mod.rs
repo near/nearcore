@@ -6,6 +6,7 @@ mod transaction;
 mod transaction_registry;
 
 pub use block_info::BlockInfo;
+use chrono::{DateTime, Utc};
 pub use chunk_execution::*;
 pub use queue::*;
 pub use queue_bundle::*;
@@ -18,6 +19,7 @@ use crate::strategy::StatsWriter;
 use crate::workload::Producer;
 use crate::{CongestionStrategy, Round};
 use std::collections::BTreeMap;
+use std::time::Duration;
 use transaction_registry::TransactionRegistry;
 
 pub struct Model {
@@ -38,6 +40,7 @@ pub struct Model {
     pub(crate) producer: Box<dyn Producer>,
 
     stats_writer: StatsWriter,
+    start_time: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -49,11 +52,17 @@ impl Model {
         mut producer: Box<dyn Producer>,
         mut stats_writer: StatsWriter,
     ) -> Self {
+        // Set the start time to an hour ago to make it visible by default in
+        // grafana. Each round is 1 virtual second so 1 hour is good for looking
+        // at a maximum of 3600 rounds, beyond that you'll need to customize the
+        // grafana time range.
+        let start_time = Utc::now() - Duration::from_secs(1 * 60 * 60);
         let num_shards = shards.len();
         let shard_ids: Vec<_> = (0..num_shards).map(ShardId).collect();
         let mut queues = QueueBundle::new(&shard_ids);
 
         if let Some(stats_writer) = &mut stats_writer {
+            stats_writer.write_field("time").unwrap();
             stats_writer.write_field("round").unwrap();
         }
 
@@ -76,6 +85,7 @@ impl Model {
             round: 0,
             queues,
             stats_writer,
+            start_time,
         }
     }
 
@@ -84,6 +94,9 @@ impl Model {
         self.round += 1;
 
         if let Some(stats_writer) = &mut self.stats_writer {
+            let time = self.start_time + Duration::from_secs(self.round);
+
+            stats_writer.write_field(format!("{:?}", time)).unwrap();
             stats_writer.write_field(format!("{}", self.round)).unwrap();
         }
 
