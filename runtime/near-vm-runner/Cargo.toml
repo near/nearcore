@@ -67,7 +67,6 @@ near-vm-types = { workspace = true, optional = true }
 near-vm-vm = { workspace = true, optional = true }
 
 [dev-dependencies]
-amcl.workspace = true
 arbitrary.workspace = true
 ark-bls12-381.workspace = true
 ark-ec.workspace = true

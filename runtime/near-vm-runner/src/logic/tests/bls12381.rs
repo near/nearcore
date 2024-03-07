@@ -1,31 +1,16 @@
 mod tests {
     use crate::logic::tests::vm_logic_builder::{TestVMLogic, VMLogicBuilder};
     use crate::logic::MemSlice;
-    use amcl::bls381::bls381::utils::{
-        serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
-        subgroup_check_g1, subgroup_check_g2,
+    use ark_bls12_381::{Bls12_381, Fq, Fq2, Fr, G1Affine, G2Affine};
+    use ark_ec::hashing::{curve_maps::wb::WBMap, map_to_curve_hasher::MapToCurve};
+    use ark_ec::{bls12::Bls12Config, pairing::Pairing, AffineRepr, CurveGroup};
+    use ark_ff::{Field, PrimeField};
+    use ark_serialize::{
+        CanonicalDeserialize, CanonicalSerialize, CanonicalSerializeWithFlags, EmptyFlags,
     };
-    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp2::FP2};
-    use amcl::rand::RAND;
-    use ark_bls12_381::{Fr, Fq, Fq2, G1Affine, G2Affine, Bls12_381};
-    use ark_ec::bls12::Bls12Config;
-    use ark_ec::hashing::curve_maps::wb::WBMap;
-    use ark_ec::hashing::map_to_curve_hasher::MapToCurve;
-    use ark_ec::AffineRepr;
-    use ark_ec::CurveGroup;
-    use ark_ff::Field;
-    use ark_ff::PrimeField;
-    use ark_serialize::CanonicalSerialize;
-    use ark_serialize::CanonicalDeserialize;
-    use ark_serialize::CanonicalSerializeWithFlags;
-    use ark_serialize::EmptyFlags;
-    use ark_std::{test_rng, UniformRand, One, Zero};
-    use rand::{seq::SliceRandom, thread_rng, Rng, RngCore};
-    use rand::distributions::Distribution;
-    use std::fs;
-    use std::str::FromStr;
-    use std::ops::{Mul, Neg, Add};
-    use ark_ec::pairing::Pairing;
+    use ark_std::{test_rng, One, UniformRand, Zero};
+    use rand::{distributions::Distribution, seq::SliceRandom, thread_rng, Rng, RngCore};
+    use std::{fs, ops::Add, ops::Mul, ops::Neg, str::FromStr};
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
     const P_HEX: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
@@ -57,12 +42,6 @@ mod tests {
     struct G1Operations;
     struct G2Operations;
 
-    fn get_381bit_big(rnd: &mut RAND) -> Big {
-        let mut r: Big = Big::random(rnd);
-        r.mod2m(381);
-        r
-    }
-
     impl G1Operations {
         const POINT_LEN: usize = 96;
         const MAX_N_SUM: usize = 675;
@@ -70,17 +49,7 @@ mod tests {
         const MAX_N_MAP: usize = 500;
         const MAX_N_DECOMPRESS: usize = 500;
 
-        fn get_random_curve_point(rnd: &mut RAND) -> ECP {
-            loop {
-                let p: ECP = ECP::new_big(&get_381bit_big(rnd));
-
-                if !p.is_infinity() {
-                    return p;
-                }
-            }
-        }
-
-        fn _get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq {
+        fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq {
             Fq::rand(rng)
         }
 
@@ -101,22 +70,7 @@ mod tests {
         const MAX_N_MAP: usize = 250;
         const MAX_N_DECOMPRESS: usize = 250;
 
-        fn get_random_curve_point(rnd: &mut RAND) -> ECP2 {
-            loop {
-                let p: ECP2 = ECP2::new_fp2(&Self::get_random_fp(rnd));
-                if !p.is_infinity() {
-                    return p;
-                }
-            }
-        }
-
-        fn get_random_fp(rnd: &mut RAND) -> FP2 {
-            let c = get_381bit_big(rnd);
-            let d = get_381bit_big(rnd);
-            FP2::new_bigs(c, d)
-        }
-
-        fn _get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq2 {
+        fn get_random_fp<R: Rng + ?Sized>(rng: &mut R) -> Fq2 {
             Fq2::new(Fq::rand(rng), Fq::rand(rng))
         }
 
@@ -130,30 +84,19 @@ mod tests {
     macro_rules! impl_goperations {
         (
             $GOperations:ident,
-            $ECP:ident,
             $FP:ident,
             $GConfig:ident,
             $GAffine:ident,
-            $subgroup_check_g:ident,
-            $serialize_g:ident,
             $add_p_y:ident,
-            $serialize_uncompressed_g:ident,
             $bls12381_decompress:ident,
             $bls12381_sum:ident,
             $bls12381_multiexp:ident,
             $bls12381_map_fp_to_g:ident
         ) => {
             impl $GOperations {
-                fn get_random_g_point(rnd: &mut RAND) -> $ECP {
-                    let r: Big = Big::random(rnd);
-                    let g: $ECP = $ECP::generator();
-
-                    g.mul(&r)
-                }
-
-                fn _get_random_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                fn get_random_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
                     loop {
-                        let x = Self::_get_random_fp(rng);
+                        let x = Self::get_random_fp(rng);
                         let greatest = rng.gen();
 
                         if let Some(p) = $GAffine::get_point_from_x_unchecked(x, greatest) {
@@ -162,25 +105,16 @@ mod tests {
                     }
                 }
 
-                fn _get_random_g_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
-                    let p = Self::_get_random_curve_point(rng);
+                fn get_random_g_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                    let p = Self::get_random_curve_point(rng);
                     p.clear_cofactor()
                 }
 
-                fn _get_random_not_g_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
-                    let mut p = Self::_get_random_curve_point(rng);
+                fn get_random_not_g_curve_point<R: Rng + ?Sized>(rng: &mut R) -> $GAffine {
+                    let mut p = Self::get_random_curve_point(rng);
                     while p.is_in_correct_subgroup_assuming_on_curve() {
-                        p = Self::_get_random_curve_point(rng);
+                        p = Self::get_random_curve_point(rng);
                     }
-                    p
-                }
-
-                fn get_random_not_g_curve_point(rnd: &mut RAND) -> $ECP {
-                    let mut p = Self::get_random_curve_point(rnd);
-                    while $subgroup_check_g(&p) {
-                        p = Self::get_random_curve_point(rnd);
-                    }
-
                     p
                 }
 
@@ -189,7 +123,7 @@ mod tests {
 
                     let mut points: Vec<(u8, $GAffine)> = vec![];
                     for i in 0..n {
-                        points.push((rng.gen_range(0..=1), Self::_get_random_curve_point(rng)));
+                        points.push((rng.gen_range(0..=1), Self::get_random_curve_point(rng)));
 
                         let mut current_point = points[i].1.clone();
                         if points[i].0 == 1 {
@@ -208,16 +142,7 @@ mod tests {
                     assert_eq!(res1, Self::serialize_uncompressed_g(&res3).to_vec());
                 }
 
-                fn decompress_p(p2: Vec<$ECP>) -> Vec<u8> {
-                    let mut p2s_vec: Vec<Vec<u8>> = vec![vec![]];
-                    for i in 0..p2.len() {
-                        p2s_vec.push($serialize_g(&p2[i]).to_vec());
-                    }
-
-                    run_bls12381_fn!($bls12381_decompress, p2s_vec)
-                }
-
-                fn _decompress_p(ps: Vec<$GAffine>) -> Vec<u8> {
+                fn decompress_p(ps: Vec<$GAffine>) -> Vec<u8> {
                     let mut ps_vec: Vec<Vec<u8>> = vec![vec![]];
                     for i in 0..ps.len() {
                         ps_vec.push(Self::serialize_g(&ps[i]).to_vec());
@@ -270,22 +195,7 @@ mod tests {
                     run_bls12381_fn!($bls12381_multiexp, buffer)
                 }
 
-                fn get_multiexp_many_points(points: &Vec<(u8, $ECP)>) -> Vec<u8> {
-                    let mut buffer: Vec<Vec<u8>> = vec![];
-                    for i in 0..points.len() {
-                        buffer.push($serialize_uncompressed_g(&points[i].1).to_vec());
-                        if points[i].0 == 0 {
-                            buffer.push(vec![vec![1], vec![0; 31]].concat());
-                        } else {
-                            buffer
-                                .push(hex::decode(R_MINUS_1).unwrap().into_iter().rev().collect());
-                        }
-                    }
-
-                    run_bls12381_fn!($bls12381_multiexp, buffer)
-                }
-
-                fn _get_multiexp_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
+                fn get_multiexp_many_points(points: &Vec<(u8, $GAffine)>) -> Vec<u8> {
                     let mut buffer: Vec<Vec<u8>> = vec![];
                     for i in 0..points.len() {
                         buffer.push(Self::serialize_uncompressed_g(&points[i].1).to_vec());
@@ -311,7 +221,7 @@ mod tests {
                 }
 
                 fn get_incorrect_points() -> Vec<Vec<u8>> {
-                    let mut rnd = get_rnd();
+                    let mut rng = test_rng();
                     let mut res: Vec<Vec<u8>> = vec![];
 
                     // Incorrect encoding of the point at infinity
@@ -324,24 +234,24 @@ mod tests {
                     zero[0] = 192;
                     res.push(zero);
 
-                    let p = Self::get_random_curve_point(&mut rnd);
-                    let mut p_ser = $serialize_uncompressed_g(&p);
+                    let p = Self::get_random_curve_point(&mut rng);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p);
                     p_ser[0] |= 0x80;
                     res.push(p_ser.to_vec());
 
                     // Point not on the curve
-                    let p = Self::get_random_curve_point(&mut rnd);
-                    let mut p_ser = $serialize_uncompressed_g(&p);
-                    p_ser[$GOperations::POINT_LEN - 1] ^= 0x01;
+                    let p = Self::get_random_curve_point(&mut rng);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p);
+                    p_ser[Self::POINT_LEN - 1] ^= 0x01;
                     res.push(p_ser.to_vec());
 
                     //Erroneous coding of field elements, resulting in a correct point on the curve if only the suffix is considered.
-                    let p = Self::get_random_curve_point(&mut rnd);
-                    let mut p_ser = $serialize_uncompressed_g(&p);
+                    let p = Self::get_random_curve_point(&mut rng);
+                    let mut p_ser = Self::serialize_uncompressed_g(&p);
                     p_ser[0] ^= 0x20;
                     res.push(p_ser.to_vec());
 
-                    let p = Self::get_random_curve_point(&mut rnd);
+                    let p = Self::get_random_curve_point(&mut rng);
                     let p_ser = $add_p_y(&p).to_vec();
                     res.push(p_ser);
 
@@ -368,7 +278,7 @@ mod tests {
                 }
 
                 fn serialize_g(p: &$GAffine) -> Vec<u8> {
-                    let mut serialized = vec![0u8; Self::POINT_LEN/2];
+                    let mut serialized = vec![0u8; Self::POINT_LEN / 2];
                     p.serialize_with_mode(serialized.as_mut_slice(), ark_serialize::Compress::Yes)
                         .unwrap();
 
@@ -376,7 +286,12 @@ mod tests {
                 }
 
                 fn deserialize_g(p: Vec<u8>) -> $GAffine {
-                    $GAffine::deserialize_with_mode(p.as_slice(), ark_serialize::Compress::No, ark_serialize::Validate::No).unwrap()
+                    $GAffine::deserialize_with_mode(
+                        p.as_slice(),
+                        ark_serialize::Compress::No,
+                        ark_serialize::Validate::No,
+                    )
+                    .unwrap()
                 }
             }
         };
@@ -384,14 +299,10 @@ mod tests {
 
     impl_goperations!(
         G1Operations,
-        ECP,
         Fq,
         G1Config,
         G1Affine,
-        subgroup_check_g1,
-        serialize_g1,
         add_p_y,
-        serialize_uncompressed_g1,
         bls12381_p1_decompress,
         bls12381_p1_sum,
         bls12381_p1_multiexp,
@@ -399,30 +310,15 @@ mod tests {
     );
     impl_goperations!(
         G2Operations,
-        ECP2,
         Fq2,
         G2Config,
         G2Affine,
-        subgroup_check_g2,
-        serialize_g2,
         add2_p_y,
-        serialize_uncompressed_g2,
         bls12381_p2_decompress,
         bls12381_p2_sum,
         bls12381_p2_multiexp,
         bls12381_map_fp2_to_g2
     );
-
-    fn get_rnd() -> RAND {
-        let mut rnd: RAND = RAND::new();
-        rnd.clean();
-        let mut raw: [u8; 100] = [0; 100];
-        for i in 0..100 {
-            raw[i] = i as u8
-        }
-        rnd.seed(100, &raw);
-        rnd
-    }
 
     fn get_zero(point_len: usize) -> Vec<u8> {
         let mut zero1 = vec![0; point_len];
@@ -434,22 +330,7 @@ mod tests {
         return if i == 0 { max_n } else { (thread_rng().next_u32() as usize) % max_n };
     }
 
-    fn pairing_check(p1s: Vec<ECP>, p2s: Vec<ECP2>) -> u64 {
-        let mut logic_builder = VMLogicBuilder::default();
-        let mut logic = logic_builder.build();
-
-        let mut buffer: Vec<Vec<u8>> = vec![];
-        for i in 0..p1s.len() {
-            buffer.push(serialize_uncompressed_g1(&p1s[i]).to_vec());
-            buffer.push(serialize_uncompressed_g2(&p2s[i]).to_vec());
-        }
-
-        let input = logic.internal_mem_write(&buffer.concat().as_slice());
-        let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
-        return res;
-    }
-
-    fn _pairing_check(p1s: Vec<G1Affine>, p2s: Vec<G2Affine>) -> u64 {
+    fn pairing_check(p1s: Vec<G1Affine>, p2s: Vec<G2Affine>) -> u64 {
         let mut logic_builder = VMLogicBuilder::default();
         let mut logic = logic_builder.build();
 
@@ -498,7 +379,7 @@ mod tests {
                 // 0 + P = P + 0 = P
                 let mut rng = test_rng();
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
                     assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &zero, 0, &p_ser));
                     assert_eq!(p_ser.to_vec(), $GOp::get_sum(0, &p_ser, 0, &zero));
@@ -508,7 +389,7 @@ mod tests {
                 // P + (-P) = (-P) + P =  0
                 // P + (-(P + P))
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     let pmul2 = p.mul(Fr::from(2));
@@ -554,15 +435,15 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_curve_point(&mut rng);
-                    let q = $GOp::_get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
+                    let q = $GOp::get_random_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_g_point(&mut rng);
-                    let q = $GOp::_get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
+                    let q = $GOp::get_random_g_point(&mut rng);
 
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
                     let q_ser = $GOp::serialize_uncompressed_g(&q);
@@ -580,8 +461,8 @@ mod tests {
 
                 //points not from G
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_not_g_curve_point(&mut rng);
-                    let q = $GOp::_get_random_not_g_curve_point(&mut rng);
+                    let p = $GOp::get_random_not_g_curve_point(&mut rng);
+                    let q = $GOp::get_random_not_g_curve_point(&mut rng);
 
                     $check_sum(p, q);
                 }
@@ -593,7 +474,7 @@ mod tests {
 
                 let zero = get_zero($GOp::POINT_LEN);
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     // P - P = - P + P = 0
@@ -611,7 +492,7 @@ mod tests {
 
                 // P in G => -P in G
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
                     let p_ser = $GOp::serialize_uncompressed_g(&p);
 
                     let p_inv = $GOp::get_inverse(&p_ser);
@@ -643,7 +524,7 @@ mod tests {
                     let n = get_n(i, $GOp::MAX_N_SUM);
                     let mut points: Vec<(u8, $GAffine)> = vec![];
                     for _ in 0..n {
-                        points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
+                        points.push((rng.gen_range(0..=1), $GOp::get_random_g_point(&mut rng)));
                     }
 
                     let res1 = $GOp::get_sum_many_points(&points);
@@ -662,11 +543,11 @@ mod tests {
 
                     let mut points: Vec<(u8, $GAffine)> = vec![];
                     for _ in 0..n {
-                        points.push((rng.gen_range(0..=1), $GOp::_get_random_g_point(&mut rng)));
+                        points.push((rng.gen_range(0..=1), $GOp::get_random_g_point(&mut rng)));
                     }
 
                     let res1 = $GOp::get_sum_many_points(&points);
-                    let res2 = $GOp::_get_multiexp_many_points(&points);
+                    let res2 = $GOp::get_multiexp_many_points(&points);
                     assert_eq!(res1, res2);
                 }
             }
@@ -781,7 +662,7 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let n = rng.gen_range(0..200) as usize;
 
                     let points: Vec<(u8, $GAffine)> = vec![(0, p.clone()); n];
@@ -794,7 +675,7 @@ mod tests {
                 }
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_curve_point(&mut rng);
+                    let p = $GOp::get_random_curve_point(&mut rng);
                     let distr = ark_std::rand::distributions::Standard;
                     let n: Fr = distr.sample(&mut rng);
 
@@ -818,7 +699,7 @@ mod tests {
                         let distr = ark_std::rand::distributions::Standard;
                         let scalar: Fr = distr.sample(&mut rng);
 
-                        points.push((scalar, $GOp::_get_random_curve_point(&mut rng)));
+                        points.push((scalar, $GOp::get_random_curve_point(&mut rng)));
                         res2 = res2.add(&points[i].1.mul(&points[i].0)).into();
                     }
 
@@ -849,7 +730,7 @@ mod tests {
                 let r = Fr::from_str(R).unwrap();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p = $GOp::_get_random_g_point(&mut rng);
+                    let p = $GOp::get_random_g_point(&mut rng);
 
                     // group_order * P = 0
                     let res = $GOp::get_multiexp(&vec![(r.clone(), p.clone())]);
@@ -905,22 +786,24 @@ mod tests {
         test_bls12381_error_g2_encoding
     );
 
-    fn add_p_y(point: &ECP) -> [u8; 96] {
-        let mut ybig = point.gety();
-        ybig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_uncompressed_g1(&point);
-        ybig.to_byte_array(&mut p_ser[0..96], 48);
+    fn add_p_y(point: &G1Affine) -> Vec<u8> {
+        let mut ybig: Fq = (*point.y().unwrap()).clone();
+        ybig = ybig.add(&Fq::from_str(P).unwrap());
+        let p_ser = G1Operations::serialize_uncompressed_g(&point);
+        let mut y_ser: Vec<u8> = vec![0u8; 48];
+        ybig.serialize_with_flags(y_ser.as_mut_slice(), EmptyFlags).unwrap();
 
-        p_ser
+        vec![p_ser[..48].to_vec(), y_ser].concat()
     }
 
-    fn add2_p_y(point: &ECP2) -> [u8; 192] {
-        let mut yabig = point.gety().geta();
-        yabig.add(&Big::from_string(P.to_string()));
-        let mut p_ser = serialize_uncompressed_g2(&point);
-        yabig.to_byte_array(&mut p_ser[0..192], 96 + 48);
+    fn add2_p_y(point: &G2Affine) -> Vec<u8> {
+        let mut yabig = point.y().unwrap().clone().c1.clone();
+        yabig = yabig.add(&Fq::from_str(P).unwrap());
+        let p_ser = G2Operations::serialize_uncompressed_g(&point);
+        let mut y_ser: Vec<u8> = vec![0u8; 48];
+        yabig.serialize_with_flags(y_ser.as_mut_slice(), EmptyFlags).unwrap();
 
-        p_ser
+        vec![p_ser[..96 + 48].to_vec(), y_ser].concat()
     }
 
     macro_rules! test_bls12381_map_fp_to_g {
@@ -946,7 +829,7 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    $check_map_fp($GOp::_get_random_fp(&mut rng));
+                    $check_map_fp($GOp::get_random_fp(&mut rng));
                 }
             }
 
@@ -960,7 +843,7 @@ mod tests {
                     let mut fps: Vec<$FP> = vec![];
                     let mut res2_mul: Vec<u8> = vec![];
                     for i in 0..n {
-                        fps.push($GOp::_get_random_fp(&mut rng));
+                        fps.push($GOp::get_random_fp(&mut rng));
 
                         let mut res2 = $GOp::map_to_curve_g(fps[i].clone());
                         res2 = res2.clear_cofactor();
@@ -1028,13 +911,13 @@ mod tests {
                 let mut rng = test_rng();
 
                 for _ in 0..TESTS_ITERATIONS {
-                    let p1 = $GOp::_get_random_g_point(&mut rng);
-                    let res1 = $GOp::_decompress_p(vec![p1.clone()]);
+                    let p1 = $GOp::get_random_g_point(&mut rng);
+                    let res1 = $GOp::decompress_p(vec![p1.clone()]);
 
                     assert_eq!(res1, $GOp::serialize_uncompressed_g(&p1));
 
                     let p1_neg = p1.mul(&Fr::from(-1));
-                    let res1_neg = $GOp::_decompress_p(vec![p1_neg.clone().into()]);
+                    let res1_neg = $GOp::decompress_p(vec![p1_neg.clone().into()]);
 
                     assert_eq!(res1[0..$POINT_LEN], res1_neg[0..$POINT_LEN]);
                     assert_ne!(res1[$POINT_LEN..], res1_neg[$POINT_LEN..]);
@@ -1042,7 +925,7 @@ mod tests {
                 }
 
                 let zero1 = $GAffine::identity();
-                let res1 = $GOp::_decompress_p(vec![zero1.clone()]);
+                let res1 = $GOp::decompress_p(vec![zero1.clone()]);
 
                 assert_eq!(res1, $GOp::serialize_uncompressed_g(&zero1));
             }
@@ -1057,19 +940,19 @@ mod tests {
                     let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOp::_get_random_curve_point(&mut rng));
+                        p1s.push($GOp::get_random_curve_point(&mut rng));
                         res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOp::_decompress_p(p1s.clone());
+                    let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
 
                     let mut p1s: Vec<$GAffine> = vec![];
                     let mut res2: Vec<u8> = vec![];
                     for i in 0..n {
-                        p1s.push($GOp::_get_random_g_point(&mut rng));
+                        p1s.push($GOp::get_random_g_point(&mut rng));
                         res2.append(&mut $GOp::serialize_uncompressed_g(&p1s[i]).to_vec());
                     }
-                    let res1 = $GOp::_decompress_p(p1s.clone());
+                    let res1 = $GOp::decompress_p(p1s.clone());
                     assert_eq!(res1, res2);
                 }
             }
@@ -1089,13 +972,13 @@ mod tests {
                 zero[0] = 0x40;
                 run_bls12381_fn!($bls12381_decompress, vec![zero], 1);
 
-                let p = $GOp::_get_random_curve_point(&mut rng);
+                let p = $GOp::get_random_curve_point(&mut rng);
                 let mut p_ser = $GOp::serialize_g(&p);
                 p_ser[0] ^= 0x80;
                 run_bls12381_fn!($bls12381_decompress, vec![p_ser], 1);
 
                 //Point with a coordinate larger than 'p'.
-                let p = $GOp::_get_random_curve_point(&mut rng);
+                let p = $GOp::get_random_curve_point(&mut rng);
                 run_bls12381_fn!($bls12381_decompress, vec![$add_p(&p)], 1);
             }
         };
@@ -1147,19 +1030,19 @@ mod tests {
         let mut rng = test_rng();
 
         for _ in 0..TESTS_ITERATIONS {
-            let p1 = G1Operations::_get_random_g_point(&mut rng);
-            let p2 = G2Operations::_get_random_g_point(&mut rng);
+            let p1 = G1Operations::get_random_g_point(&mut rng);
+            let p2 = G2Operations::get_random_g_point(&mut rng);
 
             let zero1 = G1Affine::zero();
             let zero2 = G2Affine::zero();
 
-            let v = Bls12_381::pairing( p1, zero2);
+            let v = Bls12_381::pairing(p1, zero2);
             assert!(v.is_zero());
 
-            assert_eq!(_pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(_pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
-            assert_eq!(_pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(_pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
+            assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
         }
     }
 
@@ -1168,22 +1051,22 @@ mod tests {
         let mut rng = test_rng();
 
         for _ in 0..TESTS_ITERATIONS {
-            let p1 = G1Operations::_get_random_g_point(&mut rng);
-            let p2 = G2Operations::_get_random_g_point(&mut rng);
+            let p1 = G1Operations::get_random_g_point(&mut rng);
+            let p2 = G2Operations::get_random_g_point(&mut rng);
 
             let p1_neg = p1.neg();
             let p2_neg = p2.neg();
 
             assert_eq!(
-                _pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]),
+                pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]),
                 0
             );
             assert_eq!(
-                _pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]),
+                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]),
                 0
             );
             assert_eq!(
-                _pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]),
+                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]),
                 2
             );
 
@@ -1192,17 +1075,21 @@ mod tests {
             let s2: Fr = distr.sample(&mut rng);
 
             assert_eq!(
-                _pairing_check(vec![p1.mul(&s1).into(), p1_neg.mul(&s2).into()],
-                               vec![p2.mul(&s2).into(), p2.mul(&s1).into()]),
+                pairing_check(
+                    vec![p1.mul(&s1).into(), p1_neg.mul(&s2).into()],
+                    vec![p2.mul(&s2).into(), p2.mul(&s1).into()]
+                ),
                 0
             );
             assert_eq!(
-                _pairing_check(vec![p1.mul(&s1).into(), p1.mul(&s2).into()],
-                               vec![p2.mul(&s2).into(), p2_neg.mul(&s1).into()]),
+                pairing_check(
+                    vec![p1.mul(&s1).into(), p1.mul(&s2).into()],
+                    vec![p2.mul(&s2).into(), p2_neg.mul(&s1).into()]
+                ),
                 0
             );
             assert_eq!(
-                _pairing_check(
+                pairing_check(
                     vec![p1.mul(&s1).into(), p1.mul(&s2).into()],
                     vec![p2_neg.mul(&s2).into(), p2_neg.mul(&s1).into()]
                 ),
@@ -1240,12 +1127,10 @@ mod tests {
                 g2s.push(g2.mul(&scalars_2[i]).into());
             }
 
-            println!("{:?}", n);
-
             if !scalar_res.is_zero() {
-                assert_eq!(_pairing_check(g1s.clone(), g2s.clone()), 2);
+                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
             } else {
-                assert_eq!(_pairing_check(g1s.clone(), g2s.clone()), 0);
+                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 0);
             }
 
             for i in 0..n {
@@ -1256,13 +1141,13 @@ mod tests {
                 g2s.push(p2);
             }
 
-            assert_eq!(_pairing_check(g1s, g2s), 0);
+            assert_eq!(pairing_check(g1s, g2s), 0);
         }
     }
 
     #[test]
     fn test_bls12381_pairing_incorrect_input_point() {
-        let mut rnd = get_rnd();
+        let mut rnd = test_rng();
 
         let p1_not_from_g1 = G1Operations::get_random_not_g_curve_point(&mut rnd);
         let p2 = G2Operations::get_random_g_point(&mut rnd);
@@ -1273,8 +1158,8 @@ mod tests {
         assert_eq!(pairing_check(vec![p1_not_from_g1.clone()], vec![p2.clone()]), 1);
         assert_eq!(pairing_check(vec![p1.clone()], vec![p2_not_from_g2.clone()]), 1);
 
-        let p1_ser = serialize_uncompressed_g1(&p1).to_vec();
-        let p2_ser = serialize_uncompressed_g2(&p2).to_vec();
+        let p1_ser = G1Operations::serialize_uncompressed_g(&p1).to_vec();
+        let p2_ser = G2Operations::serialize_uncompressed_g(&p2).to_vec();
         let test_vecs: Vec<Vec<u8>> = G1Operations::get_incorrect_points();
         for i in 0..test_vecs.len() {
             assert_eq!(pairing_check_vec(test_vecs[i].clone(), p2_ser.clone()), 1);
@@ -1287,14 +1172,20 @@ mod tests {
 
         // not G1 point
         let p = G1Operations::get_random_not_g_curve_point(&mut rnd);
-        let p_ser = serialize_uncompressed_g1(&p);
-        assert_eq!(pairing_check_vec(p_ser.to_vec(), serialize_uncompressed_g2(&p2).to_vec()), 1);
+        let p_ser = G1Operations::serialize_uncompressed_g(&p);
+        assert_eq!(
+            pairing_check_vec(p_ser.to_vec(), G2Operations::serialize_uncompressed_g(&p2).to_vec()),
+            1
+        );
 
         // not G2 point
         let p = G2Operations::get_random_not_g_curve_point(&mut rnd);
-        let p_ser = serialize_uncompressed_g2(&p);
+        let p_ser = G2Operations::serialize_uncompressed_g(&p);
 
-        assert_eq!(pairing_check_vec(serialize_uncompressed_g1(&p1).to_vec(), p_ser.to_vec()), 1);
+        assert_eq!(
+            pairing_check_vec(G1Operations::serialize_uncompressed_g(&p1).to_vec(), p_ser.to_vec()),
+            1
+        );
     }
 
     #[test]

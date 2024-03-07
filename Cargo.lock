@@ -332,11 +332,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0942ffc6dcaadf03badf6e6a2d0228460359d5e34b57ccdc720b7382dfbd5ec5"
 
 [[package]]
-name = "amcl"
-version = "0.3.0"
-source = "git+https://github.com/sigp/incubator-milagro-crypto-rust.git#4e0d0c60a18c4b418932145002f12ad672f7f4de"
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4687,7 +4682,6 @@ dependencies = [
 name = "near-vm-runner"
 version = "0.0.0"
 dependencies = [
- "amcl",
  "anyhow",
  "arbitrary",
  "ark-bls12-381",
