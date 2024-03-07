@@ -123,6 +123,9 @@ statelessnet_protocol = [
   "nearcore/statelessnet_protocol",
   "near-primitives/statelessnet_protocol",
 ]
+shadow_chunk_validation = [
+  "near-client/shadow_chunk_validation",
+]
 
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
