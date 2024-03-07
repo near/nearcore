@@ -9,6 +9,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+clap = { workspace = true, features = ["derive"] }
 
 [lints]
 workspace = true
