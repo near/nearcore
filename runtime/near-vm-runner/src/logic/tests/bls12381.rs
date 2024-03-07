@@ -1165,46 +1165,46 @@ mod tests {
 
     #[test]
     fn test_bls12381_pairing_check_two_points() {
-        let mut rnd = get_rnd();
+        let mut rng = test_rng();
 
         for _ in 0..TESTS_ITERATIONS {
-            let p1 = G1Operations::get_random_g_point(&mut rnd);
-            let p2 = G2Operations::get_random_g_point(&mut rnd);
+            let p1 = G1Operations::_get_random_g_point(&mut rng);
+            let p2 = G2Operations::_get_random_g_point(&mut rng);
 
-            let p1_neg = p1.mul(&Big::new_int(-1));
-            let p2_neg = p2.mul(&Big::new_int(-1));
+            let p1_neg = p1.neg();
+            let p2_neg = p2.neg();
 
             assert_eq!(
-                pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]),
+                _pairing_check(vec![p1.clone(), p1_neg.clone()], vec![p2.clone(), p2.clone()]),
                 0
             );
             assert_eq!(
-                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]),
+                _pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2_neg.clone()]),
                 0
             );
             assert_eq!(
-                pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]),
+                _pairing_check(vec![p1.clone(), p1.clone()], vec![p2.clone(), p2.clone()]),
                 2
             );
 
-            let mut s1 = Big::random(&mut rnd);
-            s1.mod2m(32 * 8);
-
-            let mut s2 = Big::random(&mut rnd);
-            s2.mod2m(32 * 8);
+            let distr = ark_std::rand::distributions::Standard;
+            let s1: Fr = distr.sample(&mut rng);
+            let s2: Fr = distr.sample(&mut rng);
 
             assert_eq!(
-                pairing_check(vec![p1.mul(&s1), p1_neg.mul(&s2)], vec![p2.mul(&s2), p2.mul(&s1)]),
+                _pairing_check(vec![p1.mul(&s1).into(), p1_neg.mul(&s2).into()],
+                               vec![p2.mul(&s2).into(), p2.mul(&s1).into()]),
                 0
             );
             assert_eq!(
-                pairing_check(vec![p1.mul(&s1), p1.mul(&s2)], vec![p2.mul(&s2), p2_neg.mul(&s1)]),
+                _pairing_check(vec![p1.mul(&s1).into(), p1.mul(&s2).into()],
+                               vec![p2.mul(&s2).into(), p2_neg.mul(&s1).into()]),
                 0
             );
             assert_eq!(
-                pairing_check(
-                    vec![p1.mul(&s1), p1.mul(&s2)],
-                    vec![p2_neg.mul(&s2), p2_neg.mul(&s1)]
+                _pairing_check(
+                    vec![p1.mul(&s1).into(), p1.mul(&s2).into()],
+                    vec![p2_neg.mul(&s2).into(), p2_neg.mul(&s1).into()]
                 ),
                 2
             );
