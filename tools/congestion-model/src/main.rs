@@ -1,5 +1,7 @@
 use congestion_model::strategy::{GlobalTxStopShard, NoQueueShard, SimpleBackpressure};
-use congestion_model::workload::{AllForOneProducer, BalancedProducer, Producer};
+use congestion_model::workload::{
+    AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
+};
 use congestion_model::{summary_table, CongestionStrategy, Model, PGAS};
 
 use clap::Parser;
@@ -57,6 +59,7 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
     match workload_name {
         "Balanced" => Box::<BalancedProducer>::default(),
         "All To One" => Box::<AllForOneProducer>::default(),
+        "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
         _ => panic!("unknown workload: {}", workload_name),
     }
 }
@@ -81,7 +84,8 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
 }
 
 fn parse_workflow_names(workflow_name: &str) -> Vec<String> {
-    let available: Vec<String> = vec!["Balanced".to_string(), "All To One".to_string()];
+    let available: Vec<String> =
+        vec!["Balanced".to_string(), "All To One".to_string(), "Linear Imbalance".to_string()];
 
     if workflow_name == "all" {
         return available;
