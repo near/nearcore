@@ -23,6 +23,9 @@ struct Args {
     /// Can be used to select a single strategy or "all" to run all strategies.
     #[clap(long, default_value = "all")]
     strategy: String,
+
+    #[clap(long, default_value = "false")]
+    write_stats: bool,
 }
 
 fn main() {
@@ -35,17 +38,24 @@ fn main() {
 
     for workload_name in &workload_names {
         for strategy_name in &strategy_names {
-            run_model(&strategy_name, &workload_name, args.shards, args.rounds);
+            run_model(&strategy_name, &workload_name, args.shards, args.rounds, args.write_stats);
         }
     }
 }
 
-fn run_model(strategy_name: &str, workload_name: &str, num_shards: usize, num_rounds: usize) {
+fn run_model(
+    strategy_name: &str,
+    workload_name: &str,
+    num_shards: usize,
+    num_rounds: usize,
+    write_stats: bool,
+) {
     let strategy = strategy(strategy_name, num_shards);
     let workload = workload(workload_name);
-    let stats_writer = Some(Box::new(
-        csv::Writer::from_path(format!("stats_{}_{}.csv", workload_name, strategy_name)).unwrap(),
-    ));
+    let stats_writer = write_stats.then(|| {
+        let path = format!("stats_{}_{}.csv", workload_name, strategy_name);
+        Box::new(csv::Writer::from_path(path).unwrap())
+    });
     let mut model = Model::new(strategy, workload, stats_writer);
     for _ in 0..num_rounds {
         model.step();
