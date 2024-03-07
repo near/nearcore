@@ -586,6 +586,7 @@ mod tests {
         let v0 = ShardLayout::v0(1, 0);
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
+        let v3 = ShardLayout::get_simple_nightshade_layout_v3();
 
         insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
         {
@@ -653,6 +654,46 @@ mod tests {
               3
             ],
             "version": 2
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v3).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "g-to-be-determined",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shards_split_map": [
+              [
+                0
+              ],
+              [
+                1,
+                2
+              ],
+              [
+                3
+              ],
+              [
+                4
+              ],
+              [
+                5
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              1,
+              1,
+              2,
+              3,
+              4
+            ],
+            "version": 3
           }
         }
         "###);
