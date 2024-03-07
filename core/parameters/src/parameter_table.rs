@@ -301,7 +301,6 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     num_bytes_account: params.get(Parameter::StorageNumBytesAccount)?,
                     num_extra_bytes_record: params.get(Parameter::StorageNumExtraBytesRecord)?,
                 },
-                state_witness_size_soft_limit: params.get(Parameter::StateWitnessSizeSoftLimit)?,
             },
             wasm_config: Config {
                 ext_costs: ExtCostsConfig {
@@ -333,6 +332,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
+            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
         })
     }
 }

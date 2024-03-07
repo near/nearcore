@@ -2397,8 +2397,9 @@ pub struct SplitStorageInfoView {
     pub hot_db_kind: Option<String>,
 }
 
-#[cfg(not(any(feature = "nightly", feature = "statelessnet_protocol")))]
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;

@@ -21,7 +21,7 @@ pub enum Parameter {
     PessimisticGasPriceInflation,
 
     // Stateless validation config
-    StateWitnessSizeSoftLimit,
+    StorageProofSizeSoftLimit,
 
     // Account creation config
     MinAllowedTopLevelAccountLength,

@@ -318,6 +318,7 @@ mod tests {
     /// the new snapshot if it looks right.
     #[test]
     #[cfg(not(feature = "nightly"))]
+    #[cfg(not(feature = "statelessnet_protocol"))]
     #[cfg(not(feature = "calimero_zero_storage"))]
     fn test_json_unchanged() {
         use crate::view::RuntimeConfigView;

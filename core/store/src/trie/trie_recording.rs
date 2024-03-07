@@ -16,9 +16,9 @@ impl TrieRecorder {
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
-        match self.recorded.insert(*hash, node.clone()) {
-            Some(old_node) => debug_assert_eq!(old_node, node, "Must record read-only nodes."),
-            None => self.size += node.len(),
+        let size = node.len();
+        if self.recorded.insert(*hash, node).is_none() {
+            self.size += size;
         }
     }
 

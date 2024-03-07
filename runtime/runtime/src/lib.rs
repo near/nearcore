@@ -1450,9 +1450,12 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
-        let check_state_witness_size_limit =
-            checked_feature!("stable", StateWitnessSizeLimit, protocol_version);
-        let state_witness_size_limit = apply_state.config.fees.state_witness_size_soft_limit;
+        let proof_size_limit =
+            if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
+                Some(apply_state.config.storage_proof_size_soft_limit)
+            } else {
+                None
+            };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1462,8 +1465,8 @@ impl Runtime {
         }
         for receipt in local_receipts.iter() {
             if total_compute_usage >= compute_limit
-                || (check_state_witness_size_limit
-                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -1482,8 +1485,8 @@ impl Runtime {
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total_compute_usage >= compute_limit
-                || (check_state_witness_size_limit
-                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
                 break;
             }
@@ -1543,8 +1546,8 @@ impl Runtime {
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
             if total_compute_usage >= compute_limit
-                || (check_state_witness_size_limit
-                    && state_update.trie.recorded_storage_size() >= state_witness_size_limit)
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
@@ -2842,17 +2845,17 @@ mod tests {
     }
 
     #[test]
-    fn test_state_witness_size_soft_limit() {
+    fn test_storage_proof_size_soft_limit() {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
         }
         let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
-        // Change state_witness_size_soft_limit to a smaller value
+        // Change storage_proof_size_soft_limit to a smaller value
         // The value of 500 is small enough to let the first receipt go through but not the second
         let mut runtime_config = RuntimeConfig::test();
-        runtime_config.fees.state_witness_size_soft_limit = 5000;
+        runtime_config.storage_proof_size_soft_limit = 5000;
         apply_state.config = Arc::new(runtime_config);
 
         let create_acc_fn = |account_id| {
@@ -2898,7 +2901,7 @@ mod tests {
             )
         };
 
-        // The function call to bob_account should hit the state_witness_size_soft_limit
+        // The function call to bob_account should hit the storage_proof_size_soft_limit
         let apply_result = runtime
             .apply(
                 tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),

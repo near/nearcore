@@ -103,7 +103,7 @@ expression: "&view"
       103,
       100
     ],
-    "state_witness_size_soft_limit": 999999999999999
+    "storage_proof_size_soft_limit": 999999999999999
   },
   "wasm_config": {
     "ext_costs": {
