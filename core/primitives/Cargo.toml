@@ -91,6 +91,7 @@ calimero_zero_storage = []
 [dev-dependencies]
 assert_matches.workspace = true
 bencher.workspace = true
+bolero.workspace = true
 insta.workspace = true
 expect-test.workspace = true
 
