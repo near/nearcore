@@ -16,7 +16,7 @@ use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
-use near_async::futures::FutureSpawner;
+use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
@@ -250,6 +250,7 @@ impl Client {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
+        apply_chunks_spawner: Box<dyn AsyncComputationSpawner>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -270,6 +271,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config.clone(),
             snapshot_callbacks,
+            apply_chunks_spawner,
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(

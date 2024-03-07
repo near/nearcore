@@ -5,7 +5,8 @@ use near_async::test_loop::event_handler::{
     ignore_events, LoopEventHandler, LoopHandlerContext, TryIntoOrSelf,
 };
 use near_async::test_loop::futures::{
-    drive_delayed_action_runners, drive_futures, TestLoopDelayedActionEvent, TestLoopTask,
+    drive_async_computations, drive_delayed_action_runners, drive_futures,
+    TestLoopAsyncComputationEvent, TestLoopDelayedActionEvent, TestLoopTask,
 };
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
@@ -14,7 +15,10 @@ use near_chain::ChainGenesis;
 use near_chain_configs::{ClientConfig, Genesis, GenesisConfig, GenesisRecords};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::test_loop::forward_client_request_to_shards_manager;
+use near_chunks::test_loop::{
+    forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
+    route_shards_manager_network_messages,
+};
 use near_chunks::ShardsManager;
 use near_client::client_actions::{
     ClientActions, ClientSenderForClientMessage, SyncJobsSenderForClientMessage,
@@ -35,6 +39,7 @@ use near_epoch_manager::EpochManager;
 use near_network::client::{
     BlockApproval, BlockResponse, ClientSenderForNetwork, ClientSenderForNetworkMessage,
 };
+use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_loop::SupportsRoutingLookup;
 use near_network::types::{
     NetworkRequests, PeerManagerMessageRequest, PeerManagerMessageResponse, SetChainInfo,
@@ -44,6 +49,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::types::{AccountId, AccountInfo};
+use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
@@ -71,32 +77,55 @@ impl AsMut<TestData> for TestData {
 #[derive(EnumTryInto, Debug, EnumFrom)]
 #[allow(clippy::large_enum_variant)]
 enum TestEvent {
+    /// Allows futures to be spawn and executed.
     Task(Arc<TestLoopTask>),
+    /// Allows adhoc events to be used for the test (only used inside this file).
     Adhoc(AdhocEvent<TestData>),
+    /// Allows asynchronous computation (chunk application, stateless validation, etc.).
+    AsyncComputation(TestLoopAsyncComputationEvent),
+
+    /// Allows delayed actions to be posted, as if ClientActor scheduled them, e.g. timers.
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
+    /// Allows delayed actions to be posted, as if ShardsManagerActor scheduled them, e.g. timers.
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+
+    /// Message that the network layer sends to the client.
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
+    /// Message that the client sends to the client itself.
     ClientEventFromClient(ClientSenderForClientMessage),
+    /// Message that the SyncJobs component sends to the client.
     ClientEventFromSyncJobs(ClientSenderForSyncJobsMessage),
+    /// Message that the ShardsManager component sends to the client.
     ClientEventFromShardsManager(ShardsManagerResponse),
-    SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
-    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
-    ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
+    /// Message that the state sync adapter sends to the client.
     ClientEventFromStateSyncAdapter(SyncMessage),
-    NetworkMessage(PeerManagerMessageRequest),
-    NetworkMessageForResult(
+
+    /// Message that the client sends to the SyncJobs component.
+    SyncJobsEventFromClient(SyncJobsSenderForClientMessage),
+    /// Message that the SyncJobs component sends to itself.
+    SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
+
+    /// Message that the client sends to the ShardsManager component.
+    ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
+    /// Message that the network layer sends to the ShardsManager component.
+    ShardsManagerRequestFromNetwork(ShardsManagerRequestFromNetwork),
+
+    /// Outgoing network message that is sent by any of the components of this node.
+    OutgoingNetworkMessage(PeerManagerMessageRequest),
+    /// Same as OutgoingNetworkMessage, but of the variant that requests a response.
+    OutgoingNetworkMessageForResult(
         MessageWithCallback<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     ),
+    /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
-// TODO(robin-near): Complete this test so that it will actually run a chain.
-// TODO(robin-near): Make this a multi-node test.
-// TODO(robin-near): Make the network layer send messages.
 #[test]
 fn test_client_with_multi_test_loop() {
     const NUM_CLIENTS: usize = 4;
+    const NETWORK_DELAY: Duration = Duration::milliseconds(10);
     let builder = TestLoopBuilder::<(usize, TestEvent)>::new();
 
     let validator_stake = 1000000 * ONE_NEAR;
@@ -106,6 +135,7 @@ fn test_client_with_multi_test_loop() {
 
     // TODO: Make some builder for genesis.
     let mut genesis_config = GenesisConfig {
+        genesis_time: from_timestamp(builder.clock().now_utc().unix_timestamp_nanos() as u64),
         protocol_version: PROTOCOL_VERSION,
         genesis_height: 10000,
         shard_layout: ShardLayout::v1(
@@ -204,6 +234,12 @@ fn test_client_with_multi_test_loop() {
             true,
             [0; 32],
             None,
+            Box::new(
+                builder
+                    .sender()
+                    .for_index(idx)
+                    .into_async_computation_spawner(|_| Duration::milliseconds(80)),
+            ),
         )
         .unwrap();
 
@@ -254,7 +290,20 @@ fn test_client_with_multi_test_loop() {
 
     let mut test = builder.build(datas);
     for idx in 0..NUM_CLIENTS {
+        // Futures, adhoc events, async computations.
+        test.register_handler(drive_futures().widen().for_index(idx));
         test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
+        test.register_handler(drive_async_computations().widen().for_index(idx));
+
+        // Delayed actions.
+        test.register_handler(
+            drive_delayed_action_runners::<ClientActions>().widen().for_index(idx),
+        );
+        test.register_handler(
+            drive_delayed_action_runners::<ShardsManager>().widen().for_index(idx),
+        );
+
+        // Messages to the client.
         test.register_handler(
             forward_client_messages_from_network_to_client_actions().widen().for_index(idx),
         );
@@ -265,6 +314,9 @@ fn test_client_with_multi_test_loop() {
             forward_client_messages_from_sync_jobs_to_client_actions().widen().for_index(idx),
         );
         test.register_handler(forward_client_messages_from_shards_manager().widen().for_index(idx));
+        // TODO: handle state sync adapter -> client.
+
+        // Messages to the SyncJobs component.
         test.register_handler(
             forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
                 test.sender().for_index(idx).into_future_spawner(),
@@ -272,22 +324,48 @@ fn test_client_with_multi_test_loop() {
             .widen()
             .for_index(idx),
         );
-        test.register_handler(drive_futures().widen().for_index(idx));
-        test.register_handler(
-            drive_delayed_action_runners::<ClientActions>().widen().for_index(idx),
-        );
+        // TODO: handle SyncJobs -> SyncJobs.
+
+        // Messages to the ShardsManager component.
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
+        test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
+
+        // Messages to the network layer; multi-node messages are handled below.
         test.register_handler(ignore_events::<SetChainInfo>().widen().for_index(idx));
     }
-    test.register_handler(route_network_messages_to_client(Duration::milliseconds(10)));
+    // Handles network routing. Outgoing messages are handled by emitting incoming messages to the
+    // appropriate component of the appropriate node index.
+    test.register_handler(route_network_messages_to_client(NETWORK_DELAY));
+    test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
 
+    // Bootstrap the test by starting the components.
+    // We use adhoc events for these, just so that the visualizer can see these as events rather
+    // than happening outside of the TestLoop framework. Other than that, we could also just remove
+    // the send_adhoc_event part and the test would still work.
     for idx in 0..NUM_CLIENTS {
-        let mut delayed_action_runner = test.sender().for_index(idx).into_delayed_action_runner();
+        let sender = test.sender().for_index(idx);
         test.sender().for_index(idx).send_adhoc_event("start_client", move |data| {
-            data.client.start(&mut delayed_action_runner);
+            data.client.start(&mut sender.into_delayed_action_runner());
         });
+
+        let sender = test.sender().for_index(idx);
+        test.sender().for_index(idx).send_adhoc_event("start_shards_manager", move |data| {
+            data.shards_manager.periodically_resend_chunk_requests(
+                &mut sender.into_delayed_action_runner(),
+                Duration::milliseconds(100),
+            );
+        })
     }
-    test.run_for(Duration::seconds(10));
+
+    // Give it some condition to stop running at. Here we run the test until the first client
+    // reaches height 10003, with a timeout of 5sec (failing if it doesn't reach 10003 in time).
+    test.run_until(
+        |data| data[0].client.client.chain.head().unwrap().height == 10003,
+        Duration::seconds(5),
+    );
+    // Give the test a chance to finish off remaining important events in the event loop, which can
+    // be important for properly shutting down the nodes.
+    test.finish_remaining_events(Duration::seconds(1));
 }
 
 /// Handles outgoing network messages, and turns them into incoming client messages.

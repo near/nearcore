@@ -4,6 +4,7 @@ use near_epoch_manager::EpochManager;
 use near_store::genesis::initialize_genesis_state;
 use tempfile::tempdir;
 
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::Genesis;
@@ -36,6 +37,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
+        Box::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     chain.genesis().clone()
@@ -60,6 +62,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
+        Box::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

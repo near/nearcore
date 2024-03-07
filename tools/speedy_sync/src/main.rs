@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::Clock;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -251,6 +252,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
             ),
         },
         None,
+        Box::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
