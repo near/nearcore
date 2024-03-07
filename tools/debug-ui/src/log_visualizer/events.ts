@@ -57,7 +57,9 @@ export class EventItem {
             const secondBracket = /[({]/.exec(afterFirstParens);
             if (secondBracket !== null) {
                 this.subtitle = afterFirstParens.substring(0, secondBracket.index);
-                if (this.subtitle === "DelayedAction" || this.subtitle === "Task") {
+                if (this.subtitle === "DelayedAction"
+                    || this.subtitle === "Task"
+                    || this.subtitle === "AsyncComputation") {
                     // Special logic for DelayedAction and Task, where we're more interested
                     // in the name, which is printed in the parens.
                     this.subtitle = afterFirstParens.substring(secondBracket.index + 1, afterFirstParens.length - 1);
