@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
+csv.workspace = true
 
 [lints]
 workspace = true

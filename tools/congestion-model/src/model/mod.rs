@@ -14,6 +14,7 @@ pub use transaction_registry::TransactionId;
 
 pub(crate) use transaction::Transaction;
 
+use crate::strategy::StatsWriter;
 use crate::workload::Producer;
 use crate::{CongestionStrategy, Round};
 use std::collections::BTreeMap;
@@ -35,25 +36,36 @@ pub struct Model {
     // Workload state
     pub(crate) transactions: TransactionRegistry,
     pub(crate) producer: Box<dyn Producer>,
+
+    stats_writer: StatsWriter,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ShardId(usize);
+pub struct ShardId(pub usize);
 
 impl Model {
     pub fn new(
         mut shards: Vec<Box<dyn CongestionStrategy>>,
         mut producer: Box<dyn Producer>,
+        mut stats_writer: StatsWriter,
     ) -> Self {
         let num_shards = shards.len();
         let shard_ids: Vec<_> = (0..num_shards).map(ShardId).collect();
         let mut queues = QueueBundle::new(&shard_ids);
 
+        if let Some(stats_writer) = &mut stats_writer {
+            stats_writer.write_field("round").unwrap();
+        }
+
         for (shard, &id) in shards.iter_mut().zip(&shard_ids) {
-            shard.init(id, &shard_ids, &mut queues);
+            shard.init(id, &shard_ids, &mut queues, &mut stats_writer);
         }
 
         producer.init(&shard_ids);
+
+        if let Some(stats_writer) = &mut stats_writer {
+            stats_writer.write_record(None::<&[u8]>).unwrap();
+        }
 
         Self {
             shards,
@@ -63,12 +75,17 @@ impl Model {
             producer,
             round: 0,
             queues,
+            stats_writer,
         }
     }
 
     /// execute one round of the model
     pub fn step(&mut self) {
         self.round += 1;
+
+        if let Some(stats_writer) = &mut self.stats_writer {
+            stats_writer.write_field(format!("{}", self.round)).unwrap();
+        }
 
         // Generate new transactions and place them in the per-shard transaction queues.
         let new_transactions = self.generate_tx_for_round();
@@ -89,11 +106,15 @@ impl Model {
                 self.round,
                 ShardId(i),
             );
-            shard.compute_chunk(&mut ctx);
+            shard.compute_chunk(&mut ctx, &mut self.stats_writer);
             let (mut forwarded_receipts, shared_block_info) = ctx.finish();
 
             outgoing.append(&mut forwarded_receipts);
             next_block.insert(id, shared_block_info);
+        }
+
+        if let Some(stats_writer) = &mut self.stats_writer {
+            stats_writer.write_record(None::<&[u8]>).unwrap();
         }
 
         // Propagate outputs from this round to inputs for the next round.

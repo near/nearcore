@@ -2,6 +2,8 @@ use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
 use crate::{GAS_LIMIT, TX_GAS_LIMIT};
 
+use super::StatsWriter;
+
 /// Stop all shards from accepting new transactions when a limit of delayed
 /// receipts is reached in any shard.
 pub struct GlobalTxStopShard {
@@ -18,10 +20,11 @@ impl crate::CongestionStrategy for GlobalTxStopShard {
         _id: crate::ShardId,
         _other_shards: &[crate::ShardId],
         _queue_factory: &mut dyn QueueFactory,
+        _stats_writer: &mut StatsWriter,
     ) {
     }
 
-    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
+    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext, _stats_writer: &mut StatsWriter) {
         let mut any_shard_congested = false;
         for shard_info in ctx.prev_block_info().values() {
             if shard_info.get::<DelayedQueueInfo>().unwrap().num_delayed > self.max_delayed_receipts

@@ -30,7 +30,7 @@ fn main() {
 
     summary_table::print_summary_header();
 
-    let workload_names = parse_workflow_names(args.workload.as_ref());
+    let workload_names = parse_workload_names(args.workload.as_ref());
     let strategy_names = parse_strategy_names(args.strategy.as_ref());
 
     for workload_name in &workload_names {
@@ -43,7 +43,10 @@ fn main() {
 fn run_model(strategy_name: &str, workload_name: &str, num_shards: usize, num_rounds: usize) {
     let strategy = strategy(strategy_name, num_shards);
     let workload = workload(workload_name);
-    let mut model = Model::new(strategy, workload);
+    let stats_writer = Some(Box::new(
+        csv::Writer::from_path(format!("stats_{}_{}.csv", workload_name, strategy_name)).unwrap(),
+    ));
+    let mut model = Model::new(strategy, workload, stats_writer);
     for _ in 0..num_rounds {
         model.step();
     }
@@ -83,20 +86,20 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
     result
 }
 
-fn parse_workflow_names(workflow_name: &str) -> Vec<String> {
+fn parse_workload_names(workload_name: &str) -> Vec<String> {
     let available: Vec<String> =
         vec!["Balanced".to_string(), "All To One".to_string(), "Linear Imbalance".to_string()];
 
-    if workflow_name == "all" {
+    if workload_name == "all" {
         return available;
     }
 
     for name in &available {
-        if normalize_cmdline_arg(name.as_ref()) == normalize_cmdline_arg(workflow_name) {
+        if normalize_cmdline_arg(name.as_ref()) == normalize_cmdline_arg(workload_name) {
             return vec![name.to_string()];
         }
     }
-    panic!("The requested workflow name did not match any available workflows. Requested workflow name {:?}, The available workflows are: {:?}", workflow_name, available);
+    panic!("The requested workload name did not match any available workloads. Requested workload name {:?}, The available workloads are: {:?}", workload_name, available);
 }
 
 fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
