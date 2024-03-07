@@ -68,16 +68,10 @@ pub mod multi_instance;
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
-    futures::{
-        TestLoopDelayedActionEvent, TestLoopDelayedActionRunner, TestLoopFutureSpawner,
-        TestLoopTask,
-    },
+    futures::{TestLoopFutureSpawner, TestLoopTask},
 };
-use crate::{break_apart::BreakApart, time};
-use crate::{
-    messaging::{IntoMultiSender, IntoSender},
-    test_loop::event_handler::LoopHandlerContext,
-};
+use crate::test_loop::event_handler::LoopHandlerContext;
+use crate::time;
 use near_o11y::{testonly::init_test_logger, tracing::log::info};
 use serde::Serialize;
 use std::{
@@ -192,38 +186,9 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         self.pending_events_sender.clone()
     }
 
-    /// A shortcut for a common use case, where we use an enum message to
-    /// represent all the possible messages that a multisender may be used to
-    /// send.
-    ///
-    /// This assumes that S is a multisender with the derive
-    /// `#[derive(MultiSendMessage, ...)]`, which creates the enum
-    /// `MyMultiSenderMessage` (where `MyMultiSender` is the name of the struct
-    /// being derived from).
-    ///
-    /// To use, first include in the test loop event enum a case for
-    /// `MyMultiSenderMessage`. Then, call this function to get a multisender,
-    /// like
-    /// `builder.wrapped_multi_sender<MyMultiSenderMessage, MyMultiSender>()`.
-    pub fn wrapped_multi_sender<M: 'static, S: 'static>(&self) -> S
-    where
-        DelaySender<Event>: IntoSender<M>,
-        BreakApart<M>: IntoMultiSender<S>,
-    {
-        self.sender().into_sender().break_apart().into_multi_sender()
-    }
-
     /// Returns a clock that will always return the current virtual time.
     pub fn clock(&self) -> time::Clock {
         self.clock.clock()
-    }
-
-    /// Returns a FutureSpawner that can be used to spawn futures into the loop.
-    pub fn future_spawner(&self) -> TestLoopFutureSpawner
-    where
-        Event: From<Arc<TestLoopTask>>,
-    {
-        self.sender().narrow()
     }
 
     pub fn build<Data>(self, data: Data) -> TestLoop<Data, Event> {
@@ -355,13 +320,6 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         Event: From<Arc<TestLoopTask>>,
     {
         self.sender().narrow()
-    }
-
-    pub fn delayed_action_runner<InnerData>(&self) -> TestLoopDelayedActionRunner<InnerData>
-    where
-        Event: From<TestLoopDelayedActionEvent<InnerData>>,
-    {
-        TestLoopDelayedActionRunner { sender: self.sender().narrow() }
     }
 }
 

@@ -1,6 +1,11 @@
+use crate::break_apart::BreakApart;
 use crate::messaging;
+use crate::messaging::{IntoMultiSender, IntoSender};
+use crate::test_loop::futures::{TestLoopDelayedActionEvent, TestLoopDelayedActionRunner};
 use crate::time;
 use std::sync::Arc;
+
+use super::futures::{TestLoopFutureSpawner, TestLoopTask};
 
 /// Interface to send an event with a delay (in virtual time). It can be
 /// converted to a Sender for any message type that can be converted into
@@ -23,6 +28,14 @@ impl<Event> DelaySender<Event> {
         self.0(event, delay);
     }
 
+    pub fn with_additional_delay(&self, delay: time::Duration) -> DelaySender<Event>
+    where
+        Event: 'static,
+    {
+        let f = self.0.clone();
+        Self(Arc::new(move |event, other_delay| f(event, delay + other_delay)))
+    }
+
     pub fn narrow<InnerEvent>(self) -> DelaySender<InnerEvent>
     where
         Event: From<InnerEvent> + 'static,
@@ -30,6 +43,42 @@ impl<Event> DelaySender<Event> {
         DelaySender::<InnerEvent>::new(move |event, delay| {
             self.send_with_delay(event.into(), delay)
         })
+    }
+
+    /// A shortcut for a common use case, where we use an enum message to
+    /// represent all the possible messages that a multisender may be used to
+    /// send.
+    ///
+    /// This assumes that S is a multisender with the derive
+    /// `#[derive(MultiSendMessage, ...)]`, which creates the enum
+    /// `MyMultiSenderMessage` (where `MyMultiSender` is the name of the struct
+    /// being derived from).
+    ///
+    /// To use, first include in the test loop event enum a case for
+    /// `MyMultiSenderMessage`. Then, call this function to get a multisender,
+    /// like
+    /// `builder.wrapped_multi_sender<MyMultiSenderMessage, MyMultiSender>()`.
+    pub fn into_wrapped_multi_sender<M: 'static, S: 'static>(self) -> S
+    where
+        Self: IntoSender<M>,
+        BreakApart<M>: IntoMultiSender<S>,
+    {
+        self.into_sender().break_apart().into_multi_sender()
+    }
+
+    pub fn into_delayed_action_runner<InnerData>(self) -> TestLoopDelayedActionRunner<InnerData>
+    where
+        Event: From<TestLoopDelayedActionEvent<InnerData>> + 'static,
+    {
+        TestLoopDelayedActionRunner { sender: self.narrow() }
+    }
+
+    /// Returns a FutureSpawner that can be used to spawn futures into the loop.
+    pub fn into_future_spawner(self) -> TestLoopFutureSpawner
+    where
+        Event: From<Arc<TestLoopTask>> + 'static,
+    {
+        self.narrow()
     }
 }
 
