@@ -9,7 +9,7 @@ pessimistic_gas_price_inflation: {
 }
 
 # Stateless validation config
-state_witness_size_soft_limit: 1_000_000_000_000
+state_witness_size_soft_limit: 999_999_999_999_999
 
 # Account creation config
 min_allowed_top_level_account_length: 0

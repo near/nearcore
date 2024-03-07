@@ -40,6 +40,9 @@ pub struct RuntimeFeesConfigView {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// The maximum size of the state witness after which we defer execution of any new receipts.
+    pub state_witness_size_soft_limit: usize,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -179,6 +182,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                state_witness_size_soft_limit: config.fees.state_witness_size_soft_limit,
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
