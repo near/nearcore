@@ -1287,10 +1287,11 @@ impl Runtime {
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
+        let protocol_version = apply_state.current_protocol_version;
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
-            protocol_version = apply_state.current_protocol_version,
+            protocol_version,
             num_transactions = transactions.len())
         .entered();
 
@@ -1317,7 +1318,7 @@ impl Runtime {
                 &mut state_update,
                 &apply_state.migration_data,
                 &apply_state.migration_flags,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
@@ -1333,8 +1334,7 @@ impl Runtime {
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         if !apply_state.is_new_chunk
-            && apply_state.current_protocol_version
-                >= ProtocolFeature::FixApplyChunks.protocol_version()
+            && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
@@ -1387,7 +1387,7 @@ impl Runtime {
                     .expect("`process_transaction` must populate compute usage"),
             )?;
 
-            if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+            if !checked_feature!("stable", ComputeCosts, protocol_version) {
                 assert_eq!(
                     total_compute_usage, total_gas_burnt,
                     "Compute usage must match burnt gas"
@@ -1436,7 +1436,7 @@ impl Runtime {
                         .expect("`process_receipt` must populate compute usage"),
                 )?;
 
-                if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+                if !checked_feature!("stable", ComputeCosts, protocol_version) {
                     assert_eq!(
                         total_compute_usage, total_gas_burnt,
                         "Compute usage must match burnt gas"
@@ -1450,6 +1450,12 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let proof_size_limit =
+            if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
+                Some(apply_state.config.storage_proof_size_soft_limit)
+            } else {
+                None
+            };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1458,7 +1464,12 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
-            if total_compute_usage < compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+            } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 process_receipt(
@@ -1467,15 +1478,16 @@ impl Runtime {
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
                 )?;
-            } else {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
         metrics.local_receipts_done(total_gas_burnt, total_compute_usage);
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_compute_usage >= compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1496,7 +1508,7 @@ impl Runtime {
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 &receipt,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
@@ -1530,18 +1542,21 @@ impl Runtime {
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 receipt,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_compute_usage < compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+            } else {
                 process_receipt(
                     receipt,
                     &mut state_update,
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
                 )?;
-            } else {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
         metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
@@ -1587,7 +1602,7 @@ impl Runtime {
                 });
 
                 let new_receipt_id = create_receipt_id_from_receipt_id(
-                    apply_state.current_protocol_version,
+                    protocol_version,
                     &queue_entry.data_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
@@ -2827,6 +2842,80 @@ mod tests {
             assert_eq!(second.id, first_call_receipt.receipt_id);
             assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
+    }
+
+    #[test]
+    fn test_storage_proof_size_soft_limit() {
+        if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+            return;
+        }
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+        // Change storage_proof_size_soft_limit to a smaller value
+        // The value of 500 is small enough to let the first receipt go through but not the second
+        let mut runtime_config = RuntimeConfig::test();
+        runtime_config.storage_proof_size_soft_limit = 5000;
+        apply_state.config = Arc::new(runtime_config);
+
+        let create_acc_fn = |account_id| {
+            create_receipt_with_actions(
+                account_id,
+                signer.clone(),
+                vec![Action::DeployContract(DeployContractAction {
+                    code: near_test_contracts::sized_contract(5000).to_vec(),
+                })],
+            )
+        };
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+                &None,
+                &apply_state,
+                &vec![create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
+        store_update.commit().unwrap();
+
+        let function_call_fn = |account_id| {
+            create_receipt_with_actions(
+                account_id,
+                signer.clone(),
+                vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "main".to_string(),
+                    args: Vec::new(),
+                    gas: 1,
+                    deposit: 0,
+                }))],
+            )
+        };
+
+        // The function call to bob_account should hit the storage_proof_size_soft_limit
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+                &None,
+                &apply_state,
+                &vec![function_call_fn(alice_account()), function_call_fn(bob_account())],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        // We expect function_call_fn(bob_account()) to be in delayed receipts
+        assert_eq!(apply_result.delayed_receipts_count, 1);
     }
 }
 

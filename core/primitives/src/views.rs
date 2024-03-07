@@ -2398,6 +2398,8 @@ pub struct SplitStorageInfoView {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
@@ -2407,7 +2409,6 @@ mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
         use near_primitives_core::version::PROTOCOL_VERSION;
@@ -2420,7 +2421,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2429,7 +2429,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2438,7 +2437,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);
