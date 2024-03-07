@@ -663,7 +663,7 @@ mod tests {
             "boundary_accounts": [
               "aurora",
               "aurora-0",
-              "g-to-be-determined",
+              "game.hot.tg",
               "kkuuue2akv_1630967379.near",
               "tge-lockup.sweat"
             ],
