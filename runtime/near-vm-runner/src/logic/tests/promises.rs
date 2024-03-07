@@ -25,7 +25,7 @@ fn test_promise_results() {
     assert_eq!(logic.promise_results_count(), Ok(3), "Total count of registers must be 3");
     assert_eq!(logic.promise_result(0, 0), Ok(1), "Must return code 1 on success");
     assert_eq!(logic.promise_result(1, 0), Ok(2), "Failed promise must return code 2");
-    assert_eq!(logic.promise_result(2, 0), Ok(0), "Pending promise must return 3");
+    assert_eq!(logic.promise_result(2, 0), Ok(0), "Pending promise must return 0");
 
     // Only promise with result should write data into register
     logic.assert_read_register(b"test", 0);
