@@ -242,6 +242,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig {
             save_trie_changes: config.client_config.save_trie_changes,
+            validator_minimal_store: config.client_config.validator_minimal_store,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
