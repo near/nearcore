@@ -168,7 +168,6 @@ impl ShardLayout {
     }
 
     /// Returns the simple nightshade layout, version 3, that will be used in production.
-    /// This would split shard 2 into two parts
     pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
         ShardLayout::v1(
             vec![
@@ -181,7 +180,7 @@ impl ShardLayout {
             .into_iter()
             .map(|s| s.parse().unwrap())
             .collect(),
-            Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
+            Some(vec![vec![0], vec![1, 2], vec![3], vec![4], vec![5]]),
             3,
         )
     }
