@@ -173,7 +173,7 @@ impl ShardLayout {
             vec![
                 "aurora",
                 "aurora-0",
-                "g-to-be-determined", // TODO: Figure out the split point
+                "game.hot.tg",
                 "kkuuue2akv_1630967379.near",
                 "tge-lockup.sweat",
             ]
