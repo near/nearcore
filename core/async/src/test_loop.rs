@@ -220,14 +220,20 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
 struct EventStartLogOutput {
     /// Index of the current event we're about to handle.
     current_index: usize,
-    /// The total number of events we have seen of so far (i.e.
-    /// [previous total_events, total_events) are the events emitted by the
-    /// previous event's handler).
+    /// See `EventEndLogOutput::total_events`.
     total_events: usize,
     /// The Debug representation of the event payload.
     current_event: String,
     /// The current virtual time.
     current_time_ms: u64,
+}
+
+#[derive(Serialize)]
+struct EventEndLogOutput {
+    /// The total number of events we have seen so far. This is combined with
+    /// `EventStartLogOutput::total_events` to determine which new events are
+    /// emitted by the current event's handler.
+    total_events: usize,
 }
 
 impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
@@ -288,11 +294,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
     pub fn run_for(&mut self, duration: time::Duration) {
+        // Push events we have received outside the test into the heap.
+        self.queue_received_events();
         self.maybe_initialize_handlers();
         let deadline = self.current_time + duration;
         loop {
-            // Push events we have just received into the heap.
-            self.queue_received_events();
             // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {
@@ -311,14 +317,14 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
     fn process_event(&mut self, mut event: EventInHeap<Event>) {
-        let json_printout = serde_json::to_string(&EventStartLogOutput {
+        let start_json = serde_json::to_string(&EventStartLogOutput {
             current_index: event.id,
             total_events: self.next_event_index,
             current_event: format!("{:?}", event.event),
             current_time_ms: event.due.whole_milliseconds() as u64,
         })
         .unwrap();
-        info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", json_printout);
+        info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
         self.clock.advance(event.due - self.current_time);
         self.current_time = event.due;
 
@@ -326,6 +332,14 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             if let Err(e) = handler.handle(event.event, &mut self.data) {
                 event.event = e;
             } else {
+                // Push any new events into the queue. Do this before emitting the end log line,
+                // so that it contains the correct new total number of events.
+                self.queue_received_events();
+                let end_json = serde_json::to_string(&EventEndLogOutput {
+                    total_events: self.next_event_index,
+                })
+                .unwrap();
+                info!(target: "test_loop", "TEST_LOOP_EVENT_END {}", end_json);
                 return;
             }
         }
@@ -338,11 +352,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// To maximize logical consistency, the condition is only checked before the clock would
     /// advance. If it returns true, execution stops before advancing the clock.
     pub fn run_until(&mut self, condition: impl Fn(&mut Data) -> bool, maximum_duration: Duration) {
+        // Push events we have received outside the test into the heap.
+        self.queue_received_events();
         self.maybe_initialize_handlers();
         let deadline = self.current_time + maximum_duration;
         loop {
-            // Push events we have just received into the heap.
-            self.queue_received_events();
             // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {
@@ -371,11 +385,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Note that events that are droppable are dropped and not handled. It would not be consistent
     /// to continue using the TestLoop, and therefore it is consumed by this function.
     pub fn finish_remaining_events(mut self, maximum_duration: Duration) {
+        // Push events we have received outside the test into the heap.
+        self.queue_received_events();
         self.maybe_initialize_handlers();
         let max_time = self.current_time + maximum_duration;
         'outer: loop {
-            // Push events we have just received into the heap.
-            self.queue_received_events();
             // Don't execute any more events after the deadline.
             match self.events.peek() {
                 Some(event) => {

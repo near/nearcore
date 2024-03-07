@@ -363,6 +363,17 @@ fn test_client_with_multi_test_loop() {
         |data| data[0].client.client.chain.head().unwrap().height == 10003,
         Duration::seconds(5),
     );
+    for idx in 0..NUM_CLIENTS {
+        test.sender().for_index(idx).send_adhoc_event("assertions", |data| {
+            let chain = &data.client.client.chain;
+            let block = chain.get_block_by_height(10002).unwrap();
+            assert_eq!(
+                block.header().chunk_mask(),
+                &(0..NUM_CLIENTS).map(|_| true).collect::<Vec<_>>()
+            );
+        })
+    }
+
     // Give the test a chance to finish off remaining important events in the event loop, which can
     // be important for properly shutting down the nodes.
     test.finish_remaining_events(Duration::seconds(1));
