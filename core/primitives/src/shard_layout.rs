@@ -167,6 +167,25 @@ impl ShardLayout {
         )
     }
 
+    /// Returns the simple nightshade layout, version 3, that will be used in production.
+    /// This would split shard 2 into two parts
+    pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
+        ShardLayout::v1(
+            vec![
+                "aurora",
+                "aurora-0",
+                "g-to-be-determined", // TODO: Figure out the split point
+                "kkuuue2akv_1630967379.near",
+                "tge-lockup.sweat",
+            ]
+            .into_iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+            Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
+            3,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
