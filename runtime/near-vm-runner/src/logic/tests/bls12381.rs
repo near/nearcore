@@ -1213,52 +1213,50 @@ mod tests {
 
     #[test]
     fn test_bls12381_pairing_check_many_points() {
-        let mut rnd = get_rnd();
+        let mut rng = test_rng();
+        let distr = ark_std::rand::distributions::Standard;
 
-        let r = Big::from_string(R.to_string());
         for i in 0..TESTS_ITERATIONS {
             let n = get_n(i, MAX_N_PAIRING);
 
-            let mut scalars_1: Vec<Big> = vec![];
-            let mut scalars_2: Vec<Big> = vec![];
+            let mut scalars_1: Vec<Fr> = vec![];
+            let mut scalars_2: Vec<Fr> = vec![];
 
-            let g1: ECP = ECP::generator();
-            let g2: ECP2 = ECP2::generator();
+            let g1: G1Affine = G1Affine::generator();
+            let g2: G2Affine = G2Affine::generator();
 
-            let mut g1s: Vec<ECP> = vec![];
-            let mut g2s: Vec<ECP2> = vec![];
+            let mut g1s: Vec<G1Affine> = vec![];
+            let mut g2s: Vec<G2Affine> = vec![];
 
-            let mut scalar_res = Big::new();
+            let mut scalar_res = Fr::from(0);
 
             for i in 0..n {
-                scalars_1.push(Big::random(&mut rnd));
-                scalars_2.push(Big::random(&mut rnd));
+                scalars_1.push(distr.sample(&mut rng));
+                scalars_2.push(distr.sample(&mut rng));
 
-                scalars_1[i].rmod(&r);
-                scalars_2[i].rmod(&r);
+                scalar_res = scalar_res.add(&scalars_1[i].mul(&scalars_2[i]));
 
-                scalar_res.add(&Big::smul(&scalars_1[i], &scalars_2[i]));
-                scalar_res.rmod(&r);
-
-                g1s.push(g1.mul(&scalars_1[i]));
-                g2s.push(g2.mul(&scalars_2[i]));
+                g1s.push(g1.mul(&scalars_1[i]).into());
+                g2s.push(g2.mul(&scalars_2[i]).into());
             }
 
-            if !scalar_res.is_zilch() {
-                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 2);
+            println!("{:?}", n);
+
+            if !scalar_res.is_zero() {
+                assert_eq!(_pairing_check(g1s.clone(), g2s.clone()), 2);
             } else {
-                assert_eq!(pairing_check(g1s.clone(), g2s.clone()), 0);
+                assert_eq!(_pairing_check(g1s.clone(), g2s.clone()), 0);
             }
 
             for i in 0..n {
-                let mut p2 = g2.mul(&scalars_1[i]);
-                p2.neg();
+                let mut p2 = g2.mul(&scalars_1[i]).into_affine();
+                p2 = p2.neg();
 
-                g1s.push(g1.mul(&scalars_2[i]));
+                g1s.push(g1.mul(&scalars_2[i]).into());
                 g2s.push(p2);
             }
 
-            assert_eq!(pairing_check(g1s, g2s), 0);
+            assert_eq!(_pairing_check(g1s, g2s), 0);
         }
     }
 
