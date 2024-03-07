@@ -5,9 +5,9 @@ mod tests {
         serialize_g1, serialize_g2, serialize_uncompressed_g1, serialize_uncompressed_g2,
         subgroup_check_g1, subgroup_check_g2,
     };
-    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp2::FP2, pair};
+    use amcl::bls381::{big::Big, ecp::ECP, ecp2::ECP2, fp2::FP2};
     use amcl::rand::RAND;
-    use ark_bls12_381::{Fr, Fq, Fq2, G1Affine, G2Affine};
+    use ark_bls12_381::{Fr, Fq, Fq2, G1Affine, G2Affine, Bls12_381};
     use ark_ec::bls12::Bls12Config;
     use ark_ec::hashing::curve_maps::wb::WBMap;
     use ark_ec::hashing::map_to_curve_hasher::MapToCurve;
@@ -25,6 +25,7 @@ mod tests {
     use std::fs;
     use std::str::FromStr;
     use std::ops::{Mul, Neg, Add};
+    use ark_ec::pairing::Pairing;
 
     const P: &str = "4002409555221667393417789825735904156556882819939007885332058136124031650490837864442687629129015664037894272559787";
     const P_HEX: &str = "1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
@@ -441,6 +442,21 @@ mod tests {
         for i in 0..p1s.len() {
             buffer.push(serialize_uncompressed_g1(&p1s[i]).to_vec());
             buffer.push(serialize_uncompressed_g2(&p2s[i]).to_vec());
+        }
+
+        let input = logic.internal_mem_write(&buffer.concat().as_slice());
+        let res = logic.bls12381_pairing_check(input.len, input.ptr).unwrap();
+        return res;
+    }
+
+    fn _pairing_check(p1s: Vec<G1Affine>, p2s: Vec<G2Affine>) -> u64 {
+        let mut logic_builder = VMLogicBuilder::default();
+        let mut logic = logic_builder.build();
+
+        let mut buffer: Vec<Vec<u8>> = vec![];
+        for i in 0..p1s.len() {
+            buffer.push(G1Operations::serialize_uncompressed_g(&p1s[i]).to_vec());
+            buffer.push(G2Operations::serialize_uncompressed_g(&p2s[i]).to_vec());
         }
 
         let input = logic.internal_mem_write(&buffer.concat().as_slice());
@@ -1128,26 +1144,22 @@ mod tests {
 
     #[test]
     fn test_bls12381_pairing_check_one_point() {
-        let mut rnd = get_rnd();
+        let mut rng = test_rng();
 
         for _ in 0..TESTS_ITERATIONS {
-            let p1 = G1Operations::get_random_g_point(&mut rnd);
-            let p2 = G2Operations::get_random_g_point(&mut rnd);
+            let p1 = G1Operations::_get_random_g_point(&mut rng);
+            let p2 = G2Operations::_get_random_g_point(&mut rng);
 
-            let zero1 = ECP::new();
-            let zero2 = ECP2::new();
+            let zero1 = G1Affine::zero();
+            let zero2 = G2Affine::zero();
 
-            let mut r = pair::initmp();
-            pair::another(&mut r, &zero2, &p1);
-            let mut v = pair::miller(&r);
+            let v = Bls12_381::pairing( p1, zero2);
+            assert!(v.is_zero());
 
-            v = pair::fexp(&v);
-            assert!(v.is_unity());
-
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
-            assert_eq!(pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
+            assert_eq!(_pairing_check(vec![zero1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(_pairing_check(vec![zero1.clone()], vec![p2.clone()]), 0);
+            assert_eq!(_pairing_check(vec![p1.clone()], vec![zero2.clone()]), 0);
+            assert_eq!(_pairing_check(vec![p1.clone()], vec![p2.clone()]), 2);
         }
     }
 
