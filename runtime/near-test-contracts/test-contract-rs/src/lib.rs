@@ -128,6 +128,26 @@ extern "C" {
         beneficiary_id_len: u64,
         beneficiary_id_ptr: u64,
     );
+    // ########################
+    // # Promise Yield/Resume #
+    // ########################
+    #[cfg(feature = "nightly")]
+    fn promise_yield_create(
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: u64,
+        gas_weight: u64,
+        register_id: u64,
+    ) -> u64;
+    #[cfg(feature = "nightly")]
+    fn promise_yield_resume(
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> u32;
     // #######################
     // # Promise API results #
     // #######################
@@ -817,6 +837,31 @@ fn call_promise() {
             }
         }
     }
+}
+
+/// Call promise_yield_resume.
+/// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
+/// represented by the first `register_len(0) - 32` bytes.
+#[cfg(feature = "nightly")]
+#[no_mangle]
+pub unsafe fn call_yield_resume() {
+    input(0);
+    let data_len = register_len(0) as usize;
+    let data = vec![0u8; data_len];
+    read_register(0, data.as_ptr() as u64);
+
+    let data_id = &data[data_len - 32..];
+    let payload = &data[0..data_len - 32];
+
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+
+    let result = vec![success as u8];
+    value_return(result.len() as u64, result.as_ptr() as u64);
 }
 
 #[cfg(feature = "latest_protocol")]
