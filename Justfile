@@ -25,6 +25,7 @@ nextest TYPE *FLAGS: (nextest-unit TYPE FLAGS) (nextest-integration TYPE FLAGS)
 
 # cargo unit tests, TYPE is "stable" or "nightly"
 nextest-unit TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --workspace \
@@ -40,6 +41,7 @@ nextest-unit TYPE *FLAGS:
 # cargo integration tests, TYPE is "stable" or "nightly"
 [linux]
 nextest-integration TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --package integration-tests \
@@ -54,6 +56,33 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
+<<<<<<< HEAD
+=======
+# check various build configurations compile as anticipated
+check-non-default:
+    # Ensure that near-vm-runner always builds without default features enabled
+    RUSTFLAGS="-D warnings" \
+    cargo check -p near-vm-runner --no-default-features
+
+# check rust formatting
+check-cargo-fmt:
+    cargo fmt -- --check
+
+# check clippy lints
+check-cargo-clippy:
+    CARGO_TARGET_DIR="target/clippy" \
+    RUSTFLAGS="-D warnings" \
+    cargo clippy --all-features --all-targets --locked
+
+# check cargo deny lints
+check-cargo-deny:
+    cargo deny --all-features --locked check bans
+
+# themis-based checks
+check-themis:
+    env CARGO_TARGET_DIR="target/themis" cargo run --locked -p themis
+
+>>>>>>> b03bfffa4 (do not have a globally-set warnings=deny, but set it locally in CI only (#10738))
 # generate a codecov report for RULE
 codecov RULE:
     #!/usr/bin/env bash
