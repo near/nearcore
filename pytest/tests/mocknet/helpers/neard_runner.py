@@ -190,9 +190,11 @@ class NeardRunner:
             })
         return binaries
 
+    def set_current_neard_path(self, path):
+        self.data['current_neard_path'] = path
+
     def reset_current_neard_path(self):
-        self.data['current_neard_path'] = self.data['binaries'][0][
-            'system_path']
+        self.set_current_neard_path(self.data['binaries'][0]['system_path'])
 
     # tries to download the binaries specified in config.json, saving them in $home/binaries/
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
@@ -690,7 +692,7 @@ class NeardRunner:
                 start_neard = True
 
         if start_neard:
-            self.data['current_neard_path'] = neard_path
+            self.set_current_neard_path(neard_path)
             self.start_neard()
 
     def get_state(self):
