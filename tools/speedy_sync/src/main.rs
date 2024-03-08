@@ -21,6 +21,7 @@ use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {

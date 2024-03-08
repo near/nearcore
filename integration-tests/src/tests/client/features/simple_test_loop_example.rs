@@ -243,4 +243,5 @@ fn test_client_with_simple_test_loop() {
         },
     );
     test.run_for(Duration::seconds(10));
+    test.finish_remaining_events(Duration::seconds(1));
 }
