@@ -212,7 +212,7 @@ impl Drop for CodeMemory {
                     );
                 }
             }
-            let mut guard = source_pool.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = source_pool.lock().expect("unreachable due to panic=abort");
             guard.push(Self {
                 source_pool: None,
                 map: self.map,
@@ -249,18 +249,17 @@ pub struct LimitedMemoryPool {
 impl LimitedMemoryPool {
     /// Create a new pool with `count` mappings initialized to `default_memory_size` each.
     pub fn new(count: usize, default_memory_size: usize) -> rustix::io::Result<Self> {
-        let pool = Arc::new(std::sync::Mutex::new(Vec::with_capacity(count)));
-        let mut guard = pool.lock().unwrap_or_else(|e| e.into_inner());
+        let mut pool = Vec::with_capacity(count);
         for _ in 0..count {
-            guard.push(CodeMemory::create(default_memory_size)?);
+            pool.push(CodeMemory::create(default_memory_size)?);
         }
-        drop(guard);
+        let pool = Arc::new(std::sync::Mutex::new(pool));
         Ok(Self { pool })
     }
 
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
-        let mut guard = self.pool.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.pool.lock().expect("unreachable due to panic=abort");
         let mut memory = guard.pop().ok_or(rustix::io::Errno::NOMEM)?;
         memory.source_pool = Some(Arc::clone(&self.pool));
         if memory.size < size {
