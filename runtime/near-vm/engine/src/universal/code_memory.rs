@@ -138,16 +138,10 @@ impl CodeMemory {
         if self.size < size {
             // Ideally we would use mremap, but see
             // https://bugzilla.kernel.org/show_bug.cgi?id=8691
-            let source_pool = unsafe {
-                mm::munmap(self.map.cast(), self.size)?;
-                let source_pool = self.source_pool.take();
-                std::mem::forget(self);
-                source_pool
-            };
-            Self::create(size).map(|mut m| {
-                m.source_pool = source_pool;
-                m
-            })
+            let result = Self::create(size)?;
+            result.source_pool = self.source_pool.take();
+            drop(self);
+            Ok(result)
         } else {
             self.executable_end = 0;
             Ok(self)
