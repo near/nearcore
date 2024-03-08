@@ -1076,7 +1076,7 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_p1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_sum_2_100", ExtCosts::bls12381_p1_sum_base, 100)
+    fn_cost(ctx, "bls12381_p1_sum_1_100", ExtCosts::bls12381_p1_sum_base, 100)
 }
 
 fn bls12381_p1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
