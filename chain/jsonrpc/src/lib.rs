@@ -596,7 +596,7 @@ impl JsonRpcHandler {
                 .await;
                 match tx_status_result.clone() {
                     Ok(result) => {
-                        if result.status >= finality {
+                        if tx_execution_status_meets_expectations(&finality, &result.status) {
                             break Ok(result.into())
                         }
                         // else: No such transaction recorded on chain yet
@@ -1559,4 +1559,30 @@ pub fn start_http(
     }
 
     servers
+}
+
+fn tx_execution_status_meets_expectations(
+    expected: &TxExecutionStatus,
+    actual: &TxExecutionStatus,
+) -> bool {
+    match expected {
+        TxExecutionStatus::None => true,
+        TxExecutionStatus::Included => actual != &TxExecutionStatus::None,
+        TxExecutionStatus::ExecutedOptimistic => [
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::IncludedFinal => [
+            TxExecutionStatus::IncludedFinal,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::Executed => {
+            [TxExecutionStatus::Executed, TxExecutionStatus::Final].contains(actual)
+        }
+        TxExecutionStatus::Final => actual == &TxExecutionStatus::Final,
+    }
 }

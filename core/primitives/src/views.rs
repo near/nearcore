@@ -1706,8 +1706,6 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
-    Ord,
-    PartialOrd,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
