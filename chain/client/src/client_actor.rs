@@ -12,6 +12,7 @@ use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
 use near_async::time::Utc;
 use near_async::time::{Clock, Duration};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -213,6 +214,7 @@ pub fn start_client(
         true,
         random_seed_from_thread(),
         snapshot_callbacks,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();

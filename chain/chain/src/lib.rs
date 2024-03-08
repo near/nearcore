@@ -34,6 +34,7 @@ pub mod test_utils;
 pub mod types;
 pub mod validate;
 
+pub mod rayon_spawner;
 pub mod sharding;
 #[cfg(test)]
 mod tests;

@@ -101,7 +101,7 @@ pub struct ClientActions {
 
     // Sender to be able to send a message to myself.
     myself_sender: ClientSenderForClient,
-    pub(crate) client: Client,
+    pub client: Client,
     network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.

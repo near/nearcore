@@ -1,8 +1,12 @@
 use crate::break_apart::BreakApart;
 use crate::messaging;
 use crate::messaging::{IntoMultiSender, IntoSender};
-use crate::test_loop::futures::{TestLoopDelayedActionEvent, TestLoopDelayedActionRunner};
+use crate::test_loop::futures::{
+    TestLoopAsyncComputationEvent, TestLoopAsyncComputationSpawner, TestLoopDelayedActionEvent,
+    TestLoopDelayedActionRunner,
+};
 use crate::time;
+use crate::time::Duration;
 use std::sync::Arc;
 
 use super::futures::{TestLoopFutureSpawner, TestLoopTask};
@@ -79,6 +83,22 @@ impl<Event> DelaySender<Event> {
         Event: From<Arc<TestLoopTask>> + 'static,
     {
         self.narrow()
+    }
+
+    /// Returns an AsyncComputationSpawner that can be used to spawn async computation into the
+    /// loop. The `artificial_delay` allows the test to determine an artificial delay that the
+    /// computation should take, based on the name of the computation.
+    pub fn into_async_computation_spawner(
+        self,
+        artificial_delay: impl Fn(&str) -> Duration + Send + Sync + 'static,
+    ) -> TestLoopAsyncComputationSpawner
+    where
+        Event: From<TestLoopAsyncComputationEvent> + 'static,
+    {
+        TestLoopAsyncComputationSpawner {
+            sender: self.narrow(),
+            artificial_delay: Box::new(artificial_delay),
+        }
     }
 }
 

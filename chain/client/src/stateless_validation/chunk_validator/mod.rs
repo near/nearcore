@@ -5,6 +5,7 @@ use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::messaging::Sender;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
@@ -57,6 +58,7 @@ pub struct ChunkValidator {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
+    validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkValidator {
@@ -67,6 +69,7 @@ impl ChunkValidator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
+        validation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         Self {
             my_signer,
@@ -75,6 +78,7 @@ impl ChunkValidator {
             runtime_adapter,
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
+            validation_spawner,
         }
     }
 
@@ -124,7 +128,7 @@ impl ChunkValidator {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
-        rayon::spawn(move || {
+        self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
 

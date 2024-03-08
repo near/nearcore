@@ -134,3 +134,35 @@ where
         );
     }
 }
+
+/// Like `FutureSpawner`, but intended for spawning asynchronous computation-heavy tasks.
+/// Rather than taking a future, it takes a function. For production, the function shall
+/// be run on a separate thread (like `rayon::spawn`), but for test, it would run the
+/// function as a TestLoop event, possibly with an artificial delay.
+pub trait AsyncComputationSpawner: Send + Sync {
+    fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>);
+}
+
+pub trait AsyncComputationSpawnerExt {
+    fn spawn(&self, name: &str, f: impl FnOnce() + Send + 'static);
+}
+
+impl<T: AsyncComputationSpawner> AsyncComputationSpawnerExt for T {
+    fn spawn(&self, name: &str, f: impl FnOnce() + Send + 'static) {
+        self.spawn_boxed(name, Box::new(f));
+    }
+}
+
+impl AsyncComputationSpawnerExt for dyn AsyncComputationSpawner + '_ {
+    fn spawn(&self, name: &str, f: impl FnOnce() + Send + 'static) {
+        self.spawn_boxed(name, Box::new(f));
+    }
+}
+
+pub struct StdThreadAsyncComputationSpawnerForTest;
+
+impl AsyncComputationSpawner for StdThreadAsyncComputationSpawnerForTest {
+    fn spawn_boxed(&self, _name: &str, f: Box<dyn FnOnce() + Send>) {
+        std::thread::spawn(f);
+    }
+}

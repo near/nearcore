@@ -862,6 +862,7 @@ mod tests {
     use assert_matches::assert_matches;
     use near_async::messaging::{noop, IntoSender};
     use near_async::time::Clock;
+    use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
     use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
@@ -923,6 +924,7 @@ mod tests {
             doomslug_threshold_mode,
             ChainConfig::test(),
             None,
+            Arc::new(RayonAsyncComputationSpawner),
         )
         .unwrap();
 

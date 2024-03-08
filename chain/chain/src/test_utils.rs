@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::block_processing_utils::BlockNotInPoolError;
 use crate::chain::Chain;
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::runtime::NightshadeRuntime;
 use crate::store::ChainStoreAccess;
 use crate::types::{AcceptedBlock, ChainConfig, ChainGenesis};
@@ -73,6 +74,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap()
 }
@@ -155,6 +157,7 @@ fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
@@ -194,6 +197,7 @@ pub fn setup_with_validators(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -231,6 +235,7 @@ pub fn setup_with_validators_and_start_time(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)

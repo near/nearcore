@@ -13,6 +13,7 @@ use crate::state_request_tracker::StateRequestTracker;
 use crate::state_snapshot_actor::SnapshotCallbacks;
 use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use crate::types::{
     AcceptedBlock, ApplyChunkBlockContext, BlockEconomicsConfig, ChainConfig, RuntimeAdapter,
     StorageDataSource,
@@ -37,6 +38,7 @@ use borsh::BorshDeserialize;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use itertools::Itertools;
 use lru::LruCache;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
 use near_async::time::{Clock, Duration, Instant};
 use near_chain_configs::{MutableConfigValue, ReshardingConfig, ReshardingHandle};
 #[cfg(feature = "new_epoch_sync")]
@@ -239,6 +241,8 @@ pub struct Chain {
     apply_chunks_sender: Sender<BlockApplyChunksResult>,
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
+    /// Used to spawn the apply chunks jobs.
+    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
@@ -362,6 +366,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             last_time_head_updated: clock.now(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
@@ -384,6 +389,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
+        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -538,6 +544,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
+            apply_chunks_spawner,
             last_time_head_updated: clock.now(),
             pending_state_patch: Default::default(),
             requested_state_parts: StateRequestTracker::new(),
@@ -1707,7 +1714,7 @@ impl Chain {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let sc = self.apply_chunks_sender.clone();
-        spawn(move || {
+        self.apply_chunks_spawner.spawn("apply_chunks", move || {
             // do_apply_chunks runs `work` in parallel, but still waits for all of them to finish
             let res = do_apply_chunks(block_hash, block_height, work);
             // If we encounter error here, that means the receiver is deallocated and the client
@@ -1719,13 +1726,6 @@ impl Chain {
             }
             apply_chunks_done_callback(block_hash);
         });
-
-        /// `rayon::spawn` decorated to propagate `tracing` context across
-        /// threads.
-        fn spawn(f: impl FnOnce() + Send + 'static) {
-            let dispatcher = tracing::dispatcher::get_default(|it| it.clone());
-            rayon::spawn(move || tracing::dispatcher::with_default(&dispatcher, f))
-        }
     }
 
     fn postprocess_block_only(
