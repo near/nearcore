@@ -611,12 +611,12 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
-    #[cfg_attr(feature = "statelessnet_protocol", ignore)]
     fn test_runtime_config_view() {
         use crate::view::RuntimeConfigView;
         use crate::RuntimeConfig;
