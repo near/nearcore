@@ -1,5 +1,7 @@
 use chrono::Utc;
-use congestion_model::strategy::{GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure};
+use congestion_model::strategy::{
+    GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure, TrafficLight,
+};
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
 };
@@ -154,6 +156,7 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "Global TX stop" => Box::<GlobalTxStopShard>::default(),
             "Simple backpressure" => Box::<SimpleBackpressure>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
+            "Traffic Light" => Box::<TrafficLight>::default(),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -190,6 +193,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "Global TX stop".to_string(),
         "Simple backpressure".to_string(),
         "New TX last".to_string(),
+        "Traffic Light".to_string(),
     ];
 
     if strategy_name == "all" {

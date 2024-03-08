@@ -5,11 +5,13 @@ pub use global_tx_stop::GlobalTxStopShard;
 pub use new_tx_last::NewTxLast;
 pub use no_queues::NoQueueShard;
 pub use simple_backpressure::SimpleBackpressure;
+pub use traffic_light::TrafficLight;
 
 mod global_tx_stop;
 mod new_tx_last;
 mod no_queues;
 mod simple_backpressure;
+mod traffic_light;
 
 /// Implement the shard behavior to define a new congestion control strategy.
 ///
