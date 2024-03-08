@@ -1542,7 +1542,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 

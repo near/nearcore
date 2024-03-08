@@ -924,7 +924,7 @@ mod tests {
             doomslug_threshold_mode,
             ChainConfig::test(),
             None,
-            Box::new(RayonAsyncComputationSpawner),
+            Arc::new(RayonAsyncComputationSpawner),
         )
         .unwrap();
 

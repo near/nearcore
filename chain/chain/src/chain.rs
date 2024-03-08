@@ -242,7 +242,7 @@ pub struct Chain {
     /// Used to receive apply chunks results
     apply_chunks_receiver: Receiver<BlockApplyChunksResult>,
     /// Used to spawn the apply chunks jobs.
-    apply_chunks_spawner: Box<dyn AsyncComputationSpawner>,
+    apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     /// Time when head was updated most recently.
     last_time_head_updated: Instant,
     /// Prevents re-application of known-to-be-invalid blocks, so that in case of a
@@ -366,7 +366,7 @@ impl Chain {
             blocks_delay_tracker: BlocksDelayTracker::new(clock.clone()),
             apply_chunks_sender: sc,
             apply_chunks_receiver: rc,
-            apply_chunks_spawner: Box::new(RayonAsyncComputationSpawner),
+            apply_chunks_spawner: Arc::new(RayonAsyncComputationSpawner),
             last_time_head_updated: clock.now(),
             invalid_blocks: LruCache::new(INVALID_CHUNKS_POOL_SIZE),
             pending_state_patch: Default::default(),
@@ -389,7 +389,7 @@ impl Chain {
         doomslug_threshold_mode: DoomslugThresholdMode,
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: Box<dyn AsyncComputationSpawner>,
+        apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?

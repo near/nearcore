@@ -179,7 +179,7 @@ fn test_client_with_simple_test_loop() {
         true,
         [0; 32],
         None,
-        Box::new(builder.sender().into_async_computation_spawner(|_| Duration::milliseconds(80))),
+        Arc::new(builder.sender().into_async_computation_spawner(|_| Duration::milliseconds(80))),
     )
     .unwrap();
 

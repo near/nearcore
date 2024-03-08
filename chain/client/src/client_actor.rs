@@ -214,7 +214,7 @@ pub fn start_client(
         true,
         random_seed_from_thread(),
         snapshot_callbacks,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();

@@ -252,7 +252,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
             ),
         },
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 

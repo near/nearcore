@@ -74,7 +74,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap()
 }
@@ -157,7 +157,7 @@ fn setup_with_tx_validity_period(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
@@ -197,7 +197,7 @@ pub fn setup_with_validators(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)
@@ -235,7 +235,7 @@ pub fn setup_with_validators_and_start_time(
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     (chain, epoch_manager, runtime, signers)

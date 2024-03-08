@@ -87,7 +87,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tracing::{debug, debug_span, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, instrument, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -250,7 +250,7 @@ impl Client {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
-        apply_chunks_spawner: Box<dyn AsyncComputationSpawner>,
+        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -271,7 +271,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config.clone(),
             snapshot_callbacks,
-            apply_chunks_spawner,
+            async_computation_spawner.clone(),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
@@ -361,6 +361,7 @@ impl Client {
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
             config.orphan_state_witness_pool_size,
+            async_computation_spawner,
         );
         let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
@@ -2170,6 +2171,7 @@ impl Client {
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
+    #[instrument(skip_all, fields(tx_hash = ? tx.get_hash()))]
     fn process_tx_internal(
         &mut self,
         tx: &SignedTransaction,

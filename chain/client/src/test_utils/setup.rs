@@ -120,7 +120,7 @@ pub fn setup(
             ),
         },
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -183,7 +183,7 @@ pub fn setup(
         enable_doomslug,
         TEST_SEED,
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -258,7 +258,7 @@ pub fn setup_only_view(
             ),
         },
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
@@ -988,7 +988,7 @@ pub fn setup_client_with_runtime(
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1026,7 +1026,7 @@ pub fn setup_synchronous_shards_manager(
             ),
         }, // irrelevant
         None,
-        Box::new(RayonAsyncComputationSpawner),
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

@@ -37,7 +37,8 @@ use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
-    BlockApproval, BlockResponse, ClientSenderForNetwork, ClientSenderForNetworkMessage,
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
+    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_loop::SupportsRoutingLookup;
@@ -48,14 +49,18 @@ use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo};
 use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
+use near_primitives_core::types::Balance;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -71,6 +76,12 @@ struct TestData {
 impl AsMut<TestData> for TestData {
     fn as_mut(&mut self) -> &mut Self {
         self
+    }
+}
+
+impl AsRef<Client> for TestData {
+    fn as_ref(&self) -> &Client {
+        &self.client.client
     }
 }
 
@@ -234,7 +245,7 @@ fn test_client_with_multi_test_loop() {
             true,
             [0; 32],
             None,
-            Box::new(
+            Arc::new(
                 builder
                     .sender()
                     .for_index(idx)
@@ -373,6 +384,50 @@ fn test_client_with_multi_test_loop() {
             );
         })
     }
+    test.run_instant();
+
+    let mut balances = accounts
+        .iter()
+        .cloned()
+        .map(|account| (account, initial_balance))
+        .collect::<HashMap<_, _>>();
+    for i in 0..accounts.len() {
+        let amount = ONE_NEAR * (i as u128 + 1);
+        let tx = SignedTransaction::send_money(
+            1,
+            accounts[i].clone(),
+            accounts[(i + 1) % accounts.len()].clone(),
+            &create_user_test_signer(&accounts[i]),
+            amount,
+            *test.data[0].client.client.chain.get_block_by_height(10002).unwrap().hash(),
+        );
+        *balances.get_mut(&accounts[i]).unwrap() -= amount;
+        *balances.get_mut(&accounts[(i + 1) % accounts.len()]).unwrap() += amount;
+        drop(
+            test.sender()
+                .for_index(i % NUM_CLIENTS)
+                .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>(
+                )
+                .send_async(ProcessTxRequest {
+                    transaction: tx,
+                    is_forwarded: false,
+                    check_only: false,
+                }),
+        );
+    }
+    test.run_until(
+        |data| data[0].client.client.chain.head().unwrap().height == 10008,
+        Duration::seconds(8),
+    );
+
+    for account in &accounts {
+        assert_eq!(
+            test.data.query_balance(account),
+            *balances.get(account).unwrap(),
+            "Account balance mismatch for account {}",
+            account
+        );
+    }
 
     // Give the test a chance to finish off remaining important events in the event loop, which can
     // be important for properly shutting down the nodes.
@@ -424,10 +479,55 @@ pub fn route_network_messages_to_client<
                 }
                 NetworkRequests::Approval { approval_message } => {
                     let other_idx = data.index_for_account(&approval_message.target);
-                    drop(
-                        client_senders[other_idx]
-                            .send_async(BlockApproval(approval_message.approval, PeerId::random())),
-                    );
+                    if other_idx != idx {
+                        drop(client_senders[other_idx].send_async(BlockApproval(
+                            approval_message.approval,
+                            PeerId::random(),
+                        )));
+                    } else {
+                        tracing::warn!("Dropping message to self");
+                    }
+                }
+                NetworkRequests::ForwardTx(account, transaction) => {
+                    let other_idx = data.index_for_account(&account);
+                    if other_idx != idx {
+                        drop(client_senders[other_idx].send_async(ProcessTxRequest {
+                            transaction,
+                            is_forwarded: true,
+                            check_only: false,
+                        }))
+                    } else {
+                        tracing::warn!("Dropping message to self");
+                    }
+                }
+                NetworkRequests::ChunkEndorsement(target, endorsement) => {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        drop(
+                            client_senders[other_idx]
+                                .send_async(ChunkEndorsementMessage(endorsement)),
+                        );
+                    } else {
+                        tracing::warn!("Dropping message to self");
+                    }
+                }
+                NetworkRequests::ChunkStateWitness(targets, witness) => {
+                    let other_idxes = targets
+                        .iter()
+                        .map(|account| data.index_for_account(account))
+                        .collect::<Vec<_>>();
+                    for other_idx in &other_idxes {
+                        if *other_idx != idx {
+                            drop(
+                                client_senders[*other_idx]
+                                    .send_async(ChunkStateWitnessMessage(witness.clone())),
+                            );
+                        } else {
+                            tracing::warn!(
+                                "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
+                                other_idxes, idx);
+                        }
+                    }
                 }
                 // TODO: Support more network message types as we expand the test.
                 _ => return Err((idx, PeerManagerMessageRequest::NetworkRequests(request).into())),
@@ -436,4 +536,53 @@ pub fn route_network_messages_to_client<
             Ok(())
         },
     )
+}
+
+// TODO: This would be a good starting point for turning this into a test util.
+trait ClientQueries {
+    fn query_balance(&self, account: &AccountId) -> Balance;
+}
+
+impl<Data: AsRef<Client> + AsRef<AccountId>> ClientQueries for Vec<Data> {
+    fn query_balance(&self, account_id: &AccountId) -> Balance {
+        let client: &Client = self[0].as_ref();
+        let head = client.chain.head().unwrap();
+        let last_block = client.chain.get_block(&head.last_block_hash).unwrap();
+        let shard_id =
+            client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
+        let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
+        let last_chunk_header = &last_block.chunks()[shard_id as usize];
+
+        for i in 0..self.len() {
+            let client: &Client = self[i].as_ref();
+            let tracks_shard = client
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self[i].as_ref(),
+                    shard_id,
+                )
+                .unwrap();
+            if tracks_shard {
+                let response = client
+                    .runtime_adapter
+                    .query(
+                        shard_uid,
+                        &last_chunk_header.prev_state_root(),
+                        last_block.header().height(),
+                        last_block.header().raw_timestamp(),
+                        last_block.header().prev_hash(),
+                        last_block.header().hash(),
+                        last_block.header().epoch_id(),
+                        &QueryRequest::ViewAccount { account_id: account_id.clone() },
+                    )
+                    .unwrap();
+                match response.kind {
+                    QueryResponseKind::ViewAccount(account_view) => return account_view.amount,
+                    _ => panic!("Wrong return value"),
+                }
+            }
+        }
+        panic!("No client tracks shard {}", shard_id);
+    }
 }

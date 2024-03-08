@@ -73,13 +73,10 @@ use self::{
 use crate::test_loop::event_handler::LoopHandlerContext;
 use crate::time;
 use crate::time::Duration;
-use near_o11y::{testonly::init_test_logger, tracing::log::info};
+use near_o11y::{testonly::init_test_logger, tracing::info};
 use serde::Serialize;
-use std::{
-    collections::BinaryHeap,
-    fmt::Debug,
-    sync::{self, Arc},
-};
+use std::sync::Mutex;
+use std::{collections::BinaryHeap, fmt::Debug, sync::Arc};
 
 /// Main struct for the Test Loop framework.
 /// The `Data` type should contain all the business logic state that is relevant
@@ -105,12 +102,11 @@ pub struct TestLoop<Data: 'static, Event: Debug + Send + 'static> {
     /// first.
     events: BinaryHeap<EventInHeap<Event>>,
     /// The events that will enter the events heap upon the next iteration.
-    /// This is the receiving end of all the senders that we give out.
-    pending_events: sync::mpsc::Receiver<EventInFlight<Event>>,
+    pending_events: Arc<Mutex<InFlightEvents<Event>>>,
     /// The next ID to assign to an event we receive.
     next_event_index: usize,
     /// The current virtual time.
-    current_time: time::Duration,
+    current_time: Duration,
     /// Fake clock that always returns the virtual time.
     clock: time::FakeClock,
 
@@ -155,7 +151,35 @@ impl<Event> Ord for EventInHeap<Event> {
 /// a 10ms delay).
 struct EventInFlight<Event> {
     event: Event,
-    delay: time::Duration,
+    delay: Duration,
+}
+
+struct InFlightEvents<Event> {
+    events: Vec<EventInFlight<Event>>,
+    /// The TestLoop thread ID. This and the following field are used to detect unintended
+    /// parallel processing.
+    event_loop_thread_id: std::thread::ThreadId,
+    /// Whether we're currently handling an event.
+    is_handling_event: bool,
+}
+
+impl<Event: Debug> InFlightEvents<Event> {
+    fn add(&mut self, event: Event, delay: Duration) {
+        if !self.is_handling_event && std::thread::current().id() != self.event_loop_thread_id {
+            // Another thread shall not be sending an event while we're not handling an event.
+            // If that happens, it means we have a rogue thread spawned somewhere that has not been
+            // converted to TestLoop. TestLoop tests should be single-threaded (or at least, look
+            // as if it were single-threaded). So if we catch this, panic.
+            panic!(
+                "Event was sent from the wrong thread. TestLoop tests should be single-threaded. \
+                    Check if there's any code that spawns computation on another thread such as \
+                    rayon::spawn, and convert it to AsyncComputationSpawner or FutureSpawner. \
+                    Event: {:?}",
+                event
+            );
+        }
+        self.events.push(EventInFlight { event, delay });
+    }
 }
 
 /// Builder that should be used to construct a `TestLoop`. The reason why the
@@ -164,7 +188,7 @@ struct EventInFlight<Event> {
 /// construction dependency cycle.
 pub struct TestLoopBuilder<Event: Debug + Send + 'static> {
     clock: time::FakeClock,
-    pending_events: sync::mpsc::Receiver<EventInFlight<Event>>,
+    pending_events: Arc<Mutex<InFlightEvents<Event>>>,
     pending_events_sender: DelaySender<Event>,
 }
 
@@ -172,9 +196,8 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
     pub fn new() -> Self {
         // Initialize the logger to make sure the test loop printouts are visible.
         init_test_logger();
+        // If the test panics, make a nicer error message to suggest how to debug.
         let panic_hook = std::panic::take_hook();
-        // If the test panics, just abort. Otherwise, we could be stuck doing some Drop handlers
-        // that await on conditions that never fulfill.
         std::panic::set_hook(Box::new(move |info| {
             println!();
             println!("================== ❗❗❗ P A N I C ❗❗❗ ===================");
@@ -186,14 +209,17 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
                  file, and then use the visualizer from tools/debug-ui/README.md to see a detailed \
                  breakdown of what happened in the test."
             );
-            std::process::abort();
         }));
-        let (pending_events_sender, pending_events) = sync::mpsc::sync_channel(65536);
+        let pending_events = Arc::new(Mutex::new(InFlightEvents {
+            events: Vec::new(),
+            event_loop_thread_id: std::thread::current().id(),
+            is_handling_event: false,
+        }));
         Self {
             clock: time::FakeClock::default(),
-            pending_events,
+            pending_events: pending_events.clone(),
             pending_events_sender: DelaySender::new(move |event, delay| {
-                pending_events_sender.send(EventInFlight { event, delay }).unwrap();
+                pending_events.lock().unwrap().add(event, delay);
             }),
         }
     }
@@ -238,7 +264,7 @@ struct EventEndLogOutput {
 
 impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     fn new(
-        pending_events: sync::mpsc::Receiver<EventInFlight<Event>>,
+        pending_events: Arc<Mutex<InFlightEvents<Event>>>,
         sender: DelaySender<Event>,
         clock: time::FakeClock,
         data: Data,
@@ -280,7 +306,8 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 
     /// Helper to push events we have just received into the heap.
     fn queue_received_events(&mut self) {
-        while let Ok(event) = self.pending_events.try_recv() {
+        for event in self.pending_events.lock().unwrap().events.drain(..) {
+            info!("Queuing new event at index {}: {:?}", self.next_event_index, event.event);
             self.events.push(EventInHeap {
                 due: self.current_time + event.delay,
                 event: event.event,
