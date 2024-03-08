@@ -382,11 +382,6 @@ impl PeerActor {
 
     fn send_message_with_encoding(&self, msg: &PeerMessage, enc: Encoding) {
         let msg_type: &str = msg.msg_variant();
-        let _span = tracing::trace_span!(
-            target: "network",
-            "send_message_with_encoding",
-            msg_type)
-        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -923,12 +918,6 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        let _span = tracing::trace_span!(
-            target: "network",
-            "receive_routed_message",
-            "type" = <&RoutedMessageBody as Into<&'static str>>::into(&body)
-        )
-        .entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -1002,7 +991,6 @@ impl PeerActor {
         conn: &connection::Connection,
         msg: PeerMessage,
     ) {
-        let _span = tracing::trace_span!(target: "network", "receive_message").entered();
         // This is a fancy way to clone the message iff event_sink is non-null.
         // If you have a better idea on how to achieve that, feel free to improve this.
         let message_processed_event = self
@@ -1104,13 +1092,6 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
-        let _span = tracing::trace_span!(
-            target: "network",
-            "handle_msg_ready",
-            "type" = <&PeerMessage as Into<&'static str>>::into(&peer_msg)
-        )
-        .entered();
-
         // Clones message iff someone is listening on the sink. Should be in tests only.
         let message_processed_event = self
             .network_state
@@ -1395,7 +1376,6 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
             conn.stop(Some(ban_reason));
         }
@@ -1435,8 +1415,6 @@ impl PeerActor {
         conn: Arc<connection::Connection>,
         distance_vector: DistanceVector,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
-
         if conn.peer_info.id != distance_vector.root {
             conn.stop(Some(ReasonForBan::InvalidDistanceVector));
             return;
@@ -1581,15 +1559,6 @@ impl actix::Handler<stream::Frame> for PeerActor {
     type Result = ();
     #[perf]
     fn handle(&mut self, stream::Frame(msg): stream::Frame, ctx: &mut Self::Context) {
-        let _span = tracing::debug_span!(
-            target: "network",
-            "handle",
-            handler = "bytes",
-            actor = "PeerActor",
-            msg_len = msg.len(),
-            peer = %self.peer_info)
-        .entered();
-
         if self.closing_reason.is_some() {
             tracing::warn!(target: "network", "Received message from closing connection {:?}. Ignoring", self.peer_type);
             return;

@@ -562,7 +562,6 @@ impl PeerManagerActor {
         mut interval: time::Duration,
         (default_interval, max_interval): (time::Duration, time::Duration),
     ) {
-        let _span = tracing::trace_span!(target: "network", "monitor_peers_trigger").entered();
         let _timer =
             metrics::PEER_MANAGER_TRIGGER_TIME.with_label_values(&["monitor_peers"]).start_timer();
 
@@ -700,7 +699,6 @@ impl PeerManagerActor {
     }
 
     fn push_network_info_trigger(&self, ctx: &mut actix::Context<Self>, interval: time::Duration) {
-        let _span = tracing::trace_span!(target: "network", "push_network_info_trigger").entered();
         let network_info = self.get_network_info();
         let _timer = metrics::PEER_MANAGER_TRIGGER_TIME
             .with_label_values(&["push_network_info"])
@@ -728,10 +726,6 @@ impl PeerManagerActor {
         msg: NetworkRequests,
         ctx: &mut actix::Context<Self>,
     ) -> NetworkResponses {
-        let msg_type: &str = msg.as_ref();
-        let _span =
-            tracing::trace_span!(target: "network", "handle_msg_network_requests", msg_type)
-                .entered();
         metrics::REQUEST_COUNT_BY_TYPE_TOTAL.with_label_values(&[msg.as_ref()]).inc();
         match msg {
             NetworkRequests::Block { block } => {
