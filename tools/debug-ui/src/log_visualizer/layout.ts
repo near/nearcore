@@ -138,7 +138,8 @@ export class Layouts {
             if (a.time > b.time) {
                 return 1;
             }
-            return a.topologicalRanking - b.topologicalRanking;
+            // Tiebreak using the topological ordering that we're naturally given.
+            return a.id - b.id;
         });
         for (const item of sortedItems) {
             if (item.time > currentTime) {

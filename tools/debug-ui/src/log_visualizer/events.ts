@@ -31,10 +31,6 @@ export class EventItem {
     public readonly childIds: number[] = [];
     // The log lines emitted by the Rust program while handling this event.
     public readonly logRows: string[] = [];
-    // A computed topological sort ranking, so that if event A is a child of
-    // event B, it is guaranteed that A's topologicalRanking is greater than
-    // that of B.
-    public topologicalRanking = 0;
 
     constructor(id: number, parentId: number | null, time: number, eventDump: string) {
         this.id = id;
@@ -214,24 +210,6 @@ export class EventItemCollection {
             }
         }
         return items;
-    }
-
-    public computeTopologicalRanking() {
-        const visited = new Set<number>();
-        const dfs = (id: number) => {
-            if (visited.has(id)) {
-                return;
-            }
-            visited.add(id);
-            const item = this.get(id)!;
-            for (const childId of item.childIds) {
-                dfs(childId);
-            }
-            item.topologicalRanking = visited.size;
-        };
-        for (const item of this.items) {
-            dfs(item.id);
-        }
     }
 }
 
