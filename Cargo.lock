@@ -4495,7 +4495,6 @@ version = "0.0.0"
 dependencies = [
  "backtrace",
  "cfg-if 1.0.0",
- "crossbeam-queue",
  "enumset",
  "finite-wasm",
  "lazy_static",

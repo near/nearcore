@@ -80,3 +80,39 @@ fn gas_intrinsic_did_not_multiply_by_opcode_cost() {
             "#]],
         ]);
 }
+
+#[test]
+fn parallel_runtime_invocations() {
+    let mut join_handles = Vec::new();
+    for _ in 0..128 {
+        let handle = std::thread::spawn(|| {
+            for _ in 0..16 {
+                test_builder()
+                .only_near_vm()
+                .wat(
+                    r#"
+                      (module
+                        (type (func))
+                        (func (type 0)
+                          loop
+                            br 0
+                          end
+                        )
+                        (export "foo" (func 0)))
+                    "#,
+                )
+                .method("foo")
+                .expects(&[
+                    expect![[r#"
+                    VMOutcome: balance 4 storage_usage 12 return data None burnt gas 100000000000000 used gas 100000000000000
+                    Err: Exceeded the prepaid gas.
+                    "#]],
+                ]);
+            }
+        });
+        join_handles.push(handle);
+    }
+    for handle in join_handles {
+        handle.join().unwrap();
+    }
+}
