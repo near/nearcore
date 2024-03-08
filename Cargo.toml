@@ -95,9 +95,6 @@ members = [
     "utils/stdx",
 ]
 
-[workspace.lints.rust]
-warnings = "deny"
-
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
 correctness = { level = "deny", priority = -50 }
