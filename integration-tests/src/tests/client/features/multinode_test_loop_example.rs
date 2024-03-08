@@ -57,8 +57,10 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Balance;
+use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
+use near_store::TrieConfig;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
 use std::path::Path;
@@ -224,11 +226,13 @@ fn test_client_with_multi_test_loop() {
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
         )));
-        let runtime_adapter = NightshadeRuntime::test(
+        let runtime_adapter = NightshadeRuntime::test_with_trie_config(
             Path::new("."),
             store.clone(),
             &genesis.config,
             epoch_manager.clone(),
+            TrieConfig { load_mem_tries_for_all_shards: true, ..Default::default() },
+            StateSnapshotType::ForReshardingOnly,
         );
 
         let client = Client::new(
