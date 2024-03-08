@@ -438,7 +438,15 @@ impl ViewClientActor {
             .chain
             .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
         {
-            return Ok(TxExecutionStatus::Included);
+            return if execution_outcome
+                .receipts_outcome
+                .iter()
+                .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
+            {
+                Ok(TxExecutionStatus::ExecutedOptimistic)
+            } else {
+                Ok(TxExecutionStatus::Included)
+            };
         }
 
         if execution_outcome
