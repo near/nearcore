@@ -2,13 +2,13 @@ pub use near_primitives::hash::CryptoHash;
 pub use near_primitives::{self, types, views};
 
 /// Resulting struct represents block with chunks
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StreamerMessage {
     pub block: views::BlockView,
     pub shards: Vec<IndexerShard>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexerChunkView {
     pub author: types::AccountId,
     pub header: views::ChunkHeaderView,
@@ -34,7 +34,7 @@ pub struct IndexerExecutionOutcomeWithReceipt {
     pub receipt: views::ReceiptView,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexerShard {
     pub shard_id: types::ShardId,
     pub chunk: Option<IndexerChunkView>,
