@@ -91,7 +91,7 @@ impl<'a> CodeMemoryWriter<'a> {
 /// Mappings to regions of memory storing the executable JIT code.
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
-    source_pool: Option<Arc<crossbeam_queue::ArrayQueue<Self>>>,
+    source_pool: Option<Arc<std::sync::Mutex<Vec<Self>>>>,
 
     /// The mapping
     map: *mut u8,
@@ -138,7 +138,7 @@ impl CodeMemory {
         if self.size < size {
             // Ideally we would use mremap, but see
             // https://bugzilla.kernel.org/show_bug.cgi?id=8691
-            let result = Self::create(size)?;
+            let mut result = Self::create(size)?;
             result.source_pool = self.source_pool.take();
             drop(self);
             Ok(result)
@@ -212,12 +212,13 @@ impl Drop for CodeMemory {
                     );
                 }
             }
-            drop(source_pool.push(Self {
+            let mut guard = source_pool.lock().unwrap_or_else(|e| e.into_inner());
+            guard.push(Self {
                 source_pool: None,
                 map: self.map,
                 size: self.size,
                 executable_end: 0,
-            }));
+            });
         } else {
             unsafe {
                 if let Err(e) = mm::munmap(self.map.cast(), self.size) {
@@ -242,25 +243,25 @@ unsafe impl Send for CodeMemory {}
 /// However it is possible for the mappings inside to grow to accomodate larger code.
 #[derive(Clone)]
 pub struct LimitedMemoryPool {
-    pool: Arc<crossbeam_queue::ArrayQueue<CodeMemory>>,
+    pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
 }
 
 impl LimitedMemoryPool {
     /// Create a new pool with `count` mappings initialized to `default_memory_size` each.
     pub fn new(count: usize, default_memory_size: usize) -> rustix::io::Result<Self> {
-        let pool = Arc::new(crossbeam_queue::ArrayQueue::new(count));
-        let this = Self { pool };
+        let pool = Arc::new(std::sync::Mutex::new(Vec::with_capacity(count)));
+        let mut guard = pool.lock().unwrap_or_else(|e| e.into_inner());
         for _ in 0..count {
-            this.pool
-                .push(CodeMemory::create(default_memory_size)?)
-                .unwrap_or_else(|_| panic!("ArrayQueue could not accomodate {count} memories!"));
+            guard.push(CodeMemory::create(default_memory_size)?);
         }
-        Ok(this)
+        drop(guard);
+        Ok(Self { pool })
     }
 
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
-        let mut memory = self.pool.pop().ok_or(rustix::io::Errno::NOMEM)?;
+        let mut guard = self.pool.lock().unwrap_or_else(|e| e.into_inner());
+        let mut memory = guard.pop().ok_or(rustix::io::Errno::NOMEM)?;
         memory.source_pool = Some(Arc::clone(&self.pool));
         if memory.size < size {
             Ok(memory.resize(size)?)
