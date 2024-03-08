@@ -180,7 +180,7 @@ impl ShardLayout {
             .into_iter()
             .map(|s| s.parse().unwrap())
             .collect(),
-            Some(vec![vec![0], vec![1, 2], vec![3], vec![4], vec![5]]),
+            Some(vec![vec![0], vec![1], vec![2, 3], vec![4], vec![5]]),
             3,
         )
     }
@@ -672,10 +672,10 @@ mod tests {
                 0
               ],
               [
-                1,
-                2
+                1
               ],
               [
+                2,
                 3
               ],
               [
@@ -688,7 +688,7 @@ mod tests {
             "to_parent_shard_map": [
               0,
               1,
-              1,
+              2,
               2,
               3,
               4
