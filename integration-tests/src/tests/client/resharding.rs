@@ -1165,9 +1165,11 @@ fn setup_test_env_with_cross_contract_txs(
 
     // add a bunch of transactions before the two epoch boundaries
     for height in [
+        epoch_length - 3,
         epoch_length - 2,
         epoch_length - 1,
         epoch_length,
+        2 * epoch_length - 3,
         2 * epoch_length - 2,
         2 * epoch_length - 1,
         2 * epoch_length,
@@ -1179,8 +1181,8 @@ fn setup_test_env_with_cross_contract_txs(
             &mut all_accounts,
             &mut new_accounts,
             &mut nonce,
+            15,
             20,
-            30,
         );
 
         test_env.set_tx_at_height(height, txs);
@@ -1337,7 +1339,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
@@ -1400,7 +1402,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
