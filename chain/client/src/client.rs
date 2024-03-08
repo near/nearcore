@@ -87,7 +87,7 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tracing::{debug, debug_span, error, info, instrument, trace, warn};
+use tracing::{debug, debug_span, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
@@ -2171,7 +2171,6 @@ impl Client {
     }
 
     /// Process transaction and either add it to the mempool or return to redirect to another validator.
-    #[instrument(skip_all, fields(tx_hash = ? tx.get_hash()))]
     fn process_tx_internal(
         &mut self,
         tx: &SignedTransaction,

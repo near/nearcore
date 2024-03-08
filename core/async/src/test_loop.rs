@@ -196,20 +196,6 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
     pub fn new() -> Self {
         // Initialize the logger to make sure the test loop printouts are visible.
         init_test_logger();
-        // If the test panics, make a nicer error message to suggest how to debug.
-        let panic_hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            println!();
-            println!("================== ❗❗❗ P A N I C ❗❗❗ ===================");
-            println!();
-            panic_hook(info);
-            println!();
-            println!(
-                "💡💡💡 Tip: This is a TestLoop test. Pipe the output of this test to a \
-                 file, and then use the visualizer from tools/debug-ui/README.md to see a detailed \
-                 breakdown of what happened in the test."
-            );
-        }));
         let pending_events = Arc::new(Mutex::new(InFlightEvents {
             events: Vec::new(),
             event_loop_thread_id: std::thread::current().id(),
@@ -321,9 +307,9 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// multiple times, but further test handlers may not be registered after
     /// the first call.
     pub fn run_for(&mut self, duration: time::Duration) {
-        // Push events we have received outside the test into the heap.
-        self.queue_received_events();
         self.maybe_initialize_handlers();
+        // Push events we have received outside the test or during handler init into the heap.
+        self.queue_received_events();
         let deadline = self.current_time + duration;
         loop {
             // Don't execute any more events after the deadline.
@@ -379,9 +365,9 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// To maximize logical consistency, the condition is only checked before the clock would
     /// advance. If it returns true, execution stops before advancing the clock.
     pub fn run_until(&mut self, condition: impl Fn(&mut Data) -> bool, maximum_duration: Duration) {
-        // Push events we have received outside the test into the heap.
-        self.queue_received_events();
         self.maybe_initialize_handlers();
+        // Push events we have received outside the test or during handler init into the heap.
+        self.queue_received_events();
         let deadline = self.current_time + maximum_duration;
         loop {
             // Don't execute any more events after the deadline.
@@ -412,9 +398,9 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Note that events that are droppable are dropped and not handled. It would not be consistent
     /// to continue using the TestLoop, and therefore it is consumed by this function.
     pub fn finish_remaining_events(mut self, maximum_duration: Duration) {
-        // Push events we have received outside the test into the heap.
-        self.queue_received_events();
         self.maybe_initialize_handlers();
+        // Push events we have received outside the test or during handler init into the heap.
+        self.queue_received_events();
         let max_time = self.current_time + maximum_duration;
         'outer: loop {
             // Don't execute any more events after the deadline.
