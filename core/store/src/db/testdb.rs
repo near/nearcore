@@ -131,4 +131,8 @@ impl Database for TestDB {
     fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
         Ok(())
     }
+
+    fn db_for_updates(&self) -> Option<Arc<dyn Database>> {
+        None
+    }
 }

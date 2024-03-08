@@ -114,6 +114,10 @@ impl Database for ColdDB {
     fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
         self.cold.create_checkpoint(path)
     }
+
+    fn db_for_updates(&self) -> Option<std::sync::Arc<dyn Database>> {
+        Some(self.cold.clone())
+    }
 }
 
 /// Adjust database operation to be performed on cold storage.

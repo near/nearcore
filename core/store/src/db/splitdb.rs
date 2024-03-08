@@ -202,6 +202,10 @@ impl Database for SplitDB {
         log_assert_fail!("create_checkpoint is not allowed - the split storage has two stores");
         Ok(())
     }
+
+    fn db_for_updates(&self) -> Option<std::sync::Arc<dyn Database>> {
+        Some(self.hot.clone())
+    }
 }
 
 #[cfg(test)]

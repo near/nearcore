@@ -265,6 +265,10 @@ impl NodeStorage {
     pub fn cold_db(&self) -> Option<&Arc<crate::db::ColdDB>> {
         self.cold_storage.as_ref()
     }
+
+    pub fn hot_db(&self) -> &dyn Database {
+        self.hot_storage.as_ref()
+    }
 }
 
 impl Store {
@@ -299,7 +303,7 @@ impl Store {
     }
 
     pub fn store_update(&self) -> StoreUpdate {
-        StoreUpdate::new(Arc::clone(&self.storage))
+        StoreUpdate::new(self.storage.db_for_updates().unwrap_or(Arc::clone(&self.storage)))
     }
 
     pub fn iter<'a>(&'a self, col: DBCol) -> DBIterator<'a> {
