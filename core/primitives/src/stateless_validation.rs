@@ -238,7 +238,7 @@ pub struct StoredChunkStateTransitionData {
     pub receipts_hash: CryptoHash,
 }
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 pub struct EndorsementStats {
     pub total_stake: Balance,
     pub endorsed_stake: Balance,
