@@ -39,6 +39,7 @@ nextest TYPE *FLAGS: (nextest-unit TYPE FLAGS) (nextest-integration TYPE FLAGS)
 
 # cargo unit tests, TYPE is "stable" or "nightly"
 nextest-unit TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --workspace \
@@ -55,6 +56,7 @@ nextest-unit TYPE *FLAGS:
 # cargo integration tests, TYPE is "stable" or "nightly"
 [linux]
 nextest-integration TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --package integration-tests \
