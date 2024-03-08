@@ -1,28 +1,22 @@
-use std::collections::HashMap;
-use std::time::Duration;
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
-use chrono::Utc;
+use near_async::time::{Duration, Utc};
 use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
-use near_chain_configs::ReshardingConfig;
-use near_pool::types::TransactionGroupIterator;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_primitives::sharding::ShardChunkHeader;
-use near_store::flat::FlatStorageManager;
-use near_store::StorageError;
-use num_rational::Rational32;
-
 use near_chain_configs::ProtocolConfig;
+use near_chain_configs::ReshardingConfig;
 use near_chain_primitives::Error;
+pub use near_epoch_manager::EpochManagerAdapter;
+use near_pool::types::TransactionGroupIterator;
+pub use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -30,15 +24,17 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
     StateChangesForResharding, StateRoot, StateRootNode,
 };
+use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
+use near_store::flat::FlatStorageManager;
+use near_store::StorageError;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
-
-pub use near_epoch_manager::EpochManagerAdapter;
-pub use near_primitives::block::{Block, BlockHeader, Tip};
+use num_rational::Rational32;
+use std::collections::HashMap;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -200,7 +196,7 @@ impl From<&ChainGenesis> for BlockEconomicsConfig {
 /// Chain genesis configuration.
 #[derive(Clone)]
 pub struct ChainGenesis {
-    pub time: DateTime<Utc>,
+    pub time: Utc,
     pub height: BlockHeight,
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
@@ -239,7 +235,8 @@ impl ChainConfig {
 impl ChainGenesis {
     pub fn new(genesis_config: &GenesisConfig) -> Self {
         Self {
-            time: genesis_config.genesis_time,
+            time: Utc::from_unix_timestamp_nanos(to_timestamp(genesis_config.genesis_time) as i128)
+                .unwrap(),
             height: genesis_config.genesis_height,
             gas_limit: genesis_config.gas_limit,
             min_gas_price: genesis_config.min_gas_price,
@@ -530,16 +527,14 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use chrono::Utc;
-    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-
+    use near_async::time::{Clock, Utc};
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
+    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -552,19 +547,20 @@ mod tests {
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-            Utc::now(),
+            Utc::now_utc(),
             0,
             100,
             1_000_000_000,
             CryptoHash::hash_borsh(genesis_bps),
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
+        let b2 =
+            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 

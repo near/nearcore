@@ -12,7 +12,9 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
+use near_store::{
+    get, get_account, get_postponed_receipt, get_yielded_promise, TrieAccess, TrieUpdate,
+};
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
@@ -38,7 +40,7 @@ fn receipt_cost(
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
     Ok(match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !receipt.predecessor_id.is_system() {
                 let mut total_gas = safe_add_gas(
@@ -55,7 +57,7 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::Data(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -84,18 +86,36 @@ fn total_accounts_balance(
     })
 }
 
+#[derive(Eq, Hash, PartialEq)]
+enum PostponedReceiptType {
+    Action,
+    PromiseYield,
+}
+
 /// Calculates and returns total costs of all the postponed receipts.
 fn total_postponed_receipts_cost(
     state: &dyn TrieAccess,
     config: &RuntimeConfig,
-    receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
+    receipt_ids: &HashSet<(PostponedReceiptType, AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
-        let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
-            None => return Ok(total),
-            Some(receipt) => receipt_cost(config, &receipt)?,
+        let (receipt_type, account_id, lookup_id) = item;
+
+        let cost = match receipt_type {
+            PostponedReceiptType::Action => {
+                match get_postponed_receipt(state, account_id, *lookup_id)? {
+                    None => return Ok(total),
+                    Some(receipt) => receipt_cost(config, &receipt)?,
+                }
+            }
+            PostponedReceiptType::PromiseYield => {
+                match get_yielded_promise(state, account_id, *lookup_id)? {
+                    None => return Ok(total),
+                    Some(receipt) => receipt_cost(config, &receipt)?,
+                }
+            }
         };
+
         safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
     })
 }
@@ -163,6 +183,7 @@ pub(crate) fn check_balance(
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
+
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
@@ -173,7 +194,9 @@ pub(crate) fn check_balance(
         .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Some(Ok((account_id.clone(), receipt.receipt_id))),
+                ReceiptEnum::Action(_) => {
+                    Some(Ok((PostponedReceiptType::Action, account_id.clone(), receipt.receipt_id)))
+                }
                 ReceiptEnum::Data(data_receipt) => {
                     let result = get(
                         initial_state,
@@ -185,9 +208,21 @@ pub(crate) fn check_balance(
                     match result {
                         Err(err) => Some(Err(err)),
                         Ok(None) => None,
-                        Ok(Some(receipt_id)) => Some(Ok((account_id.clone(), receipt_id))),
+                        Ok(Some(receipt_id)) => {
+                            Some(Ok((PostponedReceiptType::Action, account_id.clone(), receipt_id)))
+                        }
                     }
                 }
+                ReceiptEnum::PromiseYield(action_receipt) => Some(Ok((
+                    PostponedReceiptType::PromiseYield,
+                    account_id.clone(),
+                    action_receipt.input_data_ids[0],
+                ))),
+                ReceiptEnum::PromiseResume(data_receipt) => Some(Ok((
+                    PostponedReceiptType::PromiseYield,
+                    account_id.clone(),
+                    data_receipt.data_id,
+                ))),
             }
         })
         .collect::<Result<HashSet<_>, StorageError>>()?;

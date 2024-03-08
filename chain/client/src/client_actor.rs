@@ -7,12 +7,11 @@
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler};
 use actix_rt::{Arbiter, ArbiterHandle};
-use chrono::{DateTime, Utc};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoMultiSender, Sender};
-use near_async::time::Clock;
-use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest};
-use near_chain::resharding::ReshardingRequest;
+use near_async::futures::ActixArbiterHandleFutureSpawner;
+use near_async::messaging::{IntoMultiSender, IntoSender, Sender};
+use near_async::time::Utc;
+use near_async::time::{Clock, Duration};
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainGenesis;
@@ -24,7 +23,6 @@ use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_network::types::PeerManagerAdapter;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_primitives::network::PeerId;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_telemetry::TelemetryActor;
 use rand::Rng;
@@ -34,7 +32,8 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
-use crate::sync_jobs_actor::{create_sync_job_scheduler, SyncJobsActor};
+use crate::sync_jobs_actions::SyncJobsActions;
+use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
 
 pub struct ClientActor {
@@ -76,7 +75,12 @@ impl ClientActor {
             &state_parts_arbiter.handle(),
             move |ctx: &mut Context<SyncJobsActor>| -> SyncJobsActor {
                 ctx.set_mailbox_capacity(SyncJobsActor::MAILBOX_CAPACITY);
-                SyncJobsActor { client_addr: self_addr_clone }
+                SyncJobsActor {
+                    actions: SyncJobsActions::new(
+                        self_addr_clone.with_auto_span_context().into_multi_sender(),
+                        ctx.address().with_auto_span_context().into_multi_sender(),
+                    ),
+                }
             },
         );
         let actions = ClientActions::new(
@@ -87,14 +91,12 @@ impl ClientActor {
             node_id,
             network_adapter,
             validator_signer,
-            telemetry_actor,
+            telemetry_actor.with_auto_span_context().into_sender(),
             shutdown_signal,
             adv,
             config_updater,
-            create_sync_job_scheduler::<ApplyStatePartsRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<BlockCatchUpRequest>(sync_jobs_actor_addr.clone()),
-            create_sync_job_scheduler::<ReshardingRequest>(sync_jobs_actor_addr),
-            state_parts_arbiter,
+            sync_jobs_actor_addr.with_auto_span_context().into_multi_sender(),
+            Box::new(ActixArbiterHandleFutureSpawner(state_parts_arbiter.handle())),
         )?;
         Ok(Self { actions })
     }
@@ -158,23 +160,18 @@ pub fn random_seed_from_thread() -> RngSeed {
 }
 
 /// Blocks the program until given genesis time arrives.
-fn wait_until_genesis(genesis_time: &DateTime<Utc>) {
+fn wait_until_genesis(genesis_time: &Utc) {
     loop {
-        // Get chrono::Duration::num_seconds() by deducting genesis_time from now.
-        let duration = genesis_time.signed_duration_since(StaticClock::utc());
-        let chrono_seconds = duration.num_seconds();
-        // Check if number of seconds in chrono::Duration larger than zero.
-        if chrono_seconds <= 0 {
+        let duration = *genesis_time - Clock::real().now_utc();
+        if duration <= Duration::ZERO {
             break;
         }
-        tracing::info!(target: "near", "Waiting until genesis: {}d {}h {}m {}s", duration.num_days(),
-              (duration.num_hours() % 24),
-              (duration.num_minutes() % 60),
-              (duration.num_seconds() % 60));
-        let wait = std::cmp::min(
-            std::time::Duration::from_secs(10),
-            std::time::Duration::from_secs(chrono_seconds as u64),
-        );
+        tracing::info!(target: "near", "Waiting until genesis: {}d {}h {}m {}s",
+              duration.whole_days(),
+              (duration.whole_hours() % 24),
+              (duration.whole_minutes() % 60),
+              (duration.whole_seconds() % 60));
+        let wait = duration.min(Duration::seconds(10)).unsigned_abs();
         std::thread::sleep(wait);
     }
 }
@@ -203,6 +200,7 @@ pub fn start_client(
 
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
+        clock.clone(),
         client_config.clone(),
         chain_genesis,
         epoch_manager,

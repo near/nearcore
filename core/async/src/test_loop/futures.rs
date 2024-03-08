@@ -1,5 +1,6 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
 use crate::futures::DelayedActionRunner;
+use crate::time::Duration;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
@@ -99,13 +100,14 @@ impl FutureSpawner for TestLoopFutureSpawner {
 
 /// Represents an action that was scheduled to run later, by using
 /// `DelayedActionRunner::run_later`.
-pub struct TestLoopDelayedActionEvent<T>(
-    Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
-);
+pub struct TestLoopDelayedActionEvent<T> {
+    name: String,
+    action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+}
 
 impl<T> Debug for TestLoopDelayedActionEvent<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("DelayedAction").finish()
+        f.debug_tuple("DelayedAction").field(&self.name).finish()
     }
 }
 
@@ -115,7 +117,7 @@ pub fn drive_delayed_action_runners<T>() -> LoopEventHandler<T, TestLoopDelayedA
     LoopEventHandler::new_with_drop(
         |event, data, ctx| {
             let mut runner = TestLoopDelayedActionRunner { sender: ctx.sender.clone() };
-            (event.0)(data, &mut runner);
+            (event.action)(data, &mut runner);
             Ok(())
         },
         |_| {
@@ -137,9 +139,13 @@ pub struct TestLoopDelayedActionRunner<T> {
 impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
-        dur: std::time::Duration,
-        f: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
+        name: &str,
+        dur: Duration,
+        action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {
-        self.sender.send_with_delay(TestLoopDelayedActionEvent(f), dur.try_into().unwrap());
+        self.sender.send_with_delay(
+            TestLoopDelayedActionEvent { name: name.to_string(), action },
+            dur.try_into().unwrap(),
+        );
     }
 }

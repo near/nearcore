@@ -1,13 +1,12 @@
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use lru::LruCache;
-use std::collections::HashMap;
-
+use near_async::time::Utc;
 use near_chain_primitives::Error;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use std::collections::HashMap;
 
 use crate::metrics;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
@@ -19,7 +18,7 @@ const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 // signatures is populated later during call to prepare_chunk_headers_ready_for_inclusion
 struct ChunkInfo {
     pub chunk_header: ShardChunkHeader,
-    pub received_time: DateTime<Utc>,
+    pub received_time: Utc,
     pub chunk_producer: AccountId,
     pub signatures: Option<ChunkEndorsementSignatures>,
 }
@@ -71,8 +70,12 @@ impl ChunkInclusionTracker {
         }
         // Insert chunk info in chunk_hash_to_chunk_info. This would be cleaned up later during eviction
         let chunk_hash = chunk_header.chunk_hash();
-        let chunk_info =
-            ChunkInfo { chunk_header, received_time: Utc::now(), chunk_producer, signatures: None };
+        let chunk_info = ChunkInfo {
+            chunk_header,
+            received_time: Utc::now_utc(),
+            chunk_producer,
+            signatures: None,
+        };
         self.chunk_hash_to_chunk_info.insert(chunk_hash, chunk_info);
     }
 
@@ -198,7 +201,7 @@ impl ChunkInclusionTracker {
     pub fn get_chunk_producer_and_received_time(
         &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<(AccountId, DateTime<Utc>), Error> {
+    ) -> Result<(AccountId, Utc), Error> {
         let chunk_info = self.get_chunk_info(chunk_hash)?;
         Ok((chunk_info.chunk_producer.clone(), chunk_info.received_time))
     }

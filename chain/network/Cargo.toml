@@ -61,6 +61,7 @@ near-store.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+bolero.workspace = true
 criterion.workspace = true
 pretty_assertions.workspace = true
 rand_xorshift.workspace = true

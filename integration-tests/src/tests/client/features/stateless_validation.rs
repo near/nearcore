@@ -1,8 +1,6 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
-use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_store::test_utils::create_test_store;
-use nearcore::config::GenesisExt;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashSet;
@@ -336,7 +334,7 @@ fn test_chunk_state_witness_bad_shard_id() {
 
     // Client should reject this ChunkStateWitness and the error message should mention "shard"
     tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
-    let res = env.clients[0].process_chunk_state_witness(witness, PeerId::random(), None);
+    let res = env.clients[0].process_chunk_state_witness(witness, None);
     let error = res.unwrap_err();
     let error_message = format!("{}", error).to_lowercase();
     tracing::info!(target: "test", "error message: {}", error_message);

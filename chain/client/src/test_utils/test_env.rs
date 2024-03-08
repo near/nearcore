@@ -1,13 +1,10 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-
 use crate::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use crate::Client;
 use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
+use near_async::time::{Duration, Instant};
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::Tip;
 use near_chain::{ChainGenesis, Provenance};
@@ -29,7 +26,6 @@ use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
 use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
@@ -43,13 +39,15 @@ use near_primitives::views::{
 };
 use near_store::ShardUId;
 use once_cell::sync::OnceCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
 
 /// Timeout used in tests that wait for a specific chunk endorsement to appear
-const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::from_secs(10);
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -78,7 +76,8 @@ pub struct StateWitnessPropagationOutput {
 
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
-        TestEnvBuilder::new(GenesisConfig::test())
+        let clock = Clock::real();
+        TestEnvBuilder::new(GenesisConfig::test(clock.clone())).clock(clock)
     }
 
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
@@ -331,7 +330,6 @@ impl TestEnv {
                         let processing_result =
                             self.client(account_id).process_chunk_state_witness(
                                 state_witness.clone(),
-                                PeerId::random(),
                                 Some(processing_done_tracker),
                             );
                         if !allow_errors {
@@ -419,7 +417,7 @@ impl TestEnv {
                 return Err(TimeoutError(elapsed_since_start));
             }
 
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
 
@@ -572,6 +570,7 @@ impl TestEnv {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
         let num_validator_seats = vs.all_block_producers().count() as NumSeats;
         self.clients[idx] = setup_client_with_runtime(
+            self.clock.clone(),
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,

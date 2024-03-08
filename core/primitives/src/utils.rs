@@ -9,7 +9,6 @@ use rand::{thread_rng, Rng};
 use serde;
 
 use crate::hash::{hash, CryptoHash};
-use crate::receipt::Receipt;
 use crate::transaction::SignedTransaction;
 use crate::types::{NumSeats, NumShards, ShardId};
 use crate::version::{
@@ -238,18 +237,18 @@ pub fn create_receipt_id_from_transaction(
     )
 }
 
-/// Creates a new Receipt ID from a given receipt, a block hash and a new receipt index.
+/// Creates a new Receipt ID from a given receipt id, a block hash and a new receipt index.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_receipt_id_from_receipt(
+pub fn create_receipt_id_from_receipt_id(
     protocol_version: ProtocolVersion,
-    receipt: &Receipt,
+    receipt_id: &CryptoHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     receipt_index: usize,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
-        &receipt.receipt_id,
+        receipt_id,
         prev_block_hash,
         block_hash,
         receipt_index as u64,
@@ -258,9 +257,9 @@ pub fn create_receipt_id_from_receipt(
 
 /// Creates a new action_hash from a given receipt, a block hash and an action index.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_action_hash(
+pub fn create_action_hash_from_receipt_id(
     protocol_version: ProtocolVersion,
-    receipt: &Receipt,
+    receipt_id: &CryptoHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
     action_index: usize,
@@ -268,24 +267,24 @@ pub fn create_action_hash(
     // Action hash uses the same input as a new receipt ID, so to avoid hash conflicts we use the
     // salt starting from the `u64` going backward.
     let salt = u64::MAX.wrapping_sub(action_index as u64);
-    create_hash_upgradable(protocol_version, &receipt.receipt_id, prev_block_hash, block_hash, salt)
+    create_hash_upgradable(protocol_version, receipt_id, prev_block_hash, block_hash, salt)
 }
 
-/// Creates a new `data_id` from a given action hash, a block hash and a data index.
+/// Creates a new Receipt ID from a given action hash, a block hash and a new receipt index.
 /// This method is backward compatible, so it takes the current protocol version.
-pub fn create_data_id(
+pub fn create_receipt_id_from_action_hash(
     protocol_version: ProtocolVersion,
     action_hash: &CryptoHash,
     prev_block_hash: &CryptoHash,
     block_hash: &CryptoHash,
-    data_index: usize,
+    receipt_index: usize,
 ) -> CryptoHash {
     create_hash_upgradable(
         protocol_version,
         action_hash,
         prev_block_hash,
         block_hash,
-        data_index as u64,
+        receipt_index as u64,
     )
 }
 

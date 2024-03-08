@@ -20,6 +20,9 @@ pub enum Parameter {
     BurntGasReward,
     PessimisticGasPriceInflation,
 
+    // Stateless validation config
+    StorageProofSizeSoftLimit,
+
     // Account creation config
     MinAllowedTopLevelAccountLength,
     RegistrarAccountId,
@@ -115,6 +118,10 @@ pub enum Parameter {
     WasmAltBn128PairingCheckElement,
     WasmAltBn128G1SumBase,
     WasmAltBn128G1SumElement,
+    WasmYieldCreateBase,
+    WasmYieldCreateByte,
+    WasmYieldResumeBase,
+    WasmYieldResumeByte,
 
     // Smart contract limits
     MaxGasBurnt,
@@ -144,6 +151,8 @@ pub enum Parameter {
     Wasmer2StackLimit,
     MaxLocalsPerContract,
     AccountIdValidityRulesVersion,
+    YieldTimeoutLengthInBlocks,
+    MaxYieldPayloadSize,
 
     // Contract runtime features
     #[strum(serialize = "disable_9393_fix")]
@@ -157,6 +166,7 @@ pub enum Parameter {
     FunctionCallWeight,
     VmKind,
     EthImplicitAccounts,
+    YieldResume,
 }
 
 #[derive(
@@ -222,6 +232,8 @@ impl Parameter {
             Parameter::Wasmer2StackLimit,
             Parameter::MaxLocalsPerContract,
             Parameter::AccountIdValidityRulesVersion,
+            Parameter::YieldTimeoutLengthInBlocks,
+            Parameter::MaxYieldPayloadSize,
         ]
         .iter()
     }

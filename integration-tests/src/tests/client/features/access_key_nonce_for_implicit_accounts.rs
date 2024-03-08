@@ -3,7 +3,7 @@ use assert_matches::assert_matches;
 use near_async::messaging::CanSend;
 use near_chain::orphan::NUM_ORPHAN_ANCESTORS_CHECK;
 use near_chain::{Error, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_chunks::metrics::PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER;
 use near_client::test_utils::{create_chunk_with_transactions, TestEnv};
 use near_client::{ProcessTxResponse, ProduceChunkResult};
@@ -21,9 +21,7 @@ use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::utils::derive_near_implicit_account_id;
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 use std::collections::HashSet;
@@ -306,7 +304,7 @@ fn test_transaction_nonce_too_large() {
 ///   the requirement that the block must be in the same epoch as the next block after its accepted ancestor
 /// - test1 processes partial chunk responses for block 8 and 9
 /// - check that test1 sends missing chunk requests for block 11 to 10+NUM_ORPHAN_ANCESTORS+CHECK,
-///   since now they satisfy the the requirements for requesting chunks for orphans
+///   since now they satisfy the requirements for requesting chunks for orphans
 /// - process the rest of blocks
 #[test]
 fn test_request_chunks_for_orphan() {

@@ -10,7 +10,6 @@ use bytesize::ByteSize;
 use itertools::Itertools;
 use near_chain::Block;
 use near_chain_primitives::Error;
-use near_primitives::network::PeerId;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::types::{BlockHeight, EpochId};
 use std::ops::Range;
@@ -157,8 +156,9 @@ impl Client {
     }
 
     /// Once a new block arrives, we can process the orphaned chunk state witnesses that were waiting
-    // for this block. This function takes the ready witnesses out of the orhan pool and process them.
-    pub fn process_ready_orphan_chunk_state_witnesses(&mut self, new_block: &Block) {
+    /// for this block. This function takes the ready witnesses out of the orhan pool and process them.
+    /// It also removes old witnesses (below final height) from the orphan pool to save memory.
+    pub fn process_ready_orphan_witnesses_and_clean_old(&mut self, new_block: &Block) {
         let ready_witnesses = self
             .chunk_validator
             .orphan_witness_pool
@@ -173,15 +173,31 @@ impl Client {
                 witness_prev_block = ?header.prev_block_hash(),
                 "Processing an orphaned ChunkStateWitness, its previous block has arrived."
             );
-            if let Err(err) = self.process_chunk_state_witness_with_prev_block(
-                witness,
-                PeerId::random(), // TODO: Should peer_id even be here? https://github.com/near/stakewars-iv/issues/17
-                new_block,
-                None,
-            ) {
+            if let Err(err) =
+                self.process_chunk_state_witness_with_prev_block(witness, new_block, None)
+            {
                 tracing::error!(target: "client", ?err, "Error processing orphan chunk state witness");
             }
         }
+
+        // Remove all orphan witnesses that are below the last final block of the new block.
+        // They won't be used, so we can remove them from the pool to save memory.
+        let last_final_block =
+            match self.chain.get_block_header(new_block.header().last_final_block()) {
+                Ok(block_header) => block_header,
+                Err(err) => {
+                    tracing::error!(
+                        target: "client",
+                        last_final_block = ?new_block.header().last_final_block(),
+                        ?err,
+                        "Error getting last final block of the new block"
+                    );
+                    return;
+                }
+            };
+        self.chunk_validator
+            .orphan_witness_pool
+            .remove_witnesses_below_final_height(last_final_block.height());
     }
 }
 

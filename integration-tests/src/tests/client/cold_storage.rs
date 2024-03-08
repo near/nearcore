@@ -21,7 +21,6 @@ use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{cold_storage::spawn_cold_store_loop, NearConfig};
 use std::collections::HashSet;

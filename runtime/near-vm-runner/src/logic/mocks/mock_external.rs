@@ -61,6 +61,14 @@ pub enum MockAction {
         public_key: near_crypto::PublicKey,
         nonce: u64,
     },
+    YieldCreate {
+        data_id: CryptoHash,
+        receiver_id: AccountId,
+    },
+    YieldResume {
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Default, Clone)]
@@ -150,7 +158,7 @@ impl External for MockedExternal {
         Ok(self.validators.values().sum())
     }
 
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
@@ -158,6 +166,36 @@ impl External for MockedExternal {
         let index = self.action_log.len();
         self.action_log.push(MockAction::CreateReceipt { receipt_indices, receiver_id });
         Ok(index as u64)
+    }
+
+    fn create_promise_yield_receipt(
+        &mut self,
+        receiver_id: AccountId,
+    ) -> Result<(ReceiptIndex, CryptoHash), crate::logic::VMLogicError> {
+        let index = self.action_log.len();
+        let data_id = self.generate_data_id();
+        self.action_log.push(MockAction::YieldCreate { data_id, receiver_id });
+        Ok((index as u64, data_id))
+    }
+
+    fn submit_promise_resume_data(
+        &mut self,
+        data_id: CryptoHash,
+        data: Vec<u8>,
+    ) -> Result<bool, crate::logic::VMLogicError> {
+        self.action_log.push(MockAction::YieldResume { data_id, data });
+        for action in &self.action_log {
+            let MockAction::YieldCreate { data_id: did, .. } = action else {
+                continue;
+            };
+            // FIXME: should also check that receiver_id matches current account_id, but there
+            // isn't one tracked by `Self`...
+            if data_id == *did {
+                // NB: does not actually handle timeouts.
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn append_action_create_account(

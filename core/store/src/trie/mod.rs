@@ -672,6 +672,14 @@ impl Trie {
         self.recorder.as_ref().map(|recorder| recorder.borrow_mut().recorded_storage())
     }
 
+    /// Returns the in-memory size of the recorded state proof. Useful for checking size limit of state witness
+    pub fn recorded_storage_size(&self) -> usize {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().recorded_storage_size())
+            .unwrap_or_default()
+    }
+
     /// Constructs a Trie from the partial storage (i.e. state proof) that
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
@@ -1476,7 +1484,7 @@ impl Trie {
     {
         match &self.memtries {
             Some(memtries) => {
-                // If we have in-memory tries, use it to construct the the changes entirely (for
+                // If we have in-memory tries, use it to construct the changes entirely (for
                 // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
                 let mut trie_update = guard.update(self.root, true)?;

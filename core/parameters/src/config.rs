@@ -23,6 +23,8 @@ pub struct RuntimeConfig {
     pub wasm_config: crate::vm::Config,
     /// Config that defines rules for account creation.
     pub account_creation_config: AccountCreationConfig,
+    /// The maximum size of the storage proof in state witness after which we defer execution of any new receipts.
+    pub storage_proof_size_soft_limit: usize,
 }
 
 impl RuntimeConfig {
@@ -45,6 +47,7 @@ impl RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
+            storage_proof_size_soft_limit: usize::MAX,
         }
     }
 
@@ -57,6 +60,7 @@ impl RuntimeConfig {
             fees: RuntimeFeesConfig::free(),
             wasm_config,
             account_creation_config: AccountCreationConfig::default(),
+            storage_proof_size_soft_limit: usize::MAX,
         }
     }
 

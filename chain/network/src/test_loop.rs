@@ -5,6 +5,7 @@ use near_primitives::types::AccountId;
 /// This trait is just a helper for looking up the index.
 pub trait SupportsRoutingLookup {
     fn index_for_account(&self, account: &AccountId) -> usize;
+    fn num_accounts(&self) -> usize;
 }
 
 impl<InnerData: AsRef<AccountId>> SupportsRoutingLookup for Vec<InnerData> {
@@ -12,5 +13,9 @@ impl<InnerData: AsRef<AccountId>> SupportsRoutingLookup for Vec<InnerData> {
         self.iter()
             .position(|data| data.as_ref() == account)
             .unwrap_or_else(|| panic!("Account not found: {}", account))
+    }
+
+    fn num_accounts(&self) -> usize {
+        self.len()
     }
 }

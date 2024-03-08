@@ -1006,11 +1006,7 @@ impl PeerActor {
                     None
                 }
                 RoutedMessageBody::ChunkStateWitness(witness) => {
-                    network_state
-                        .client
-                        .send_async(ChunkStateWitnessMessage { witness, peer_id })
-                        .await
-                        .ok();
+                    network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                     None
                 }
                 RoutedMessageBody::ChunkEndorsement(endorsement) => {

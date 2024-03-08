@@ -114,10 +114,7 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage {
-    pub witness: ChunkStateWitness,
-    pub peer_id: PeerId,
-}
+pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]

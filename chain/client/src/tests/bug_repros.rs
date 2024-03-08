@@ -8,6 +8,7 @@ use std::sync::{Arc, RwLock};
 use actix::System;
 use futures::FutureExt;
 use near_async::messaging::CanSend;
+use near_async::time::Clock;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use rand::{thread_rng, Rng};
 
@@ -54,6 +55,7 @@ fn repro_1183() {
         let last_block: Arc<RwLock<Option<Block>>> = Arc::new(RwLock::new(None));
         let delayed_one_parts: Arc<RwLock<Vec<NetworkRequests>>> = Arc::new(RwLock::new(vec![]));
         let (_, conn, _) = setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -181,6 +183,7 @@ fn test_sync_from_archival_node() {
     run_actix(async move {
         let mut block_counter = 0;
         setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -285,6 +288,7 @@ fn test_long_gap_between_blocks() {
 
     run_actix(async move {
         setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,

@@ -461,7 +461,7 @@ mod tests {
 /// case fall back to sending to the account.
 /// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
-    /// Target account to send the the request to
+    /// Target account to send the request to
     pub account_id: Option<AccountId>,
     /// Whether to check peers first or target account first
     pub prefer_peer: bool,

@@ -8,12 +8,13 @@ We submit a transfer transaction between the accounts and verify the transaction
 import sys
 import unittest
 import pathlib
+import copy
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
 import cluster
-from resharding_lib import get_target_shard_layout_version, get_target_num_shards, get_genesis_config_changes, get_client_config_changes
+from resharding_lib import ReshardingTestBase, get_genesis_config_changes, get_client_config_changes
 import transaction
 from utils import MetricsTracker, poll_blocks
 import key
@@ -21,19 +22,10 @@ import key
 STARTING_AMOUNT = 123 * (10**24)
 
 
-class ReshardingRpcTx(unittest.TestCase):
+class ReshardingRpcTx(ReshardingTestBase):
 
     def setUp(self) -> None:
-        self.epoch_length = 5
-        self.config = cluster.load_config()
-        self.binary_protocol_version = cluster.get_binary_protocol_version(
-            self.config)
-        assert self.binary_protocol_version is not None
-
-        self.target_shard_layout_version = get_target_shard_layout_version(
-            self.binary_protocol_version)
-        self.target_num_shards = get_target_num_shards(
-            self.binary_protocol_version)
+        super().setUp(epoch_length=5)
 
     def __setup_account(self, account_id, nonce):
         """ Create an account with full access key and balance. """
@@ -60,6 +52,20 @@ class ReshardingRpcTx(unittest.TestCase):
     def __verify_tx_status(self, transfer_response, sender_account_id):
         tx_hash = transfer_response['result']['transaction']['hash']
         response = self.node.get_tx(tx_hash, sender_account_id)
+
+        self.assertEqual(
+            transfer_response['result']['final_execution_status'],
+            'EXECUTED',
+        )
+        self.assertEqual(
+            response['result']['final_execution_status'],
+            'FINAL',
+        )
+
+        transfer_response = copy.deepcopy(transfer_response)
+        transfer_response['result']['final_execution_status'] = "IGNORE_ME"
+        response['result']['final_execution_status'] = "IGNORE_ME"
+
         assert response == transfer_response, response
         pass
 
@@ -74,7 +80,8 @@ class ReshardingRpcTx(unittest.TestCase):
             num_shards=1,
             config=self.config,
             genesis_config_changes=genesis_config_changes,
-            client_config_changes=client_config_changes)
+            client_config_changes=client_config_changes,
+        )
         self.node = nodes[0]
 
         # The shard boundaries are at "kkuuue2akv_1630967379.near" and "tge-lockup.sweat" for shard 3 and 4
@@ -88,10 +95,16 @@ class ReshardingRpcTx(unittest.TestCase):
         poll_blocks(self.node)
 
         # Submit a transfer transaction between the accounts, we would verify the transaction status later
-        response0 = self.__submit_transfer_tx(account0, account1.account_id,
-                                              6000001)
-        response1 = self.__submit_transfer_tx(account1, account0.account_id,
-                                              12000001)
+        response0 = self.__submit_transfer_tx(
+            account0,
+            account1.account_id,
+            6000001,
+        )
+        response1 = self.__submit_transfer_tx(
+            account1,
+            account0.account_id,
+            12000001,
+        )
 
         metrics_tracker = MetricsTracker(self.node)
         for height, _ in poll_blocks(self.node):
@@ -100,10 +113,8 @@ class ReshardingRpcTx(unittest.TestCase):
                 continue
 
             # Quick check whether resharding is completed
-            version = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_version")
-            num_shards = metrics_tracker.get_int_metric_value(
-                "near_shard_layout_num_shards")
+            version = self.get_version(metrics_tracker)
+            num_shards = self.get_num_shards(metrics_tracker)
             self.assertEqual(version, self.target_shard_layout_version)
             self.assertEqual(num_shards, self.target_num_shards)
 

@@ -41,6 +41,12 @@ struct TestData {
     account_id: AccountId,
 }
 
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
 #[derive(EnumTryInto, Debug, EnumFrom)]
 enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
@@ -99,7 +105,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
         .collect::<Vec<_>>();
     let mut test = builder.build(data);
     for idx in 0..test.data.len() {
-        test.register_handler(handle_adhoc_events().for_index(idx));
+        test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));

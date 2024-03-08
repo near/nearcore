@@ -19,6 +19,7 @@ bytesize.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 clap.workspace = true
+derive_more.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
@@ -66,6 +67,7 @@ testlib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+derive-enum-from-into.workspace = true
 insta.workspace = true
 near-undo-block.workspace = true
 rlp.workspace = true

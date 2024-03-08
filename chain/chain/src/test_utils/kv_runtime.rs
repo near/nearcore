@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -53,7 +54,6 @@ use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// Simple key value runtime for tests.
 ///
@@ -1118,7 +1118,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action) = &receipt.receipt {
+            if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
+                &receipt.receipt
+            {
                 assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
@@ -1135,7 +1137,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     panic!("receipts should never be applied twice");
                 }
             } else {
-                unreachable!();
+                unreachable!("only action receipts can be applied");
             }
         }
 

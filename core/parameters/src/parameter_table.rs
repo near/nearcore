@@ -325,12 +325,14 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 alt_bn128: params.get(Parameter::AltBn128)?,
                 function_call_weight: params.get(Parameter::FunctionCallWeight)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
+                yield_resume_host_functions: params.get(Parameter::YieldResume)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
+            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
         })
     }
 }

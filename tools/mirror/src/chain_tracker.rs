@@ -456,7 +456,8 @@ impl TxTracker {
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
         if let Some(s) = &self.send_time {
-            tokio::time::sleep_until(s.as_ref().deadline() - Duration::from_millis(20)).await;
+            tokio::time::sleep_until(s.as_ref().deadline() - std::time::Duration::from_millis(20))
+                .await;
         }
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
@@ -853,7 +854,7 @@ impl TxTracker {
                     }
                 }
             }
-            _ => {}
+            ReceiptEnumView::Data { .. } => {}
         };
         Ok(())
     }

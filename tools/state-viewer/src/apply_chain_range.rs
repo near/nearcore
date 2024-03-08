@@ -7,7 +7,6 @@ use near_chain::types::{
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
-use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::DelayedReceiptIndices;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
@@ -149,7 +148,7 @@ fn apply_block_from_range(
         .get_block_producer(block.header().epoch_id(), block.header().height())
         .unwrap();
 
-    let apply_result = if *block.header().prev_hash() == CryptoHash::default() {
+    let apply_result = if block.header().is_genesis() {
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
@@ -452,6 +451,7 @@ mod test {
     use std::path::Path;
 
     use near_chain::Provenance;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -462,8 +462,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
-    use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::NightshadeRuntime;
 
     use crate::apply_chain_range::apply_chain_range;

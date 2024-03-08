@@ -1,7 +1,7 @@
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+pub use crate::config::NightshadeRuntimeExt;
+pub use crate::config::{init_configs, load_config, load_test_config, NearConfig};
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
@@ -12,6 +12,7 @@ use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
+pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
@@ -41,6 +42,8 @@ use tracing::info;
 pub mod append_only_map;
 pub mod cold_storage;
 pub mod config;
+#[cfg(test)]
+mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
@@ -49,7 +52,6 @@ mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
-mod runtime;
 pub mod state_sync;
 pub mod test_utils;
 
@@ -311,6 +313,7 @@ pub fn start_with_config_and_synchronization(
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
+        Clock::real(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         view_epoch_manager.clone(),

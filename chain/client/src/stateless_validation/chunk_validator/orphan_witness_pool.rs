@@ -82,6 +82,32 @@ impl OrphanStateWitnessPool {
         }
         result
     }
+
+    /// Remove all witnesses below the given height from the pool.
+    /// Orphan witnesses below the final height of the chain won't be needed anymore,
+    /// so they can be removed from the pool to free up memory.
+    pub fn remove_witnesses_below_final_height(&mut self, final_height: BlockHeight) {
+        let mut to_remove: Vec<(ShardId, BlockHeight)> = Vec::new();
+        for ((witness_shard, witness_height), cache_entry) in self.witness_cache.iter() {
+            if *witness_height < final_height {
+                to_remove.push((*witness_shard, *witness_height));
+                let header = &cache_entry.witness.inner.chunk_header;
+                tracing::debug!(
+                    target: "client",
+                    final_height,
+                    ejected_witness_height = *witness_height,
+                    ejected_witness_shard = *witness_shard,
+                    ejected_witness_chunk = ?header.chunk_hash(),
+                    ejected_witness_prev_block = ?header.prev_block_hash(),
+                    "Ejecting an orphaned ChunkStateWitness from the cache because it's below \
+                    the final height of the chain. It will not be processed.");
+            }
+        }
+        for cache_key in to_remove {
+            let popped = self.witness_cache.pop(&cache_key);
+            debug_assert!(popped.is_some());
+        }
+    }
 }
 
 impl Default for OrphanStateWitnessPool {
@@ -312,6 +338,36 @@ mod tests {
         assert_contents(waiting_for_99, vec![witness]);
 
         assert_empty(&pool);
+    }
+
+    /// Test that remove_witnesses_below_final_height() works correctly
+    #[test]
+    fn remove_below_height() {
+        let mut pool = OrphanStateWitnessPool::new(10);
+
+        let witness1 = make_witness(100, 1, block(99), 0);
+        let witness2 = make_witness(101, 1, block(100), 0);
+        let witness3 = make_witness(102, 1, block(101), 0);
+        let witness4 = make_witness(103, 1, block(102), 0);
+
+        pool.add_orphan_state_witness(witness1, 0);
+        pool.add_orphan_state_witness(witness2.clone(), 0);
+        pool.add_orphan_state_witness(witness3, 0);
+        pool.add_orphan_state_witness(witness4.clone(), 0);
+
+        let waiting_for_100 = pool.take_state_witnesses_waiting_for_block(&block(100));
+        assert_contents(waiting_for_100, vec![witness2]);
+
+        pool.remove_witnesses_below_final_height(103);
+
+        let waiting_for_99 = pool.take_state_witnesses_waiting_for_block(&block(99));
+        assert_contents(waiting_for_99, vec![]);
+
+        let waiting_for_101 = pool.take_state_witnesses_waiting_for_block(&block(101));
+        assert_contents(waiting_for_101, vec![]);
+
+        let waiting_for_102 = pool.take_state_witnesses_waiting_for_block(&block(102));
+        assert_contents(waiting_for_102, vec![witness4]);
     }
 
     /// An OrphanStateWitnessPool with 0 capacity shouldn't crash, it should just ignore all witnesses

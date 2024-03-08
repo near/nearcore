@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
@@ -29,7 +29,8 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    get_access_key, get_code, remove_access_key, remove_account, set_access_key, set_code,
+    enqueue_yielded_promise_timeout, get_access_key, get_code, get_yielded_promise_indices,
+    remove_access_key, remove_account, set_access_key, set_code, set_yielded_promise_indices,
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
@@ -289,25 +290,73 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        let new_receipts: Vec<_> = receipt_manager
+        // Fetch metadata for yielded promises queue
+        let mut yielded_promise_indices =
+            get_yielded_promise_indices(state_update).unwrap_or_default();
+        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+
+        let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
             .into_iter()
-            .map(|(receiver_id, receipt)| Receipt {
-                predecessor_id: account_id.clone(),
-                receiver_id,
-                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
-                // "Generating receipt IDs" section
-                receipt_id: CryptoHash::default(),
-                receipt: ReceiptEnum::Action(ActionReceipt {
+            .map(|receipt| {
+                // If the newly created receipt is a PromiseYield, enqueue a timeout for it
+                if receipt.is_promise_yield {
+                    enqueue_yielded_promise_timeout(
+                        state_update,
+                        &mut yielded_promise_indices,
+                        account_id.clone(),
+                        receipt.input_data_ids[0],
+                        apply_state.block_height
+                            + config.wasm_config.limit_config.yield_timeout_length_in_blocks,
+                    );
+                }
+
+                let new_action_receipt = ActionReceipt {
                     signer_id: action_receipt.signer_id.clone(),
                     signer_public_key: action_receipt.signer_public_key.clone(),
                     gas_price: action_receipt.gas_price,
                     output_data_receivers: receipt.output_data_receivers,
                     input_data_ids: receipt.input_data_ids,
                     actions: receipt.actions,
-                }),
+                };
+
+                Receipt {
+                    predecessor_id: account_id.clone(),
+                    receiver_id: receipt.receiver_id,
+                    // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                    // "Generating receipt IDs" section
+                    receipt_id: CryptoHash::default(),
+                    receipt: if receipt.is_promise_yield {
+                        ReceiptEnum::PromiseYield(new_action_receipt)
+                    } else {
+                        ReceiptEnum::Action(new_action_receipt)
+                    },
+                }
             })
             .collect();
+
+        // Create data receipts for resumed yields
+        new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
+            let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
+
+            Receipt {
+                predecessor_id: account_id.clone(),
+                receiver_id: account_id.clone(),
+                // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
+                // "Generating receipt IDs" section
+                receipt_id: CryptoHash::default(),
+                receipt: if receipt.is_promise_resume {
+                    ReceiptEnum::PromiseResume(new_data_receipt)
+                } else {
+                    ReceiptEnum::Data(new_data_receipt)
+                },
+            }
+        }));
+
+        // Commit metadata for yielded promises queue
+        if yielded_promise_indices != initial_yielded_promise_indices {
+            set_yielded_promise_indices(state_update, &yielded_promise_indices);
+        }
 
         account.set_amount(outcome.balance);
         account.set_storage_usage(outcome.storage_usage);
@@ -787,7 +836,7 @@ pub(crate) fn apply_delegate_action(
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
     Ok(match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
                     &apply_state.config,
@@ -803,7 +852,7 @@ fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<G
 
             required_gas
         }
-        ReceiptEnum::Data(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
