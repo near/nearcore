@@ -1076,7 +1076,7 @@ fn alt_bn128_pairing_check_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_p1_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_sum_1_100", ExtCosts::bls12381_p1_sum_base, 100)
+    fn_cost(ctx, "bls12381_p1_sum_0_100", ExtCosts::bls12381_p1_sum_base, 100)
 }
 
 fn bls12381_p1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
@@ -1084,7 +1084,7 @@ fn bls12381_p1_sum_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_p2_sum_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p2_sum_2_100", ExtCosts::bls12381_p2_sum_base, 100)
+    fn_cost(ctx, "bls12381_p2_sum_0_100", ExtCosts::bls12381_p2_sum_base, 100)
 }
 
 fn bls12381_p2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
@@ -1092,23 +1092,23 @@ fn bls12381_p2_sum_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_p1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_multiexp_1_100", ExtCosts::bls12381_p1_multiexp_base, 100)
+    fn_cost(ctx, "bls12381_p1_multiexp_0_100", ExtCosts::bls12381_p1_multiexp_base, 100)
 }
 
 fn bls12381_p1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_multiexp_1_100", ExtCosts::bls12381_p1_multiexp_element, 100)
+    fn_cost(ctx, "bls12381_p1_multiexp_500_100", ExtCosts::bls12381_p1_multiexp_element, 500*100)
 }
 
 fn bls12381_p2_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p2_multiexp_1_100", ExtCosts::bls12381_p2_multiexp_base, 100)
+    fn_cost(ctx, "bls12381_p2_multiexp_0_100", ExtCosts::bls12381_p2_multiexp_base, 100)
 }
 
 fn bls12381_p2_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p2_multiexp_1_100", ExtCosts::bls12381_p2_multiexp_element, 100)
+    fn_cost(ctx, "bls12381_p2_multiexp_500_100", ExtCosts::bls12381_p2_multiexp_element, 500*100)
 }
 
 fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp_to_g1_1_100", ExtCosts::bls12381_map_fp_to_g1_base, 100)
+    fn_cost(ctx, "bls12381_map_fp_to_g1_0_100", ExtCosts::bls12381_map_fp_to_g1_base, 100)
 }
 
 fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
@@ -1116,7 +1116,7 @@ fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp2_to_g2_1_100", ExtCosts::bls12381_map_fp2_to_g2_base, 100)
+    fn_cost(ctx, "bls12381_map_fp2_to_g2_0_100", ExtCosts::bls12381_map_fp2_to_g2_base, 100)
 }
 
 fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
@@ -1124,15 +1124,15 @@ fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_pairing_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_pairing_1_100", ExtCosts::bls12381_pairing_base, 100)
+    fn_cost(ctx, "bls12381_pairing_0_100", ExtCosts::bls12381_pairing_base, 100)
 }
 
 fn bls12381_pairing_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_pairing_1_100", ExtCosts::bls12381_pairing_element, 200)
+    fn_cost(ctx, "bls12381_pairing_10_100", ExtCosts::bls12381_pairing_element, 10*100)
 }
 
 fn bls12381_p1_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_decompress_1_100", ExtCosts::bls12381_p1_decompress_base, 100)
+    fn_cost(ctx, "bls12381_p1_decompress_0_100", ExtCosts::bls12381_p1_decompress_base, 100)
 }
 
 fn bls12381_p1_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
@@ -1140,7 +1140,7 @@ fn bls12381_p1_decompress_element(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn bls12381_p2_decompress_base(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p2_decompress_1_100", ExtCosts::bls12381_p2_decompress_base, 100)
+    fn_cost(ctx, "bls12381_p2_decompress_0_100", ExtCosts::bls12381_p2_decompress_base, 100)
 }
 
 fn bls12381_p2_decompress_element(ctx: &mut EstimatorContext) -> GasCost {

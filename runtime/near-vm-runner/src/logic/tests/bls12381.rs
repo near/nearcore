@@ -1236,12 +1236,6 @@ mod tests {
         };
     }
 
-    #[test]
-    fn convert_input() {
-        let bytes_input = hex::decode("000000000000000000000000000000000001101098f5c39893765766af4512a0c74e1bb89bc7e6fdf14e3e7337d257cc0f94658179d83320b99f31ff94cd2bac0000000000000000000000000000000003e1a9f9f44ca2cdab4f43a1a3ee3470fdf90b2fc228eb3b709fcd72f014838ac82a6d797aeefed9a0804b22ed1ce8f7").unwrap();
-        println!("{:?}", fix_eip2537_g1(bytes_input));
-    }
-
     fn fix_eip2537_pairing_input(input: Vec<u8>) -> Vec<u8> {
         vec![
             fix_eip2537_g1(input[..128].to_vec()).to_vec(),
