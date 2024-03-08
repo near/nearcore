@@ -75,6 +75,7 @@ nextest-integration TYPE *FLAGS:
 # check various build configurations compile as anticipated
 check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
+    RUSTFLAGS="-D warnings" \
     cargo check -p near-vm-runner --no-default-features
 
 # check rust formatting
@@ -83,7 +84,9 @@ check-cargo-fmt:
 
 # check clippy lints
 check-cargo-clippy:
-    env CARGO_TARGET_DIR="target/clippy" cargo clippy --all-features --all-targets --locked
+    CARGO_TARGET_DIR="target/clippy" \
+    RUSTFLAGS="-D warnings" \
+    cargo clippy --all-features --all-targets --locked
 
 # check cargo deny lints
 check-cargo-deny:
