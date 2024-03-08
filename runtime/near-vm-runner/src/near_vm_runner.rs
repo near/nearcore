@@ -258,7 +258,7 @@ impl NearVM {
                 // that particular function call will be slower. Not to mention there isn't a
                 // strong guarantee on the upper bound of the memory that the contract runtime may
                 // require.
-                LimitedMemoryPool::new(8, 64 * 1024 * 1024).unwrap_or_else(|e| {
+                LimitedMemoryPool::new(256, 1 * 1024 * 1024).unwrap_or_else(|e| {
                     panic!("could not pre-allocate resources for the runtime: {e}");
                 })
             })
