@@ -145,6 +145,7 @@ fn apply_delayed_receipts<'a>(
     state_roots: HashMap<ShardUId, StateRoot>,
     account_id_to_shard_uid: &(dyn Fn(&AccountId) -> ShardUId + 'a),
 ) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let mut total_count = 0;
     let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
 
     let mut start_index = None;
@@ -152,6 +153,7 @@ fn apply_delayed_receipts<'a>(
     while let Some((next_index, receipts)) =
         get_delayed_receipts(&orig_trie_update, start_index, config.batch_size)?
     {
+        total_count += receipts.len() as u64;
         let (store_update, updated_state_roots) = tries.apply_delayed_receipts_to_children_states(
             &new_state_roots,
             &receipts,
@@ -162,6 +164,7 @@ fn apply_delayed_receipts<'a>(
         store_update.commit()?;
     }
 
+    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied delayed receipts");
     Ok(new_state_roots)
 }
 
