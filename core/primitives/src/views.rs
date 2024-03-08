@@ -1683,8 +1683,6 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
-    Ord,
-    PartialOrd,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
@@ -1692,6 +1690,11 @@ pub enum TxExecutionStatus {
     None,
     /// Transaction is included into the block. The block may be not finalised yet
     Included,
+    /// Transaction is included into the block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    #[default]
+    ExecutedOptimistic,
     /// Transaction is included into finalised block
     IncludedFinal,
     /// Transaction is included into finalised block +
@@ -1700,7 +1703,6 @@ pub enum TxExecutionStatus {
     Executed,
     /// Transaction is included into finalised block +
     /// Execution of transaction receipts is finalised
-    #[default]
     Final,
 }
 
