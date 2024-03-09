@@ -2,7 +2,7 @@
 # Tests the meta transaction flow.
 # Creates a new account (candidate.test0) with a fixed amount of tokens.
 # Afterwards, creates the meta transaction that adds a new key to this account, but the gas is paid by someone else (test0) account.
-# At the end, verifies that key has been added succesfully and that the amount of tokens in candidate didn't change.
+# At the end, verifies that key has been added successfully and that the amount of tokens in candidate didn't change.
 
 import base58
 import pathlib
