@@ -839,6 +839,33 @@ fn call_promise() {
     }
 }
 
+// Function which expects to receive exactly one promise result,
+// the contents of which should match the function's input.
+#[no_mangle]
+unsafe fn check_promise_result() {
+    input(0);
+    let expected_result_len = register_len(0) as usize;
+    let expected = vec![0u8; expected_result_len];
+    read_register(0, expected.as_ptr() as u64);
+
+    assert_eq!(promise_results_count(), 1);
+    match promise_result(0, 0) {
+        1 => {
+            let mut result = vec![0; register_len(0) as usize];
+            read_register(0, result.as_ptr() as *const u64 as u64);
+            assert_eq!(expected, result);
+
+            // Return the first byte of the payload, doubled
+            result[0] *= 2;
+            value_return(1u64, result.as_ptr() as u64);
+        }
+        2 => {
+            assert_eq!(expected_result_len, 0);
+        }
+        _ => unreachable!(),
+    }
+}
+
 /// Call promise_yield_resume.
 /// Input is the byte array with `data_id` represented by last 32 bytes and `payload`
 /// represented by the first `register_len(0) - 32` bytes.
@@ -862,6 +889,47 @@ pub unsafe fn call_yield_resume() {
 
     let result = vec![success as u8];
     value_return(result.len() as u64, result.as_ptr() as u64);
+}
+
+/// Call promise_yield_create and promise_yield_resume within the same function.
+#[cfg(feature = "nightly")]
+#[no_mangle]
+pub unsafe fn call_yield_create_and_resume() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    // Create a promise yield with callback `check_promise_result`,
+    // passing the expected payload as an argument to the function.
+    let method_name = "check_promise_result";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    let promise_index = promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        data_id_register,
+    );
+
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+
+    // Resolve the promise yield with the expected payload
+    let success = promise_yield_resume(
+        data_id.len() as u64,
+        data_id.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+    );
+    assert_eq!(success, 1u32);
+
+    // This function's return value will resolve to the value returned by the
+    // `check_promise_result` callback
+    promise_return(promise_index);
 }
 
 #[cfg(feature = "latest_protocol")]

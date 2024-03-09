@@ -34,6 +34,33 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 }
 
 #[test]
+fn create_and_resume_in_one_call() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    let yield_payload = vec![23u8; 16];
+
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "call_yield_create_and_resume",
+            yield_payload,
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+
+    // the yield callback is expected to execute successfully,
+    // returning twice the value of the first byte of the payload
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![46u8]),
+        "{res:?} unexpected result; expected 46",
+    );
+}
+
+#[test]
 fn resume_without_yield() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
