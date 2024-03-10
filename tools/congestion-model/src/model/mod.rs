@@ -6,7 +6,6 @@ mod transaction;
 mod transaction_registry;
 
 pub use block_info::BlockInfo;
-use chrono::{DateTime, Utc};
 pub use chunk_execution::*;
 pub use queue::*;
 pub use queue_bundle::*;
@@ -15,11 +14,9 @@ pub use transaction_registry::TransactionId;
 
 pub(crate) use transaction::Transaction;
 
-use crate::strategy::StatsWriter;
 use crate::workload::Producer;
 use crate::{CongestionStrategy, Round};
 use std::collections::BTreeMap;
-use std::time::Duration;
 use transaction_registry::TransactionRegistry;
 
 pub struct Model {
@@ -38,9 +35,6 @@ pub struct Model {
     // Workload state
     pub(crate) transactions: TransactionRegistry,
     pub(crate) producer: Box<dyn Producer>,
-
-    stats_writer: StatsWriter,
-    start_time: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -50,31 +44,16 @@ impl Model {
     pub fn new(
         mut shards: Vec<Box<dyn CongestionStrategy>>,
         mut producer: Box<dyn Producer>,
-        mut stats_writer: StatsWriter,
     ) -> Self {
-        // Set the start time to an hour ago to make it visible by default in
-        // grafana. Each round is 1 virtual second so 1 hour is good for looking
-        // at a maximum of 3600 rounds, beyond that you'll need to customize the
-        // grafana time range.
-        let start_time = Utc::now() - Duration::from_secs(1 * 60 * 60);
         let num_shards = shards.len();
         let shard_ids: Vec<_> = (0..num_shards).map(ShardId).collect();
         let mut queues = QueueBundle::new(&shard_ids);
 
-        if let Some(stats_writer) = &mut stats_writer {
-            stats_writer.write_field("time").unwrap();
-            stats_writer.write_field("round").unwrap();
-        }
-
         for (shard, &id) in shards.iter_mut().zip(&shard_ids) {
-            shard.init(id, &shard_ids, &mut queues, &mut stats_writer);
+            shard.init(id, &shard_ids, &mut queues);
         }
 
         producer.init(&shard_ids);
-
-        if let Some(stats_writer) = &mut stats_writer {
-            stats_writer.write_record(None::<&[u8]>).unwrap();
-        }
 
         Self {
             shards,
@@ -84,21 +63,12 @@ impl Model {
             producer,
             round: 0,
             queues,
-            stats_writer,
-            start_time,
         }
     }
 
     /// execute one round of the model
     pub fn step(&mut self) {
         self.round += 1;
-
-        if let Some(stats_writer) = &mut self.stats_writer {
-            let time = self.start_time + Duration::from_secs(self.round);
-
-            stats_writer.write_field(format!("{:?}", time)).unwrap();
-            stats_writer.write_field(format!("{}", self.round)).unwrap();
-        }
 
         // Generate new transactions and place them in the per-shard transaction queues.
         let new_transactions = self.generate_tx_for_round();
@@ -119,15 +89,11 @@ impl Model {
                 self.round,
                 ShardId(i),
             );
-            shard.compute_chunk(&mut ctx, &mut self.stats_writer);
+            shard.compute_chunk(&mut ctx);
             let (mut forwarded_receipts, shared_block_info) = ctx.finish();
 
             outgoing.append(&mut forwarded_receipts);
             next_block.insert(id, shared_block_info);
-        }
-
-        if let Some(stats_writer) = &mut self.stats_writer {
-            stats_writer.write_record(None::<&[u8]>).unwrap();
         }
 
         // Propagate outputs from this round to inputs for the next round.

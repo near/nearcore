@@ -2,8 +2,6 @@ use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
 use crate::{QueueId, Receipt, ShardId, GAS_LIMIT, TX_GAS_LIMIT};
 
-use super::StatsWriter;
-
 /// Have a fixed max queue size per shard and apply backpressure by stop
 /// forwarding receipts when a receiving shard has reached its limit.
 pub struct SimpleBackpressure {
@@ -22,25 +20,21 @@ impl crate::CongestionStrategy for SimpleBackpressure {
         id: crate::ShardId,
         _other_shards: &[crate::ShardId],
         queue_factory: &mut dyn QueueFactory,
-        stats_writer: &mut StatsWriter,
     ) {
-        self.delayed_outgoing_receipts = Some(queue_factory.register_queue(id));
+        self.delayed_outgoing_receipts =
+            Some(queue_factory.register_queue(id, "delayed_outgoing_receipts"));
         self.id = Some(id);
-
-        if let Some(stats_writer) = stats_writer {
-            stats_writer.write_field(format!("shard_{}_incoming_queue", id.0)).unwrap();
-            stats_writer.write_field(format!("shard_{}_outgoing_queue", id.0)).unwrap();
-        }
     }
 
-    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext, stats_writer: &mut StatsWriter) {
-        if let Some(stats_writer) = stats_writer {
-            let incoming_queue_len = ctx.incoming_receipts().len();
-            let outgoing_queue_len = ctx.queue(self.delayed_outgoing_receipts.unwrap()).len();
+    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
+        // TODO(wacban)
+        // if let Some(stats_writer) = stats_writer {
+        //     let incoming_queue_len = ctx.incoming_receipts().len();
+        //     let outgoing_queue_len = ctx.queue(self.delayed_outgoing_receipts.unwrap()).len();
 
-            stats_writer.write_field(format!("{}", incoming_queue_len)).unwrap();
-            stats_writer.write_field(format!("{}", outgoing_queue_len)).unwrap();
-        }
+        //     stats_writer.write_field(format!("{}", incoming_queue_len)).unwrap();
+        //     stats_writer.write_field(format!("{}", outgoing_queue_len)).unwrap();
+        // }
 
         // first attempt forwarding previously buffered outgoing receipts
         let buffered: Vec<_> =

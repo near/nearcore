@@ -2,8 +2,6 @@ use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
 use crate::{GAS_LIMIT, TX_GAS_LIMIT};
 
-use super::StatsWriter;
-
 pub struct NoQueueShard {}
 
 impl crate::CongestionStrategy for NoQueueShard {
@@ -12,11 +10,10 @@ impl crate::CongestionStrategy for NoQueueShard {
         _id: crate::ShardId,
         _other_shards: &[crate::ShardId],
         _queue_factory: &mut dyn QueueFactory,
-        _stats_writer: &mut StatsWriter,
     ) {
     }
 
-    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext, _stats_writer: &mut StatsWriter) {
+    fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
         while ctx.gas_burnt() < TX_GAS_LIMIT {
             if let Some(tx) = ctx.incoming_transactions().pop_front() {
                 let outgoing = ctx.accept_transaction(tx);
