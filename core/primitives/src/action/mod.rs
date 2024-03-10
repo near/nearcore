@@ -157,6 +157,22 @@ pub struct TransferAction {
     BorshDeserialize,
     PartialEq,
     Eq,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub struct NonrefundableStorageTransferAction {
+    #[serde(with = "dec_format")]
+    pub deposit: Balance,
+}
+
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    PartialEq,
+    Eq,
     Debug,
     Clone,
     serde::Serialize,
@@ -177,16 +193,19 @@ pub enum Action {
     DeleteKey(Box<DeleteKeyAction>),
     DeleteAccount(DeleteAccountAction),
     Delegate(Box<delegate::SignedDelegateAction>),
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    /// Makes a non-refundable transfer for storage allowance.
+    /// Only possible during new account creation.
+    /// For implicit account creation, it has to be the only action in the receipt.
+    NonrefundableStorageTransfer(NonrefundableStorageTransferAction),
 }
-// Note: If this number ever goes down, please adjust the equality accordingly. Otherwise,
-// we would get used to better performance and would be subject to a performance loss should
-// we come back up to 32 bytes later on.
-// If compiling with nightly, this check may fail due to new optimizations introduced by
-// rustc. So, cfg-them out, as our production system only runs with stable.
-#[cfg(not(fuzz))]
+
 const _: () = assert!(
-    cfg!(not(target_pointer_width = "64")) || std::mem::size_of::<Action>() == 32,
-    "Action is 32 bytes for performance reasons, see #9451"
+    // 1 word for tag plus the largest variant `DeployContractAction` which is a 3-word `Vec`.
+    // The `<=` check covers platforms that have pointers smaller than 8 bytes as well as random
+    // freak nightlies that somehow find a way to pack everything into one less word.
+    std::mem::size_of::<Action>() <= 32,
+    "Action <= 32 bytes for performance reasons, see #9451"
 );
 
 impl Action {
@@ -200,6 +219,8 @@ impl Action {
         match self {
             Action::FunctionCall(a) => a.deposit,
             Action::Transfer(a) => a.deposit,
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            Action::NonrefundableStorageTransfer(a) => a.deposit,
             _ => 0,
         }
     }
@@ -226,6 +247,13 @@ impl From<FunctionCallAction> for Action {
 impl From<TransferAction> for Action {
     fn from(transfer_action: TransferAction) -> Self {
         Self::Transfer(transfer_action)
+    }
+}
+
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+impl From<NonrefundableStorageTransferAction> for Action {
+    fn from(nonrefundable_transfer_action: NonrefundableStorageTransferAction) -> Self {
+        Self::NonrefundableStorageTransfer(nonrefundable_transfer_action)
     }
 }
 

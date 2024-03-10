@@ -13,7 +13,11 @@ use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, test_loop::SupportsRoutingLookup,
     types::PeerManagerMessageRequest,
 };
-use near_primitives::types::{AccountId, NumShards};
+use near_primitives::{
+    checked_feature,
+    types::{AccountId, NumShards},
+    version::PROTOCOL_VERSION,
+};
 use near_store::test_utils::create_test_store;
 
 use crate::{
@@ -21,11 +25,12 @@ use crate::{
     client::ShardsManagerResponse,
     test_loop::{
         forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-        route_shards_manager_network_messages, MockChainForShardsManager,
-        MockChainForShardsManagerConfig,
+        periodically_resend_chunk_requests, route_shards_manager_network_messages,
+        MockChainForShardsManager, MockChainForShardsManagerConfig,
+        ShardsManagerResendChunkRequests,
     },
     test_utils::default_tip,
-    ShardsManager,
+    ShardsManager, CHUNK_REQUEST_RETRY,
 };
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
@@ -36,6 +41,12 @@ struct TestData {
     account_id: AccountId,
 }
 
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
+}
+
 #[derive(EnumTryInto, Debug, EnumFrom)]
 enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
@@ -43,6 +54,7 @@ enum TestEvent {
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
     OutboundNetwork(PeerManagerMessageRequest),
+    ShardsManagerResendChunkRequests(ShardsManagerResendChunkRequests),
 }
 
 type ShardsManagerTestLoop = near_async::test_loop::TestLoop<Vec<TestData>, (usize, TestEvent)>;
@@ -93,14 +105,14 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
         .collect::<Vec<_>>();
     let mut test = builder.build(data);
     for idx in 0..test.data.len() {
-        test.register_handler(handle_adhoc_events().for_index(idx));
+        test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));
         test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
-        // Note that we don't have the periodically resending requests handler, because
-        // our forwarding logic means that we don't need to resend requests, unless
-        // there is unreliable network, which is tested separately.
+        test.register_handler(
+            periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen().for_index(idx),
+        );
     }
     test
 }
@@ -185,12 +197,21 @@ fn test_distribute_chunk_track_all_shards() {
         let chunk = data.chain.produce_chunk(1);
         data.chain.distribute_chunk(&chunk);
     });
-    // Two network rounds is enough because each node should have
-    // forwarded the parts to those block producers that need them.
-    // TODO: after phase 2, we will need a longer delay because validators
-    // that don't track the shard will not get forwards. We may also need
-    // to add the periodic resending handler.
-    test.run_for(NETWORK_DELAY * 2);
+    if checked_feature!("stable", SingleShardTracking, PROTOCOL_VERSION) {
+        // After SingleShardTracking protocol upgrade, we need a longer
+        // delay because validators that don't track the shard will not get
+        // parts forwarded to them.
+        // We need to wait for 2x CHUNK_REQUEST_DELAY because the first
+        // time that the timer fires it is not yet enough to trigger the
+        // request (due to misalignment of the timer). So we wait twice. After
+        // the second timer fires, another round trip will be enough to get
+        // the needed parts and receipts.
+        test.run_for(CHUNK_REQUEST_RETRY * 2 + NETWORK_DELAY * 2);
+    } else {
+        // Two network rounds is enough because each node should have
+        // forwarded the parts to those block producers that need them.
+        test.run_for(NETWORK_DELAY * 2);
+    }
 
     // All other nodes should have received the complete chunk.
     for idx in 0..test.data.len() {
@@ -309,12 +330,15 @@ fn test_distribute_chunk_with_chunk_only_producers() {
                             if data.chain.cares_about_shard_this_or_next_epoch(1) {
                                 // If we track shard 1, we should have the full chunk
                                 // and thus have every receipt proof.
-                                assert_eq!(partial_chunk.receipts().len(), 3);
+                                assert_eq!(partial_chunk.prev_outgoing_receipts().len(), 3);
                             } else {
                                 // Otherwise, we should only have the receipt proof for the
                                 // shard we care about.
-                                assert_eq!(partial_chunk.receipts().len(), 1);
-                                assert_eq!(partial_chunk.receipts()[0].1.to_shard_id, shard);
+                                assert_eq!(partial_chunk.prev_outgoing_receipts().len(), 1);
+                                assert_eq!(
+                                    partial_chunk.prev_outgoing_receipts()[0].1.to_shard_id,
+                                    shard
+                                );
                             }
                         }
                     }

@@ -11,17 +11,15 @@ pub use crate::network_protocol::{
 };
 use crate::routing::routing_table_view::RoutingTableInfo;
 pub use crate::state_sync::{StateSync, StateSyncResponse};
-use near_async::messaging::{
-    AsyncSender, CanSend, CanSendAsync, IntoAsyncSender, IntoSender, Sender,
-};
+use near_async::messaging::{AsyncSender, Sender};
 use near_async::time;
 use near_crypto::PublicKey;
 use near_primitives::block::{ApprovalMessage, Block, GenesisId};
 use near_primitives::challenge::Challenge;
-use near_primitives::chunk_validation::{ChunkEndorsementMessage, ChunkStateWitness};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};
@@ -43,7 +41,7 @@ pub enum PeerType {
     Outbound,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownProducer {
     pub account_id: AccountId,
     pub addr: Option<SocketAddr>,
@@ -69,6 +67,7 @@ pub enum ReasonForBan {
     InvalidDistanceVector = 11,
     Blacklisted = 14,
     ProvidedNotEnoughHeaders = 15,
+    BadChunkStateWitness = 16,
 }
 
 /// Banning signal sent from Peer instance to PeerManager
@@ -251,7 +250,6 @@ pub enum NetworkRequests {
     },
     /// Forwarding a chunk part to a validator tracking the shard
     PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
-
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
@@ -260,9 +258,8 @@ pub enum NetworkRequests {
     Challenge(Challenge),
     /// A chunk's state witness.
     ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
-    /// Message for a chunk endorsement, sent by a chunk validator to
-    /// the block producer.
-    ChunkEndorsement(ChunkEndorsementMessage),
+    /// Message for a chunk endorsement, sent by a chunk validator to the block producer.
+    ChunkEndorsement(AccountId, ChunkEndorsement),
 }
 
 /// Combines peer address info, chain.
@@ -274,7 +271,7 @@ pub struct FullPeerInfo {
 
 /// These are the information needed for highest height peers. For these peers, we guarantee that
 /// the height and hash of the latest block are set.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HighestHeightPeerInfo {
     pub peer_info: PeerInfo,
     /// Chain Id and hash of genesis block.
@@ -328,7 +325,7 @@ pub struct PeerChainInfo {
 }
 
 // Information about the connected peer that is shared with the rest of the system.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectedPeerInfo {
     pub full_peer_info: FullPeerInfo,
     /// Number of bytes we've received from the peer.
@@ -347,7 +344,7 @@ pub struct ConnectedPeerInfo {
     pub nonce: u64,
 }
 
-#[derive(Debug, Clone, actix::MessageResponse)]
+#[derive(Debug, Clone, actix::MessageResponse, PartialEq, Eq)]
 pub struct NetworkInfo {
     /// TIER2 connections.
     pub connected_peers: Vec<ConnectedPeerInfo>,
@@ -371,27 +368,11 @@ pub enum NetworkResponses {
     RouteNotFound,
 }
 
-#[derive(Clone, derive_more::AsRef)]
+#[derive(Clone, near_async::MultiSend, near_async::MultiSenderFrom)]
 pub struct PeerManagerAdapter {
-    pub async_request_sender:
-        AsyncSender<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>,
+    pub async_request_sender: AsyncSender<PeerManagerMessageRequest, PeerManagerMessageResponse>,
     pub request_sender: Sender<PeerManagerMessageRequest>,
     pub set_chain_info_sender: Sender<SetChainInfo>,
-}
-
-impl<
-        A: CanSendAsync<PeerManagerMessageRequest, Result<PeerManagerMessageResponse, ()>>
-            + CanSend<PeerManagerMessageRequest>
-            + CanSend<SetChainInfo>,
-    > From<Arc<A>> for PeerManagerAdapter
-{
-    fn from(arc: Arc<A>) -> Self {
-        Self {
-            async_request_sender: arc.as_async_sender(),
-            request_sender: arc.as_sender(),
-            set_chain_info_sender: arc.as_sender(),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -480,7 +461,7 @@ mod tests {
 /// case fall back to sending to the account.
 /// Otherwise, send to the account, unless we do not know the route, in which case send to the peer.
 pub struct AccountIdOrPeerTrackingShard {
-    /// Target account to send the the request to
+    /// Target account to send the request to
     pub account_id: Option<AccountId>,
     /// Whether to check peers first or target account first
     pub prefer_peer: bool,

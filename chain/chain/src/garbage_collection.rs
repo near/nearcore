@@ -525,7 +525,7 @@ impl<'a> ChainStoreUpdate<'a> {
     ) -> Result<(), Error> {
         let mut store_update = self.store().store_update();
 
-        tracing::info!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
+        tracing::debug!(target: "garbage_collection", ?gc_mode, ?block_hash, "GC block_hash");
 
         // 1. Apply revert insertions or deletions from DBCol::TrieChanges for Trie
         {
@@ -586,6 +586,7 @@ impl<'a> ChainStoreUpdate<'a> {
             let block_shard_id = get_block_shard_id(&block_hash, shard_id);
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+            self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
             // For incoming State Parts it's done in chain.clear_downloaded_parts()
             // The following code is mostly for outgoing State Parts.
@@ -686,6 +687,8 @@ impl<'a> ChainStoreUpdate<'a> {
             // delete Receipts
             self.gc_outgoing_receipts(&block_hash, shard_id);
             self.gc_col(DBCol::IncomingReceipts, &block_shard_id);
+
+            self.gc_col(DBCol::StateTransitionData, &block_shard_id);
 
             // delete DBCol::ChunkExtra based on shard_uid since it's indexed by shard_uid in the storage
             self.gc_col(DBCol::ChunkExtra, &block_shard_id);
@@ -970,6 +973,9 @@ impl<'a> ChainStoreUpdate<'a> {
                 self.chain_store().processed_block_heights.pop(key);
             }
             DBCol::HeaderHashesByHeight => {
+                store_update.delete(col, key);
+            }
+            DBCol::StateTransitionData => {
                 store_update.delete(col, key);
             }
             DBCol::DbVersion

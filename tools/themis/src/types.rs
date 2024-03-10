@@ -20,7 +20,7 @@ pub struct Workspace {
 
 #[derive(Debug)]
 pub struct Manifest {
-    raw: toml::Value,
+    pub(crate) raw: toml::Value,
     parent: Option<Rc<Manifest>>,
 }
 

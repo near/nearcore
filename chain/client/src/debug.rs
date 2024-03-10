@@ -1,9 +1,9 @@
 //! Structs in this file are used for debug purposes, and might change at any time
 //! without backwards compatibility.
+use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::ClientActor;
 use actix::{Context, Handler};
-
-use itertools::Itertools;
+use near_async::time::Clock;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
@@ -16,7 +16,7 @@ use near_client_primitives::{
     types::StatusError,
 };
 use near_epoch_manager::EpochManagerAdapter;
-use near_o11y::{handler_debug_span, log_assert, OpenTelemetrySpanExt, WithSpanContext};
+use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{AccountId, BlockHeight, NumShards, ShardId, ValidatorInfoIdentifier};
@@ -32,8 +32,7 @@ use std::collections::{HashMap, HashSet};
 
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
-use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::static_clock::StaticClock;
+use near_primitives::sharding::ChunkHash;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
@@ -94,7 +93,7 @@ impl BlockProductionTracker {
         chunk_collections: Vec<ChunkCollection>,
     ) {
         if let Some(block_production) = self.0.get_mut(&height) {
-            block_production.block_production_time = Some(StaticClock::utc());
+            block_production.block_production_time = Some(Clock::real().now_utc());
             block_production.chunks_collection_time = chunk_collections;
         }
     }
@@ -107,7 +106,7 @@ impl BlockProductionTracker {
             // Check that chunk_collection is set and we haven't received this chunk yet.
             if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
                 if chunk_collection.received_time.is_none() {
-                    chunk_collection.received_time = Some(StaticClock::utc());
+                    chunk_collection.received_time = Some(Clock::real().now_utc());
                 }
             }
             // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.
@@ -119,15 +118,18 @@ impl BlockProductionTracker {
         block_height: BlockHeight,
         epoch_id: &EpochId,
         num_shards: ShardId,
-        new_chunks: &HashMap<ShardId, (ShardChunkHeader, chrono::DateTime<chrono::Utc>, AccountId)>,
+        new_chunks: &HashMap<ShardId, ChunkHash>,
         epoch_manager: &dyn EpochManagerAdapter,
+        chunk_inclusion_tracker: &ChunkInclusionTracker,
     ) -> Result<Vec<ChunkCollection>, Error> {
         let mut chunk_collection_info = vec![];
         for shard_id in 0..num_shards {
-            if let Some((_, chunk_time, chunk_producer)) = new_chunks.get(&shard_id) {
+            if let Some(chunk_hash) = new_chunks.get(&shard_id) {
+                let (chunk_producer, received_time) =
+                    chunk_inclusion_tracker.get_chunk_producer_and_received_time(chunk_hash)?;
                 chunk_collection_info.push(ChunkCollection {
-                    chunk_producer: chunk_producer.clone(),
-                    received_time: Some(*chunk_time),
+                    chunk_producer,
+                    received_time: Some(received_time),
                     chunk_included: true,
                 });
             } else {
@@ -467,7 +469,7 @@ impl ClientActor {
                             processing_time_ms: CryptoHashTimer::get_timer_value(
                                 chunk.chunk_hash().0,
                             )
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         })
                         .collect(),
                     None => vec![],
@@ -484,7 +486,7 @@ impl ClientActor {
                         is_on_canonical_chain,
                         chunks,
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         block_timestamp: block_header.raw_timestamp(),
                         gas_price_ratio: block_header.next_gas_price() as f64
                             / initial_gas_price as f64,
@@ -624,14 +626,8 @@ impl ClientActor {
             production: productions,
             banned_chunk_producers: self
                 .client
-                .do_not_include_chunks_from
-                .iter()
-                .map(|(k, _)| k.clone())
-                .sorted()
-                .group_by(|(k, _)| k.clone())
-                .into_iter()
-                .map(|(k, vs)| (k, vs.map(|(_, v)| v).collect()))
-                .collect(),
+                .chunk_inclusion_tracker
+                .get_banned_chunk_producers(),
         })
     }
 }
@@ -708,11 +704,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(
-                    chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
-                        .unwrap(),
-                    chrono::Utc,
-                ),
+                timestamp: d.timestamp,
             })
             .collect(),
         tier1_connections: network_info

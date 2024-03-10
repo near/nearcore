@@ -55,7 +55,7 @@ pub enum ImportError {
 pub enum LinkError {
     /// An error occurred when checking the import types.
     #[error("Error while importing {0:?}.{1:?}: {2}")]
-    Import(String, String, ImportError),
+    Import(String, String, Box<ImportError>),
 
     /// A trap ocurred during linking.
     #[error("RuntimeError occurred during linking: {0}")]
@@ -84,7 +84,7 @@ pub enum InstantiationError {
     #[error("module compiled with CPU feature that is missing from host")]
     CpuFeature(String),
 
-    /// A runtime error occured while invoking the start function
+    /// A runtime error occurred while invoking the start function
     #[error(transparent)]
     Start(RuntimeError),
 }

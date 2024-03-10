@@ -1,16 +1,13 @@
 //! Readonly view of the chain and state of the database.
 //! Useful for querying from RPC.
 
-use crate::adapter::{
-    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
-    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
-};
 use crate::{
     metrics, sync, GetChunk, GetExecutionOutcomeResponse, GetNextLightClientBlock, GetStateChanges,
     GetStateChangesInBlock, GetValidatorInfo, GetValidatorOrdered,
 };
 use actix::{Actor, Addr, Handler, SyncArbiter, SyncContext};
 use near_async::messaging::CanSend;
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{
     get_epoch_block_producers_view, Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode,
@@ -29,11 +26,15 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::{
+    AnnounceAccountRequest, BlockHeadersRequest, BlockRequest, StateRequestHeader,
+    StateRequestPart, StateResponse, TxStatusRequest, TxStatusResponse,
+};
 use near_network::types::{
     NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest, ReasonForBan,
     StateResponseInfo, StateResponseInfoV2,
 };
-use near_o11y::{handler_debug_span, OpenTelemetrySpanExt, WithSpanContext, WithSpanContextExt};
+use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
 use near_performance_metrics_macros::perf;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -45,7 +46,6 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -63,13 +63,12 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 /// Max number of queries that we keep.
 const QUERY_REQUEST_LIMIT: usize = 500;
 /// Waiting time between requests, in ms
-const REQUEST_WAIT_TIME: u64 = 1000;
+const REQUEST_WAIT_TIME: i64 = 1000;
 
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 
@@ -89,6 +88,7 @@ pub struct ViewClientRequestManager {
 
 /// View client provides currently committed (to the storage) view of the current chain and state.
 pub struct ViewClientActor {
+    clock: Clock,
     pub adv: crate::adversarial::Controls,
 
     /// Validator account (if present).
@@ -120,6 +120,7 @@ impl ViewClientActor {
     const MAX_NUM_STATE_REQUESTS: usize = 30;
 
     pub fn new(
+        clock: Clock,
         validator_account_id: Option<AccountId>,
         chain_genesis: &ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -132,6 +133,7 @@ impl ViewClientActor {
     ) -> Result<Self, Error> {
         // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
         let chain = Chain::new_for_view_client(
+            clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
@@ -140,6 +142,7 @@ impl ViewClientActor {
             config.save_trie_changes,
         )?;
         Ok(ViewClientActor {
+            clock,
             adv,
             validator_account_id,
             chain,
@@ -167,10 +170,14 @@ impl ViewClientActor {
         }
     }
 
-    fn need_request<K: Hash + Eq + Clone>(key: K, cache: &mut lru::LruCache<K, Instant>) -> bool {
-        let now = StaticClock::instant();
+    fn need_request<K: Hash + Eq + Clone>(
+        &self,
+        key: K,
+        cache: &mut lru::LruCache<K, Instant>,
+    ) -> bool {
+        let now = self.clock.now();
         let need_request = match cache.get(&key) {
-            Some(time) => now - *time > Duration::from_millis(REQUEST_WAIT_TIME),
+            Some(time) => now - *time > Duration::milliseconds(REQUEST_WAIT_TIME),
             None => true,
         };
         if need_request {
@@ -280,7 +287,7 @@ impl ViewClientActor {
             let cps: Vec<AccountId> = shard_ids
                 .iter()
                 .map(|&shard_id| {
-                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id);
+                    let cp = epoch_info.sample_chunk_producer(block_height, shard_id).unwrap();
                     let cp = epoch_info.get_validator(cp).account_id().clone();
                     cp
                 })
@@ -431,7 +438,15 @@ impl ViewClientActor {
             .chain
             .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
         {
-            return Ok(TxExecutionStatus::Included);
+            return if execution_outcome
+                .receipts_outcome
+                .iter()
+                .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
+            {
+                Ok(TxExecutionStatus::ExecutedOptimistic)
+            } else {
+                Ok(TxExecutionStatus::Included)
+            };
         }
 
         if execution_outcome
@@ -521,7 +536,7 @@ impl ViewClientActor {
             }
         } else {
             let mut request_manager = self.request_manager.write().expect(POISONED_LOCK_ERR);
-            if Self::need_request(tx_hash, &mut request_manager.tx_status_requests) {
+            if self.need_request(tx_hash, &mut request_manager.tx_status_requests) {
                 let target_shard_id = self
                     .epoch_manager
                     .account_id_to_shard_id(&signer_account_id, &head.epoch_id)
@@ -572,9 +587,9 @@ impl ViewClientActor {
     /// rate limit of state sync requests.
     fn throttle_state_sync_request(&self) -> bool {
         let mut cache = self.state_request_cache.lock().expect(POISONED_LOCK_ERR);
-        let now = StaticClock::instant();
+        let now = self.clock.now();
         while let Some(&instant) = cache.front() {
-            if now.saturating_duration_since(instant) > self.config.view_client_throttle_period {
+            if now - instant > self.config.view_client_throttle_period {
                 cache.pop_front();
             } else {
                 // Assume that time is linear. While in different threads there might be some small differences,
@@ -1589,6 +1604,7 @@ impl Handler<WithSpanContext<GetSplitStorageInfo>> for ViewClientActor {
 
 /// Starts the View Client in a new arbiter (thread).
 pub fn start_view_client(
+    clock: Clock,
     validator_account_id: Option<AccountId>,
     chain_genesis: ChainGenesis,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -1601,6 +1617,7 @@ pub fn start_view_client(
     let request_manager = Arc::new(RwLock::new(ViewClientRequestManager::new()));
     SyncArbiter::start(config.view_client_threads, move || {
         ViewClientActor::new(
+            clock.clone(),
             validator_account_id.clone(),
             &chain_genesis,
             epoch_manager.clone(),

@@ -1,12 +1,10 @@
 use super::super::process_blocks::create_account;
-use near_chain::ChainGenesis;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_primitives::errors::{ActionError, ActionErrorKind};
 use near_primitives::types::{AccountId, BlockHeight};
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[test]
@@ -17,8 +15,7 @@ fn test_create_top_level_accounts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = PROTOCOL_VERSION;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
-    let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
-        .real_epoch_managers(&genesis.config)
+    let mut env = TestEnv::builder(&genesis.config)
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 

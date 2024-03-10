@@ -134,8 +134,9 @@ pub fn state_dump_redis(
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
-    let redis_client =
-        redis::Client::open(env::var("REDIS_HOST").unwrap_or("redis://127.0.0.1/".to_string()))?;
+    let redis_client = redis::Client::open(
+        env::var("REDIS_HOST").unwrap_or_else(|_| "redis://127.0.0.1/".to_string()),
+    )?;
     let mut redis_connection = redis_client.get_connection()?;
 
     let block_height = last_block_header.height();
@@ -293,8 +294,9 @@ mod test {
     use std::path::Path;
     use std::sync::Arc;
 
-    use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
+    use near_chain::{ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -310,8 +312,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
-    use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
     use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;
@@ -335,17 +335,15 @@ mod test {
         genesis.config.use_production_config = test_resharding;
 
         let env = if test_resharding {
-            TestEnv::builder(ChainGenesis::new(&genesis))
+            TestEnv::builder(&genesis.config)
                 .validator_seats(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)
                 .build()
         } else {
-            TestEnv::builder(ChainGenesis::new(&genesis))
+            TestEnv::builder(&genesis.config)
                 .validator_seats(2)
-                .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)
                 .build()
         };
@@ -434,7 +432,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -617,7 +615,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -669,7 +667,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;
@@ -707,10 +705,7 @@ mod test {
             &genesis.config,
             epoch_manager2.clone(),
         );
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        chain_genesis.gas_limit = genesis.config.gas_limit;
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .clients_count(2)
             .stores(vec![store1, store2])
             .epoch_managers(vec![epoch_manager1, epoch_manager2.clone()])
@@ -764,7 +759,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
     }
@@ -786,9 +781,7 @@ mod test {
             &genesis.config,
             epoch_manager.clone(),
         );
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = epoch_length;
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .validator_seats(2)
             .stores(vec![store.clone()])
             .epoch_managers(vec![epoch_manager])
@@ -847,7 +840,7 @@ mod test {
             &state_roots,
             last_block.header().clone(),
             &near_config,
-            Some(&records_file.path().to_path_buf()),
+            Some(records_file.path()),
             &GenesisChangeConfig::default(),
         );
         let new_genesis = new_near_config.genesis;

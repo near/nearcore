@@ -15,9 +15,11 @@ workspace = true
 actix-rt.workspace = true
 actix.workspace = true
 anyhow.workspace = true
+bytesize.workspace = true
 borsh.workspace = true
 chrono.workspace = true
 clap.workspace = true
+derive_more.workspace = true
 futures.workspace = true
 hex.workspace = true
 itertools.workspace = true
@@ -25,7 +27,6 @@ once_cell.workspace = true
 parking_lot.workspace = true
 primitive-types.workspace = true
 rand.workspace = true
-rlp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 smart-default.workspace = true
@@ -58,8 +59,7 @@ near-o11y.workspace = true
 near-telemetry.workspace = true
 near-test-contracts.workspace = true
 near-performance-metrics.workspace = true
-near-undo-block.workspace = true
-near-vm-runner.workspace = true
+near-vm-runner = { workspace = true, features = [ "prepare" ] }
 near-wallet-contract.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
@@ -67,7 +67,10 @@ testlib.workspace = true
 
 [dev-dependencies]
 assert_matches.workspace = true
+derive-enum-from-into.workspace = true
 insta.workspace = true
+near-undo-block.workspace = true
+rlp.workspace = true
 
 [features]
 performance_stats = [
@@ -83,11 +86,11 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
   "near-primitives/protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-chain/protocol_feature_reject_blocks_with_outdated_protocol_version",
 ]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
+]
 
 nightly = [
-  "nightly_protocol",
-  "protocol_feature_fix_contract_loading_cost",
-  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "near-actix-test-utils/nightly",
   "near-async/nightly",
   "near-chain-configs/nightly",
@@ -111,7 +114,11 @@ nightly = [
   "near-vm-runner/nightly",
   "near-wallet-contract/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_fix_contract_loading_cost",
+  "protocol_feature_nonrefundable_transfer_nep491",
+  "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "testlib/nightly",
 ]
 nightly_protocol = [
@@ -140,6 +147,10 @@ nightly_protocol = [
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
   "testlib/nightly_protocol",
+]
+statelessnet_protocol = [
+  "near-chain/statelessnet_protocol",
+  "near-primitives/statelessnet_protocol",
 ]
 sandbox = ["near-chain/sandbox", "node-runtime/sandbox", "near-client/sandbox"]
 no_cache = ["nearcore/no_cache"]

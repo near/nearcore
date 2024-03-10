@@ -23,6 +23,8 @@ use crate::sharding::{
     ChunkHash, ShardChunk, ShardChunkHeader, ShardChunkHeaderInner, ShardChunkHeaderInnerV2,
     ShardChunkHeaderV3,
 };
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use crate::transaction::NonrefundableStorageTransferAction;
 use crate::transaction::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithIdAndProof,
@@ -37,12 +39,11 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
+use near_async::time::Utc;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::ContractCode;
+use near_primitives_core::version::PROTOCOL_VERSION;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -59,6 +60,9 @@ pub struct AccountView {
     pub amount: Balance,
     #[serde(with = "dec_format")]
     pub locked: Balance,
+    #[serde(with = "dec_format")]
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    pub nonrefundable: Balance,
     pub code_hash: CryptoHash,
     pub storage_usage: StorageUsage,
     /// TODO(2271): deprecated.
@@ -94,7 +98,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn near_vm_runner::logic::CompiledContractCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -102,6 +106,8 @@ impl From<&Account> for AccountView {
         AccountView {
             amount: account.amount(),
             locked: account.locked(),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            nonrefundable: account.nonrefundable(),
             code_hash: account.code_hash(),
             storage_usage: account.storage_usage(),
             storage_paid_at: 0,
@@ -117,27 +123,24 @@ impl From<Account> for AccountView {
 
 impl From<&AccountView> for Account {
     fn from(view: &AccountView) -> Self {
-        Account::new(view.amount, view.locked, view.code_hash, view.storage_usage)
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let nonrefundable = view.nonrefundable;
+        #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
+        let nonrefundable = 0;
+        Account::new(
+            view.amount,
+            view.locked,
+            nonrefundable,
+            view.code_hash,
+            view.storage_usage,
+            PROTOCOL_VERSION,
+        )
     }
 }
 
 impl From<AccountView> for Account {
     fn from(view: AccountView) -> Self {
         (&view).into()
-    }
-}
-
-impl From<ContractCode> for ContractCodeView {
-    fn from(contract_code: ContractCode) -> Self {
-        let hash = *contract_code.hash();
-        let code = contract_code.into_code();
-        ContractCodeView { code, hash }
-    }
-}
-
-impl From<ContractCodeView> for ContractCode {
-    fn from(contract_code: ContractCodeView) -> Self {
-        ContractCode::new(contract_code.code, Some(contract_code.hash))
     }
 }
 
@@ -348,11 +351,13 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    pub latest_block_time: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub latest_block_time: Utc,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    pub earliest_block_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
 }
@@ -404,7 +409,8 @@ pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
     pub account_key: PublicKey,
-    pub timestamp: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub timestamp: Utc,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -585,9 +591,8 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
-    pub received_timestamp: DateTime<chrono::Utc>,
-    /// Timestamp when block was received.
-    //pub received_timestamp: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub received_timestamp: Utc,
     /// Time (in ms) between when the block was first received and when it was processed
     pub in_progress_ms: u128,
     /// Time (in ms) that the block spent in the orphan pool. If the block was never put in the
@@ -652,9 +657,11 @@ pub struct ChunkProcessingInfo {
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
-    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
@@ -664,11 +671,14 @@ pub struct ChunkProcessingInfo {
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
-    pub received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
-    pub forwarded_received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
-    pub chunk_received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub chunk_received_time: Option<Utc>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -1113,7 +1123,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockView {
     pub author: AccountId,
     pub header: BlockHeaderView,
@@ -1185,6 +1195,11 @@ pub enum ActionView {
         #[serde(with = "dec_format")]
         deposit: Balance,
     },
+    #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+    NonrefundableStorageTransfer {
+        #[serde(with = "dec_format")]
+        deposit: Balance,
+    },
     Stake {
         #[serde(with = "dec_format")]
         stake: Balance,
@@ -1221,6 +1236,10 @@ impl From<Action> for ActionView {
                 deposit: action.deposit,
             },
             Action::Transfer(action) => ActionView::Transfer { deposit: action.deposit },
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            Action::NonrefundableStorageTransfer(action) => {
+                ActionView::NonrefundableStorageTransfer { deposit: action.deposit }
+            }
             Action::Stake(action) => {
                 ActionView::Stake { stake: action.stake, public_key: action.public_key }
             }
@@ -1258,6 +1277,10 @@ impl TryFrom<ActionView> for Action {
                 }))
             }
             ActionView::Transfer { deposit } => Action::Transfer(TransferAction { deposit }),
+            #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+            ActionView::NonrefundableStorageTransfer { deposit } => {
+                Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction { deposit })
+            }
             ActionView::Stake { stake, public_key } => {
                 Action::Stake(Box::new(StakeAction { stake, public_key }))
             }
@@ -1683,8 +1706,6 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
-    Ord,
-    PartialOrd,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
@@ -1692,6 +1713,11 @@ pub enum TxExecutionStatus {
     None,
     /// Transaction is included into the block. The block may be not finalised yet
     Included,
+    /// Transaction is included into the block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    #[default]
+    ExecutedOptimistic,
     /// Transaction is included into finalised block
     IncludedFinal,
     /// Transaction is included into finalised block +
@@ -1700,7 +1726,6 @@ pub enum TxExecutionStatus {
     Executed,
     /// Transaction is included into finalised block +
     /// Execution of transaction receipts is finalised
-    #[default]
     Final,
 }
 
@@ -1908,42 +1933,54 @@ pub enum ReceiptEnumView {
         output_data_receivers: Vec<DataReceiverView>,
         input_data_ids: Vec<CryptoHash>,
         actions: Vec<ActionView>,
+        is_promise_yield: bool,
     },
     Data {
         data_id: CryptoHash,
         #[serde_as(as = "Option<Base64>")]
         data: Option<Vec<u8>>,
+        is_promise_resume: bool,
     },
 }
 
 impl From<Receipt> for ReceiptView {
     fn from(receipt: Receipt) -> Self {
+        let is_promise_yield = matches!(&receipt.receipt, ReceiptEnum::PromiseYield(_));
+        let is_promise_resume = matches!(&receipt.receipt, ReceiptEnum::PromiseResume(_));
+
         ReceiptView {
             predecessor_id: receipt.predecessor_id,
             receiver_id: receipt.receiver_id,
             receipt_id: receipt.receipt_id,
             receipt: match receipt.receipt {
-                ReceiptEnum::Action(action_receipt) => ReceiptEnumView::Action {
-                    signer_id: action_receipt.signer_id,
-                    signer_public_key: action_receipt.signer_public_key,
-                    gas_price: action_receipt.gas_price,
-                    output_data_receivers: action_receipt
-                        .output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver| DataReceiverView {
-                            data_id: data_receiver.data_id,
-                            receiver_id: data_receiver.receiver_id,
-                        })
-                        .collect(),
-                    input_data_ids: action_receipt
-                        .input_data_ids
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                    actions: action_receipt.actions.into_iter().map(Into::into).collect(),
-                },
-                ReceiptEnum::Data(data_receipt) => {
-                    ReceiptEnumView::Data { data_id: data_receipt.data_id, data: data_receipt.data }
+                ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                    ReceiptEnumView::Action {
+                        signer_id: action_receipt.signer_id,
+                        signer_public_key: action_receipt.signer_public_key,
+                        gas_price: action_receipt.gas_price,
+                        output_data_receivers: action_receipt
+                            .output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver| DataReceiverView {
+                                data_id: data_receiver.data_id,
+                                receiver_id: data_receiver.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: action_receipt
+                            .input_data_ids
+                            .into_iter()
+                            .map(Into::into)
+                            .collect(),
+                        actions: action_receipt.actions.into_iter().map(Into::into).collect(),
+                        is_promise_yield,
+                    }
+                }
+                ReceiptEnum::Data(data_receipt) | ReceiptEnum::PromiseResume(data_receipt) => {
+                    ReceiptEnumView::Data {
+                        data_id: data_receipt.data_id,
+                        data: data_receipt.data,
+                        is_promise_resume,
+                    }
                 }
             },
         }
@@ -1966,25 +2003,40 @@ impl TryFrom<ReceiptView> for Receipt {
                     output_data_receivers,
                     input_data_ids,
                     actions,
-                } => ReceiptEnum::Action(ActionReceipt {
-                    signer_id,
-                    signer_public_key,
-                    gas_price,
-                    output_data_receivers: output_data_receivers
-                        .into_iter()
-                        .map(|data_receiver_view| DataReceiver {
-                            data_id: data_receiver_view.data_id,
-                            receiver_id: data_receiver_view.receiver_id,
-                        })
-                        .collect(),
-                    input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
-                    actions: actions
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()?,
-                }),
-                ReceiptEnumView::Data { data_id, data } => {
-                    ReceiptEnum::Data(DataReceipt { data_id, data })
+                    is_promise_yield,
+                } => {
+                    let action_receipt = ActionReceipt {
+                        signer_id,
+                        signer_public_key,
+                        gas_price,
+                        output_data_receivers: output_data_receivers
+                            .into_iter()
+                            .map(|data_receiver_view| DataReceiver {
+                                data_id: data_receiver_view.data_id,
+                                receiver_id: data_receiver_view.receiver_id,
+                            })
+                            .collect(),
+                        input_data_ids: input_data_ids.into_iter().map(Into::into).collect(),
+                        actions: actions
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    };
+
+                    if is_promise_yield {
+                        ReceiptEnum::PromiseYield(action_receipt)
+                    } else {
+                        ReceiptEnum::Action(action_receipt)
+                    }
+                }
+                ReceiptEnumView::Data { data_id, data, is_promise_resume } => {
+                    let data_receipt = DataReceipt { data_id, data };
+
+                    if is_promise_resume {
+                        ReceiptEnum::PromiseResume(data_receipt)
+                    } else {
+                        ReceiptEnum::Data(data_receipt)
+                    }
                 }
             },
         })
@@ -2199,7 +2251,7 @@ impl From<StateChangeKind> for StateChangeKindView {
 pub type StateChangesKindsView = Vec<StateChangeKindView>;
 
 /// See crate::types::StateChangeCause for details.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeCauseView {
     NotWritableToDisk,
@@ -2244,7 +2296,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
 }
 
 #[serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
     AccountUpdate {
@@ -2318,7 +2370,7 @@ impl From<StateChangeValue> for StateChangeValueView {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateChangeWithCauseView {
     pub cause: StateChangeCauseView,
     #[serde(flatten)]
@@ -2348,15 +2400,17 @@ pub struct SplitStorageInfoView {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
+    use crate::profile_data_v2::ProfileDataV2;
     use crate::transaction::ExecutionMetadata;
-    use near_vm_runner::{ProfileDataV2, ProfileDataV3};
+    use near_vm_runner::ProfileDataV3;
 
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
         use near_primitives_core::version::PROTOCOL_VERSION;
@@ -2369,7 +2423,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2378,7 +2431,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2387,9 +2439,8 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
-        let metadata = ExecutionMetadata::V3(ProfileDataV3::test());
+        let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);
         insta::assert_json_snapshot!(view);
     }

@@ -1,15 +1,13 @@
-use near_primitives::static_clock::StaticClock;
-use near_primitives::test_utils::create_test_signer;
-use rand::{thread_rng, Rng};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
 use crate::{Doomslug, DoomslugThresholdMode};
+use near_async::time::{Duration, FakeClock, Instant, Utc};
 use near_crypto::{KeyType, SecretKey};
 use near_primitives::block::Approval;
 use near_primitives::hash::{hash, CryptoHash};
+use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{ApprovalStake, BlockHeight};
+use rand::{thread_rng, Rng};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
     hash(([height.to_le_bytes(), ord.to_le_bytes()].concat()).as_ref())
@@ -17,7 +15,7 @@ fn block_hash(height: BlockHeight, ord: usize) -> CryptoHash {
 
 fn get_msg_delivery_time(now: Instant, gst: Instant, delta: Duration) -> Instant {
     std::cmp::max(now, gst)
-        + Duration::from_millis(thread_rng().gen_range(0..delta.as_millis()) as u64)
+        + Duration::milliseconds(thread_rng().gen_range(0..delta.whole_milliseconds() as i64) as i64)
 }
 
 /// Runs a single iteration of a fuzz test given specific time until global stabilization and
@@ -35,7 +33,7 @@ fn one_iter(
     delta: Duration,
     height_goal: BlockHeight,
 ) -> (Duration, BlockHeight) {
-    let account_ids = vec!["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
+    let account_ids = ["test1", "test2", "test3", "test4", "test5", "test6", "test7", "test8"];
     let stakes = account_ids
         .iter()
         .map(|account_id| ApprovalStake {
@@ -50,14 +48,16 @@ fn one_iter(
         .iter()
         .map(|account_id| Arc::new(create_test_signer(account_id)))
         .collect::<Vec<_>>();
+    let clock = FakeClock::new(Utc::UNIX_EPOCH);
     let mut doomslugs = signers
         .iter()
         .map(|signer| {
             Doomslug::new(
+                clock.clock(),
                 0,
-                Duration::from_millis(200),
-                Duration::from_millis(1000),
-                Duration::from_millis(100),
+                Duration::milliseconds(200),
+                Duration::milliseconds(1000),
+                Duration::milliseconds(100),
                 delta * 20, // some arbitrary number larger than delta * 6
                 Some(signer.clone()),
                 DoomslugThresholdMode::TwoThirds,
@@ -65,10 +65,8 @@ fn one_iter(
         })
         .collect::<Vec<_>>();
 
-    let mut now = StaticClock::instant();
-    let started = now;
-
-    let gst = now + time_to_gst;
+    let started = clock.now();
+    let gst = clock.now() + time_to_gst;
     let mut approval_queue: Vec<(Approval, Instant)> = vec![];
     let mut block_queue: Vec<(BlockHeight, usize, BlockHeight, Instant, CryptoHash)> = vec![];
     let mut largest_produced_height: BlockHeight = 1;
@@ -82,19 +80,19 @@ fn one_iter(
     chain_lengths.insert(block_hash(1, 0), 1);
 
     for ds in doomslugs.iter_mut() {
-        ds.set_tip(now, block_hash(1, 0), 1, 1);
+        ds.set_tip(block_hash(1, 0), 1, 1);
         hash_to_block_info.insert(block_hash(1, 0), (1, 1, block_hash(1, 0)));
     }
 
     let mut is_done = false;
     while !is_done {
-        now = now + Duration::from_millis(25);
+        clock.advance(Duration::milliseconds(25));
         let mut new_approval_queue = vec![];
         let mut new_block_queue = vec![];
 
         // 1. Process approvals
         for approval in approval_queue.into_iter() {
-            if approval.1 > now {
+            if approval.1 > clock.now() {
                 new_approval_queue.push(approval);
             } else {
                 let me = (approval.0.target_height % 8) as usize;
@@ -109,14 +107,14 @@ fn one_iter(
                     continue;
                 }
 
-                doomslugs[me].on_approval_message(now, &approval.0, &stakes);
+                doomslugs[me].on_approval_message(&approval.0, &stakes);
             }
         }
         approval_queue = new_approval_queue;
 
         // 2. Process blocks
         for block in block_queue.into_iter() {
-            if block.3 > now {
+            if block.3 > clock.now() {
                 new_block_queue.push(block);
             } else {
                 let ds = &mut doomslugs[block.1 as usize];
@@ -141,12 +139,7 @@ fn one_iter(
 
                     for block_info in block_infos.into_iter().rev() {
                         if block_info.0 > ds.get_tip().1 {
-                            ds.set_tip(
-                                now,
-                                block_info.2,
-                                block_info.0 as BlockHeight,
-                                block_info.1,
-                            );
+                            ds.set_tip(block_info.2, block_info.0 as BlockHeight, block_info.1);
                         }
                     }
                 }
@@ -156,15 +149,15 @@ fn one_iter(
 
         // 3. Process timers
         for ds in doomslugs.iter_mut() {
-            for approval in ds.process_timer(now) {
-                approval_queue.push((approval, get_msg_delivery_time(now, gst, delta)));
+            for approval in ds.process_timer() {
+                approval_queue.push((approval, get_msg_delivery_time(clock.now(), gst, delta)));
             }
         }
 
         // 4. Produce blocks
         'outer: for (bp_ord, ds) in doomslugs.iter_mut().enumerate() {
             for target_height in (ds.get_tip().1 + 1)..=ds.get_largest_height_crossing_threshold() {
-                if ds.ready_to_produce_block(now, target_height, true, false) {
+                if ds.ready_to_produce_block(target_height, true, false) {
                     let num_blocks_to_produce = if bp_ord < 3 { 2 } else { 1 };
 
                     for block_ord in 0..num_blocks_to_produce {
@@ -206,7 +199,7 @@ fn one_iter(
                                 target_height,
                                 whom,
                                 last_final_height,
-                                get_msg_delivery_time(now, gst, delta),
+                                get_msg_delivery_time(clock.now(), gst, delta),
                                 block_hash,
                             );
                             block_queue.push(block_info);
@@ -238,12 +231,7 @@ fn one_iter(
                         // Accept our own block (only accept the last if are maliciously producing multiple,
                         // so that `ds.get_tip(...)` doesn't return the new block on the next iteration)
                         if block_ord + 1 == num_blocks_to_produce {
-                            ds.set_tip(
-                                now,
-                                block_hash,
-                                target_height as BlockHeight,
-                                last_final_height,
-                            );
+                            ds.set_tip(block_hash, target_height as BlockHeight, last_final_height);
                         }
                     }
                 }
@@ -259,7 +247,8 @@ fn one_iter(
 
                 // Only makes sense for timers that are more than delta in the past, since for more
                 // recent timers the other participant's start time might be in the future
-                if now - ith_timer_start >= delta && now - jth_timer_start >= delta {
+                if clock.now() - ith_timer_start >= delta && clock.now() - jth_timer_start >= delta
+                {
                     if ith_timer_start > jth_timer_start {
                         assert!(ith_timer_start - jth_timer_start <= delta);
                     } else {
@@ -292,7 +281,7 @@ fn one_iter(
         }
     }
 
-    (now - started, largest_produced_height)
+    (clock.now() - started, largest_produced_height)
 }
 
 #[test]
@@ -305,13 +294,13 @@ fn test_fuzzy_doomslug_liveness_and_safety() {
             println!("Staring set of tests. Time to GST: {}, delta: {}", time_to_gst_millis, delta);
             for _iter in 0..10 {
                 let (took, height) = one_iter(
-                    Duration::from_millis(*time_to_gst_millis),
-                    Duration::from_millis(*delta),
+                    Duration::milliseconds(*time_to_gst_millis),
+                    Duration::milliseconds(*delta),
                     *height_goal,
                 );
                 println!(
                     " --> Took {} (simulated) milliseconds and {} heights",
-                    took.as_millis(),
+                    took.whole_milliseconds(),
                     height
                 );
             }

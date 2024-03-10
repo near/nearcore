@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::node::{Node, ThreadNode};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::Genesis;
 use near_crypto::{InMemorySigner, KeyType};
 use near_jsonrpc::RpcInto;
@@ -13,7 +14,6 @@ use near_primitives::transaction::{
     Action, AddKeyAction, CreateAccountAction, SignedTransaction, TransferAction,
 };
 use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::load_test_config;
 use testlib::runtime_utils::{alice_account, bob_account};
 
@@ -56,7 +56,7 @@ fn test_check_tx_error_log() {
         tx_result,
         InvalidTxError::InvalidAccessKeyError(InvalidAccessKeyError::AccessKeyNotFound {
             account_id: bob_account(),
-            public_key: signer.public_key.clone()
+            public_key: signer.public_key.clone().into()
         })
         .rpc_into()
     );

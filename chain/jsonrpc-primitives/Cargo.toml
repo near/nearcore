@@ -16,6 +16,7 @@ arbitrary.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+time.workspace = true
 
 near-crypto.workspace = true
 near-primitives.workspace = true
@@ -30,10 +31,10 @@ nightly_protocol = [
   "near-primitives/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-chain-configs/nightly",
   "near-client-primitives/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
 ]
 full = ["debug_types"]
 debug_types = ["near-client-primitives"]

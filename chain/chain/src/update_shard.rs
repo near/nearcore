@@ -1,16 +1,17 @@
 use crate::crypto_hash_timer::CryptoHashTimer;
 use crate::types::{
-    ApplyResultForResharding, ApplyTransactionResult, ApplyTransactionsBlockContext,
-    ApplyTransactionsChunkContext, ReshardingResults, RuntimeAdapter, RuntimeStorageConfig,
-    StorageDataSource,
+    ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
+    ReshardingResults, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
+use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::ShardUId;
-use near_primitives::sharding::ShardChunk;
+use near_primitives::sharding::ShardChunkHeader;
+use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, Gas, StateChangesForResharding, StateRoot};
 use std::collections::HashMap;
@@ -19,21 +20,21 @@ use std::collections::HashMap;
 /// shard.
 #[derive(Debug)]
 pub struct NewChunkResult {
-    pub(crate) shard_uid: ShardUId,
-    pub(crate) gas_limit: Gas,
-    pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) resharding_results: Option<ReshardingResults>,
+    pub shard_uid: ShardUId,
+    pub gas_limit: Gas,
+    pub apply_result: ApplyChunkResult,
+    pub resharding_results: Option<ReshardingResults>,
 }
 
 /// Result of updating a shard for some block when it doesn't have a new chunk
 /// for this shard, so previous chunk header is copied.
 #[derive(Debug)]
 pub struct OldChunkResult {
-    pub(crate) shard_uid: ShardUId,
+    pub shard_uid: ShardUId,
     /// Note that despite the naming, no transactions are applied in this case.
     /// TODO(logunov): exclude receipts/txs context from all related types.
-    pub(crate) apply_result: ApplyTransactionResult,
-    pub(crate) resharding_results: Option<ReshardingResults>,
+    pub apply_result: ApplyChunkResult,
+    pub resharding_results: Option<ReshardingResults>,
 }
 
 /// Result of updating a shard for some block when we apply only resharding
@@ -45,20 +46,9 @@ pub struct ReshardingResult {
     pub(crate) results: Vec<ApplyResultForResharding>,
 }
 
-/// Result of processing shard update, covering both stateful and stateless scenarios.
-#[derive(Debug)]
-pub enum ShardUpdateResult {
-    /// Stateful scenario - processed update for a single block.
-    Stateful(ShardBlockUpdateResult),
-    /// Stateless scenario - processed update based on state witness in a chunk.
-    /// Contains `ChunkExtra`s - results for processing updates corresponding
-    /// to state witness.
-    Stateless(Vec<(CryptoHash, ShardUId, ChunkExtra)>),
-}
-
 /// Result for a shard update for a single block.
 #[derive(Debug)]
-pub enum ShardBlockUpdateResult {
+pub enum ShardUpdateResult {
     NewChunk(NewChunkResult),
     OldChunk(OldChunkResult),
     Resharding(ReshardingResult),
@@ -67,19 +57,20 @@ pub enum ShardBlockUpdateResult {
 /// State roots of children shards which are ready.
 type ReshardingStateRoots = HashMap<ShardUId, StateRoot>;
 
-pub(crate) struct NewChunkData {
-    pub chunk: ShardChunk,
+pub struct NewChunkData {
+    pub chunk_header: ShardChunkHeader,
+    pub transactions: Vec<SignedTransaction>,
     pub receipts: Vec<Receipt>,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
-    pub block: ApplyTransactionsBlockContext,
+    pub block: ApplyChunkBlockContext,
     pub is_first_block_with_chunk_of_version: bool,
     pub storage_context: StorageContext,
 }
 
-pub(crate) struct OldChunkData {
+pub struct OldChunkData {
     pub prev_chunk_extra: ChunkExtra,
     pub resharding_state_roots: Option<ReshardingStateRoots>,
-    pub block: ApplyTransactionsBlockContext,
+    pub block: ApplyChunkBlockContext,
     pub storage_context: StorageContext,
 }
 
@@ -92,6 +83,7 @@ pub(crate) struct ReshardingData {
 
 /// Reason to update a shard when new block appears on chain.
 /// All types include state roots for children shards in case of resharding.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ShardUpdateReason {
     /// Block has a new chunk for the shard.
     /// Contains chunk itself and all new incoming receipts to the shard.
@@ -106,23 +98,24 @@ pub(crate) enum ShardUpdateReason {
 }
 
 /// Information about shard to update.
-pub(crate) struct ShardContext {
+pub struct ShardContext {
     pub shard_uid: ShardUId,
     /// Whether node cares about shard in this epoch.
     pub cares_about_shard_this_epoch: bool,
     /// Whether shard layout changes in the next epoch.
     pub will_shard_layout_change: bool,
     /// Whether transactions should be applied.
-    pub should_apply_transactions: bool,
+    pub should_apply_chunk: bool,
     /// See comment in `get_update_shard_job`.
     pub need_to_reshard: bool,
 }
 
 /// Information about storage used for applying txs and receipts.
-pub(crate) struct StorageContext {
+pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
+    pub record_storage: bool,
 }
 
 /// Processes shard update with given block and shard.
@@ -133,65 +126,35 @@ pub(crate) fn process_shard_update(
     epoch_manager: &dyn EpochManagerAdapter,
     shard_update_reason: ShardUpdateReason,
     shard_context: ShardContext,
-) -> Result<ShardBlockUpdateResult, Error> {
+) -> Result<ShardUpdateResult, Error> {
     Ok(match shard_update_reason {
-        ShardUpdateReason::NewChunk(data) => ShardBlockUpdateResult::NewChunk(apply_new_chunk(
+        ShardUpdateReason::NewChunk(data) => ShardUpdateResult::NewChunk(apply_new_chunk(
             parent_span,
             data,
             shard_context,
             runtime,
             epoch_manager,
         )?),
-        ShardUpdateReason::OldChunk(data) => ShardBlockUpdateResult::OldChunk(apply_old_chunk(
+        ShardUpdateReason::OldChunk(data) => ShardUpdateResult::OldChunk(apply_old_chunk(
             parent_span,
             data,
             shard_context,
             runtime,
             epoch_manager,
         )?),
-        ShardUpdateReason::Resharding(data) => ShardBlockUpdateResult::Resharding(
-            apply_resharding(parent_span, data, shard_context.shard_uid, runtime, epoch_manager)?,
-        ),
+        ShardUpdateReason::Resharding(data) => ShardUpdateResult::Resharding(apply_resharding(
+            parent_span,
+            data,
+            shard_context.shard_uid,
+            runtime,
+            epoch_manager,
+        )?),
     })
 }
 
-/// Processes shard updates for the execution contexts range which must
-/// correspond to missing chunks for some shard.
-/// `current_chunk_extra` must correspond to `ChunkExtra` just before
-/// execution; in the end it will correspond to the latest execution
-/// result.
-pub(crate) fn process_missing_chunks_range(
-    parent_span: &tracing::Span,
-    mut current_chunk_extra: ChunkExtra,
-    runtime: &dyn RuntimeAdapter,
-    epoch_manager: &dyn EpochManagerAdapter,
-    execution_contexts: Vec<(ApplyTransactionsBlockContext, ShardContext)>,
-) -> Result<Vec<(CryptoHash, ShardUId, ChunkExtra)>, Error> {
-    let mut result = vec![];
-    for (block_context, shard_context) in execution_contexts {
-        let OldChunkResult { shard_uid, apply_result, resharding_results: _ } = apply_old_chunk(
-            parent_span,
-            OldChunkData {
-                block: block_context.clone(),
-                resharding_state_roots: None,
-                prev_chunk_extra: current_chunk_extra.clone(),
-                storage_context: StorageContext {
-                    storage_data_source: StorageDataSource::DbTrieOnly,
-                    state_patch: Default::default(),
-                },
-            },
-            shard_context,
-            runtime,
-            epoch_manager,
-        )?;
-        *current_chunk_extra.state_root_mut() = apply_result.new_root;
-        result.push((block_context.block_hash, shard_uid, current_chunk_extra.clone()));
-    }
-    Ok(result)
-}
 /// Applies new chunk, which includes applying transactions from chunk and
 /// receipts filtered from outgoing receipts from previous chunks.
-pub(crate) fn apply_new_chunk(
+pub fn apply_new_chunk(
     parent_span: &tracing::Span,
     data: NewChunkData,
     shard_context: ShardContext,
@@ -199,8 +162,9 @@ pub(crate) fn apply_new_chunk(
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<NewChunkResult, Error> {
     let NewChunkData {
+        chunk_header,
+        transactions,
         block,
-        chunk,
         receipts,
         resharding_state_roots,
         is_first_block_with_chunk_of_version,
@@ -213,29 +177,28 @@ pub(crate) fn apply_new_chunk(
         "new_chunk",
         shard_id)
     .entered();
-    let chunk_inner = chunk.cloned_header().take_inner();
-    let gas_limit = chunk_inner.gas_limit();
+    let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(chunk.chunk_hash().0);
+    let _timer = CryptoHashTimer::new(Clock::real(), chunk_header.chunk_hash().0);
     let storage_config = RuntimeStorageConfig {
-        state_root: *chunk_inner.prev_state_root(),
+        state_root: chunk_header.prev_state_root(),
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: false,
+        record_storage: storage_context.record_storage,
     };
-    match runtime.apply_transactions(
+    match runtime.apply_chunk(
         storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             shard_id,
-            last_validator_proposals: chunk_inner.prev_validator_proposals(),
+            last_validator_proposals: chunk_header.prev_validator_proposals(),
             gas_limit,
             is_new_chunk: true,
             is_first_block_with_chunk_of_version,
         },
         block.clone(),
         &receipts,
-        chunk.transactions(),
+        &transactions,
     ) {
         Ok(apply_result) => {
             let apply_split_result_or_state_changes = if shard_context.will_shard_layout_change {
@@ -263,7 +226,7 @@ pub(crate) fn apply_new_chunk(
 /// Applies shard update corresponding to missing chunk.
 /// (logunov) From what I know, the state update may include only validator
 /// accounts update on epoch start.
-fn apply_old_chunk(
+pub fn apply_old_chunk(
     parent_span: &tracing::Span,
     data: OldChunkData,
     shard_context: ShardContext,
@@ -284,11 +247,11 @@ fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: false,
+        record_storage: storage_context.record_storage,
     };
-    match runtime.apply_transactions(
+    match runtime.apply_chunk(
         storage_config,
-        ApplyTransactionsChunkContext {
+        ApplyChunkShardContext {
             shard_id,
             last_validator_proposals: prev_chunk_extra.validator_proposals(),
             gas_limit: prev_chunk_extra.gas_limit(),
@@ -351,7 +314,7 @@ fn apply_resharding(
     Ok(ReshardingResult { shard_uid, results })
 }
 
-/// Process ApplyTransactionResult to apply changes to children shards. When
+/// Process ApplyChunkResult to apply changes to children shards. When
 /// shards will change next epoch,
 ///  - if `resharding_state_roots` is not None, that means states for the
 ///    children shards are ready this function updates these states and returns
@@ -362,8 +325,8 @@ fn apply_resharding(
 fn apply_resharding_state_changes(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
-    block: ApplyTransactionsBlockContext,
-    apply_result: &ApplyTransactionResult,
+    block: ApplyChunkBlockContext,
+    apply_result: &ApplyChunkResult,
     resharding_state_roots: Option<ReshardingStateRoots>,
 ) -> Result<ReshardingResults, Error> {
     let state_changes = StateChangesForResharding::from_raw_state_changes(

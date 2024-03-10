@@ -3,7 +3,6 @@ use crate::trie::{
 };
 use crate::DBCol;
 use near_primitives::shard_layout::ShardUId;
-use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -90,22 +89,6 @@ pub struct StoreConfig {
     /// be copied between the databases.
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
-
-    /// Number of threads to execute storage background migrations.
-    /// Needed to create flat storage which need to happen in parallel
-    /// with block processing.
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub background_migration_threads: usize,
-
-    /// Enables background flat storage creation.
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub flat_storage_creation_enabled: bool,
-
-    /// Duration to perform background flat storage creation step. Defines how
-    /// frequently we check creation status and execute work related to it in
-    /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub flat_storage_creation_period: Duration,
 
     /// State Snapshot configuration
     pub state_snapshot_config: StateSnapshotConfig,
@@ -240,17 +223,23 @@ impl Default for StoreConfig {
             block_size: bytesize::ByteSize::kib(16),
 
             trie_cache: TrieCacheConfig {
-                default_max_bytes: DEFAULT_SHARD_CACHE_TOTAL_SIZE_LIMIT,
-                // Temporary solution to make contracts with heavy trie access
-                // patterns on shard 3 more stable. It was chosen by the estimation
-                // of the largest contract storage size we are aware as of 23/08/2022.
-                // Consider removing after implementing flat storage. (#7327)
-                // Note: on >= 1.34 nearcore version use 1_000_000_000 if you have
-                // minimal hardware.
-                per_shard_max_bytes: HashMap::from_iter([(
-                    ShardUId { version: 1, shard_id: 3 },
-                    3_000_000_000,
-                )]),
+                default_max_bytes: bytesize::ByteSize::mb(500),
+                // TODO(resharding) The cache size needs to adjusted for every resharding.
+                // Make that automatic e.g. by defining the minimum cache size per account rather than shard.
+                per_shard_max_bytes: HashMap::from_iter([
+                    // Temporary solution to make contracts with heavy trie access
+                    // patterns on shard 3 more stable. It was chosen by the estimation
+                    // of the largest contract storage size we are aware as of 23/08/2022.
+                    // Note: on >= 1.34 nearcore version use 1gb if you have minimal hardware.
+                    // In simple nightshade the heavy contract "token.sweat" is in shard 3
+                    (ShardUId { version: 1, shard_id: 3 }, bytesize::ByteSize::gb(3)),
+                    // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
+                    (ShardUId { version: 2, shard_id: 4 }, bytesize::ByteSize::gb(3)),
+                    // Shard 1 is dedicated to aurora and it had very few cache
+                    // misses even with cache size of only 50MB
+                    (ShardUId { version: 1, shard_id: 1 }, bytesize::ByteSize::mb(50)),
+                    (ShardUId { version: 2, shard_id: 1 }, bytesize::ByteSize::mb(50)),
+                ]),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
 
@@ -277,18 +266,6 @@ impl Default for StoreConfig {
             load_mem_tries_for_all_shards: false,
 
             migration_snapshot: Default::default(),
-
-            // We checked that this number of threads doesn't impact
-            // regular block processing significantly.
-            background_migration_threads: 8,
-
-            flat_storage_creation_enabled: true,
-
-            // It shouldn't be very low, because on single flat storage creation step
-            // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.
-            // One second should be enough to save deltas on start and catch up
-            // flat storage head quickly. State read work is much more expensive.
-            flat_storage_creation_period: Duration::from_secs(1),
 
             state_snapshot_config: Default::default(),
 
@@ -344,9 +321,9 @@ pub struct TrieCacheConfig {
     ///
     /// This is an approximate limit that attempts to factor in data structure
     /// overhead also. It is supposed to be fairly accurate in the limit.
-    pub default_max_bytes: u64,
+    pub default_max_bytes: bytesize::ByteSize,
     /// Overwrites `default_max_bytes` for specific shards.
-    pub per_shard_max_bytes: HashMap<ShardUId, u64>,
+    pub per_shard_max_bytes: HashMap<ShardUId, bytesize::ByteSize>,
     /// Limit the number of elements in caches deletions queue for specific
     /// shard
     pub shard_cache_deletions_queue_capacity: usize,

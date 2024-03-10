@@ -21,7 +21,6 @@ crossbeam.workspace = true
 derive_more.workspace = true
 elastic-array.workspace = true
 enum-map.workspace = true
-fs2.workspace = true
 hex.workspace = true
 itoa.workspace = true
 itertools.workspace = true
@@ -41,6 +40,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs = { workspace = true, features = ["metrics"] }
 near-crypto.workspace = true
 near-fmt.workspace = true
@@ -78,9 +78,13 @@ single_thread_rocksdb = [] # Deactivate RocksDB IO background threads
 test_features = []
 serialize_all_state_changes = []
 new_epoch_sync = []
+yield_resume = []
 
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
+  "near-chain/nightly_protocol",
+  "near-chunks/nightly_protocol",
   "near-fmt/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-parameters/nightly_protocol",
@@ -88,11 +92,15 @@ nightly_protocol = [
   "near-vm-runner/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
+  "near-async/nightly",
   "near-chain-configs/nightly",
+  "near-chain/nightly",
+  "near-chunks/nightly",
   "near-fmt/nightly",
   "near-o11y/nightly",
   "near-parameters/nightly",
   "near-primitives/nightly",
   "near-vm-runner/nightly",
+  "nightly_protocol",
+  "yield_resume",
 ]

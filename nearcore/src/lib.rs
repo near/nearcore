@@ -1,7 +1,7 @@
-pub use crate::config::{init_configs, load_config, load_test_config, NearConfig, NEAR_BASE};
+pub use crate::config::NightshadeRuntimeExt;
+pub use crate::config::{init_configs, load_config, load_test_config, NearConfig};
 use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
-pub use crate::runtime::NightshadeRuntime;
 
 use crate::cold_storage::spawn_cold_store_loop;
 use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
@@ -10,8 +10,9 @@ use actix_rt::ArbiterHandle;
 use anyhow::Context;
 use cold_storage::ColdStoreLoopHandle;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender};
-use near_async::time;
+use near_async::messaging::{IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::time::{self, Clock};
+pub use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::{
     get_delete_snapshot_callback, get_make_snapshot_callback, SnapshotCallbacks, StateSnapshotActor,
 };
@@ -20,6 +21,7 @@ use near_chain::{Chain, ChainGenesis};
 use near_chain_configs::ReshardingHandle;
 use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -40,6 +42,8 @@ use tracing::info;
 pub mod append_only_map;
 pub mod cold_storage;
 pub mod config;
+#[cfg(test)]
+mod config_duration_test;
 mod config_validate;
 mod download_file;
 pub mod dyn_config;
@@ -48,7 +52,6 @@ mod entity_debug;
 mod entity_debug_serializer;
 mod metrics;
 pub mod migrations;
-mod runtime;
 pub mod state_sync;
 pub mod test_utils;
 
@@ -187,7 +190,7 @@ fn get_split_store(config: &NearConfig, storage: &NodeStorage) -> anyhow::Result
     }
 
     // SplitStore should only be used in the view client if it is enabled.
-    if !config.config.split_storage.as_ref().map_or(false, |c| c.enable_split_storage_view_client) {
+    if !config.config.split_storage.as_ref().is_some_and(|c| c.enable_split_storage_view_client) {
         return Ok(None);
     }
 
@@ -287,7 +290,7 @@ pub fn start_with_config_and_synchronization(
     let cold_store_loop_handle = spawn_cold_store_loop(&config, &storage, epoch_manager.clone())?;
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
-    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let genesis_block =
         Chain::make_genesis_block(epoch_manager.as_ref(), runtime.as_ref(), &chain_genesis)?;
     let genesis_id = GenesisId {
@@ -296,26 +299,27 @@ pub fn start_with_config_and_synchronization(
     };
 
     // State Sync actors
-    let client_adapter_for_sync = Arc::new(LateBoundSender::default());
-    let network_adapter_for_sync = Arc::new(LateBoundSender::default());
+    let client_adapter_for_sync = LateBoundSender::new();
+    let network_adapter_for_sync = LateBoundSender::new();
     let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         client_adapter_for_sync.as_sender(),
         network_adapter_for_sync.as_sender(),
     )));
 
     let node_id = config.network_config.node_id();
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(LateBoundSender::default());
-    let client_adapter_for_shards_manager = Arc::new(LateBoundSender::default());
+    let network_adapter = LateBoundSender::new();
+    let shards_manager_adapter = LateBoundSender::new();
+    let client_adapter_for_shards_manager = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
+        Clock::real(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         chain_genesis.clone(),
         view_epoch_manager.clone(),
         view_shard_tracker,
         view_runtime.clone(),
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         config.client_config.clone(),
         adv.clone(),
     );
@@ -323,7 +327,7 @@ pub fn start_with_config_and_synchronization(
     let state_snapshot_actor = Arc::new(
         StateSnapshotActor::new(
             runtime.get_flat_storage_manager(),
-            network_adapter.clone().into(),
+            network_adapter.as_multi_sender(),
             runtime.get_tries(),
         )
         .start(),
@@ -334,6 +338,7 @@ pub fn start_with_config_and_synchronization(
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
+        Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -341,7 +346,7 @@ pub fn start_with_config_and_synchronization(
         runtime.clone(),
         node_id,
         sync_adapter,
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         config.validator_signer.clone(),
         telemetry,
@@ -360,7 +365,7 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-        split_store.unwrap_or(storage.get_hot_store()),
+        split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,
     );
     shards_manager_adapter.bind(shards_manager_actor.with_auto_span_context());
@@ -388,7 +393,7 @@ pub fn start_with_config_and_synchronization(
         time::Clock::real(),
         storage.into_inner(near_store::Temperature::Hot),
         config.network_config,
-        Arc::new(near_client::adapter::Adapter::new(client_actor.clone(), view_client.clone())),
+        client_sender_for_network(client_actor.clone(), view_client.clone()),
         shards_manager_adapter.as_sender(),
         genesis_id,
     )
@@ -407,9 +412,9 @@ pub fn start_with_config_and_synchronization(
         rpc_servers.extend(near_jsonrpc::start_http(
             rpc_config,
             config.genesis.config.clone(),
-            client_actor.clone(),
-            view_client.clone(),
-            Some(network_actor),
+            client_actor.clone().with_auto_span_context().into_multi_sender(),
+            view_client.clone().with_auto_span_context().into_multi_sender(),
+            network_actor.into_multi_sender(),
             Arc::new(entity_debug_handler),
         ));
     }

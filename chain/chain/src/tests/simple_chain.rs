@@ -2,39 +2,20 @@ use crate::near_chain_primitives::error::BlockKnownError;
 use crate::test_utils::{setup, wait_for_all_blocks_in_processing};
 use crate::{Block, BlockProcessingArtifact, ChainStoreAccess, Error};
 use assert_matches::assert_matches;
-use chrono;
-use chrono::TimeZone;
+use near_async::time::{Clock, Duration, FakeClock, Utc};
 use near_o11y::testonly::init_test_logger;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::MockClockGuard;
 use near_primitives::test_utils::TestBlockBuilder;
 use near_primitives::version::PROTOCOL_VERSION;
 use num_rational::Ratio;
 use std::sync::Arc;
-use std::time::Instant;
-
-fn timestamp(hour: u32, min: u32, sec: u32, millis: u32) -> chrono::DateTime<chrono::Utc> {
-    chrono::Utc.with_ymd_and_hms(2020, 10, 1, hour, min, sec).single().unwrap()
-        + chrono::Duration::milliseconds(i64::from(millis))
-}
 
 #[test]
 fn build_chain() {
     init_test_logger();
-    let mock_clock_guard = MockClockGuard::default();
-
-    mock_clock_guard.add_utc(timestamp(0, 0, 3, 444));
-    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
-    mock_clock_guard.add_utc(timestamp(0, 0, 0, 0)); // Client startup timestamp.
-    mock_clock_guard.add_instant(Instant::now());
-
-    // this step may fail when adding a new dynamic config
-    // the dynamic config uses the static clock to update metrics
-    // for every new field one extra utc timestamp should be added
-    let (mut chain, _, _, signer) = setup();
-
-    assert_eq!(mock_clock_guard.utc_call_count(), 3);
-    assert_eq!(mock_clock_guard.instant_call_count(), 1);
+    let clock = FakeClock::new(Utc::from_unix_timestamp(1601510400).unwrap()); // 2020-10-01 00:00:00
+    clock.advance(Duration::milliseconds(3444));
+    let (mut chain, _, _, signer) = setup(clock.clock());
     assert_eq!(chain.head().unwrap().height, 0);
 
     // The hashes here will have to be modified after changes to the protocol.
@@ -52,49 +33,37 @@ fn build_chain() {
     //     cargo insta test --accept -p near-chain --features nightly -- tests::simple_chain::build_chain
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"CwaiZ4AmfJSnMN9rytYwwYHCTzLioC5xcjHzNkDex1HH");
+        insta::assert_display_snapshot!(hash, @"9JRdRkSfVRwYBVFNzfKwuhuUabMkQN14b1Ge7z1FRnMF");
     } else {
-        insta::assert_display_snapshot!(hash, @"HJmRPXT4JM9tt6mXw2gM75YaSoqeDCphhFK26uRpd1vw");
+        insta::assert_display_snapshot!(hash, @"387773cK74c4cHxNWnrTgoZ2dkEhVjtFjJNpSxeWohPx");
     }
 
     for i in 1..5 {
-        // two entries, because the clock is called 2 times per block
-        // - one time for creation of the block
-        // - one time for validating block header
-        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
-        mock_clock_guard.add_utc(timestamp(0, 0, 3, 444 + i));
-        // Instant calls for CryptoHashTimer.
-        mock_clock_guard.add_instant(Instant::now());
-        mock_clock_guard.add_instant(Instant::now());
-        mock_clock_guard.add_instant(Instant::now());
-        mock_clock_guard.add_instant(Instant::now());
-
+        clock.advance(Duration::milliseconds(1));
         let prev_hash = *chain.head_header().unwrap().hash();
         let prev = chain.get_block(&prev_hash).unwrap();
-        let block = TestBlockBuilder::new(&prev, signer.clone()).build();
+        let block = TestBlockBuilder::new(clock.clock(), &prev, signer.clone()).build();
         chain.process_block_test(&None, block).unwrap();
         assert_eq!(chain.head().unwrap().height, i as u64);
     }
 
-    assert_eq!(mock_clock_guard.utc_call_count(), 11);
-    assert_eq!(mock_clock_guard.instant_call_count(), 17);
     assert_eq!(chain.head().unwrap().height, 4);
 
     let hash = chain.head().unwrap().last_block_hash;
     if cfg!(feature = "nightly") {
-        insta::assert_display_snapshot!(hash, @"Dn18HUFm149fojXpwV1dYCfjdPh56S1k233kp7vmnFeE");
+        insta::assert_display_snapshot!(hash, @"HkPEDHWJHuW8Yzw9FonrJarVAHi51mQt7A4DQUtBagko");
     } else {
-        insta::assert_display_snapshot!(hash, @"HbQVGVZ3WGxsNqeM3GfSwDoxwYZ2RBP1SinAze9SYR3C");
+        insta::assert_display_snapshot!(hash, @"6QpFm2bFYyfBjrk1KACMLr4dsezfZNYWGFnsbuD7gssH");
     }
 }
 
 #[test]
 fn build_chain_with_orphans() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup(Clock::real());
     let mut blocks = vec![chain.get_block(&chain.genesis().hash().clone()).unwrap()];
     for i in 1..4 {
-        let block = TestBlockBuilder::new(&blocks[i - 1], signer.clone()).build();
+        let block = TestBlockBuilder::new(Clock::real(), &blocks[i - 1], signer.clone()).build();
         blocks.push(block);
     }
     let last_block = &blocks[blocks.len() - 1];
@@ -105,6 +74,7 @@ fn build_chain_with_orphans() {
         10,
         last_block.header().block_ordinal() + 1,
         last_block.chunks().iter().cloned().collect(),
+        vec![vec![]; last_block.chunks().len()],
         last_block.header().epoch_id().clone(),
         last_block.header().next_epoch_id().clone(),
         None,
@@ -118,7 +88,7 @@ fn build_chain_with_orphans() {
         &*signer,
         *last_block.header().next_bp_hash(),
         CryptoHash::default(),
-        None,
+        Utc::UNIX_EPOCH,
     );
     assert_matches!(chain.process_block_test(&None, block).unwrap_err(), Error::Orphan);
     assert_matches!(
@@ -149,14 +119,14 @@ fn build_chain_with_orphans() {
 #[test]
 fn build_chain_with_skips_and_forks() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::new(&genesis, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(&b2, signer.clone()).height(4).build();
-    let b5 = TestBlockBuilder::new(&b4, signer.clone()).build();
-    let b6 = TestBlockBuilder::new(&b5, signer.clone()).build();
+    let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let b2 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(2).build();
+    let b3 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b4 = TestBlockBuilder::new(Clock::real(), &b2, signer.clone()).height(4).build();
+    let b5 = TestBlockBuilder::new(Clock::real(), &b4, signer.clone()).build();
+    let b6 = TestBlockBuilder::new(Clock::real(), &b5, signer.clone()).build();
     assert!(chain.process_block_test(&None, b1).is_ok());
     assert!(chain.process_block_test(&None, b2).is_ok());
     assert!(chain.process_block_test(&None, b3.clone()).is_ok());
@@ -167,7 +137,7 @@ fn build_chain_with_skips_and_forks() {
     assert_eq!(chain.get_block_header_by_height(5).unwrap().height(), 5);
     assert_eq!(chain.get_block_header_by_height(6).unwrap().height(), 6);
 
-    let c4 = TestBlockBuilder::new(&b3, signer).height(4).build();
+    let c4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
     assert_eq!(chain.final_head().unwrap().height, 4);
     assert_matches!(chain.process_block_test(&None, c4), Err(Error::CannotBeFinalized));
 }
@@ -189,22 +159,22 @@ fn build_chain_with_skips_and_forks() {
 #[test]
 fn blocks_at_height() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block_by_height(0).unwrap();
-    let b_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
+    let b_1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(1).build();
 
-    let b_2 = TestBlockBuilder::new(&b_1, signer.clone()).height(2).build();
+    let b_2 = TestBlockBuilder::new(Clock::real(), &b_1, signer.clone()).height(2).build();
 
-    let c_1 = TestBlockBuilder::new(&genesis, signer.clone()).height(1).build();
-    let c_3 = TestBlockBuilder::new(&c_1, signer.clone()).height(3).build();
-    let c_4 = TestBlockBuilder::new(&c_3, signer.clone()).height(4).build();
+    let c_1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).height(1).build();
+    let c_3 = TestBlockBuilder::new(Clock::real(), &c_1, signer.clone()).height(3).build();
+    let c_4 = TestBlockBuilder::new(Clock::real(), &c_3, signer.clone()).height(4).build();
 
-    let d_3 = TestBlockBuilder::new(&b_2, signer.clone()).height(3).build();
+    let d_3 = TestBlockBuilder::new(Clock::real(), &b_2, signer.clone()).height(3).build();
 
-    let d_5 = TestBlockBuilder::new(&d_3, signer.clone()).height(5).build();
-    let d_6 = TestBlockBuilder::new(&d_5, signer.clone()).height(6).build();
+    let d_5 = TestBlockBuilder::new(Clock::real(), &d_3, signer.clone()).height(5).build();
+    let d_6 = TestBlockBuilder::new(Clock::real(), &d_5, signer.clone()).height(6).build();
 
-    let e_7 = TestBlockBuilder::new(&b_1, signer).height(7).build();
+    let e_7 = TestBlockBuilder::new(Clock::real(), &b_1, signer).height(7).build();
 
     let b_1_hash = *b_1.hash();
     let b_2_hash = *b_2.hash();
@@ -262,12 +232,12 @@ fn blocks_at_height() {
 #[test]
 fn next_blocks() {
     init_test_logger();
-    let (mut chain, _, _, signer) = setup();
+    let (mut chain, _, _, signer) = setup(Clock::real());
     let genesis = chain.get_block(&chain.genesis().hash().clone()).unwrap();
-    let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
-    let b2 = TestBlockBuilder::new(&b1, signer.clone()).height(2).build();
-    let b3 = TestBlockBuilder::new(&b1, signer.clone()).height(3).build();
-    let b4 = TestBlockBuilder::new(&b3, signer).height(4).build();
+    let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
+    let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(2).build();
+    let b3 = TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).height(3).build();
+    let b4 = TestBlockBuilder::new(Clock::real(), &b3, signer).height(4).build();
     let b1_hash = *b1.hash();
     let b2_hash = *b2.hash();
     let b3_hash = *b3.hash();

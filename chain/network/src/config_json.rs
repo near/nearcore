@@ -1,9 +1,9 @@
 use crate::network_protocol::PeerAddr;
 use crate::stun;
-use std::time::Duration;
+use near_async::time::Duration;
 
 /// Time to persist Accounts Id in the router without removing them in seconds.
-pub const TTL_ACCOUNT_ID_ROUTER: u64 = 60 * 60;
+pub const TTL_ACCOUNT_ID_ROUTER: i64 = 60 * 60;
 
 /// Maximum number of active peers. Hard limit.
 fn default_max_num_peers() -> u32 {
@@ -23,7 +23,7 @@ fn default_ideal_connections_hi() -> u32 {
 }
 /// Peers which last message is was within this period of time are considered active recent peers.
 fn default_peer_recent_time_window() -> Duration {
-    Duration::from_secs(600)
+    Duration::seconds(600)
 }
 /// Number of peers to keep while removing a connection.
 /// Used to avoid disconnecting from peers we have been connected since long time.
@@ -37,15 +37,15 @@ fn default_archival_peer_connections_lower_bound() -> u32 {
 }
 /// Time to persist Accounts Id in the router without removing them in seconds.
 fn default_ttl_account_id_router() -> Duration {
-    Duration::from_secs(TTL_ACCOUNT_ID_ROUTER)
+    Duration::seconds(TTL_ACCOUNT_ID_ROUTER)
 }
 /// Period to check on peer status
 fn default_peer_stats_period() -> Duration {
-    Duration::from_secs(5)
+    Duration::seconds(5)
 }
 /// Period to update the list of peers we connect to.
 fn default_monitor_peers_max_period() -> Duration {
-    Duration::from_secs(60)
+    Duration::seconds(60)
 }
 /// Maximum number of peer states to keep in memory.
 fn default_peer_states_cache_size() -> u32 {
@@ -57,7 +57,7 @@ fn default_snapshot_hosts_cache_size() -> u32 {
 }
 /// Remove peers that we didn't hear about for this amount of time.
 fn default_peer_expiration_duration() -> Duration {
-    Duration::from_secs(7 * 24 * 60 * 60)
+    Duration::seconds(7 * 24 * 60 * 60)
 }
 
 /// This is a list of public STUN servers provided by Google,
@@ -106,6 +106,7 @@ pub struct Config {
     pub ideal_connections_hi: u32,
     /// Peers which last message is was within this period of time are considered active recent peers (in seconds).
     #[serde(default = "default_peer_recent_time_window")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub peer_recent_time_window: Duration,
     /// Number of peers to keep while removing a connection.
     /// Used to avoid disconnecting from peers we have been connected since long time.
@@ -116,10 +117,12 @@ pub struct Config {
     #[serde(default = "default_archival_peer_connections_lower_bound")]
     pub archival_peer_connections_lower_bound: u32,
     /// Handshake timeout.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub handshake_timeout: Duration,
     /// Skip waiting for peers before starting node.
     pub skip_sync_wait: bool,
     /// Ban window for peers who misbehave.
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub ban_window: Duration,
     /// List of addresses that will not be accepted as valid neighbors.
     /// It can be IP:Port or IP (to blacklist all connections coming from this address).
@@ -127,12 +130,15 @@ pub struct Config {
     pub blacklist: Vec<String>,
     /// Time to persist Accounts Id in the router without removing them in seconds.
     #[serde(default = "default_ttl_account_id_router")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub ttl_account_id_router: Duration,
     /// Period to check on peer status
     #[serde(default = "default_peer_stats_period")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub peer_stats_period: Duration,
     // Period to monitor peers (connect to new ones etc).
     #[serde(default = "default_monitor_peers_max_period")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub monitor_peers_max_period: Duration,
 
     /// Maximum number of peer states to keep in memory.
@@ -143,6 +149,7 @@ pub struct Config {
     pub snapshot_hosts_cache_size: u32,
     // Remove peers that were not active for this amount of time.
     #[serde(default = "default_peer_expiration_duration")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub peer_expiration_duration: Duration,
 
     /// List of the public addresses (in the format "<node public key>@<IP>:<port>") of trusted nodes,
@@ -196,11 +203,29 @@ pub struct Config {
     pub experimental: ExperimentalConfig,
 }
 
+fn default_tier1_enable_inbound() -> bool {
+    true
+}
+
+fn default_tier1_enable_outbound() -> bool {
+    true
+}
+
+fn default_tier1_connect_interval() -> Duration {
+    Duration::seconds(60)
+}
+
+fn default_tier1_new_connections_per_attempt() -> u64 {
+    50
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ExperimentalConfig {
     // If true - don't allow any inbound connections.
+    #[serde(default)]
     pub inbound_disabled: bool,
     // If true - connect only to the boot nodes.
+    #[serde(default)]
     pub connect_only_to_boot_nodes: bool,
 
     // If greater than 0, then system will no longer send or receive tombstones
@@ -208,22 +233,29 @@ pub struct ExperimentalConfig {
     //
     // The better name is `skip_tombstones_seconds`, but we keep send for
     // compatibility.
+    #[serde(default)]
     pub skip_sending_tombstones_seconds: i64,
 
     /// See `near_network::config::Tier1::enable_inbound`.
+    #[serde(default = "default_tier1_enable_inbound")]
     pub tier1_enable_inbound: bool,
 
     /// See `near_network::config::Tier1::enable_outbound`.
+    #[serde(default = "default_tier1_enable_outbound")]
     pub tier1_enable_outbound: bool,
 
     /// See `near_network::config::Tier1::connect_interval`.
+    #[serde(default = "default_tier1_connect_interval")]
+    #[serde(with = "near_async::time::serde_duration_as_std")]
     pub tier1_connect_interval: Duration,
 
     /// See `near_network::config::Tier1::new_connections_per_attempt`.
+    #[serde(default = "default_tier1_new_connections_per_attempt")]
     pub tier1_new_connections_per_attempt: u64,
 
     /// See `NetworkConfig`.
     /// Fields set here will override the NetworkConfig fields.
+    #[serde(default)]
     pub network_config_overrides: NetworkConfigOverrides,
 }
 
@@ -250,10 +282,10 @@ impl Default for ExperimentalConfig {
             inbound_disabled: false,
             connect_only_to_boot_nodes: false,
             skip_sending_tombstones_seconds: 0,
-            tier1_enable_inbound: true,
-            tier1_enable_outbound: true,
-            tier1_connect_interval: Duration::from_secs(60),
-            tier1_new_connections_per_attempt: 50,
+            tier1_enable_inbound: default_tier1_enable_inbound(),
+            tier1_enable_outbound: default_tier1_enable_outbound(),
+            tier1_connect_interval: default_tier1_connect_interval(),
+            tier1_new_connections_per_attempt: default_tier1_new_connections_per_attempt(),
             network_config_overrides: Default::default(),
         }
     }
@@ -272,11 +304,11 @@ impl Default for Config {
             peer_recent_time_window: default_peer_recent_time_window(),
             safe_set_size: default_safe_set_size(),
             archival_peer_connections_lower_bound: default_archival_peer_connections_lower_bound(),
-            handshake_timeout: Duration::from_secs(20),
+            handshake_timeout: Duration::seconds(20),
             skip_sync_wait: false,
             peer_states_cache_size: default_peer_states_cache_size(),
             snapshot_hosts_cache_size: default_snapshot_hosts_cache_size(),
-            ban_window: Duration::from_secs(3 * 60 * 60),
+            ban_window: Duration::seconds(3 * 60 * 60),
             blacklist: vec![],
             ttl_account_id_router: default_ttl_account_id_router(),
             peer_stats_period: default_peer_stats_period(),

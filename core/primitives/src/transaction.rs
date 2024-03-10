@@ -7,13 +7,15 @@ use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_primitives_core::serialize::{from_base64, to_base64};
 use near_primitives_core::types::Compute;
-use near_vm_runner::{ProfileDataV2, ProfileDataV3};
+use near_vm_runner::ProfileDataV3;
 use serde::de::Error as DecodeError;
 use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub use crate::action::NonrefundableStorageTransferAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,
@@ -237,9 +239,9 @@ pub enum ExecutionMetadata {
     #[default]
     V1,
     /// V2: With ProfileData by legacy `Cost` enum
-    V2(ProfileDataV2),
+    V2(crate::profile_data_v2::ProfileDataV2),
     /// V3: With ProfileData by gas parameters
-    V3(ProfileDataV3),
+    V3(Box<ProfileDataV3>),
 }
 
 impl fmt::Debug for ExecutionOutcome {

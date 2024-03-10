@@ -35,6 +35,7 @@ thiserror.workspace = true
 tracing.workspace = true
 yansi.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-client.workspace = true
@@ -45,19 +46,23 @@ near-o11y.workspace = true
 near-primitives-core.workspace = true
 near-primitives.workspace = true
 near-store.workspace = true
-near-test-contracts.workspace = true
 nearcore.workspace = true
 node-runtime.workspace = true
 
 [dev-dependencies]
-near-client.workspace = true
-testlib.workspace = true
 insta.workspace = true
+near-client.workspace = true
+near-test-contracts.workspace = true
+testlib.workspace = true
 
 [features]
 sandbox = ["node-runtime/sandbox", "near-chain/sandbox", "near-client/sandbox"]
+protocol_feature_nonrefundable_transfer_nep491 = [
+  "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
+]
+
 nightly = [
-  "nightly_protocol",
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-client/nightly",
@@ -68,9 +73,13 @@ nightly = [
   "near-primitives/nightly",
   "near-store/nightly",
   "nearcore/nightly",
+  "nightly_protocol",
   "node-runtime/nightly",
+  "protocol_feature_nonrefundable_transfer_nep491",
+  "testlib/nightly",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-client/nightly_protocol",
@@ -82,4 +91,5 @@ nightly_protocol = [
   "near-store/nightly_protocol",
   "nearcore/nightly_protocol",
   "node-runtime/nightly_protocol",
+  "testlib/nightly_protocol",
 ]

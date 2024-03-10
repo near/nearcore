@@ -26,7 +26,7 @@ impl ColdDB {
         format!("Reading from column missing from cold storage. {col:?}")
     }
 
-    // Checks if the column is is the cold db and returns an error if not.
+    // Checks if the column is the cold db and returns an error if not.
     fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
         if !col.is_in_colddb() {
             return Err(std::io::Error::other(Self::err_msg(col)));
@@ -34,7 +34,7 @@ impl ColdDB {
         Ok(())
     }
 
-    // Checks if the column is is the cold db and panics if not.
+    // Checks if the column is the cold db and panics if not.
     fn log_assert_is_in_colddb(col: DBCol) {
         log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
@@ -233,9 +233,7 @@ mod test {
         // State -> rc
         // Block -> no rc
 
-        let mut ops = vec![];
-        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
-        ops.push(set(DBCol::Block, HASH));
+        let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
         db.write(DBTransaction { ops }).unwrap();
 
         // Fetch data
@@ -295,9 +293,7 @@ mod test {
         // Block -> no rc
 
         // Populate data
-        let mut ops = vec![];
-        ops.push(set_with_rc(DBCol::State, &[SHARD, HASH].concat()));
-        ops.push(set(DBCol::Block, HASH));
+        let ops = vec![set_with_rc(DBCol::State, &[SHARD, HASH].concat()), set(DBCol::Block, HASH)];
         db.write(DBTransaction { ops }).unwrap();
 
         let mut result = Vec::<String>::new();

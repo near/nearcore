@@ -2,6 +2,7 @@
 
 use crate::{MockNetworkConfig, MockPeer};
 use anyhow::Context;
+use near_async::time::Clock;
 use near_chain::types::RuntimeAdapter;
 use near_chain::ChainStoreUpdate;
 use near_chain::{Chain, ChainGenesis, ChainStore, ChainStoreAccess, DoomslugThresholdMode};
@@ -16,7 +17,7 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::get_num_state_parts;
 use near_primitives::types::{BlockHeight, NumShards, ShardId};
 use near_store::test_utils::create_test_store;
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::cmp::min;
 use std::path::Path;
@@ -73,7 +74,7 @@ fn setup_mock_peer(
             mock_listen_addr,
             chain_id,
             archival,
-            block_production_delay,
+            block_production_delay.unsigned_abs(),
             num_shards,
             network_start_height,
             network_config,
@@ -121,7 +122,7 @@ pub fn setup_mock_node(
         setup_runtime(network_home_dir, &config, false);
     tracing::info!(target: "mock_node", ?network_home_dir, "Setup network runtime");
 
-    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
 
     // set up client dir to be ready to process blocks from client_start_height
     if client_start_height > 0 {
@@ -238,6 +239,7 @@ pub fn setup_mock_node(
     }
 
     let chain = Chain::new_for_view_client(
+        Clock::real(),
         mock_network_epoch_manager.clone(),
         mock_network_shard_tracker,
         mock_network_runtime,
@@ -279,7 +281,7 @@ mod tests {
     use futures::{future, FutureExt};
     use near_actix_test_utils::{run_actix, spawn_interruptible};
     use near_chain::{ChainStore, ChainStoreAccess};
-    use near_chain_configs::Genesis;
+    use near_chain_configs::{Genesis, NEAR_BASE};
     use near_client::{GetBlock, ProcessTxRequest};
     use near_crypto::{InMemorySigner, KeyType};
     use near_epoch_manager::{EpochManager, EpochManagerAdapter};
@@ -289,8 +291,7 @@ mod tests {
     use near_o11y::WithSpanContextExt;
     use near_primitives::transaction::SignedTransaction;
     use near_store::test_utils::gen_account_from_alphabet;
-    use nearcore::config::GenesisExt;
-    use nearcore::{load_test_config, start_with_config, NEAR_BASE};
+    use nearcore::{load_test_config, start_with_config};
     use rand::thread_rng;
     use std::ops::ControlFlow;
     use std::sync::{Arc, RwLock};

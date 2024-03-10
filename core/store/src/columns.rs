@@ -279,6 +279,11 @@ pub enum DBCol {
     /// - *Rows*: arbitrary string, see `crate::db::FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY` for example
     /// - *Column type*: arbitrary bytes
     Misc,
+    /// Column to store data necessary to generate part of state witness
+    /// corresponding to specific block and shard.
+    /// - *Rows*: BlockShardId (BlockHash || ShardId) - 40 bytes
+    /// - *Column type*: `StoredChunkStateTransitionData`
+    StateTransitionData,
     /// Column to store data for Epoch Sync.
     /// Does not contain data for genesis epoch.
     /// - *Rows*: `epoch_id`
@@ -451,6 +456,8 @@ impl DBCol {
             DBCol::ProcessedBlockHeights => false,
             // HeaderHashesByHeight is only needed for GC.
             DBCol::HeaderHashesByHeight => false,
+            // StateTransitionData is only needed to produce ChunkStateWitness
+            DBCol::StateTransitionData => false,
 
             // Columns that are not GC-ed need not be copied to the cold storage.
             DBCol::BlockHeader
@@ -478,7 +485,7 @@ impl DBCol {
             | DBCol::FlatState
             | DBCol::FlatStateChanges
             | DBCol::FlatStateDeltaMetadata
-            | DBCol::FlatStorageStatus  => false,
+            | DBCol::FlatStorageStatus => false,
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => false
         }
@@ -549,6 +556,7 @@ impl DBCol {
             DBCol::FlatStateChanges => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStateDeltaMetadata => &[DBKeyType::ShardUId, DBKeyType::BlockHash],
             DBCol::FlatStorageStatus => &[DBKeyType::ShardUId],
+            DBCol::StateTransitionData => &[DBKeyType::BlockHash, DBKeyType::ShardId],
             #[cfg(feature = "new_epoch_sync")]
             DBCol::EpochSyncInfo => &[DBKeyType::EpochId],
         }
@@ -561,12 +569,33 @@ impl fmt::Display for DBCol {
     }
 }
 
-#[test]
-fn column_props_sanity() {
+#[cfg(test)]
+mod tests {
+    use super::*;
     use strum::IntoEnumIterator;
 
-    for col in DBCol::iter() {
-        // Check that rc and write_once are mutually exclusive.
-        assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
+    #[test]
+    fn column_props_sanity() {
+        for col in DBCol::iter() {
+            // Check that rc and write_once are mutually exclusive.
+            assert!((col.is_rc() as u32) + (col.is_insert_only() as u32) <= 1, "{col}")
+        }
+    }
+
+    // In split storage archival nodes the State column and the
+    // TrieNodeOrValueHash db key type and handled separately.
+    // This implementation asserts that the TrieNodeOrValueHash key type is
+    // only use in the State column and in no other columns.
+    #[test]
+    fn key_type_split_storage_sanity() {
+        for col in DBCol::iter() {
+            if col == DBCol::State {
+                continue;
+            }
+            let key_types = col.key_type();
+            for key_type in key_types {
+                assert_ne!(key_type, &DBKeyType::TrieNodeOrValueHash);
+            }
+        }
     }
 }

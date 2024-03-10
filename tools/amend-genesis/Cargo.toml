@@ -18,17 +18,13 @@ clap.workspace = true
 num-rational.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
 tracing.workspace = true
 
-near-chain.workspace = true
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-crypto.workspace = true
-near-epoch-manager.workspace = true
-near-network.workspace = true
 near-primitives.workspace = true
 near-primitives-core.workspace = true
-near-store.workspace = true
-near-test-contracts.workspace = true
-nearcore.workspace = true
-node-runtime.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

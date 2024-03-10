@@ -21,18 +21,21 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-o11y.workspace = true
 near-primitives.workspace = true
 
 [features]
 nightly = [
-  "nightly_protocol",
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-o11y/nightly",
   "near-primitives/nightly",
+  "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-o11y/nightly_protocol",
   "near-primitives/nightly_protocol",

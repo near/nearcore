@@ -255,6 +255,10 @@ pub enum HostError {
     BLS12381InvalidInput {
         msg: String,
     },
+    /// Yield payload length exceeds the maximum permitted.
+    YieldPayloadLength { length: u64, limit: u64 },
+    /// Yield resumption data id is malformed.
+    DataIdMalformed,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -485,6 +489,11 @@ impl std::fmt::Display for HostError {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
+            YieldPayloadLength { length, limit } => write!(
+                f,
+                "Yield resume payload is {length} bytes which exceeds the {limit} byte limit"
+            ),
+            DataIdMalformed => write!(f, "yield resumption token is malformed"),
         }
     }
 }

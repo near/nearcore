@@ -1,6 +1,4 @@
 use actix::Message;
-use chrono::DateTime;
-use chrono::Utc;
 use near_chain_configs::{ClientConfig, ProtocolConfigView};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{MerklePath, PartialMerkleTree};
@@ -21,6 +19,7 @@ pub use near_primitives::views::{StatusResponse, StatusSyncInfo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime as Utc};
 use tracing::debug_span;
 use yansi::Color::Magenta;
 use yansi::Style;
@@ -48,8 +47,8 @@ impl From<near_primitives::errors::EpochError> for Error {
 
 #[derive(Debug, serde::Serialize)]
 pub struct DownloadStatus {
-    pub start_time: DateTime<Utc>,
-    pub prev_update_time: DateTime<Utc>,
+    pub start_time: Utc,
+    pub prev_update_time: Utc,
     pub run_me: Arc<AtomicBool>,
     pub error: bool,
     pub done: bool,
@@ -58,7 +57,7 @@ pub struct DownloadStatus {
 }
 
 impl DownloadStatus {
-    pub fn new(now: DateTime<Utc>) -> Self {
+    pub fn new(now: Utc) -> Self {
         Self {
             start_time: now,
             prev_update_time: now,
@@ -169,7 +168,7 @@ pub struct ShardSyncDownload {
 
 impl ShardSyncDownload {
     /// Creates a instance of self which includes initial statuses for shard state header download at the given time.
-    pub fn new_download_state_header(now: DateTime<Utc>) -> Self {
+    pub fn new_download_state_header(now: Utc) -> Self {
         Self {
             downloads: vec![DownloadStatus::new(now)],
             status: ShardSyncStatus::StateDownloadHeader,
@@ -177,7 +176,7 @@ impl ShardSyncDownload {
     }
 
     /// Creates a instance of self which includes initial statuses for shard state parts download at the given time.
-    pub fn new_download_state_parts(now: DateTime<Utc>, num_parts: u64) -> Self {
+    pub fn new_download_state_parts(now: Utc, num_parts: u64) -> Self {
         // Avoid using `vec![x; num_parts]`, because each element needs to have
         // its own independent value of `response`.
         let mut downloads = Vec::with_capacity(num_parts as usize);
@@ -185,6 +184,15 @@ impl ShardSyncDownload {
             downloads.push(DownloadStatus::new(now));
         }
         Self { downloads, status: ShardSyncStatus::StateDownloadParts }
+    }
+
+    /// Get the header download status.
+    /// returns None if state sync status is not ShardSyncStatus::StateDownloadHeader
+    pub fn get_header_download_mut(&mut self) -> Option<&mut DownloadStatus> {
+        if self.status != ShardSyncStatus::StateDownloadHeader {
+            return None;
+        }
+        self.downloads.get_mut(0)
     }
 }
 
@@ -570,7 +578,7 @@ pub enum StatusError {
     #[error("Node is syncing")]
     NodeIsSyncing,
     #[error("No blocks for {elapsed:?}")]
-    NoNewBlocks { elapsed: std::time::Duration },
+    NoNewBlocks { elapsed: Duration },
     #[error("Epoch Out Of Bounds {epoch_id:?}")]
     EpochOutOfBounds { epoch_id: near_primitives::types::EpochId },
     #[error("The node reached its limits. Try again later. More details: {error_message}")]

@@ -1,9 +1,10 @@
 use std::collections::HashSet;
 
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_async::messaging::noop;
 use near_async::time;
 use near_async::{
-    messaging::{CanSend, IntoSender, Sender},
+    messaging::{CanSend, IntoSender},
     test_loop::{
         adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender},
         event_handler::capture_events,
@@ -39,6 +40,12 @@ struct TestData {
     client_events: Vec<ShardsManagerResponse>,
     /// Captured events sent to the network.
     network_events: Vec<PeerManagerMessageRequest>,
+}
+
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
 }
 
 impl TestData {
@@ -87,7 +94,7 @@ fn test_basic_receive_complete_chunk() {
         Some(validators[0].clone()),
         chain.epoch_manager.clone(),
         chain.shard_tracker.clone(),
-        Sender::noop(),
+        noop().into_sender(),
         builder.sender().into_sender(),
         ReadOnlyChunksStore::new(store),
         default_tip(),
@@ -176,7 +183,7 @@ fn test_chunk_forward() {
     test.register_handler(forward_client_request_to_shards_manager().widen());
     test.register_handler(forward_network_request_to_shards_manager().widen());
     test.register_handler(periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen());
-    test.register_handler(handle_adhoc_events());
+    test.register_handler(handle_adhoc_events::<TestData>().widen());
 
     // We'll produce a single chunk whose next chunk producer is a chunk-only
     // producer, so that we can test that the chunk is forwarded to the next

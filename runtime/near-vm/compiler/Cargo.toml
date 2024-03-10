@@ -23,7 +23,6 @@ target-lexicon.workspace = true
 enumset.workspace = true
 hashbrown = { workspace = true, optional = true }
 thiserror.workspace = true
-smallvec.workspace = true
 rkyv.workspace = true
 tracing.workspace = true
 

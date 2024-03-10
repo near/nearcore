@@ -22,10 +22,13 @@ use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
+use near_primitives::receipt::{
+    DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData, YieldedPromiseQueueEntry,
+    YieldedPromiseQueueIndices,
+};
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, StateRoot};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::ContractCode;
 
@@ -570,7 +573,7 @@ impl StoreUpdate {
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        assert!(same_db(&self.storage, &other.storage));
+        assert!(core::ptr::addr_eq(Arc::as_ptr(&self.storage), Arc::as_ptr(&other.storage)));
         self.transaction.merge(other.transaction)
     }
 
@@ -621,13 +624,6 @@ impl StoreUpdate {
         }
         self.storage.write(self.transaction)
     }
-}
-
-fn same_db(lhs: &Arc<dyn Database>, rhs: &Arc<dyn Database>) -> bool {
-    // Note: avoid comparing wide pointers here to work-around
-    // https://github.com/rust-lang/rust/issues/69757
-    let addr = |arc| Arc::as_ptr(arc) as *const u8;
-    return addr(lhs) == addr(rhs);
 }
 
 impl fmt::Debug for StoreUpdate {
@@ -703,7 +699,16 @@ pub fn get_received_data(
     get(trie, &TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
 }
 
+pub fn has_received_data(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(&TrieKey::ReceivedData { receiver_id: receiver_id.clone(), data_id })
+}
+
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    assert!(matches!(receipt.receipt, ReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id.clone(),
         receipt_id: receipt.receipt_id,
@@ -748,6 +753,79 @@ pub fn set_delayed_receipt(
         .next_available_index
         .checked_add(1)
         .expect("Next available index for delayed receipt exceeded the integer limit");
+}
+
+pub fn get_yielded_promise_indices(
+    trie: &dyn TrieAccess,
+) -> Result<YieldedPromiseQueueIndices, StorageError> {
+    Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
+}
+
+pub fn set_yielded_promise_indices(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &YieldedPromiseQueueIndices,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+    set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
+}
+
+// Enqueues given yielded promise in the yield timeout queue
+pub fn enqueue_yielded_promise_timeout(
+    state_update: &mut TrieUpdate,
+    yielded_promise_indices: &mut YieldedPromiseQueueIndices,
+    account_id: AccountId,
+    data_id: CryptoHash,
+    expires_at: BlockHeight,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+    set(
+        state_update,
+        TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
+        &YieldedPromiseQueueEntry { account_id, data_id, expires_at },
+    );
+    yielded_promise_indices.next_available_index = yielded_promise_indices
+        .next_available_index
+        .checked_add(1)
+        .expect("Next available index for yielded promise exceeded the integer limit");
+}
+
+pub fn set_yielded_promise(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    assert!(cfg!(feature = "yield_resume"));
+    match &receipt.receipt {
+        ReceiptEnum::PromiseYield(ref action_receipt) => {
+            assert!(action_receipt.input_data_ids.len() == 1);
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: receipt.receiver_id.clone(),
+                data_id: action_receipt.input_data_ids[0],
+            };
+            set(state_update, key, receipt);
+        }
+        _ => unreachable!("Expected PromiseYield receipt"),
+    }
+}
+
+pub fn remove_yielded_promise(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id });
+}
+
+pub fn get_yielded_promise(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<Receipt>, StorageError> {
+    get(trie, &TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id })
+}
+
+pub fn has_yielded_promise(
+    trie: &dyn TrieAccess,
+    receiver_id: AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
 }
 
 pub fn set_access_key(

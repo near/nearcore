@@ -13,7 +13,7 @@ workspace = true
 
 [dependencies]
 near-crypto.workspace = true
-near-fmt.workspace = true
+near-fmt = { workspace = true, optional = true }
 near-primitives-core.workspace = true
 
 actix.workspace = true
@@ -26,7 +26,7 @@ opentelemetry-semantic-conventions.workspace = true
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-strum.workspace = true
+strum = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -45,11 +45,11 @@ nightly_protocol = [
   "near-primitives-core/nightly_protocol",
 ]
 nightly = [
-  "nightly_protocol",
   "near-fmt/nightly",
   "near-primitives-core/nightly",
+  "nightly_protocol",
 ]
-io_trace = []
+io_trace = [ "near-fmt", "strum" ]
 
 [[bench]]
 name = "metrics"

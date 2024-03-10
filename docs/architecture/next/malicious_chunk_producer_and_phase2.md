@@ -9,7 +9,7 @@ and sent it to the block producer at this height ``B1``.
 
 The block producer IS going to add the chunk to the block (as we don't validate 
 the chunks before adding to blocks - but only when signing the block - see 
-[Transcations and receipts - last section](./../how/tx_receipts.md)).
+[Transactions and receipts - last section](./../how/tx_receipts.md)).
 
 After this block is produced, it is sent to all the validators to get the 
 signatures.

@@ -1,26 +1,22 @@
-use std::collections::HashMap;
-use std::time::Duration;
-
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
-use chrono::Utc;
+use near_async::time::{Duration, Utc};
+use near_chain_configs::GenesisConfig;
 use near_chain_configs::MutableConfigValue;
+use near_chain_configs::ProtocolConfig;
 use near_chain_configs::ReshardingConfig;
-use near_primitives::sandbox::state_patch::SandboxStatePatch;
-use near_store::flat::FlatStorageManager;
-use near_store::StorageError;
-use num_rational::Rational32;
-
-use near_chain_configs::{Genesis, ProtocolConfig};
 use near_chain_primitives::Error;
-use near_pool::types::PoolIterator;
-use near_primitives::challenge::ChallengesResult;
+pub use near_epoch_manager::EpochManagerAdapter;
+use near_pool::types::TransactionGroupIterator;
+pub use near_primitives::block::{Block, BlockHeader, Tip};
+use near_primitives::challenge::{ChallengesResult, PartialState};
 use near_primitives::checked_feature;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, MerklePath};
 use near_primitives::receipt::Receipt;
+use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
+use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_part::PartId;
 use near_primitives::transaction::{ExecutionOutcomeWithId, SignedTransaction};
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
@@ -28,15 +24,17 @@ use near_primitives::types::{
     Balance, BlockHeight, BlockHeightDelta, EpochId, Gas, MerkleHash, NumBlocks, ShardId,
     StateChangesForResharding, StateRoot, StateRootNode,
 };
+use near_primitives::utils::to_timestamp;
 use near_primitives::version::{
     ProtocolVersion, MIN_GAS_PRICE_NEP_92, MIN_GAS_PRICE_NEP_92_FIX, MIN_PROTOCOL_VERSION_NEP_92,
     MIN_PROTOCOL_VERSION_NEP_92_FIX,
 };
 use near_primitives::views::{QueryRequest, QueryResponse};
+use near_store::flat::FlatStorageManager;
+use near_store::StorageError;
 use near_store::{PartialStorage, ShardTries, Store, Trie, WrappedTrieChanges};
-
-pub use near_epoch_manager::EpochManagerAdapter;
-pub use near_primitives::block::{Block, BlockHeader, Tip};
+use num_rational::Rational32;
+use std::collections::HashMap;
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub enum BlockStatus {
@@ -100,7 +98,7 @@ pub enum ReshardingResults {
 }
 
 #[derive(Debug)]
-pub struct ApplyTransactionResult {
+pub struct ApplyChunkResult {
     pub trie_changes: WrappedTrieChanges,
     pub new_root: StateRoot,
     pub outcomes: Vec<ExecutionOutcomeWithId>,
@@ -110,9 +108,14 @@ pub struct ApplyTransactionResult {
     pub total_balance_burnt: Balance,
     pub proof: Option<PartialStorage>,
     pub processed_delayed_receipts: Vec<Receipt>,
+    /// Hash of Vec<Receipt> which were applied in a chunk, later used for
+    /// chunk validation with state witness.
+    /// Note that applied receipts are not necessarily executed as they can
+    /// be delayed.
+    pub applied_receipts_hash: CryptoHash,
 }
 
-impl ApplyTransactionResult {
+impl ApplyChunkResult {
     /// Returns root and paths for all the outcomes in the result.
     pub fn compute_outcomes_proof(
         outcomes: &[ExecutionOutcomeWithId],
@@ -193,7 +196,7 @@ impl From<&ChainGenesis> for BlockEconomicsConfig {
 /// Chain genesis configuration.
 #[derive(Clone)]
 pub struct ChainGenesis {
-    pub time: DateTime<Utc>,
+    pub time: Utc,
     pub height: BlockHeight,
     pub gas_limit: Gas,
     pub min_gas_price: Balance,
@@ -230,18 +233,19 @@ impl ChainConfig {
 }
 
 impl ChainGenesis {
-    pub fn new(genesis: &Genesis) -> Self {
+    pub fn new(genesis_config: &GenesisConfig) -> Self {
         Self {
-            time: genesis.config.genesis_time,
-            height: genesis.config.genesis_height,
-            gas_limit: genesis.config.gas_limit,
-            min_gas_price: genesis.config.min_gas_price,
-            max_gas_price: genesis.config.max_gas_price,
-            total_supply: genesis.config.total_supply,
-            gas_price_adjustment_rate: genesis.config.gas_price_adjustment_rate,
-            transaction_validity_period: genesis.config.transaction_validity_period,
-            epoch_length: genesis.config.epoch_length,
-            protocol_version: genesis.config.protocol_version,
+            time: Utc::from_unix_timestamp_nanos(to_timestamp(genesis_config.genesis_time) as i128)
+                .unwrap(),
+            height: genesis_config.genesis_height,
+            gas_limit: genesis_config.gas_limit,
+            min_gas_price: genesis_config.min_gas_price,
+            max_gas_price: genesis_config.max_gas_price,
+            total_supply: genesis_config.total_supply,
+            gas_price_adjustment_rate: genesis_config.gas_price_adjustment_rate,
+            transaction_validity_period: genesis_config.transaction_validity_period,
+            epoch_length: genesis_config.epoch_length,
+            protocol_version: genesis_config.protocol_version,
         }
     }
 }
@@ -249,10 +253,6 @@ impl ChainGenesis {
 pub enum StorageDataSource {
     /// Full state data is present in DB.
     Db,
-    /// Trie is present in DB and flat storage is not.
-    /// Used for testing stateless validation jobs, should be removed after
-    /// stateless validation release.
-    DbTrieOnly,
     /// State data is supplied from state witness, there is no state data
     /// stored on disk.
     Recorded(PartialStorage),
@@ -279,7 +279,7 @@ impl RuntimeStorageConfig {
 }
 
 #[derive(Clone)]
-pub struct ApplyTransactionsBlockContext {
+pub struct ApplyChunkBlockContext {
     pub height: BlockHeight,
     pub block_hash: CryptoHash,
     pub prev_block_hash: CryptoHash,
@@ -289,7 +289,7 @@ pub struct ApplyTransactionsBlockContext {
     pub random_seed: CryptoHash,
 }
 
-impl ApplyTransactionsBlockContext {
+impl ApplyChunkBlockContext {
     pub fn from_header(header: &BlockHeader, gas_price: Balance) -> Self {
         Self {
             height: header.height(),
@@ -303,12 +303,61 @@ impl ApplyTransactionsBlockContext {
     }
 }
 
-pub struct ApplyTransactionsChunkContext<'a> {
+pub struct ApplyChunkShardContext<'a> {
     pub shard_id: ShardId,
     pub last_validator_proposals: ValidatorStakeIter<'a>,
     pub gas_limit: Gas,
     pub is_new_chunk: bool,
     pub is_first_block_with_chunk_of_version: bool,
+}
+
+/// Contains transactions that were fetched from the transaction pool
+/// and prepared for adding them to a new chunk that is being produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTransactions {
+    /// Prepared transactions
+    pub transactions: Vec<SignedTransaction>,
+    /// Describes which limit was hit when preparing the transactions.
+    pub limited_by: Option<PrepareTransactionsLimit>,
+    /// May contain partial state that was used to verify transactions when preparing.
+    pub storage_proof: Option<PartialState>,
+}
+
+/// Chunk producer prepares transactions from the transaction pool
+/// until it hits some limit (too many transactions, too much gas used, etc).
+/// This enum describes which limit was hit when preparing transactions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
+pub enum PrepareTransactionsLimit {
+    Gas,
+    Size,
+    Time,
+    ReceiptCount,
+}
+
+pub struct PrepareTransactionsBlockContext {
+    pub next_gas_price: Balance,
+    pub height: BlockHeight,
+    pub block_hash: CryptoHash,
+}
+
+impl From<&BlockHeader> for PrepareTransactionsBlockContext {
+    fn from(header: &BlockHeader) -> Self {
+        Self {
+            next_gas_price: header.next_gas_price(),
+            height: header.height(),
+            block_hash: *header.hash(),
+        }
+    }
+}
+pub struct PrepareTransactionsChunkContext {
+    pub shard_id: ShardId,
+    pub gas_limit: Gas,
+}
+
+impl From<&ShardChunkHeader> for PrepareTransactionsChunkContext {
+    fn from(header: &ShardChunkHeader) -> Self {
+        Self { shard_id: header.shard_id(), gas_limit: header.gas_limit() }
+    }
 }
 
 /// Bridge between the chain and the runtime.
@@ -368,17 +417,13 @@ pub trait RuntimeAdapter: Send + Sync {
     /// `RuntimeError::StorageError`.
     fn prepare_transactions(
         &self,
-        gas_price: Balance,
-        gas_limit: Gas,
-        epoch_id: &EpochId,
-        shard_id: ShardId,
-        state_root: StateRoot,
-        next_block_height: BlockHeight,
-        pool_iterator: &mut dyn PoolIterator,
+        storage: RuntimeStorageConfig,
+        chunk: PrepareTransactionsChunkContext,
+        prev_block: PrepareTransactionsBlockContext,
+        transaction_groups: &mut dyn TransactionGroupIterator,
         chain_validate: &mut dyn FnMut(&SignedTransaction) -> bool,
-        current_protocol_version: ProtocolVersion,
         time_limit: Option<Duration>,
-    ) -> Result<Vec<SignedTransaction>, Error>;
+    ) -> Result<PreparedTransactions, Error>;
 
     /// Returns true if the shard layout will change in the next epoch
     /// Current epoch is the epoch of the block after `parent_hash`
@@ -387,16 +432,17 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Get the block height for which garbage collection should not go over
     fn get_gc_stop_height(&self, block_hash: &CryptoHash) -> BlockHeight;
 
-    /// Apply transactions to given state root and return store update and new state root.
+    /// Apply transactions and receipts to given state root and return store update
+    /// and new state root.
     /// Also returns transaction result for each transaction and new receipts.
-    fn apply_transactions(
+    fn apply_chunk(
         &self,
         storage: RuntimeStorageConfig,
-        chunk: ApplyTransactionsChunkContext,
-        block: ApplyTransactionsBlockContext,
+        chunk: ApplyChunkShardContext,
+        block: ApplyChunkBlockContext,
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
-    ) -> Result<ApplyTransactionResult, Error>;
+    ) -> Result<ApplyChunkResult, Error>;
 
     /// Query runtime with given `path` and `data`.
     fn query(
@@ -481,16 +527,14 @@ pub struct LatestKnown {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use chrono::Utc;
-    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
-
+    use near_async::time::{Clock, Utc};
     use near_primitives::block::{genesis_chunks, Approval};
     use near_primitives::hash::hash;
     use near_primitives::merkle::verify_path;
+    use near_primitives::test_utils::{create_test_signer, TestBlockBuilder};
     use near_primitives::transaction::{ExecutionMetadata, ExecutionOutcome, ExecutionStatus};
     use near_primitives::version::PROTOCOL_VERSION;
+    use std::sync::Arc;
 
     use super::*;
 
@@ -503,19 +547,20 @@ mod tests {
         let genesis = Block::genesis(
             PROTOCOL_VERSION,
             genesis_chunks.into_iter().map(|chunk| chunk.take_header()).collect(),
-            Utc::now(),
+            Utc::now_utc(),
             0,
             100,
             1_000_000_000,
             CryptoHash::hash_borsh(genesis_bps),
         );
         let signer = Arc::new(create_test_signer("other"));
-        let b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+        let b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
         assert!(b1.header().verify_block_producer(&signer.public_key()));
         let other_signer = create_test_signer("other2");
         let approvals =
             vec![Some(Box::new(Approval::new(*b1.hash(), 1, 2, &other_signer).signature))];
-        let b2 = TestBlockBuilder::new(&b1, signer.clone()).approvals(approvals).build();
+        let b2 =
+            TestBlockBuilder::new(Clock::real(), &b1, signer.clone()).approvals(approvals).build();
         b2.header().verify_block_producer(&signer.public_key());
     }
 
@@ -548,7 +593,7 @@ mod tests {
             },
         };
         let outcomes = vec![outcome1, outcome2];
-        let (outcome_root, paths) = ApplyTransactionResult::compute_outcomes_proof(&outcomes);
+        let (outcome_root, paths) = ApplyChunkResult::compute_outcomes_proof(&outcomes);
         for (outcome_with_id, path) in outcomes.into_iter().zip(paths.into_iter()) {
             assert!(verify_path(outcome_root, &path, &outcome_with_id.to_hashes()));
         }

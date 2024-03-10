@@ -1,4 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Clock;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -16,9 +18,10 @@ use near_primitives::types::EpochId;
 use near_primitives::utils::index_to_bytes;
 use near_store::HEADER_HEAD_KEY;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
@@ -79,18 +82,18 @@ struct Cli {
 fn read_block_checkpoint(store: &Store, block_hash: &CryptoHash) -> BlockCheckpoint {
     let block: Block = store
         .get_ser(DBCol::Block, block_hash.as_ref())
-        .expect(format!("DB error Block {:?}", block_hash).as_str())
-        .expect(format!("Key missing Block {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error Block {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing Block {}", block_hash));
 
     let info: BlockInfo = store
         .get_ser(DBCol::BlockInfo, block_hash.as_ref())
-        .expect(format!("DB error BlockInfo {:?}", block_hash).as_str())
-        .expect(format!("Key missing BlockInfo {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error BlockInfo {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing BlockInfo {}", block_hash));
 
     let merkle_tree: PartialMerkleTree = store
         .get_ser(DBCol::BlockMerkleTree, block_hash.as_ref())
-        .expect(format!("DB error BlockMerkleTree {:?}", block_hash).as_str())
-        .expect(format!("Key missing BlockMerkleTree {}", block_hash).as_str());
+        .unwrap_or_else(|_| panic!("DB error BlockMerkleTree {:?}", block_hash))
+        .unwrap_or_else(|| panic!("Key missing BlockMerkleTree {}", block_hash));
 
     BlockCheckpoint { header: block.header().clone(), info, merkle_tree }
 }
@@ -227,7 +230,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         .open()
         .unwrap()
         .get_hot_store();
-    let chain_genesis = ChainGenesis::new(&config.genesis);
+    let chain_genesis = ChainGenesis::new(&config.genesis.config);
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
@@ -235,6 +238,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
         NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,
@@ -249,6 +253,7 @@ fn load_snapshot(load_cmd: LoadCmd) {
             ),
         },
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 

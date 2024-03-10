@@ -1,9 +1,11 @@
 use crate::epoch_info::iterate_and_filter;
-use borsh::BorshDeserialize;
+use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Clock;
 use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 use near_client::sync::external::{
     create_bucket_readonly, create_bucket_readwrite, external_storage_location,
     external_storage_location_directory, get_num_parts_from_filename, ExternalConnection,
+    StateFileType,
 };
 use near_client::sync::state::StateSync;
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
@@ -16,7 +18,7 @@ use near_primitives::types::{EpochId, StateRoot};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{BlockHeight, EpochHeight, ShardId};
 use near_store::{PartialStorage, Store, Trie};
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -62,6 +64,9 @@ pub(crate) enum StatePartsSubCommand {
         /// Dump part ids up to this part (exclusive).
         #[clap(long)]
         part_to: Option<u64>,
+        /// Dump state sync header.
+        #[clap(long, short, action)]
+        dump_header: bool,
         /// Location of a file with write permissions to the bucket.
         #[clap(long)]
         credentials_file: Option<PathBuf>,
@@ -108,8 +113,9 @@ impl StatePartsSubCommand {
             &near_config,
             epoch_manager.clone(),
         );
-        let chain_genesis = ChainGenesis::new(&near_config.genesis);
+        let chain_genesis = ChainGenesis::new(&near_config.genesis.config);
         let mut chain = Chain::new_for_view_client(
+            Clock::real(),
             epoch_manager,
             shard_tracker,
             runtime,
@@ -154,6 +160,7 @@ impl StatePartsSubCommand {
                 StatePartsSubCommand::Dump {
                     part_from,
                     part_to,
+                    dump_header,
                     epoch_selection,
                     credentials_file,
                 } => {
@@ -170,6 +177,7 @@ impl StatePartsSubCommand {
                         shard_id,
                         part_from,
                         part_to,
+                        dump_header,
                         &chain,
                         chain_id,
                         store,
@@ -338,9 +346,14 @@ async fn load_state_parts(
             (state_root, epoch.epoch_height(), epoch_id, sync_hash)
         };
 
-    let directory_path =
-        external_storage_location_directory(chain_id, &epoch_id, epoch_height, shard_id);
-    let part_file_names = external.list_state_parts(shard_id, &directory_path).await.unwrap();
+    let directory_path = external_storage_location_directory(
+        chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StatePart { part_id: 0, num_parts: 0 },
+    );
+    let part_file_names = external.list_objects(shard_id, &directory_path).await.unwrap();
     assert!(!part_file_names.is_empty());
     let num_parts = part_file_names.len() as u64;
     assert_eq!(Some(num_parts), get_num_parts_from_filename(&part_file_names[0]));
@@ -359,15 +372,10 @@ async fn load_state_parts(
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
-        let location = external_storage_location(
-            chain_id,
-            &epoch_id,
-            epoch_height,
-            shard_id,
-            part_id,
-            num_parts,
-        );
-        let part = external.get_part(shard_id, &location).await.unwrap();
+        let file_type = StateFileType::StatePart { part_id, num_parts };
+        let location =
+            external_storage_location(chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+        let part = external.get_file(shard_id, &location, &file_type).await.unwrap();
 
         match action {
             LoadAction::Apply => {
@@ -422,6 +430,7 @@ async fn dump_state_parts(
     shard_id: ShardId,
     part_from: Option<u64>,
     part_to: Option<u64>,
+    dump_header: bool,
     chain: &Chain,
     chain_id: &str,
     store: Store,
@@ -439,10 +448,11 @@ async fn dump_state_parts(
     let state_root = state_header.chunk_prev_state_root();
     let num_parts = state_header.num_state_parts();
     let part_ids = get_part_ids(part_from, part_to, num_parts);
+    let epoch_height = epoch.epoch_height();
 
     tracing::info!(
         target: "state-parts",
-        epoch_height = epoch.epoch_height(),
+        epoch_height,
         epoch_id = ?epoch_id.0,
         shard_id,
         num_parts,
@@ -453,6 +463,23 @@ async fn dump_state_parts(
     );
 
     let timer = Instant::now();
+
+    // dump header
+    if dump_header {
+        let mut state_sync_header_buf: Vec<u8> = Vec::new();
+        state_header.serialize(&mut state_sync_header_buf).unwrap();
+
+        let file_type = StateFileType::StateHeader;
+        let location =
+            external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+        external
+            .put_file(file_type, &state_sync_header_buf, shard_id, &location)
+            .await
+            .expect("Failed to put header into external storage.");
+        tracing::info!(target: "state-parts", elapsed_sec = timer.elapsed().as_secs_f64(), "Header saved to external storage.");
+    }
+
+    // dump parts
     for part_id in part_ids {
         let timer = Instant::now();
         assert!(part_id < num_parts, "part_id: {}, num_parts: {}", part_id, num_parts);
@@ -466,15 +493,15 @@ async fn dump_state_parts(
             )
             .unwrap();
 
+        let file_type = StateFileType::StatePart { part_id, num_parts };
         let location = external_storage_location(
             &chain_id,
             &epoch_id,
             epoch.epoch_height(),
             shard_id,
-            part_id,
-            num_parts,
+            &file_type,
         );
-        external.put_state_part(&state_part, shard_id, &location).await.unwrap();
+        external.put_file(file_type, &state_part, shard_id, &location).await.unwrap();
         // part_storage.write(&state_part, part_id, num_parts);
         let elapsed_sec = timer.elapsed().as_secs_f64();
         let first_state_record = get_first_state_record(&state_root, &state_part);

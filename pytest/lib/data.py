@@ -41,7 +41,7 @@ def linear_regression(xs, ys):
 def compute_rate(timestamps):
     '''
     Given a list of timestamps indicating the times
-    some event occured, returns the average rate at
+    some event occurred, returns the average rate at
     which the events happen. If the units of the
     timestamps are seconds, then the output units will
     be `events/s`.

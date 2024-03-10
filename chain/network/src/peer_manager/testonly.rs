@@ -1,8 +1,14 @@
 use crate::accounts_data::AccountDataCacheSnapshot;
 use crate::broadcast;
+use crate::client::ClientSenderForNetworkInput;
+use crate::client::ClientSenderForNetworkMessage;
+use crate::client::StateRequestPart;
+use crate::client::StateResponse;
 use crate::config;
 use crate::network_protocol::testonly as data;
 use crate::network_protocol::SnapshotHostInfo;
+use crate::network_protocol::StateResponseInfo;
+use crate::network_protocol::StateResponseInfoV2;
 use crate::network_protocol::SyncSnapshotHosts;
 use crate::network_protocol::{
     EdgeState, Encoding, PeerInfo, PeerMessage, SignedAccountData, SyncAccountsData,
@@ -11,20 +17,23 @@ use crate::peer;
 use crate::peer::peer_actor::ClosingReason;
 use crate::peer_manager::network_state::NetworkState;
 use crate::peer_manager::peer_manager_actor::Event as PME;
+use crate::shards_manager::ShardsManagerRequestFromNetwork;
 use crate::snapshot_hosts::SnapshotHostsCache;
 use crate::tcp;
 use crate::test_utils;
 use crate::testonly::actix::ActixSystem;
-use crate::testonly::fake_client;
 use crate::types::{
     AccountKeys, ChainInfo, KnownPeerStatus, NetworkRequests, PeerManagerMessageRequest,
     ReasonForBan,
 };
 use crate::PeerManagerActor;
-use near_async::messaging::IntoSender;
+use near_async::messaging::IntoMultiSender;
+use near_async::messaging::Sender;
 use near_async::time;
 use near_o11y::WithSpanContextExt;
 use near_primitives::network::{AnnounceAccount, PeerId};
+use near_primitives::state_sync::ShardStateSyncResponse;
+use near_primitives::state_sync::ShardStateSyncResponseV2;
 use near_primitives::types::AccountId;
 use std::collections::HashSet;
 use std::future::Future;
@@ -58,7 +67,8 @@ impl actix::Handler<WithNetworkState> for PeerManagerActor {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Event {
-    Client(fake_client::Event),
+    ShardsManager(ShardsManagerRequestFromNetwork),
+    Client(ClientSenderForNetworkInput),
     PeerManager(PME),
 }
 
@@ -104,9 +114,9 @@ pub(crate) fn make_chain_info(
 }
 
 pub(crate) struct RawConnection {
-    events: broadcast::Receiver<Event>,
-    stream: tcp::Stream,
-    cfg: peer::testonly::PeerConfig,
+    pub events: broadcast::Receiver<Event>,
+    pub stream: tcp::Stream,
+    pub cfg: peer::testonly::PeerConfig,
 }
 
 impl RawConnection {
@@ -558,10 +568,68 @@ pub(crate) async fn start(
         let chain = chain.clone();
         move || {
             let genesis_id = chain.genesis_id.clone();
-            let fc = Arc::new(fake_client::Fake { event_sink: send.sink().compose(Event::Client) });
-            cfg.event_sink = send.sink().compose(Event::PeerManager);
-            PeerManagerActor::spawn(clock, store, cfg, fc.clone(), fc.as_sender(), genesis_id)
-                .unwrap()
+            cfg.event_sink = Sender::from_fn({
+                let send = send.clone();
+                move |event| {
+                    send.send(Event::PeerManager(event));
+                }
+            });
+            let client_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event: ClientSenderForNetworkMessage| {
+                    // NOTE(robin-near): This is a pretty bad hack to preserve previous behavior
+                    // of the test code.
+                    // For some specific events we craft a response and send it back, while for
+                    // most other events we send it to the sink (for what? I have no idea).
+                    match event {
+                        ClientSenderForNetworkMessage::_state_request_part(msg) => {
+                            let StateRequestPart { part_id, shard_id, sync_hash } = msg.message;
+                            let part = Some((part_id, vec![]));
+                            let state_response =
+                                ShardStateSyncResponse::V2(ShardStateSyncResponseV2 {
+                                    header: None,
+                                    part,
+                                });
+                            let result = Some(StateResponse(Box::new(StateResponseInfo::V2(
+                                StateResponseInfoV2 { shard_id, sync_hash, state_response },
+                            ))));
+                            (msg.callback)(Ok(result));
+                            send.send(Event::Client(
+                                ClientSenderForNetworkInput::_state_request_part(msg.message),
+                            ));
+                        }
+                        ClientSenderForNetworkMessage::_announce_account(msg) => {
+                            (msg.callback)(Ok(Ok(msg
+                                .message
+                                .0
+                                .iter()
+                                .map(|(account, _)| account.clone())
+                                .collect())));
+                            send.send(Event::Client(
+                                ClientSenderForNetworkInput::_announce_account(msg.message),
+                            ));
+                        }
+                        _ => {
+                            send.send(Event::Client(event.into_input()));
+                        }
+                    }
+                }
+            });
+            let shards_manager_sender = Sender::from_fn({
+                let send = send.clone();
+                move |event| {
+                    send.send(Event::ShardsManager(event));
+                }
+            });
+            PeerManagerActor::spawn(
+                clock,
+                store,
+                cfg,
+                client_sender.break_apart().into_multi_sender(),
+                shards_manager_sender,
+                genesis_id,
+            )
+            .unwrap()
         }
     })
     .await;

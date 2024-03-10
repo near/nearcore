@@ -325,12 +325,14 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                 alt_bn128: params.get(Parameter::AltBn128)?,
                 function_call_weight: params.get(Parameter::FunctionCallWeight)?,
                 eth_implicit_accounts: params.get(Parameter::EthImplicitAccounts)?,
+                yield_resume_host_functions: params.get(Parameter::YieldResume)?,
             },
             account_creation_config: AccountCreationConfig {
                 min_allowed_top_level_account_length: params
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
+            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
         })
     }
 }
@@ -531,61 +533,10 @@ mod tests {
         }
     }
 
-    static BASE_0: &str = r#"
-# Comment line
-registrar_account_id: registrar
-min_allowed_top_level_account_length: 32
-storage_amount_per_byte: 100_000_000_000_000_000_000
-storage_num_bytes_account: 100
-storage_num_extra_bytes_record: 40
-burnt_gas_reward: {
-  numerator: 1_000_000,
-  denominator: 300,
-}
-wasm_storage_read_base: { gas: 50_000_000_000, compute: 100_000_000_000 }
-"#;
-
-    static BASE_1: &str = r#"
-registrar_account_id: registrar
-# Comment line
-min_allowed_top_level_account_length: 32
-
-# Comment line with trailing whitespace # 
-
-# Note the quotes here, they are necessary as otherwise the value can't be parsed by `serde_yaml`
-# due to not fitting into u64 type.
-storage_amount_per_byte: "100000000000000000000"
-storage_num_bytes_account: 100
-storage_num_extra_bytes_record   :   40  
-
-"#;
-
-    static DIFF_0: &str = r#"
-# Comment line
-registrar_account_id: { old: "registrar", new: "near" }
-min_allowed_top_level_account_length: { old: 32, new: 32_000 }
-wasm_regular_op_cost: { new: 3_856_371 }
-burnt_gas_reward: {
-    old: { numerator: 1_000_000, denominator: 300 },
-    new: { numerator: 2_000_000, denominator: 500 },
-}
-wasm_storage_read_base: {
-    old: { gas: 50_000_000_000, compute: 100_000_000_000 },
-    new: { gas: 50_000_000_000, compute: 200_000_000_000 },
-}
-"#;
-
-    static DIFF_1: &str = r#"
-# Comment line
-registrar_account_id: { old: "near", new: "registrar" }
-storage_num_extra_bytes_record: { old: 40, new: 77 }
-wasm_regular_op_cost: { old: 3_856_371, new: 0 }
-max_memory_pages: { new: 512 }
-burnt_gas_reward: {
-    old: { numerator: 2_000_000, denominator: 500 },
-    new: { numerator: 3_000_000, denominator: 800 },
-}
-"#;
+    static BASE_0: &str = include_str!("fixture_base_0.yml");
+    static BASE_1: &str = include_str!("fixture_base_1.yml");
+    static DIFF_0: &str = include_str!("fixture_diff_0.yml");
+    static DIFF_1: &str = include_str!("fixture_diff_1.yml");
 
     // Tests synthetic small example configurations. For tests with "real"
     // input data, we already have

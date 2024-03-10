@@ -1,7 +1,7 @@
 use crate::hash::CryptoHash;
 use crate::serialize::dec_format;
 use crate::transaction::{Action, TransferAction};
-use crate::types::{AccountId, Balance, ShardId};
+use crate::types::{AccountId, Balance, BlockHeight, ShardId};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{KeyType, PublicKey};
 use near_fmt::AbbrBytes;
@@ -10,8 +10,26 @@ use serde_with::serde_as;
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
+use std::io::{Error, ErrorKind};
 
-pub use near_vm_runner::logic::DataReceiver;
+/// The outgoing (egress) data which will be transformed
+/// to a `DataReceipt` to be sent to a `receipt.receiver`
+#[derive(
+    BorshSerialize,
+    BorshDeserialize,
+    Hash,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct DataReceiver {
+    pub data_id: CryptoHash,
+    pub receiver_id: AccountId,
+}
 
 /// Receipts are used for a cross-shard communication.
 /// Receipts could be 2 types (determined by a `ReceiptEnum`): `ReceiptEnum::Action` of `ReceiptEnum::Data`.
@@ -98,19 +116,28 @@ impl Receipt {
 }
 
 /// Receipt could be either ActionReceipt or DataReceipt
-#[derive(
-    BorshSerialize,
-    BorshDeserialize,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(BorshSerialize, Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
+    PromiseYield(ActionReceipt),
+    PromiseResume(DataReceipt),
+}
+
+impl BorshDeserialize for ReceiptEnum {
+    fn deserialize_reader<R: io::Read>(rd: &mut R) -> io::Result<Self> {
+        // after we stabilize yield_resume we can simply derive BorshDeserialize trait again
+        let ordinal = u8::deserialize_reader(rd)?;
+        match ordinal {
+            0u8 => Ok(ReceiptEnum::Action(ActionReceipt::deserialize_reader(rd)?)),
+            1u8 => Ok(ReceiptEnum::Data(DataReceipt::deserialize_reader(rd)?)),
+            #[cfg(feature = "yield_resume")]
+            2u8 => Ok(ReceiptEnum::PromiseYield(ActionReceipt::deserialize_reader(rd)?)),
+            #[cfg(feature = "yield_resume")]
+            3u8 => Ok(ReceiptEnum::PromiseResume(DataReceipt::deserialize_reader(rd)?)),
+            _ => Err(Error::from(ErrorKind::InvalidData)),
+        }
+    }
 }
 
 /// ActionReceipt is derived from an Action from `Transaction or from Receipt`
@@ -202,6 +229,32 @@ impl DelayedReceiptIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
     }
+}
+
+/// Stores indices for a persistent queue for yielded promises.
+#[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromiseQueueIndices {
+    // First inclusive index in the queue.
+    pub first_index: u64,
+    // Exclusive end index of the queue
+    pub next_available_index: u64,
+}
+
+impl YieldedPromiseQueueIndices {
+    pub fn len(&self) -> u64 {
+        self.next_available_index - self.first_index
+    }
+}
+
+/// Entries in the queue of yielded promises.
+#[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
+pub struct YieldedPromiseQueueEntry {
+    /// The account on which the yielded promise was created
+    pub account_id: AccountId,
+    /// The `data_id` used to identify the awaited input data
+    pub data_id: CryptoHash,
+    /// The block height before which the data must be submitted
+    pub expires_at: BlockHeight,
 }
 
 /// Map of shard to list of receipts to send to it.

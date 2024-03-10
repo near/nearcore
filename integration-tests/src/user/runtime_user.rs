@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
@@ -19,7 +20,6 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
-use nearcore::config::MIN_GAS_PRICE;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -241,7 +241,10 @@ impl User for RuntimeUser {
         let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
         self.trie_viewer
             .view_contract_code(&state_update, account_id)
-            .map(|contract_code| contract_code.into())
+            .map(|contract_code| {
+                let hash = *contract_code.hash();
+                ContractCodeView { hash, code: contract_code.into_code() }
+            })
             .map_err(|err| err.to_string())
     }
 

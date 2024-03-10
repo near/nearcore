@@ -2,15 +2,17 @@ use crate::test_helpers::heavy_test;
 use actix::{Actor, System};
 use futures::{future, FutureExt};
 use near_actix_test_utils::run_actix;
+use near_async::messaging::Sender;
+use near_async::time::Duration;
 use near_chain::chain::ApplyStatePartsRequest;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::Provenance;
 use near_chain_configs::ExternalStorageLocation::Filesystem;
 use near_chain_configs::{DumpConfig, ExternalStorageConfig, Genesis, SyncConfig};
-use near_client::adapter::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_client::test_utils::TestEnv;
 use near_client::{GetBlock, ProcessTxResponse};
 use near_client_primitives::types::GetValidatorInfo;
 use near_crypto::{InMemorySigner, KeyType};
+use near_network::client::{StateRequestHeader, StateRequestPart, StateResponse};
 use near_network::tcp;
 use near_network::test_utils::{convert_boot_nodes, wait_or_timeout, WaitOrTimeoutActor};
 use near_o11y::testonly::{init_integration_logger, init_test_logger};
@@ -24,10 +26,9 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives_core::types::ShardId;
 use near_store::DBCol;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::{config::GenesisExt, load_test_config, start_with_config};
+use nearcore::{load_test_config, start_with_config};
 use std::ops::ControlFlow;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// One client is in front, another must sync to it using state (fast) sync.
 #[test]
@@ -159,8 +160,8 @@ fn sync_state_nodes_multishard() {
             near1.network_config.peer_store.boot_nodes =
                 convert_boot_nodes(vec![("test3", *port3), ("test4", *port4)]);
             near1.client_config.min_num_peers = 2;
-            near1.client_config.min_block_production_delay = Duration::from_millis(200);
-            near1.client_config.max_block_production_delay = Duration::from_millis(400);
+            near1.client_config.min_block_production_delay = Duration::milliseconds(200);
+            near1.client_config.max_block_production_delay = Duration::milliseconds(400);
             near1.client_config.epoch_sync_enabled = false;
 
             let mut near3 = load_test_config("test3", port3, genesis.clone());
@@ -217,9 +218,9 @@ fn sync_state_nodes_multishard() {
                                         near2.client_config.skip_sync_wait = false;
                                         near2.client_config.min_num_peers = 3;
                                         near2.client_config.min_block_production_delay =
-                                            Duration::from_millis(200);
+                                            Duration::milliseconds(200);
                                         near2.client_config.max_block_production_delay =
-                                            Duration::from_millis(400);
+                                            Duration::milliseconds(400);
                                         near2.network_config.peer_store.boot_nodes =
                                             convert_boot_nodes(vec![
                                                 ("test1", *port1),
@@ -312,8 +313,8 @@ fn sync_empty_state() {
 
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
-            near1.client_config.min_block_production_delay = Duration::from_millis(200);
-            near1.client_config.max_block_production_delay = Duration::from_millis(400);
+            near1.client_config.min_block_production_delay = Duration::milliseconds(200);
+            near1.client_config.max_block_production_delay = Duration::milliseconds(400);
             near1.client_config.epoch_sync_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
@@ -347,9 +348,9 @@ fn sync_empty_state() {
                                             convert_boot_nodes(vec![("test1", *port1)]);
                                         near2.client_config.min_num_peers = 1;
                                         near2.client_config.min_block_production_delay =
-                                            Duration::from_millis(200);
+                                            Duration::milliseconds(200);
                                         near2.client_config.max_block_production_delay =
-                                            Duration::from_millis(400);
+                                            Duration::milliseconds(400);
                                         near2.client_config.block_header_fetch_horizon =
                                             block_header_fetch_horizon;
                                         near2.client_config.block_fetch_horizon =
@@ -442,15 +443,15 @@ fn sync_state_dump() {
             let mut near1 = load_test_config("test1", port1, genesis.clone());
             near1.client_config.min_num_peers = 0;
             // An epoch passes in about 9 seconds.
-            near1.client_config.min_block_production_delay = Duration::from_millis(300);
-            near1.client_config.max_block_production_delay = Duration::from_millis(600);
+            near1.client_config.min_block_production_delay = Duration::milliseconds(300);
+            near1.client_config.max_block_production_delay = Duration::milliseconds(600);
             near1.client_config.epoch_sync_enabled = false;
             near1.client_config.tracked_shards = vec![0]; // Track all shards.
             let dump_dir = tempfile::Builder::new().prefix("state_dump_1").tempdir().unwrap();
             near1.client_config.state_sync.dump = Some(DumpConfig {
                 location: Filesystem { root_dir: dump_dir.path().to_path_buf() },
                 restart_dump_for_shards: None,
-                iteration_delay: Some(Duration::from_millis(500)),
+                iteration_delay: Some(Duration::milliseconds(500)),
                 credentials_file: None,
             });
             near1.config.store.state_snapshot_enabled = true;
@@ -485,16 +486,16 @@ fn sync_state_dump() {
                                     convert_boot_nodes(vec![("test1", *port1)]);
                                 near2.client_config.min_num_peers = 1;
                                 near2.client_config.min_block_production_delay =
-                                    Duration::from_millis(300);
+                                    Duration::milliseconds(300);
                                 near2.client_config.max_block_production_delay =
-                                    Duration::from_millis(600);
+                                    Duration::milliseconds(600);
                                 near2.client_config.block_header_fetch_horizon =
                                     block_header_fetch_horizon;
                                 near2.client_config.block_fetch_horizon = block_fetch_horizon;
                                 near2.client_config.tracked_shards = vec![0]; // Track all shards.
                                 near2.client_config.epoch_sync_enabled = false;
                                 near2.client_config.state_sync_enabled = true;
-                                near2.client_config.state_sync_timeout = Duration::from_secs(2);
+                                near2.client_config.state_sync_timeout = Duration::seconds(2);
                                 near2.client_config.state_sync.sync =
                                     SyncConfig::ExternalStorage(ExternalStorageConfig {
                                         location: Filesystem {
@@ -564,11 +565,10 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
             let mut genesis =
                 Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
             genesis.config.epoch_length = epoch_length;
-            let mut env = TestEnv::builder(ChainGenesis::new(&genesis))
+            let mut env = TestEnv::builder(&genesis.config)
                 .clients_count(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers(&genesis.config)
                 .nightshade_runtimes(&genesis)
                 .build();
 
@@ -664,7 +664,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     .unwrap();
             }
             let rt = Arc::clone(&env.clients[1].runtime_adapter);
-            let f = move |msg: ApplyStatePartsRequest| {
+            let f = Sender::from_fn(move |msg: ApplyStatePartsRequest| {
                 let store = rt.store();
 
                 let shard_id = msg.shard_uid.shard_id as ShardId;
@@ -689,7 +689,7 @@ fn test_dump_epoch_missing_chunk_in_last_block() {
                     )
                     .unwrap();
                 }
-            };
+            });
             env.clients[1].chain.schedule_apply_state_parts(0, sync_hash, num_parts, &f).unwrap();
             env.clients[1].chain.set_state_finalize(0, sync_hash, Ok(())).unwrap();
             let last_chunk_height = epoch_length - num_last_chunks_missing;

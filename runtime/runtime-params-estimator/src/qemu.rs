@@ -1,15 +1,13 @@
 //! QEMU instrumentation code to get used resources as measured by the QEMU plugin.
-
 use num_rational::Ratio;
 use std::fmt::Write;
 use std::ops;
-use std::os::raw::c_void;
 use std::process::Command;
 
 // We use several "magical" file descriptors to interact with the plugin in QEMU
 // intercepting read syscall. Plugin counts instructions executed and amount of data transferred
 // by IO operations. We "normalize" all those costs into instruction count.
-const CATCH_BASE: u32 = 0xcafebabe;
+const CATCH_BASE: u32 = 0x0afebabe;
 const HYPERCALL_START_COUNTING: u32 = 0;
 const HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED: u32 = 1;
 const HYPERCALL_GET_BYTES_READ: u32 = 2;
@@ -31,7 +29,6 @@ impl QemuMeasurement {
         let instructions = hypercall(HYPERCALL_STOP_AND_GET_INSTRUCTIONS_EXECUTED).into();
         let io_r_bytes = hypercall(HYPERCALL_GET_BYTES_READ).into();
         let io_w_bytes = hypercall(HYPERCALL_GET_BYTES_WRITTEN).into();
-
         QemuMeasurement { instructions, io_r_bytes, io_w_bytes }
     }
 
@@ -40,11 +37,20 @@ impl QemuMeasurement {
     }
 }
 fn hypercall(index: u32) -> u64 {
-    let mut result: u64 = 0;
     unsafe {
-        libc::read((CATCH_BASE + index) as i32, &mut result as *mut _ as *mut c_void, 8);
+        let fd = std::os::fd::BorrowedFd::borrow_raw((CATCH_BASE + index).try_into().unwrap());
+        let mut buffer: [u8; 8] = [0xff; 8];
+        let Err(result) = rustix::io::read(&fd, &mut buffer) else {
+            panic!("this read call should have returned an error");
+        };
+        assert_eq!(result.raw_os_error(), rustix::io::Errno::BADF.raw_os_error());
+        let buffer = u64::from_ne_bytes(buffer);
+        assert!(
+            buffer != 0xffff_ffff_ffff_ffff,
+            "this mode must run under qemu with the counter_plugin"
+        );
+        buffer
     }
-    result
 }
 
 /// Create a command to be executed inside QEMU with the custom counter plugin.
@@ -104,7 +110,7 @@ impl QemuCommandBuilder {
             cmd.args(&["-d", "plugin"]);
         }
 
-        cmd.args(&["-cpu", "Westmere-v1"]);
+        cmd.args(&["-cpu", "Haswell-v4"]);
         cmd.arg(inner_cmd);
 
         Ok(cmd)

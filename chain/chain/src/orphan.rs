@@ -1,14 +1,12 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Formatter};
-use std::time::{Duration, Instant};
-
+use near_async::time::{Duration, Instant};
 use near_chain_primitives::Error;
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::ShardChunkHeader;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::MaybeValidated;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 use tracing::{debug, debug_span};
 
 use crate::missing_chunks::BlockLike;
@@ -121,7 +119,7 @@ impl OrphanBlockPool {
 
             let mut removed_hashes: HashSet<CryptoHash> = HashSet::default();
             self.orphans.retain(|_, ref mut x| {
-                let keep = x.added.elapsed() < Duration::from_secs(MAX_ORPHAN_AGE_SECS);
+                let keep = x.added.elapsed() < Duration::seconds(MAX_ORPHAN_AGE_SECS as i64);
                 if !keep {
                     removed_hashes.insert(*x.block.hash());
                 }
@@ -261,13 +259,12 @@ impl Chain {
         &mut self,
         block: MaybeValidated<Block>,
         provenance: Provenance,
-        added: Option<Instant>,
         requested_missing_chunks: bool,
     ) {
         let block_hash = *block.hash();
         if !self.orphans.contains(block.hash()) {
             self.orphans.add(
-                Orphan { block, provenance, added: added.unwrap_or(StaticClock::instant()) },
+                Orphan { block, provenance, added: self.clock.now() },
                 requested_missing_chunks,
             );
         }
@@ -390,8 +387,7 @@ impl Chain {
             debug!(target: "chain", found_orphans = orphans.len(), "Check orphans");
             for orphan in orphans.into_iter() {
                 let block_hash = orphan.hash();
-                self.blocks_delay_tracker
-                    .mark_block_unorphaned(&block_hash, StaticClock::instant());
+                self.blocks_delay_tracker.mark_block_unorphaned(&block_hash);
                 let res = self.start_process_block_async(
                     me,
                     orphan.block,

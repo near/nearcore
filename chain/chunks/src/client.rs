@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use actix::Message;
 
-use near_pool::types::PoolIterator;
+use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
 use near_primitives::shard_layout::{account_id_to_shard_uid, ShardLayout, ShardUId};
 use near_primitives::{
@@ -146,7 +146,7 @@ mod tests {
     use crate::client::ShardedTransactionPool;
     use near_crypto::{InMemorySigner, KeyType};
     use near_o11y::testonly::init_test_logger;
-    use near_pool::types::PoolIterator;
+    use near_pool::types::TransactionGroupIterator;
     use near_primitives::{
         epoch_manager::RngSeed,
         hash::CryptoHash,

@@ -148,6 +148,11 @@ impl ExtCostsConfig {
             ExtCosts::bls12381_p1_decompress_element => SAFETY_MULTIPLIER * 26_847_602_796,
             ExtCosts::bls12381_p2_decompress_base => SAFETY_MULTIPLIER * 460_172_000,
             ExtCosts::bls12381_p2_decompress_element => SAFETY_MULTIPLIER * 54_562_325_721,
+            // TODO(yield/resume): replicate fees here after estimation
+            ExtCosts::yield_create_base => 300_000_000_000_000,
+            ExtCosts::yield_create_byte => 300_000_000_000_000,
+            ExtCosts::yield_resume_base => 300_000_000_000_000,
+            ExtCosts::yield_resume_byte => 300_000_000_000_000,
         }
         .map(|_, value| ParameterCost { gas: value, compute: value * factor });
         ExtCostsConfig { costs }
@@ -239,24 +244,28 @@ pub enum ExtCosts {
     alt_bn128_g1_sum_element = 58,
     ed25519_verify_base = 59,
     ed25519_verify_byte = 60,
-    bls12381_p1_sum_base = 61,
-    bls12381_p1_sum_element = 62,
-    bls12381_p2_sum_base = 63,
-    bls12381_p2_sum_element = 64,
-    bls12381_p1_multiexp_base = 65,
-    bls12381_p1_multiexp_element = 66,
-    bls12381_p2_multiexp_base = 67,
-    bls12381_p2_multiexp_element = 68,
-    bls12381_map_fp_to_g1_base = 69,
-    bls12381_map_fp_to_g1_element = 70,
-    bls12381_map_fp2_to_g2_base = 71,
-    bls12381_map_fp2_to_g2_element = 72,
-    bls12381_pairing_base = 73,
-    bls12381_pairing_element = 74,
-    bls12381_p1_decompress_base = 75,
-    bls12381_p1_decompress_element = 76,
-    bls12381_p2_decompress_base = 77,
-    bls12381_p2_decompress_element = 78,
+    yield_create_base = 61,
+    yield_create_byte = 62,
+    yield_resume_base = 63,
+    yield_resume_byte = 64,
+    bls12381_p1_sum_base = 65,
+    bls12381_p1_sum_element = 66,
+    bls12381_p2_sum_base = 67,
+    bls12381_p2_sum_element = 68,
+    bls12381_p1_multiexp_base = 69,
+    bls12381_p1_multiexp_element = 70,
+    bls12381_p2_multiexp_base = 71,
+    bls12381_p2_multiexp_element = 72,
+    bls12381_map_fp_to_g1_base = 73,
+    bls12381_map_fp_to_g1_element = 74,
+    bls12381_map_fp2_to_g2_base = 75,
+    bls12381_map_fp2_to_g2_element = 76,
+    bls12381_pairing_base = 77,
+    bls12381_pairing_element = 78,
+    bls12381_p1_decompress_base = 79,
+    bls12381_p1_decompress_element = 80,
+    bls12381_p2_decompress_base = 81,
+    bls12381_p2_decompress_element = 82,
 }
 
 // Type of an action, used in fees logic.
@@ -365,6 +374,10 @@ impl ExtCosts {
             ExtCosts::alt_bn128_pairing_check_element => Parameter::WasmAltBn128PairingCheckElement,
             ExtCosts::alt_bn128_g1_sum_base => Parameter::WasmAltBn128G1SumBase,
             ExtCosts::alt_bn128_g1_sum_element => Parameter::WasmAltBn128G1SumElement,
+            ExtCosts::yield_create_base => Parameter::WasmYieldCreateBase,
+            ExtCosts::yield_create_byte => Parameter::WasmYieldCreateByte,
+            ExtCosts::yield_resume_base => Parameter::WasmYieldResumeBase,
+            ExtCosts::yield_resume_byte => Parameter::WasmYieldResumeBase,
             ExtCosts::bls12381_p1_sum_base => Parameter::WasmBls12381P1SumBase,
             ExtCosts::bls12381_p1_sum_element => Parameter::WasmBls12381P1SumElement,
             ExtCosts::bls12381_p2_sum_base => Parameter::WasmBls12381P2SumBase,
@@ -382,7 +395,7 @@ impl ExtCosts {
             ExtCosts::bls12381_p1_decompress_base => Parameter::WasmBls12381P1DecompressBase,
             ExtCosts::bls12381_p1_decompress_element => Parameter::WasmBls12381P1DecompressElement,
             ExtCosts::bls12381_p2_decompress_base => Parameter::WasmBls12381P2DecompressBase,
-            ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement,
+            ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement
         }
     }
 }
