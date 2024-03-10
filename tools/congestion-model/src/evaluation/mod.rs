@@ -28,9 +28,6 @@ pub struct Progress {
 }
 
 // The stats writer can be used to dump stats into a CSV file.
-// In the strategy implementation you should write the header in the init method
-// and the individual values in the compute_chunk method. Please use the
-// write_field. The model will take care of writing the record terminator.
 pub type StatsWriter = Option<Box<csv::Writer<std::fs::File>>>;
 
 impl Model {
@@ -113,7 +110,7 @@ impl Model {
         stats_writer.write_field(format!("{:?}", time)).unwrap();
         stats_writer.write_field(format!("{}", round)).unwrap();
 
-        // this may be slow
+        // This is slow and takes up to 10s for the slowest workloads and strategies.
         let progress = self.progress();
         stats_writer.write_field(format!("{}", progress.finished_transactions)).unwrap();
         stats_writer.write_field(format!("{}", progress.pending_transactions)).unwrap();

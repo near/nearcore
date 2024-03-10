@@ -9,8 +9,6 @@ use congestion_model::{summary_table, CongestionStrategy, Model, StatsWriter, PG
 
 use clap::Parser;
 
-// pub type StatsWriter = Option<Box<csv::Writer<std::fs::File>>>;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -35,10 +33,11 @@ struct Args {
     write_stats: bool,
 
     /// Optional path the the file where the stats should be saved. By default
-    /// the stats will be saved to a file name with the strategy and workload
-    /// name concatenated with "stats.csv". This option can only be used when a
-    /// single strategy and workflow are selected otherwise the stats from
-    /// different evaluations would overwrite each other.
+    /// the stats will be saved to a file name with prefix "stats", the strategy
+    /// and workload name concatenated and ".csv" extension. This option can
+    /// only be used when a single strategy and a single workflow are selected
+    /// otherwise the stats from different evaluations would overwrite each
+    /// other.
     #[clap(long)]
     write_stats_filepath: Option<String>,
 }

@@ -27,15 +27,6 @@ impl crate::CongestionStrategy for SimpleBackpressure {
     }
 
     fn compute_chunk(&mut self, ctx: &mut ChunkExecutionContext) {
-        // TODO(wacban)
-        // if let Some(stats_writer) = stats_writer {
-        //     let incoming_queue_len = ctx.incoming_receipts().len();
-        //     let outgoing_queue_len = ctx.queue(self.delayed_outgoing_receipts.unwrap()).len();
-
-        //     stats_writer.write_field(format!("{}", incoming_queue_len)).unwrap();
-        //     stats_writer.write_field(format!("{}", outgoing_queue_len)).unwrap();
-        // }
-
         // first attempt forwarding previously buffered outgoing receipts
         let buffered: Vec<_> =
             ctx.queue(self.delayed_outgoing_receipts.unwrap()).drain(..).collect();
