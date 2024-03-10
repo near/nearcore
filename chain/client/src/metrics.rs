@@ -573,6 +573,17 @@ pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUE_SIZE: Lazy<HistogramVec> =
+    Lazy::new(|| {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_storage_proof_value_size",
+            "Stateless validation state witness storage proof value size in bytes",
+            &["shard_id"],
+            Some(exponential_buckets(1.0, 2.0, 25).unwrap()),
+        )
+        .unwrap()
+    });
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
