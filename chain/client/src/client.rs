@@ -195,6 +195,8 @@ pub struct Client {
 
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
+
+    pub state_cache: HashMap<ShardId, HashSet<CryptoHash>>,
 }
 
 impl Client {
@@ -409,6 +411,7 @@ impl Client {
             chunk_endorsement_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             chunk_distribution_network,
+            state_cache: HashMap::new(),
         })
     }
 

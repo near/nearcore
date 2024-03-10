@@ -3,7 +3,11 @@ use std::time::Instant;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
+use near_primitives::challenge::PartialState;
+use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::{ChunkStateTransition, ChunkStateWitnessInner};
+use near_primitives::types::ShardId;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
@@ -84,6 +88,7 @@ impl Client {
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
+        self.apply_witness_state_cache(witness.clone());
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
             &witness,
@@ -131,5 +136,40 @@ impl Client {
             }
         });
         Ok(())
+    }
+
+    fn apply_witness_state_cache(
+        &mut self,
+        mut witness: ChunkStateWitnessInner
+    ) {
+        let shard_id = witness.chunk_header.shard_id();
+        self.apply_transition_state_cache(shard_id, &mut witness.main_state_transition);
+        for transition in witness.implicit_transitions.iter_mut() {
+            self.apply_transition_state_cache(shard_id, transition);
+        }
+        let witness_size = borsh::to_vec(&witness).unwrap().len();
+        metrics::CHUNK_STATE_WITNESS_CACHED_STATE_PROOF_SIZE
+            .with_label_values(&[&shard_id.to_string()])
+            .observe(witness_size as f64);
+    }
+
+    fn apply_transition_state_cache(
+        &mut self,
+        shard_id: ShardId,
+        transition: &mut ChunkStateTransition
+    ) {
+        const CUT_OFF_VALUE_SIZE: usize = 32000;
+        const MAX_CACHE_SIZE: usize = 1000;
+        let cache = self.state_cache.entry(shard_id).or_default();
+        let PartialState::TrieValues(values) = &mut transition.base_state;
+        values.sort_by_key(|v| v.len());
+        while let Some(v) = values.last() {
+            if cache.len() == MAX_CACHE_SIZE || v.len() < CUT_OFF_VALUE_SIZE {
+                break;
+            }
+            cache.insert(CryptoHash::hash_bytes(v.as_ref()));
+            values.pop();
+        }
+        values.retain(|v| v.len() < CUT_OFF_VALUE_SIZE || !cache.contains(&CryptoHash::hash_bytes(v.as_ref())));
     }
 }
