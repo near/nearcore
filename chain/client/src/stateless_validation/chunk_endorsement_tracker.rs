@@ -18,15 +18,15 @@ use crate::Client;
 const NUM_CHUNKS_IN_CHUNK_ENDORSEMENTS_CACHE: usize = 100;
 
 pub enum ChunkEndorsementsState {
-    Endorsed(EndorsementStats, ChunkEndorsementSignatures),
-    NotEnoughStake(EndorsementStats),
+    Endorsed(Option<EndorsementStats>, ChunkEndorsementSignatures),
+    NotEnoughStake(Option<EndorsementStats>),
 }
 
 impl ChunkEndorsementsState {
-    pub fn stats(&self) -> &EndorsementStats {
+    pub fn stats(&self) -> Option<&EndorsementStats> {
         match self {
-            Self::Endorsed(stats, _) => stats,
-            Self::NotEnoughStake(stats) => stats,
+            Self::Endorsed(stats, _) => stats.as_ref(),
+            Self::NotEnoughStake(stats) => stats.as_ref(),
         }
     }
 }
@@ -162,10 +162,12 @@ impl ChunkEndorsementTracker {
     }
 
     /// Called by block producer.
-    /// Returns Some(signatures) if node has enough signed stake for the chunk represented by chunk_header.
+    /// Returns ChunkEndorsementsState::Endorsed if node has enough signed stake for the chunk
+    /// represented by chunk_header.
     /// Signatures have the same order as ordered_chunk_validators, thus ready to be included in a block as is.
-    /// Returns None if chunk doesn't have enough stake.
-    /// For older protocol version, we return an empty array of chunk endorsements.
+    /// Returns ChunkEndorsementsState::NotEnoughStake if chunk doesn't have enough stake.
+    /// For older protocol version, we return ChunkEndorsementsState::Endorsed with an empty array of
+    /// chunk endorsements.
     pub fn compute_chunk_endorsements(
         &self,
         chunk_header: &ShardChunkHeader,
@@ -175,7 +177,7 @@ impl ChunkEndorsementTracker {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
         if !checked_feature!("stable", StatelessValidationV0, protocol_version) {
             // Return an empty array of chunk endorsements for older protocol versions.
-            return Ok(ChunkEndorsementsState::Endorsed(Default::default(), vec![]));
+            return Ok(ChunkEndorsementsState::Endorsed(None, vec![]));
         }
 
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
@@ -190,7 +192,7 @@ impl ChunkEndorsementTracker {
         //    2. The chunk endorsements signatures are valid.
         let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
-            // Early return if no chunk_enforsements found in our cache.
+            // Early return if no chunk_endorsements found in our cache.
             return Ok(ChunkEndorsementsState::NotEnoughStake(Default::default()));
         };
 
@@ -199,7 +201,7 @@ impl ChunkEndorsementTracker {
 
         // Check whether the current set of chunk_validators have enough stake to include chunk in block.
         if !endorsement_stats.has_enough_stake() {
-            return Ok(ChunkEndorsementsState::NotEnoughStake(endorsement_stats));
+            return Ok(ChunkEndorsementsState::NotEnoughStake(Some(endorsement_stats)));
         }
 
         // We've already verified the chunk_endorsements are valid, collect signatures.
@@ -214,6 +216,6 @@ impl ChunkEndorsementTracker {
             })
             .collect();
 
-        Ok(ChunkEndorsementsState::Endorsed(endorsement_stats, signatures))
+        Ok(ChunkEndorsementsState::Endorsed(Some(endorsement_stats), signatures))
     }
 }
