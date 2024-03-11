@@ -91,7 +91,9 @@ impl Model {
         for shard_id in self.shard_ids.clone() {
             for queue in self.queues.shard_queues(shard_id) {
                 let field_name = format!("shard_{}_queue_{}", shard_id, queue.name());
-                stats_writer.write_field(field_name).unwrap();
+                stats_writer.write_field(format!("{field_name}_len")).unwrap();
+                stats_writer.write_field(format!("{field_name}_bytes")).unwrap();
+                stats_writer.write_field(format!("{field_name}_gas")).unwrap();
             }
         }
         stats_writer.write_record(None::<&[u8]>).unwrap();
@@ -120,6 +122,8 @@ impl Model {
         for shard_id in self.shard_ids.clone() {
             for queue in self.queues.shard_queues(shard_id) {
                 stats_writer.write_field(format!("{}", queue.len())).unwrap();
+                stats_writer.write_field(format!("{}", queue.size())).unwrap();
+                stats_writer.write_field(format!("{}", queue.attached_gas())).unwrap();
             }
         }
 
