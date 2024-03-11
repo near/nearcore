@@ -28,7 +28,7 @@ struct BlockStats {
 }
 
 fn add_to_line(line: &mut String, new_string: String) {
-    *line = vec![line.clone(), new_string].join("\t");
+    *line = [line.clone(), new_string].join("\t");
 }
 
 fn push_stats<T: Default + Clone + std::fmt::Debug>(
@@ -51,7 +51,7 @@ fn push_header(header_parts: &mut Vec<String>, name: String, num_shards: usize) 
 
 impl BlockStats {
     pub fn print(&self) {
-        let mut stat_line = format!("{}", self.height).to_owned();
+        let mut stat_line = format!("{}", self.height);
         let shard_num = 4;
         push_stats(&mut stat_line, &self.chunk_mask, shard_num);
         push_stats(&mut stat_line, &self.gas_used, shard_num);
@@ -87,8 +87,9 @@ impl HighLoadStatsCommand {
             near_config.cold_store.as_ref(),
         );
         let storage = opener.open()?;
-        let store =
-            std::sync::Arc::new(storage.get_split_store().unwrap_or(storage.get_hot_store()));
+        let store = std::sync::Arc::new(
+            storage.get_split_store().unwrap_or_else(|| storage.get_hot_store()),
+        );
 
         let num_threads = self.num_threads;
         let account_id = self.account.clone();
@@ -151,9 +152,9 @@ impl HighLoadStatsCommand {
         }
         let block_hash_vec = block_hash_vec.unwrap();
         let block_hash_key = block_hash_vec.as_slice();
-        let block = store.get_ser::<Block>(DBCol::Block, &block_hash_key)?.ok_or(
-            anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}"),
-        )?;
+        let block = store.get_ser::<Block>(DBCol::Block, &block_hash_key)?.ok_or_else(|| {
+            anyhow::anyhow!("Block header not found for {height} with {block_hash_vec:?}")
+        })?;
 
         let mut gas_used = vec![0; 4];
         let mut gas_used_by_account = vec![0; 4];
@@ -181,7 +182,9 @@ impl HighLoadStatsCommand {
                             block.hash(),
                         ),
                     )?
-                    .ok_or(anyhow::anyhow!("no outcome found for {outcome_id:?} at {height}"))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("no outcome found for {outcome_id:?} at {height}")
+                    })?
                     .outcome;
 
                 let (account_id, gas_used_by_tx) = (outcome.executor_id, outcome.gas_burnt);
