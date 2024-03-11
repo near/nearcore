@@ -1479,7 +1479,7 @@ fn test_missing_chunks(
     let new_accounts = setup_test_env_with_cross_contract_txs(test_env, epoch_length);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
-    // make sure initial txs (deploy smart contracts) are processed succesfully
+    // make sure initial txs (deploy smart contracts) are processed successfully
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
         test_env.step(&drop_chunk_condition, target_protocol_version);

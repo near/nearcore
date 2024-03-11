@@ -25,7 +25,7 @@ const NEP_366_META_TRANSACTIONS: u32 = 366;
 /// Used to distinguish message types that are sign by account keys, to avoid an
 /// abuse of signed messages as something else.
 ///
-/// This prefix must be be at the first four bytes of a message body that is
+/// This prefix must be at the first four bytes of a message body that is
 /// signed under this signature scheme.
 ///
 /// The scheme is a draft introduced to avoid security issues with the

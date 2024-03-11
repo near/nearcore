@@ -332,7 +332,7 @@ fn meta_tx_call_wallet_contract_unauthorized() {
     meta_tx_call_wallet_contract(true, false);
 }
 
-/// Wallet Contract function call is executed succesfully.
+/// Wallet Contract function call is executed successfully.
 #[test]
 fn meta_tx_call_wallet_contract_authorized() {
     meta_tx_call_wallet_contract(true, true);
