@@ -1,4 +1,4 @@
-use congestion_model::strategy::{GlobalTxStopShard, NoQueueShard, SimpleBackpressure};
+use congestion_model::strategy::{GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure};
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
 };
@@ -71,10 +71,9 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
     for _ in 0..num_shards {
         let strategy = match strategy_name {
             "No queues" => Box::new(NoQueueShard {}) as Box<dyn CongestionStrategy>,
-            "Global TX stop" => Box::<GlobalTxStopShard>::default() as Box<dyn CongestionStrategy>,
-            "Simple backpressure" => {
-                Box::<SimpleBackpressure>::default() as Box<dyn CongestionStrategy>
-            }
+            "Global TX stop" => Box::<GlobalTxStopShard>::default(),
+            "Simple backpressure" => Box::<SimpleBackpressure>::default(),
+            "New TX last" => Box::<NewTxLast>::default(),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -104,6 +103,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "No queues".to_string(),
         "Global TX stop".to_string(),
         "Simple backpressure".to_string(),
+        "New TX last".to_string(),
     ];
 
     if strategy_name == "all" {
