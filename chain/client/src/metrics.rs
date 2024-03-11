@@ -583,6 +583,15 @@ pub(crate) static CHUNK_STATE_WITNESS_CACHED_STATE_PROOF_SIZE: Lazy<HistogramVec
     .unwrap()
 });
 
+pub(crate) static STATE_VALUES_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
+    try_create_int_gauge_vec(
+        "near_state_values_cache_size",
+        "Size of state values cache",
+        &["shard_id"],
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
