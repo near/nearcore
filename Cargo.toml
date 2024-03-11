@@ -116,7 +116,6 @@ actix-cors = "0.6.1"
 actix-http = "3.3"
 actix-rt = "2"
 actix-web = "4.1"
-ansi_term = "0.12"
 anyhow = "1.0.62"
 arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
