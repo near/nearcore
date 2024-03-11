@@ -253,10 +253,13 @@ impl Default for StoreConfig {
                     (ShardUId { version: 1, shard_id: 3 }, 3_000_000_000),
                     // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
                     (ShardUId { version: 2, shard_id: 4 }, 3_000_000_000),
+                    // In simple nightshade v3 the heavy contract "token.sweat" is in shard 5
+                    (ShardUId { version: 3, shard_id: 5 }, 3_000_000_000),
                     // Shard 1 is dedicated to aurora and it had very few cache
                     // misses even with cache size of only 50MB
                     (ShardUId { version: 1, shard_id: 1 }, 50_000_000),
                     (ShardUId { version: 2, shard_id: 1 }, 50_000_000),
+                    (ShardUId { version: 3, shard_id: 1 }, 50_000_000),
                 ]),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },

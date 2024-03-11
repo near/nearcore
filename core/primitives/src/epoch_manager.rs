@@ -144,6 +144,11 @@ impl AllEpochConfig {
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
+        if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
+            return;
+        }
+
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v2());
             return;
