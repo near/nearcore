@@ -1054,12 +1054,11 @@ fn test_shard_layout_upgrade_simple_v3_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 44, false);
 }
 
-#[test]
-fn test_resharding_with_different_db_kind() {
+fn test_resharding_with_different_db_kind_impl(resharding_type: ReshardingType) {
     init_test_logger();
 
-    let genesis_protocol_version = get_genesis_protocol_version(&ReshardingType::V2);
-    let target_protocol_version = get_target_protocol_version(&ReshardingType::V2);
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
 
     let epoch_length = 5;
     let mut test_env = TestReshardingEnv::new(
@@ -1071,7 +1070,7 @@ fn test_resharding_with_different_db_kind() {
         genesis_protocol_version,
         42,
         true,
-        Some(ReshardingType::V2),
+        Some(resharding_type),
     );
 
     // Set three different DbKind versions
@@ -1087,6 +1086,16 @@ fn test_resharding_with_different_db_kind() {
     test_env.check_resharding_artifacts(0);
     test_env.check_resharding_artifacts(1);
     test_env.check_resharding_artifacts(2);
+}
+
+#[test]
+fn test_resharding_with_different_db_kind_v2() {
+    test_resharding_with_different_db_kind_impl(ReshardingType::V2);
+}
+
+#[test]
+fn test_resharding_with_different_db_kind_v3() {
+    test_resharding_with_different_db_kind_impl(ReshardingType::V3);
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
