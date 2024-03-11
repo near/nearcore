@@ -38,7 +38,7 @@ pub struct Model {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ShardId(pub usize);
+pub struct ShardId(usize);
 
 impl Model {
     pub fn new(
