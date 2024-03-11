@@ -24,10 +24,12 @@ use near_client::sync::adapter::SyncAdapter;
 use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
+use near_epoch_manager::EpochManagerAdapter;
 use near_network::PeerManagerActor;
 use near_primitives::block::GenesisId;
+use near_primitives::types::EpochId;
 use near_store::flat::FlatStateValuesInliningMigrationHandle;
-use near_store::genesis::initialize_genesis_state;
+use near_store::genesis::initialize_sharded_genesis_state;
 use near_store::metadata::DbKind;
 use near_store::metrics::spawn_db_metrics_loop;
 use near_store::{DBCol, Mode, NodeStorage, Store, StoreOpenerError};
@@ -246,13 +248,19 @@ pub fn start_with_config_and_synchronization(
         config.client_config.log_summary_period,
     )?;
 
+    let epoch_manager =
+        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
+    let genesis_epoch_config = epoch_manager.get_epoch_config(&EpochId::default())?;
     // Initialize genesis_state in store either from genesis config or dump before other components.
     // We only initialize if the genesis state is not already initialized in store.
     // This sets up genesis_state_roots and genesis_hash in store.
-    initialize_genesis_state(storage.get_hot_store(), &config.genesis, Some(home_dir));
+    initialize_sharded_genesis_state(
+        storage.get_hot_store(),
+        &config.genesis,
+        &genesis_epoch_config,
+        Some(home_dir),
+    );
 
-    let epoch_manager =
-        EpochManager::new_arc_handle(storage.get_hot_store(), &config.genesis.config);
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime = NightshadeRuntime::from_config(

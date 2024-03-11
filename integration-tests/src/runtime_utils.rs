@@ -49,7 +49,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
-        0,
+        ShardUId::from_shard_id_and_layout(0, shard_layout),
         &genesis
             .config
             .validators
