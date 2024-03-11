@@ -4667,7 +4667,6 @@ dependencies = [
  "blst",
  "bolero",
  "borsh 1.0.0",
- "csv",
  "ed25519-dalek",
  "enum-map",
  "expect-test",
