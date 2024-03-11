@@ -113,6 +113,8 @@ pub enum ProtocolFeature {
     /// Resharding V2. A new implementation for resharding and a new shard
     /// layout for the production networks.
     SimpleNightshadeV2,
+    /// Built on top of Resharding V2. Changes shard layout to V3 to split shard 2 into two parts.
+    SimpleNightshadeV3,
     /// In case not all validator seats are occupied our algorithm provide incorrect minimal seat
     /// price - it reports as alpha * sum_stake instead of alpha * sum_stake / (1 - alpha), where
     /// alpha is min stake ratio
@@ -186,6 +188,7 @@ impl ProtocolFeature {
             ProtocolFeature::RestrictTla
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
+            ProtocolFeature::SimpleNightshadeV3 => 65,
 
             // StatelessNet features
             ProtocolFeature::StatelessValidationV0 => 80,
