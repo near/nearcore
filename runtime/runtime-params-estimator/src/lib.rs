@@ -1124,7 +1124,7 @@ fn bls12381_p1_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p1_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p1_multiexp_500_100", ExtCosts::bls12381_p1_multiexp_element, 500*100)
+    fn_cost(ctx, "bls12381_p1_multiexp_500_100", ExtCosts::bls12381_p1_multiexp_element, 500 * 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
@@ -1134,7 +1134,7 @@ fn bls12381_p2_multiexp_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_p2_multiexp_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_p2_multiexp_500_100", ExtCosts::bls12381_p2_multiexp_element, 500*100)
+    fn_cost(ctx, "bls12381_p2_multiexp_500_100", ExtCosts::bls12381_p2_multiexp_element, 500 * 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
@@ -1144,7 +1144,12 @@ fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp_to_g1_500_100", ExtCosts::bls12381_map_fp_to_g1_element, 500*100)
+    fn_cost(
+        ctx,
+        "bls12381_map_fp_to_g1_500_100",
+        ExtCosts::bls12381_map_fp_to_g1_element,
+        500 * 100,
+    )
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
@@ -1154,7 +1159,12 @@ fn bls12381_map_fp2_to_g2_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp2_to_g2_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_map_fp2_to_g2_100_100", ExtCosts::bls12381_map_fp2_to_g2_element, 100*100)
+    fn_cost(
+        ctx,
+        "bls12381_map_fp2_to_g2_100_100",
+        ExtCosts::bls12381_map_fp2_to_g2_element,
+        100 * 100,
+    )
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
@@ -1164,7 +1174,7 @@ fn bls12381_pairing_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_pairing_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(ctx, "bls12381_pairing_10_100", ExtCosts::bls12381_pairing_element, 10*100)
+    fn_cost(ctx, "bls12381_pairing_10_100", ExtCosts::bls12381_pairing_element, 10 * 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]

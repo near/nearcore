@@ -181,15 +181,15 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_pairing_base => Cost::Bls12381PairingBase,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_pairing_element=> Cost::Bls12381PairingElement,
+        ExtCosts::bls12381_pairing_element => Cost::Bls12381PairingElement,
         #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p1_decompress_base => Cost::Bls12381P1DecompressBase,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_p1_decompress_element=> Cost::Bls12381P1DecompressElement,
+        ExtCosts::bls12381_p1_decompress_element => Cost::Bls12381P1DecompressElement,
         #[cfg(feature = "protocol_feature_bls12381")]
         ExtCosts::bls12381_p2_decompress_base => Cost::Bls12381P2DecompressBase,
         #[cfg(feature = "protocol_feature_bls12381")]
-        ExtCosts::bls12381_p2_decompress_element=> Cost::Bls12381P2DecompressElement,
+        ExtCosts::bls12381_p2_decompress_element => Cost::Bls12381P2DecompressElement,
         _ => return None,
     })
 }

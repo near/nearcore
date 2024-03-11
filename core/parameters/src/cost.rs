@@ -449,7 +449,7 @@ impl ExtCosts {
             #[cfg(feature = "protocol_feature_bls12381")]
             ExtCosts::bls12381_p2_decompress_base => Parameter::WasmBls12381P2DecompressBase,
             #[cfg(feature = "protocol_feature_bls12381")]
-            ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement
+            ExtCosts::bls12381_p2_decompress_element => Parameter::WasmBls12381P2DecompressElement,
         }
     }
 }
