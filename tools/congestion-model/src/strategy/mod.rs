@@ -26,5 +26,5 @@ pub trait CongestionStrategy {
 
 /// Use this to create queues.
 pub trait QueueFactory {
-    fn register_queue(&mut self, to: ShardId) -> QueueId;
+    fn register_queue(&mut self, to: ShardId, name: &str) -> QueueId;
 }
