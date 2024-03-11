@@ -1,5 +1,5 @@
-use std::time::Duration;
 use chrono::Utc;
+use std::time::Duration;
 
 use congestion_model::strategy::{GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure};
 use congestion_model::workload::{
