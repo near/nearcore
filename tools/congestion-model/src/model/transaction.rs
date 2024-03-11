@@ -12,7 +12,7 @@ pub(crate) struct Transaction {
     /// Where the transaction is converted to the first receipt.
     pub(crate) sender_shard: ShardId,
     /// Where the transaction's first receipt is sent to.
-    pub(crate) receiver_shard: ShardId,
+    pub(crate) initial_receipt_receiver: ShardId,
 
     /// The receipt created when converting the transaction to a receipt.
     pub(crate) initial_receipt: ReceiptId,
@@ -113,7 +113,7 @@ impl Transaction {
     }
 
     pub(crate) fn receiver(&self) -> ShardId {
-        self.receiver_shard
+        self.initial_receipt_receiver
     }
 
     pub(crate) fn initial_receipt_gas(&self) -> GGas {
