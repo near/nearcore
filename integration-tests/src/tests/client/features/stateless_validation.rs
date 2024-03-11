@@ -1,4 +1,5 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
+use near_primitives::stateless_validation::ChunkStateWitness;
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -9,7 +10,6 @@ use near_chain_configs::{Genesis, GenesisConfig, GenesisRecords};
 use near_client::test_utils::TestEnv;
 use near_crypto::{InMemorySigner, KeyType};
 use near_o11y::testonly::init_integration_logger;
-use near_primitives::block::Tip;
 use near_primitives::epoch_manager::AllEpochConfigTestOverrides;
 use near_primitives::num_rational::Rational32;
 use near_primitives::shard_layout::ShardLayout;
@@ -108,7 +108,14 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
         let staked = if i < num_validators { validator_stake } else { 0 };
         records.push(StateRecord::Account {
             account_id: account.clone(),
-            account: Account::new(initial_balance, staked, CryptoHash::default(), 0),
+            account: Account::new(
+                initial_balance,
+                staked,
+                0,
+                CryptoHash::default(),
+                0,
+                PROTOCOL_VERSION,
+            ),
         });
         records.push(StateRecord::AccessKey {
             account_id: account.clone(),
@@ -121,7 +128,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
     let genesis = Genesis::new(genesis_config, GenesisRecords(records)).unwrap();
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts.iter().take(8).cloned().collect())
-        .real_epoch_managers_with_test_overrides(epoch_config_test_overrides)
+        .epoch_managers_with_test_overrides(epoch_config_test_overrides)
         .nightshade_runtimes(&genesis)
         .build();
     let mut tx_hashes = vec![];
@@ -157,7 +164,7 @@ fn run_chunk_validation_test(seed: u64, prob_missing_chunk: f64) {
             let _ = env.clients[0].process_tx(tx, false, false);
         }
 
-        let block_producer = get_block_producer(&env, &tip, 1);
+        let block_producer = env.get_block_producer_at_offset(&tip, 1);
         tracing::debug!(
             target: "stateless_validation",
             "Producing block at height {} by {}", tip.height + 1, block_producer
@@ -231,17 +238,6 @@ fn test_chunk_validation_high_missing_chunks() {
     run_chunk_validation_test(44, 0.81);
 }
 
-/// Returns the block producer for the height of head + height_offset.
-fn get_block_producer(env: &TestEnv, head: &Tip, height_offset: u64) -> AccountId {
-    let client = &env.clients[0];
-    let epoch_manager = &client.epoch_manager;
-    let parent_hash = &head.last_block_hash;
-    let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
-    let height = head.height + height_offset;
-    let block_producer = epoch_manager.get_block_producer(&epoch_id, height).unwrap();
-    block_producer
-}
-
 #[test]
 fn test_protocol_upgrade_81() {
     init_integration_logger();
@@ -304,4 +300,43 @@ fn test_protocol_upgrade_81() {
             assert_eq!(config.chunk_producer_kickout_threshold, 90);
         }
     }
+}
+
+/// Test that Client rejects ChunkStateWitnesses with invalid shard_id
+#[test]
+fn test_chunk_state_witness_bad_shard_id() {
+    init_integration_logger();
+
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
+    let accounts = vec!["test0".parse().unwrap()];
+    let genesis = Genesis::test(accounts.clone(), 1);
+    let mut env = TestEnv::builder(&genesis.config)
+        .validators(accounts)
+        .nightshade_runtimes(&genesis)
+        .build();
+
+    // Run the client for a few blocks
+    let upper_height = 6;
+    for height in 1..upper_height {
+        tracing::info!(target: "test", "Producing block at height: {height}");
+        let block = env.clients[0].produce_block(height).unwrap().unwrap();
+        env.process_block(0, block, Provenance::PRODUCED);
+    }
+
+    // Create a dummy ChunkStateWitness with an invalid shard_id
+    let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
+    let invalid_shard_id = 1000000000;
+    let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
+
+    // Client should reject this ChunkStateWitness and the error message should mention "shard"
+    tracing::info!(target: "test", "Processing invalid ChunkStateWitness");
+    let res = env.clients[0].process_chunk_state_witness(witness, None);
+    let error = res.unwrap_err();
+    let error_message = format!("{}", error).to_lowercase();
+    tracing::info!(target: "test", "error message: {}", error_message);
+    assert!(error_message.contains("shard"));
 }

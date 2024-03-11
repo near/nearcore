@@ -15,7 +15,7 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::types::ShardId;
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
 

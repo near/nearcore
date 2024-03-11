@@ -1,8 +1,12 @@
+pub mod orphan_witness_handling;
+pub mod orphan_witness_pool;
+
 use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
-use near_async::messaging::{CanSend, Sender};
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::messaging::Sender;
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -16,11 +20,10 @@ use near_chain::validate::validate_chunk_with_chunk_extra_and_receipts_root;
 use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest, ReasonForBan};
+use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
-use near_primitives::network::PeerId;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
@@ -31,6 +34,7 @@ use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::ShardId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_store::PartialStorage;
+use orphan_witness_pool::OrphanStateWitnessPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -53,6 +57,8 @@ pub struct ChunkValidator {
     network_sender: Sender<PeerManagerMessageRequest>,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    orphan_witness_pool: OrphanStateWitnessPool,
+    validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkValidator {
@@ -62,6 +68,8 @@ impl ChunkValidator {
         network_sender: Sender<PeerManagerMessageRequest>,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+        orphan_witness_pool_size: usize,
+        validation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         Self {
             my_signer,
@@ -69,6 +77,8 @@ impl ChunkValidator {
             network_sender,
             runtime_adapter,
             chunk_endorsement_tracker,
+            orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
+            validation_spawner,
         }
     }
 
@@ -81,7 +91,6 @@ impl ChunkValidator {
         &self,
         state_witness: ChunkStateWitness,
         chain: &Chain,
-        peer_id: PeerId,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         if !self.epoch_manager.verify_chunk_state_witness_signature(&state_witness)? {
@@ -119,7 +128,7 @@ impl ChunkValidator {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
-        rayon::spawn(move || {
+        self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
 
@@ -139,14 +148,6 @@ impl ChunkValidator {
                     );
                 }
                 Err(err) => {
-                    if let Error::InvalidChunkStateWitness(_) = &err {
-                        network_sender.send(PeerManagerMessageRequest::NetworkRequests(
-                            NetworkRequests::BanPeer {
-                                peer_id,
-                                ban_reason: ReasonForBan::BadChunkStateWitness,
-                            },
-                        ));
-                    }
                     tracing::error!("Failed to validate chunk: {:?}", err);
                 }
             }
@@ -210,6 +211,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 )));
             };
             let is_new_chunk = chunk.is_new_chunk(block.header().height());
+            let is_genesis = block.header().is_genesis();
             block_hash = *block.header().prev_hash();
             if is_new_chunk {
                 prev_chunks_seen += 1;
@@ -219,7 +221,7 @@ pub(crate) fn pre_validate_chunk_state_witness(
             } else if prev_chunks_seen == 1 {
                 blocks_after_last_last_chunk.push(block);
             }
-            if prev_chunks_seen == 2 {
+            if prev_chunks_seen == 2 || is_genesis {
                 break;
             }
         }
@@ -288,8 +290,14 @@ pub(crate) fn pre_validate_chunk_state_witness(
         };
     }
 
-    Ok(PreValidationOutput {
-        main_transition_params: NewChunkData {
+    let main_transition_params = if last_chunk_block.header().is_genesis() {
+        MainTransition::Genesis {
+            chunk_extra: chain.genesis_chunk_extra(shard_id)?,
+            block_hash: *last_chunk_block.hash(),
+            shard_id,
+        }
+    } else {
+        MainTransition::NewChunk(NewChunkData {
             chunk_header: last_chunk_block.chunks().get(shard_id as usize).unwrap().clone(),
             transactions: state_witness.transactions.clone(),
             receipts: receipts_to_apply,
@@ -308,7 +316,11 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 state_patch: Default::default(),
                 record_storage: false,
             },
-        },
+        })
+    };
+
+    Ok(PreValidationOutput {
+        main_transition_params,
         implicit_transition_params: blocks_after_last_chunk
             .into_iter()
             .rev()
@@ -335,6 +347,21 @@ fn validate_source_receipt_proofs(
     receipt_source_blocks: &[Block],
     target_chunk_shard_id: ShardId,
 ) -> Result<Vec<Receipt>, Error> {
+    if receipt_source_blocks.iter().any(|block| block.header().is_genesis()) {
+        if receipt_source_blocks.len() != 1 {
+            return Err(Error::Other(
+                "Invalid chain state: receipt_source_blocks should not have any blocks alongside genesis".to_owned()
+            ));
+        }
+        if !source_receipt_proofs.is_empty() {
+            return Err(Error::InvalidChunkStateWitness(format!(
+                "genesis source_receipt_proofs should be empty, actual len is {}",
+                source_receipt_proofs.len()
+            )));
+        }
+        return Ok(vec![]);
+    }
+
     let mut receipts_to_apply = Vec::new();
     let mut expected_proofs_len = 0;
 
@@ -415,8 +442,29 @@ fn validate_receipt_proof(
     Ok(())
 }
 
+enum MainTransition {
+    Genesis { chunk_extra: ChunkExtra, block_hash: CryptoHash, shard_id: ShardId },
+    NewChunk(NewChunkData),
+}
+
+impl MainTransition {
+    fn block_hash(&self) -> CryptoHash {
+        match self {
+            Self::Genesis { block_hash, .. } => *block_hash,
+            Self::NewChunk(data) => data.block.block_hash,
+        }
+    }
+
+    fn shard_id(&self) -> ShardId {
+        match self {
+            Self::Genesis { shard_id, .. } => *shard_id,
+            Self::NewChunk(data) => data.chunk_header.shard_id(),
+        }
+    }
+}
+
 pub(crate) struct PreValidationOutput {
-    main_transition_params: NewChunkData,
+    main_transition_params: MainTransition,
     implicit_transition_params: Vec<ApplyChunkBlockContext>,
 }
 
@@ -426,31 +474,35 @@ pub(crate) fn validate_chunk_state_witness(
     epoch_manager: &dyn EpochManagerAdapter,
     runtime_adapter: &dyn RuntimeAdapter,
 ) -> Result<(), Error> {
-    let main_transition = pre_validation_output.main_transition_params;
     let _timer = metrics::CHUNK_STATE_WITNESS_VALIDATION_TIME
-        .with_label_values(&[&main_transition.chunk_header.shard_id().to_string()])
+        .with_label_values(&[&state_witness.chunk_header.shard_id().to_string()])
         .start_timer();
     let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
-    let chunk_header = main_transition.chunk_header.clone();
-    let epoch_id = epoch_manager.get_epoch_id(&main_transition.block.block_hash)?;
-    let shard_uid =
-        epoch_manager.shard_id_to_uid(main_transition.chunk_header.shard_id(), &epoch_id)?;
-    // Should we validate other fields?
-    let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
-        &span,
-        main_transition,
-        ShardContext {
-            shard_uid,
-            cares_about_shard_this_epoch: true,
-            will_shard_layout_change: false,
-            should_apply_chunk: true,
-            need_to_reshard: false,
-        },
-        runtime_adapter,
-        epoch_manager,
-    )?;
-    let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
-    let mut chunk_extra = apply_result_to_chunk_extra(main_apply_result, &chunk_header);
+    let block_hash = pre_validation_output.main_transition_params.block_hash();
+    let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
+    let shard_uid = epoch_manager
+        .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;
+    let (mut chunk_extra, outgoing_receipts) = match pre_validation_output.main_transition_params {
+        MainTransition::Genesis { chunk_extra, .. } => (chunk_extra, vec![]),
+        MainTransition::NewChunk(new_chunk_data) => {
+            let chunk_header = new_chunk_data.chunk_header.clone();
+            let NewChunkResult { apply_result: mut main_apply_result, .. } = apply_new_chunk(
+                &span,
+                new_chunk_data,
+                ShardContext {
+                    shard_uid,
+                    cares_about_shard_this_epoch: true,
+                    will_shard_layout_change: false,
+                    should_apply_chunk: true,
+                    need_to_reshard: false,
+                },
+                runtime_adapter,
+                epoch_manager,
+            )?;
+            let outgoing_receipts = std::mem::take(&mut main_apply_result.outgoing_receipts);
+            (apply_result_to_chunk_extra(main_apply_result, &chunk_header), outgoing_receipts)
+        }
+    };
     if chunk_extra.state_root() != &state_witness.main_state_transition.post_state_root {
         // This is an early check, it's not for correctness, only for better
         // error reporting in case of an invalid state witness due to a bug.
@@ -586,55 +638,39 @@ impl Client {
     pub fn process_chunk_state_witness(
         &mut self,
         witness: ChunkStateWitness,
-        peer_id: PeerId,
         processing_done_tracker: Option<ProcessingDoneTracker>,
-    ) -> Result<Option<ChunkStateWitness>, Error> {
-        // TODO(#10502): Handle production of state witness for first chunk after genesis.
-        // Properly handle case for chunk right after genesis.
-        // Context: We are currently unable to handle production of the state witness for the
-        // first chunk after genesis as it's not possible to run the genesis chunk in runtime.
+    ) -> Result<(), Error> {
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
         let prev_block = match self.chain.get_block(prev_block_hash) {
             Ok(block) => block,
-            Err(_) => {
-                return Ok(Some(witness));
+            Err(Error::DBNotFoundErr(_)) => {
+                // Previous block isn't available at the moment, add this witness to the orphan pool.
+                self.handle_orphan_state_witness(witness)?;
+                return Ok(());
             }
+            Err(err) => return Err(err),
         };
-        let prev_chunk_header = Chain::get_prev_chunk_header(
-            self.epoch_manager.as_ref(),
+        self.process_chunk_state_witness_with_prev_block(
+            witness,
             &prev_block,
-            witness.inner.chunk_header.shard_id(),
-        )?;
-        if prev_chunk_header.prev_block_hash() == &CryptoHash::default() {
-            let Some(signer) = self.validator_signer.as_ref() else {
-                return Err(Error::NotAChunkValidator);
-            };
-            send_chunk_endorsement_to_block_producers(
-                &witness.inner.chunk_header,
-                self.epoch_manager.as_ref(),
-                signer.as_ref(),
-                &self.chunk_validator.network_sender,
-                self.chunk_endorsement_tracker.as_ref(),
-            );
-            return Ok(None);
+            processing_done_tracker,
+        )
+    }
+
+    pub fn process_chunk_state_witness_with_prev_block(
+        &mut self,
+        witness: ChunkStateWitness,
+        prev_block: &Block,
+        processing_done_tracker: Option<ProcessingDoneTracker>,
+    ) -> Result<(), Error> {
+        if witness.inner.chunk_header.prev_block_hash() != prev_block.hash() {
+            return Err(Error::Other(format!(
+                "process_chunk_state_witness_with_prev_block - prev_block doesn't match ({} != {})",
+                witness.inner.chunk_header.prev_block_hash(),
+                prev_block.hash()
+            )));
         }
 
-        // TODO(#10265): If the previous block does not exist, we should
-        // queue this (similar to orphans) to retry later.
-        let result = self.chunk_validator.start_validating_chunk(
-            witness,
-            &self.chain,
-            peer_id.clone(),
-            processing_done_tracker,
-        );
-        if let Err(Error::InvalidChunkStateWitness(_)) = &result {
-            self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-                NetworkRequests::BanPeer {
-                    peer_id,
-                    ban_reason: ReasonForBan::BadChunkStateWitness,
-                },
-            ));
-        }
-        result.map(|_| None)
+        self.chunk_validator.start_validating_chunk(witness, &self.chain, processing_done_tracker)
     }
 }

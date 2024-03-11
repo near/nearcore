@@ -2,7 +2,7 @@
 version = "0.0.0" # managed by cargo-workspaces, see below
 authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.76.0"
 repository = "https://github.com/near/nearcore"
 license = "MIT OR Apache-2.0"
 
@@ -36,6 +36,7 @@ members = [
     "chain/rosetta-rpc",
     "chain/telemetry",
     "core/async",
+    "core/async-derive",
     "core/chain-configs",
     "core/crypto",
     "core/dyn-configs",
@@ -71,6 +72,7 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
+    "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -93,9 +95,6 @@ members = [
     "utils/stdx",
 ]
 
-[workspace.lints.rust]
-warnings = "deny"
-
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
 correctness = { level = "deny", priority = -50 }
@@ -107,6 +106,8 @@ clone_on_copy = "deny"
 derivable_impls = "deny"
 redundant_clone = "deny"
 len_zero = "deny"
+or_fun_call = "deny"
+unnecessary_lazy_evaluations = "deny"
 
 
 [workspace.dependencies]
@@ -128,7 +129,9 @@ bencher = "0.1.5"
 bitflags = "1.2"
 blake2 = "0.9.1"
 bn = { package = "zeropool-bn", version = "0.5.11", default-features = false }
-bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "56da8e6d1d018519a30b36d85d3a53fe35a42eaf", features = ["arbitrary"] }
+# TODO: remove this override when https://github.com/camshaft/bolero/issues/196 is fixed upstream
+# Currently the changes here are: https://github.com/camshaft/bolero/compare/master...Ekleog-NEAR:bolero:reduce-list-tests-run
+bolero = { version = "0.10.0", git = "https://github.com/Ekleog-NEAR/bolero", rev = "c37993bd70dcf5b1778b03daf29f686225e9a504", features = ["arbitrary"] }
 borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
@@ -143,7 +146,6 @@ cpu-time = "1.0"
 criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
-crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.1", default-features = false, features = ["alloc", "precomputed-tables", "rand_core"] }
 derive-enum-from-into = "0.1.1"
@@ -188,6 +190,7 @@ near-actix-test-utils = { path = "test-utils/actix-test-utils" }
 near-amend-genesis = { path = "tools/amend-genesis" }
 near-database-tool= { path = "tools/database" }
 near-async = { path = "core/async" }
+near-async-derive = { path = "core/async-derive" }
 near-cache = { path = "utils/near-cache" }
 near-chain = { path = "chain/chain" }
 near-chain-configs = { path = "core/chain-configs" }
@@ -318,7 +321,7 @@ testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
-time = "0.3.9"
+time = { version = "0.3.9", features = ["parsing", "serde"] }
 tokio = { version = "1.28", features = [
     "fs",
     "macros",
@@ -362,6 +365,8 @@ yansi = "0.5.1"
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
+protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
+protobuf-support = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.

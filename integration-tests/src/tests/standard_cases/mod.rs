@@ -2,6 +2,8 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::NEAR_BASE;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
@@ -20,7 +22,6 @@ use near_primitives::views::{
     FinalExecutionStatus,
 };
 use near_store::trie::TrieNodesCount;
-use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use std::sync::Arc;
 
 use crate::node::Node;

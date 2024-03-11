@@ -134,8 +134,9 @@ pub fn state_dump_redis(
     state_roots: &[StateRoot],
     last_block_header: BlockHeader,
 ) -> redis::RedisResult<()> {
-    let redis_client =
-        redis::Client::open(env::var("REDIS_HOST").unwrap_or("redis://127.0.0.1/".to_string()))?;
+    let redis_client = redis::Client::open(
+        env::var("REDIS_HOST").unwrap_or_else(|_| "redis://127.0.0.1/".to_string()),
+    )?;
     let mut redis_connection = redis_client.get_connection()?;
 
     let block_height = last_block_header.height();
@@ -295,6 +296,7 @@ mod test {
 
     use near_chain::{ChainStoreAccess, Provenance};
     use near_chain_configs::genesis_validate::validate_genesis;
+    use near_chain_configs::test_utils::TESTING_INIT_STAKE;
     use near_chain_configs::{Genesis, GenesisChangeConfig};
     use near_client::test_utils::TestEnv;
     use near_client::ProcessTxResponse;
@@ -310,8 +312,6 @@ mod test {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
     use near_store::Store;
-    use nearcore::config::GenesisExt;
-    use nearcore::config::TESTING_INIT_STAKE;
     use nearcore::config::{Config, NearConfig};
     use nearcore::test_utils::TestEnvNightshadeSetupExt;
     use nearcore::NightshadeRuntime;
@@ -339,13 +339,11 @@ mod test {
                 .validator_seats(2)
                 .use_state_snapshots()
                 .real_stores()
-                .real_epoch_managers()
                 .nightshade_runtimes(&genesis)
                 .build()
         } else {
             TestEnv::builder(&genesis.config)
                 .validator_seats(2)
-                .real_epoch_managers()
                 .nightshade_runtimes(&genesis)
                 .build()
         };

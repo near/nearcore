@@ -15,7 +15,6 @@ use near_primitives::types::{BlockHeightDelta, Gas};
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_primitives::views::FinalExecutionStatus;
 use near_vm_runner::logic::TrieNodesCount;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 fn process_transaction(
@@ -91,7 +90,6 @@ fn compare_node_counts() {
     genesis.config.epoch_length = epoch_length;
     genesis.config.protocol_version = old_protocol_version;
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
         .nightshade_runtimes_with_runtime_config_store(
             &genesis,
             vec![RuntimeConfigStore::new(None)],

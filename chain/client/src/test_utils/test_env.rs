@@ -1,20 +1,19 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
-
-use crate::adapter::ProcessTxResponse;
 use crate::stateless_validation::processing_tracker::{
     ProcessingDoneTracker, ProcessingDoneWaiter,
 };
 use crate::Client;
-use near_async::messaging::CanSend;
+use near_async::messaging::{CanSend, IntoMultiSender};
 use near_async::time::Clock;
+use near_async::time::{Duration, Instant};
 use near_chain::test_utils::ValidatorSchedule;
+use near_chain::types::Tip;
 use near_chain::{ChainGenesis, Provenance};
 use near_chain_configs::GenesisConfig;
+use near_chain_primitives::error::QueryError;
 use near_chunks::client::ShardsManagerResponse;
 use near_chunks::test_utils::{MockClientAdapterForShardsManager, SynchronousShardsManagerAdapter};
 use near_crypto::{InMemorySigner, KeyType, Signer};
+use near_network::client::ProcessTxResponse;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_network::types::NetworkRequests;
@@ -27,22 +26,28 @@ use near_primitives::block::Block;
 use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
-use near_primitives::network::PeerId;
-use near_primitives::sharding::PartialEncodedChunk;
-use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
+use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
-use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats};
+use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
-    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponseKind, StateItem,
+    AccountView, FinalExecutionOutcomeView, QueryRequest, QueryResponse, QueryResponseKind,
+    StateItem,
 };
+use near_store::ShardUId;
 use once_cell::sync::OnceCell;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use super::setup::setup_client_with_runtime;
 use super::test_env_builder::TestEnvBuilder;
 use super::TEST_SEED;
+
+/// Timeout used in tests that wait for a specific chunk endorsement to appear
+const CHUNK_ENDORSEMENTS_TIMEOUT: Duration = Duration::seconds(10);
 
 /// An environment for writing integration tests with multiple clients.
 /// This environment can simulate near nodes without network and it can be configured to use different runtimes.
@@ -71,7 +76,8 @@ pub struct StateWitnessPropagationOutput {
 
 impl TestEnv {
     pub fn default_builder() -> TestEnvBuilder {
-        TestEnvBuilder::new(GenesisConfig::test())
+        let clock = Clock::real();
+        TestEnvBuilder::new(GenesisConfig::test(clock.clone())).clock(clock)
     }
 
     pub fn builder(genesis_config: &GenesisConfig) -> TestEnvBuilder {
@@ -148,6 +154,12 @@ impl TestEnv {
                     tracing::debug_span!(target: "test", "process_partial_encoded_chunks", client=i).entered();
 
                 keep_going |= network_adapter.handle_filtered(|request| match request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedChunkRequest { .. },
+                    ) => {
+                        self.process_partial_encoded_chunk_request(i, request);
+                        None
+                    }
                     PeerManagerMessageRequest::NetworkRequests(
                         NetworkRequests::PartialEncodedChunkMessage {
                             account_id,
@@ -318,7 +330,6 @@ impl TestEnv {
                         let processing_result =
                             self.client(account_id).process_chunk_state_witness(
                                 state_witness.clone(),
-                                PeerId::random(),
                                 Some(processing_done_tracker),
                             );
                         if !allow_errors {
@@ -373,6 +384,43 @@ impl TestEnv {
         self.propagate_chunk_endorsements(allow_errors);
     }
 
+    /// Wait until an endorsement for `chunk_hash` appears in the network messages send by
+    /// the Client with index `client_idx`. Times out after CHUNK_ENDORSEMENTS_TIMEOUT.
+    /// Doesn't process or consume the message, it just waits until the message appears on the network_adapter.
+    pub fn wait_for_chunk_endorsement(
+        &mut self,
+        client_idx: usize,
+        chunk_hash: &ChunkHash,
+    ) -> Result<ChunkEndorsement, TimeoutError> {
+        let start_time = Instant::now();
+        let network_adapter = self.network_adapters[client_idx].clone();
+        loop {
+            let mut endorsement_opt = None;
+            network_adapter.handle_filtered(|request| {
+                match &request {
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::ChunkEndorsement(_receiver_account_id, endorsement),
+                    ) if endorsement.chunk_hash() == chunk_hash => {
+                        endorsement_opt = Some(endorsement.clone());
+                    }
+                    _ => {}
+                };
+                Some(request)
+            });
+
+            if let Some(endorsement) = endorsement_opt {
+                return Ok(endorsement);
+            }
+
+            let elapsed_since_start = start_time.elapsed();
+            if elapsed_since_start > CHUNK_ENDORSEMENTS_TIMEOUT {
+                return Err(TimeoutError(elapsed_since_start));
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
     pub fn send_money(&mut self, id: usize) -> ProcessTxResponse {
         let account_id = self.get_client_id(0);
         let signer =
@@ -423,23 +471,53 @@ impl TestEnv {
             client.epoch_manager.account_id_to_shard_id(&account_id, &head.epoch_id).unwrap();
         let shard_uid = client.epoch_manager.shard_id_to_uid(shard_id, &head.epoch_id).unwrap();
         let last_chunk_header = &last_block.chunks()[shard_id as usize];
-        let response = client
-            .runtime_adapter
-            .query(
-                shard_uid,
-                &last_chunk_header.prev_state_root(),
-                last_block.header().height(),
-                last_block.header().raw_timestamp(),
-                last_block.header().prev_hash(),
-                last_block.header().hash(),
-                last_block.header().epoch_id(),
-                &QueryRequest::ViewAccount { account_id },
-            )
-            .unwrap();
-        match response.kind {
-            QueryResponseKind::ViewAccount(account_view) => account_view,
-            _ => panic!("Wrong return value"),
+
+        for i in 0..self.clients.len() {
+            let tracks_shard = self.clients[i]
+                .epoch_manager
+                .cares_about_shard_from_prev_block(
+                    &head.prev_block_hash,
+                    &self.get_client_id(i),
+                    shard_id,
+                )
+                .unwrap();
+            if tracks_shard {
+                let response = self.clients[i]
+                    .runtime_adapter
+                    .query(
+                        shard_uid,
+                        &last_chunk_header.prev_state_root(),
+                        last_block.header().height(),
+                        last_block.header().raw_timestamp(),
+                        last_block.header().prev_hash(),
+                        last_block.header().hash(),
+                        last_block.header().epoch_id(),
+                        &QueryRequest::ViewAccount { account_id },
+                    )
+                    .unwrap();
+                match response.kind {
+                    QueryResponseKind::ViewAccount(account_view) => return account_view,
+                    _ => panic!("Wrong return value"),
+                }
+            }
         }
+        panic!("No client tracks shard {}", shard_id);
+    }
+
+    /// Passes the given query to the runtime adapter using the current head and returns a result.
+    pub fn query_view(&mut self, request: QueryRequest) -> Result<QueryResponse, QueryError> {
+        let head = self.clients[0].chain.head().unwrap();
+        let head_block = self.clients[0].chain.get_block(&head.last_block_hash).unwrap();
+        self.clients[0].runtime_adapter.query(
+            ShardUId::single_shard(),
+            &head_block.chunks()[0].prev_state_root(),
+            head.height,
+            0,
+            &head.prev_block_hash,
+            &head.last_block_hash,
+            head_block.header().epoch_id(),
+            &request,
+        )
     }
 
     pub fn query_state(&mut self, account_id: AccountId) -> Vec<StateItem> {
@@ -492,10 +570,11 @@ impl TestEnv {
         let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![self.validators.clone()]);
         let num_validator_seats = vs.all_block_producers().count() as NumSeats;
         self.clients[idx] = setup_client_with_runtime(
+            self.clock.clone(),
             num_validator_seats,
             Some(self.get_client_id(idx).clone()),
             false,
-            self.network_adapters[idx].clone().into(),
+            self.network_adapters[idx].clone().as_multi_sender(),
             self.shards_manager_adapters[idx].clone(),
             self.chain_genesis.clone(),
             self.clients[idx].epoch_manager.clone(),
@@ -512,6 +591,42 @@ impl TestEnv {
     /// specifically, returns validator id of the client’s validator signer.
     pub fn get_client_id(&self, idx: usize) -> &AccountId {
         self.clients[idx].validator_signer.as_ref().unwrap().validator_id()
+    }
+
+    /// Returns the index of client with the given [`AccoountId`].
+    pub fn get_client_index(&self, account_id: &AccountId) -> usize {
+        self.account_indices.index(account_id)
+    }
+
+    /// Get block producer responsible for producing the block at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_block_producer_at_offset(&self, head: &Tip, height_offset: u64) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_block_producer(&epoch_id, height).unwrap()
+    }
+
+    /// Get chunk producer responsible for producing the chunk at height head.height + height_offset.
+    /// Doesn't handle epoch boundaries with height_offset > 1. With offsets bigger than one,
+    /// the function assumes that the epoch doesn't change after head.height + 1.
+    pub fn get_chunk_producer_at_offset(
+        &self,
+        head: &Tip,
+        height_offset: u64,
+        shard_id: ShardId,
+    ) -> AccountId {
+        let client = &self.clients[0];
+        let epoch_manager = &client.epoch_manager;
+        let parent_hash = &head.last_block_hash;
+        let epoch_id = epoch_manager.get_epoch_id_from_prev_block(parent_hash).unwrap();
+        let height = head.height + height_offset;
+
+        epoch_manager.get_chunk_producer(&epoch_id, height, shard_id).unwrap()
     }
 
     pub fn get_runtime_config(&self, idx: usize, epoch_id: EpochId) -> RuntimeConfig {
@@ -646,3 +761,7 @@ impl AccountIndices {
         &mut container[self.0[account_id]]
     }
 }
+
+#[derive(thiserror::Error, Debug)]
+#[error("Timed out after {0:?}")]
+pub struct TimeoutError(Duration);

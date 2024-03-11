@@ -23,7 +23,7 @@ Flags:
 
 ## Example usage
 
-1. Go to [https://explorer.testnet.near.org/blocks].
+1. Go to [https://testnet.nearblocks.io/blocks].
 1. Select the block from which you would like to start fetching from.
 1. Copy the hash of the block.
 1. run

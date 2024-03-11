@@ -21,7 +21,6 @@ use near_store::metadata::DbKind;
 use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::{DBCol, Store, COLD_HEAD_KEY, HEAD_KEY};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use nearcore::{cold_storage::spawn_cold_store_loop, NearConfig};
 use std::collections::HashSet;
@@ -121,10 +120,7 @@ fn test_storage_after_commit_of_cold_update() {
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = 0;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
@@ -233,7 +229,6 @@ fn test_cold_db_head_update() {
     let cold_db = storage.cold_db().unwrap();
     let mut env = TestEnv::builder(&genesis.config)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 
@@ -267,10 +262,7 @@ fn test_cold_db_copy_with_height_skips() {
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
     genesis.config.min_gas_price = 0;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Hot);
     let cold_db = storage.cold_db().unwrap();
@@ -364,10 +356,7 @@ fn test_initial_copy_to_cold(batch_size: usize) {
 
     let mut genesis = Genesis::test(vec![test0(), test1()], 1);
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let (storage, ..) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Archive);
 
@@ -449,7 +438,6 @@ fn test_cold_loop_on_gc_boundary() {
         .archive(true)
         .save_trie_changes(true)
         .stores(vec![hot_store.clone()])
-        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .build();
 

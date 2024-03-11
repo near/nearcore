@@ -369,6 +369,11 @@ pub mod block_info {
         }
 
         #[inline]
+        pub fn is_genesis(&self) -> bool {
+            self.prev_hash() == &CryptoHash::default()
+        }
+
+        #[inline]
         pub fn epoch_first_block(&self) -> &CryptoHash {
             match self {
                 Self::V1(v1) => &v1.epoch_first_block,
@@ -1081,33 +1086,37 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
+        pub fn sample_chunk_producer(
+            &self,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> Option<ValidatorId> {
             match &self {
                 Self::V1(v1) => {
                     let cp_settlement = &v1.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V2(v2) => {
                     let cp_settlement = &v2.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
-                    v3.chunk_producers_settlement[shard_id][sample]
+                    let sample = v3.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v3.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
                 Self::V4(v4) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v4.chunk_producers_sampler[shard_id].sample(seed);
-                    v4.chunk_producers_settlement[shard_id][sample]
+                    let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
             }
         }
@@ -1247,7 +1256,6 @@ pub mod epoch_sync {
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 
@@ -1324,10 +1332,11 @@ pub mod epoch_sync {
             let epoch_first_header = self.get_epoch_first_header()?;
             let header = self.get_header(*hash, EpochSyncHashType::Other)?;
 
-            log_assert!(
-                epoch_first_header.epoch_id() == header.epoch_id(),
-                "We can only correctly reconstruct headers from this epoch"
-            );
+            if epoch_first_header.epoch_id() != header.epoch_id() {
+                let msg = "We can only correctly reconstruct headers from this epoch";
+                debug_assert!(false, "{}", msg);
+                tracing::error!(message = msg);
+            }
 
             let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
                 0

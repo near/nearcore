@@ -12,7 +12,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonc
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use nearcore::{config::GenesisExt, NightshadeRuntime};
+use nearcore::NightshadeRuntime;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
@@ -54,7 +54,7 @@ impl Scenario {
         initialize_genesis_state(store.clone(), &genesis, home_dir);
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::test_with_runtime_config_store(
-            home_dir.unwrap_or(Path::new(".")),
+            home_dir.unwrap_or_else(|| Path::new(".")),
             store.clone(),
             &genesis.config,
             epoch_manager.clone(),

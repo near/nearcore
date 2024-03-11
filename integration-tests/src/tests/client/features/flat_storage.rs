@@ -9,7 +9,6 @@ use near_primitives::transaction::{Action, ExecutionMetadata, FunctionCallAction
 use near_primitives::version::ProtocolFeature;
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::Gas;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Check that after flat storage upgrade:
@@ -29,7 +28,6 @@ fn test_flat_storage_upgrade() {
     genesis.config.protocol_version = old_protocol_version;
     let runtime_config = near_parameters::RuntimeConfigStore::new(None);
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
         .nightshade_runtimes_with_runtime_config_store(&genesis, vec![runtime_config])
         .build();
 

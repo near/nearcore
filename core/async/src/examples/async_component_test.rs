@@ -1,18 +1,16 @@
-use derive_enum_from_into::{EnumFrom, EnumTryInto};
-use std::sync::Arc;
-
-use crate::{
-    messaging::{CanSend, IntoAsyncSender, IntoSender},
-    test_loop::{
-        event_handler::{capture_events, LoopEventHandler},
-        futures::{drive_futures, MessageExpectingResponse, TestLoopFutureSpawner, TestLoopTask},
-        TestLoopBuilder,
-    },
-};
-
 use super::async_component::{
     InnerComponent, InnerRequest, InnerResponse, OuterComponent, OuterRequest, OuterResponse,
 };
+use crate::{
+    messaging::{CanSend, IntoSender, MessageWithCallback},
+    test_loop::{
+        event_handler::{capture_events, LoopEventHandler},
+        futures::{drive_futures, TestLoopFutureSpawner, TestLoopTask},
+        TestLoopBuilder,
+    },
+};
+use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use std::sync::Arc;
 
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
@@ -26,8 +24,8 @@ struct TestData {
 enum TestEvent {
     OuterResponse(OuterResponse),
     OuterRequest(OuterRequest),
-    // Requests that need responses need to use MessageExpectingResponse.
-    InnerRequest(MessageExpectingResponse<InnerRequest, InnerResponse>),
+    // Requests that need responses need to use MessageWithCallback.
+    InnerRequest(MessageWithCallback<InnerRequest, InnerResponse>),
     // Arc<TestLoopTask> is needed to support futures.
     Task(Arc<TestLoopTask>),
 }
@@ -41,11 +39,10 @@ fn outer_request_handler(
 }
 
 fn inner_request_handler(
-) -> LoopEventHandler<InnerComponent, MessageExpectingResponse<InnerRequest, InnerResponse>> {
+) -> LoopEventHandler<InnerComponent, MessageWithCallback<InnerRequest, InnerResponse>> {
     LoopEventHandler::new_simple(
-        |event: MessageExpectingResponse<InnerRequest, InnerResponse>,
-         data: &mut InnerComponent| {
-            (event.responder)(data.process_request(event.message));
+        |event: MessageWithCallback<InnerRequest, InnerResponse>, data: &mut InnerComponent| {
+            (event.callback)(Ok(data.process_request(event.message)));
         },
     )
 }
@@ -54,13 +51,13 @@ fn inner_request_handler(
 fn test_async_component() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sender = builder.sender();
-    let future_spawner = builder.future_spawner();
+    let future_spawner = builder.sender().into_future_spawner();
     let mut test = builder.build(TestData {
         dummy: (),
         output: vec![],
         inner_component: InnerComponent,
         outer_component: OuterComponent::new(
-            sender.clone().into_async_sender(),
+            sender.clone().into_sender(),
             sender.clone().into_sender(),
         ),
     });

@@ -38,6 +38,7 @@ pub fn costs_to_runtime_config(cost_table: &CostTable) -> anyhow::Result<Runtime
             ..latest_runtime_config.wasm_config
         },
         account_creation_config: AccountCreationConfig::default(),
+        storage_proof_size_soft_limit: usize::MAX,
     };
     Ok(res)
 }
@@ -151,6 +152,8 @@ fn estimation(cost: ExtCosts) -> Option<Cost> {
         ExtCosts::alt_bn128_g1_multiexp_element => Cost::AltBn128G1MultiexpElement,
         ExtCosts::alt_bn128_pairing_check_base => Cost::AltBn128PairingCheckBase,
         ExtCosts::alt_bn128_pairing_check_element => Cost::AltBn128PairingCheckElement,
+        ExtCosts::yield_create_base => Cost::YieldCreateBase,
+        ExtCosts::yield_create_byte => Cost::YieldCreateByte,
         _ => return None,
     })
 }

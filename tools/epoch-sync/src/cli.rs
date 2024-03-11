@@ -9,7 +9,7 @@ use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
 use near_store::{checkpoint_hot_storage_and_cleanup_columns, DBCol, NodeStorage};
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -49,7 +49,7 @@ impl EpochSyncCommand {
             .store
             .path
             .clone()
-            .unwrap_or(PathBuf::from("data"))
+            .unwrap_or_else(|| PathBuf::from("data"))
             .join("epoch-sync-snapshot");
         let snapshot_path = home_dir.join(store_path_addition.clone());
 
@@ -244,7 +244,7 @@ fn get_hash_to_prev_hash_from_block_info(
     storage: &NodeStorage,
 ) -> anyhow::Result<HashMap<CryptoHash, CryptoHash>> {
     let mut hash_to_prev_hash = HashMap::new();
-    let store = storage.get_split_store().unwrap_or(storage.get_hot_store());
+    let store = storage.get_split_store().unwrap_or_else(|| storage.get_hot_store());
     for result in store.iter(DBCol::BlockInfo) {
         let (_, value) = result?;
         let block_info =

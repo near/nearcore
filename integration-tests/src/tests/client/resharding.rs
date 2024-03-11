@@ -3,7 +3,7 @@ use assert_matches::assert_matches;
 use near_chain::near_chain_primitives::Error;
 use near_chain::test_utils::wait_for_all_blocks_in_processing;
 use near_chain::{ChainStoreAccess, Provenance};
-use near_chain_configs::Genesis;
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -24,14 +24,13 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
-use near_store::test_utils::{gen_account, gen_unique_accounts};
+use near_store::metadata::DbKind;
+use near_store::test_utils::{gen_account, gen_shard_accounts, gen_unique_accounts};
 use near_store::trie::SnapshotError;
 use near_store::{DBCol, ShardUId};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use rand::rngs::StdRng;
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -189,8 +188,9 @@ impl TestReshardingEnv {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let shard_accounts = gen_shard_accounts();
         let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
-        let initial_accounts = [validators, other_accounts].concat();
+        let initial_accounts = [validators, shard_accounts, other_accounts].concat();
         let genesis = setup_genesis(
             epoch_length,
             num_validators as u64,
@@ -218,7 +218,7 @@ impl TestReshardingEnv {
             .clients_count(num_clients)
             .validator_seats(num_validators)
             .real_stores()
-            .real_epoch_managers_with_test_overrides(epoch_config_test_overrides)
+            .epoch_managers_with_test_overrides(epoch_config_test_overrides)
             .nightshade_runtimes(&genesis)
             .track_all_shards()
             .build();
@@ -608,18 +608,18 @@ impl TestReshardingEnv {
     }
 
     /// Check that after resharding is finished, the artifacts stored in storage is removed
-    fn check_resharding_artifacts(&mut self) {
+    fn check_resharding_artifacts(&mut self, client_id: usize) {
         tracing::debug!(target: "test", "checking resharding artifacts");
 
-        let env = &mut self.env;
-        let head = env.clients[0].chain.head().unwrap();
+        let client = &mut self.env.clients[client_id];
+        let head = client.chain.head().unwrap();
         for height in 0..head.height {
             let (block_hash, num_shards) = {
-                let block = env.clients[0].chain.get_block_by_height(height).unwrap();
+                let block = client.chain.get_block_by_height(height).unwrap();
                 (*block.hash(), block.chunks().len() as NumShards)
             };
             for shard_id in 0..num_shards {
-                let res = env.clients[0]
+                let res = client
                     .chain
                     .chain_store()
                     .get_state_changes_for_resharding(&block_hash, shard_id);
@@ -994,7 +994,7 @@ fn test_shard_layout_upgrade_simple_impl(
 
     test_env.check_tx_outcomes(false);
     test_env.check_accounts(accounts_to_check.iter().collect());
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
     test_env.check_outgoing_receipts_reassigned(&resharding_type);
     tracing::info!(target: "test", "test_shard_layout_upgrade_simple_impl finished");
 }
@@ -1022,6 +1022,41 @@ fn test_shard_layout_upgrade_simple_v2_seed_43() {
 #[test]
 fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
+}
+
+#[test]
+fn test_resharding_with_different_db_kind() {
+    init_test_logger();
+
+    let genesis_protocol_version = get_genesis_protocol_version(&ReshardingType::V2);
+    let target_protocol_version = get_target_protocol_version(&ReshardingType::V2);
+
+    let epoch_length = 5;
+    let mut test_env = TestReshardingEnv::new(
+        epoch_length,
+        3,
+        3,
+        10,
+        None,
+        genesis_protocol_version,
+        42,
+        true,
+        Some(ReshardingType::V2),
+    );
+
+    // Set three different DbKind versions
+    test_env.env.clients[0].chain.chain_store().store().set_db_kind(DbKind::Hot).unwrap();
+    test_env.env.clients[1].chain.chain_store().store().set_db_kind(DbKind::Archive).unwrap();
+    test_env.env.clients[2].chain.chain_store().store().set_db_kind(DbKind::RPC).unwrap();
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..4 * epoch_length {
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+    }
+
+    test_env.check_resharding_artifacts(0);
+    test_env.check_resharding_artifacts(1);
+    test_env.check_resharding_artifacts(2);
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
@@ -1100,35 +1135,28 @@ fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
 ) -> HashMap<CryptoHash, AccountId> {
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
-    // different shards.
-    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut test_env.rng, 2);
-    let contract_accounts = vec![
-        test_env.initial_accounts[0].clone(),
-        test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[indices[0]].clone(),
-        test_env.initial_accounts[indices[1]].clone(),
-    ];
-    let init_txs = contract_accounts
-        .iter()
-        .map(|account_id| {
-            let signer = InMemorySigner::from_seed(
-                account_id.clone(),
-                KeyType::ED25519,
-                account_id.as_ref(),
-            );
-            SignedTransaction::from_actions(
-                1,
-                account_id.clone(),
-                account_id.clone(),
-                &signer,
-                vec![Action::DeployContract(DeployContractAction {
-                    code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                })],
-                genesis_hash,
-            )
-        })
-        .collect();
+
+    // Use the shard accounts where there should be one account per shard to get
+    // traffic in every shard.
+    let contract_accounts = gen_shard_accounts();
+
+    let mut init_txs = vec![];
+    for account_id in &contract_accounts {
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+        })];
+        let tx = SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            actions,
+            genesis_hash,
+        );
+        init_txs.push(tx);
+    }
     test_env.set_init_tx(init_txs);
 
     let mut nonce = 100;
@@ -1137,9 +1165,11 @@ fn setup_test_env_with_cross_contract_txs(
 
     // add a bunch of transactions before the two epoch boundaries
     for height in [
+        epoch_length - 3,
         epoch_length - 2,
         epoch_length - 1,
         epoch_length,
+        2 * epoch_length - 3,
         2 * epoch_length - 2,
         2 * epoch_length - 1,
         2 * epoch_length,
@@ -1151,8 +1181,8 @@ fn setup_test_env_with_cross_contract_txs(
             &mut all_accounts,
             &mut new_accounts,
             &mut nonce,
-            5,
-            8,
+            15,
+            20,
         );
 
         test_env.set_tx_at_height(height, txs);
@@ -1309,7 +1339,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
@@ -1334,7 +1364,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     test_env.check_accounts(new_accounts);
 
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 // Test cross contract calls
@@ -1372,7 +1402,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
@@ -1408,7 +1438,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 // This test doesn't make much sense for the V1 resharding. That is because in
@@ -1449,7 +1479,7 @@ fn test_missing_chunks(
     let new_accounts = setup_test_env_with_cross_contract_txs(test_env, epoch_length);
 
     // randomly dropping chunks at the first few epochs when sharding splits happens
-    // make sure initial txs (deploy smart contracts) are processed succesfully
+    // make sure initial txs (deploy smart contracts) are processed successfully
     let drop_chunk_condition = DropChunkCondition::new();
     for _ in 1..3 {
         test_env.step(&drop_chunk_condition, target_protocol_version);
@@ -1481,7 +1511,7 @@ fn test_missing_chunks(
         successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 
-    test_env.check_resharding_artifacts();
+    test_env.check_resharding_artifacts(0);
 }
 
 fn test_shard_layout_upgrade_missing_chunks(

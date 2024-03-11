@@ -1,13 +1,12 @@
-use std::time::Instant;
-
 use actix::Message;
+use near_async::time::Instant;
 use near_primitives::{hash::CryptoHash, sharding::PartialEncodedChunk};
 
 use crate::types::{
     PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 
-#[derive(Message, Debug, strum::IntoStaticStr)]
+#[derive(Message, Debug, strum::IntoStaticStr, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
 pub enum ShardsManagerRequestFromNetwork {
     ProcessPartialEncodedChunk(PartialEncodedChunk),

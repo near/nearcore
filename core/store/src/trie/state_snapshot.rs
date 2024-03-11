@@ -363,7 +363,7 @@ impl ShardTries {
         );
         let parent_path = snapshot_path
             .parent()
-            .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
+            .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
         tracing::debug!(target: "state_snapshot", ?snapshot_path, ?parent_path);
 
         let store_config = StoreConfig::default();

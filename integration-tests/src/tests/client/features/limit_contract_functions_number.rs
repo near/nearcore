@@ -8,7 +8,6 @@ use near_primitives::errors::{
 };
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[allow(dead_code)]
@@ -29,7 +28,6 @@ fn verify_contract_limits_upgrade(
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let mut env = TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],

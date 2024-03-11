@@ -7,7 +7,6 @@ use near_primitives::account::{AccessKey, AccessKeyPermission, FunctionCallPermi
 use near_primitives::errors::{ActionsValidationError, InvalidTxError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, AddKeyAction, Transaction};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[test]
@@ -30,7 +29,6 @@ fn test_account_id_in_function_call_permission_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],
@@ -93,7 +91,6 @@ fn test_very_long_account_id() {
     let mut env = {
         let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],

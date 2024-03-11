@@ -1,0 +1,6 @@
+yield_resume: { old: false, new: true }
+# FIXME(yield_resume): These fees are placeholders.
+wasm_yield_create_base: { old: 300_000_000_000_000, new: 50_000_000_000_000 }
+wasm_yield_create_byte: { old: 300_000_000_000_000, new: 10_000_000 }
+wasm_yield_resume_base: { old: 300_000_000_000_000, new: 50_000_000_000_000 }
+wasm_yield_resume_byte: { old: 300_000_000_000_000, new: 100_000_000 }

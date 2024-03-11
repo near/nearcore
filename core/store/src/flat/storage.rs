@@ -198,7 +198,7 @@ impl FlatStorageInner {
                 .deltas
                 .get(&new_head)
                 // BlockNotSupported error kind will be handled gracefully.
-                .ok_or(self.create_block_not_supported_error(&new_head))?
+                .ok_or_else(|| self.create_block_not_supported_error(&new_head))?
                 .metadata;
             new_head = match metadata.prev_block_with_changes {
                 None => {
@@ -245,7 +245,7 @@ impl FlatStorage {
                 )));
             }
         };
-        let metrics = FlatStorageMetrics::new(shard_id);
+        let metrics = FlatStorageMetrics::new(shard_uid);
         metrics.set_flat_head_height(flat_head.height);
 
         let deltas_metadata = store_helper::get_all_deltas_metadata(&store, shard_uid)
@@ -255,13 +255,17 @@ impl FlatStorage {
         let mut deltas = HashMap::new();
         for delta_metadata in deltas_metadata {
             let block_hash = delta_metadata.block.hash;
-            let changes: CachedFlatStateChanges =
+            let changes: CachedFlatStateChanges = if delta_metadata.has_changes() {
                 store_helper::get_delta_changes(&store, shard_uid, block_hash)
                     .expect("failed to read flat state delta changes")
                     .unwrap_or_else(|| {
                         panic!("cannot find block delta for block {block_hash:?} shard {shard_id}")
                     })
-                    .into();
+                    .into()
+            } else {
+                // Don't read delta if we know that it is empty.
+                Default::default()
+            };
             deltas.insert(
                 block_hash,
                 CachedFlatStateDelta { metadata: delta_metadata, changes: Arc::new(changes) },
@@ -439,11 +443,10 @@ impl FlatStorage {
     pub fn add_delta(&self, delta: FlatStateDelta) -> Result<StoreUpdate, FlatStorageError> {
         let mut guard = self.0.write().expect(super::POISONED_LOCK_ERR);
         let shard_uid = guard.shard_uid;
-        let shard_id = shard_uid.shard_id();
         let block = &delta.metadata.block;
         let block_hash = block.hash;
         let block_height = block.height;
-        debug!(target: "store", %shard_id, %block_hash, %block_height, "Adding block to flat storage");
+        debug!(target: "store", %shard_uid, %block_hash, %block_height, "Adding block to flat storage");
         if block.prev_hash != guard.flat_head.hash && !guard.deltas.contains_key(&block.prev_hash) {
             return Err(guard.create_block_not_supported_error(&block_hash));
         }

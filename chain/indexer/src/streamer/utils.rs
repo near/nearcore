@@ -59,6 +59,7 @@ pub(crate) async fn convert_transactions_sir_into_local_receipts(
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
                         actions: tx.transaction.actions.clone(),
+                        is_promise_yield: false,
                     },
                 }
             })

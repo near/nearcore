@@ -117,7 +117,7 @@ pub struct AccountData {
 /// Wrapper of the AccountData which adds metadata to it.
 /// It allows to decide which AccountData is newer (authoritative)
 /// and discard the older versions.
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct VersionedAccountData {
     /// The wrapped account data.
     pub data: AccountData,
@@ -218,7 +218,7 @@ impl AccountKeySignedPayload {
 // TODO(gprusak): this is effectively immutable, and we always pass it around
 // in an Arc, so the Arc can be moved inside (except that constructing malformed
 // SignedAccountData for tests may get a little tricky).
-#[derive(PartialEq, Eq, Debug, Hash)]
+#[derive(PartialEq, Eq, Debug, Hash, Clone)]
 pub struct SignedAccountData {
     account_data: VersionedAccountData,
     // Serialized and signed AccountData.

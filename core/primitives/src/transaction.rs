@@ -14,6 +14,8 @@ use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+pub use crate::action::NonrefundableStorageTransferAction;
 pub use crate::action::{
     Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
     DeployContractAction, FunctionCallAction, StakeAction, TransferAction,

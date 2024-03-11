@@ -41,6 +41,7 @@
   - [Run Gas Estimations](./practices/workflows/gas_estimations.md)
   - [Localnet on many machines](./practices/workflows/localnet_on_many_machines.md)
   - [IO tracing](./practices/workflows/io_trace.md)
+  - [Working with OpenTelemetry Traces](./practices/workflows/otel_traces.md)
 - [Code Style](./practices/style.md)
 - [Documentation](./practices/docs.md)
 - [Tracking Issues](./practices/tracking_issues.md)
@@ -49,6 +50,7 @@
 - [Testing](./practices/testing/README.md)
   - [Python Tests](./practices/testing/python_tests.md)
   - [Testing Utils](./practices/testing/test_utils.md)
+  - [Test Coverage](./practices/testing/coverage.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
 
 # Advanced configuration

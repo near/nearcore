@@ -3,7 +3,7 @@ use super::test_env::TestEnv;
 use super::{AccountIndices, TEST_SEED};
 use actix_rt::System;
 use itertools::{multizip, Itertools};
-use near_async::messaging::IntoSender;
+use near_async::messaging::{IntoMultiSender, IntoSender};
 use near_async::time::Clock;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
@@ -199,29 +199,6 @@ impl TestEnvBuilder {
         }
     }
 
-    /// Specifies custom MockEpochManager for each client.  This allows us to
-    /// construct [`TestEnv`] with a custom implementation.
-    ///
-    /// The vector must have the same number of elements as they are clients
-    /// (one by default).  If that does not hold, [`Self::build`] method will
-    /// panic.
-    pub fn mock_epoch_managers(mut self, epoch_managers: Vec<Arc<MockEpochManager>>) -> Self {
-        assert_eq!(epoch_managers.len(), self.clients.len());
-        assert!(self.epoch_managers.is_none(), "Cannot override twice");
-        assert!(
-            self.num_shards.is_none(),
-            "Cannot set both num_shards and epoch_managers at the same time"
-        );
-        assert!(
-            self.shard_trackers.is_none(),
-            "Cannot override epoch_managers after shard_trackers"
-        );
-        assert!(self.runtimes.is_none(), "Cannot override epoch_managers after runtimes");
-        self.epoch_managers =
-            Some(epoch_managers.into_iter().map(|epoch_manager| epoch_manager.into()).collect());
-        self
-    }
-
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
     /// construct [`TestEnv`] with a custom implementation.
     ///
@@ -245,12 +222,8 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn real_epoch_managers(self) -> Self {
-        self.real_epoch_managers_with_test_overrides(None)
-    }
-
     /// Constructs real EpochManager implementations for each instance.
-    pub fn real_epoch_managers_with_test_overrides(
+    pub fn epoch_managers_with_test_overrides(
         self,
         test_overrides: Option<AllEpochConfigTestOverrides>,
     ) -> Self {
@@ -273,10 +246,17 @@ impl TestEnvBuilder {
 
     /// Internal impl to make sure EpochManagers are initialized.
     fn ensure_epoch_managers(self) -> Self {
-        let mut ret = self.ensure_stores();
+        let ret = self.ensure_stores();
         if ret.epoch_managers.is_some() {
             return ret;
         }
+        ret.epoch_managers_with_test_overrides(None)
+    }
+
+    /// Constructs MockEpochManager implementations for each instance.
+    pub fn mock_epoch_managers(self) -> Self {
+        assert!(self.epoch_managers.is_none(), "Cannot override twice");
+        let mut ret = self.ensure_stores();
         let epoch_managers: Vec<EpochManagerKind> = (0..ret.clients.len())
             .map(|i| {
                 let vs = ValidatorSchedule::new_with_shards(ret.num_shards.unwrap_or(1))
@@ -359,6 +339,15 @@ impl TestEnvBuilder {
             })
             .collect();
         ret.shard_trackers(shard_trackers)
+    }
+
+    /// Calls track_all_shards only if the given boolean is true.
+    pub fn maybe_track_all_shards(self, track_all_shards: bool) -> Self {
+        if track_all_shards {
+            self.track_all_shards()
+        } else {
+            self
+        }
     }
 
     /// Internal impl to make sure ShardTrackers are initialized.
@@ -493,7 +482,7 @@ impl TestEnvBuilder {
                     clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
-                    network_adapter.into(),
+                    network_adapter.as_multi_sender(),
                     epoch_manager.into_adapter(),
                     shard_tracker,
                     runtime,
@@ -529,10 +518,11 @@ impl TestEnvBuilder {
                         delete_snapshot_callback,
                     };
                     setup_client_with_runtime(
+                        clock.clone(),
                         u64::try_from(num_validators).unwrap(),
                         Some(account_id),
                         false,
-                        network_adapter.into(),
+                        network_adapter.as_multi_sender(),
                         shards_manager_adapter,
                         chain_genesis.clone(),
                         epoch_manager.into_adapter(),

@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_async::time::Clock;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -24,14 +25,13 @@ use near_primitives::types::AccountId;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::Trie;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Check that block containing a challenge is rejected.
 /// TODO (#2445): Enable challenges when they are working correctly.
 #[test]
 fn test_block_with_challenges() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
 
     let mut block = env.clients[0].produce_block(1).unwrap().unwrap();
@@ -60,10 +60,7 @@ fn test_block_with_challenges() {
 #[test]
 fn test_invalid_chunk_state() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     env.produce_block(0, 1);
     let block_hash = env.clients[0].chain.get_block_hash_by_height(1).unwrap();
 
@@ -86,7 +83,7 @@ fn test_invalid_chunk_state() {
 
 #[test]
 fn test_verify_block_double_sign_challenge() {
-    let mut env = TestEnv::default_builder().clients_count(2).build();
+    let mut env = TestEnv::default_builder().clients_count(2).mock_epoch_managers().build();
     env.produce_block(0, 1);
     let genesis = env.clients[0].chain.get_block_by_height(0).unwrap();
     let b1 = env.clients[0].produce_block(2).unwrap().unwrap();
@@ -117,7 +114,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        Clock::real().now_utc(),
     );
     let epoch_id = b1.header().epoch_id().clone();
     let valid_challenge = Challenge::produce(
@@ -195,7 +192,7 @@ fn create_invalid_proofs_chunk(client: &mut Client) -> (ProduceChunkResult, Bloc
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -208,7 +205,7 @@ fn test_verify_chunk_invalid_proofs_challenge() {
 
 #[test]
 fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     env.produce_block(0, 1);
     let (ProduceChunkResult { chunk: encoded_chunk, .. }, block) =
         create_invalid_proofs_chunk(&mut env.clients[0]);
@@ -223,7 +220,7 @@ fn test_verify_chunk_invalid_proofs_challenge_decoded_chunk() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     env.produce_block(0, 1);
     // Valid chunk
     let (ProduceChunkResult { chunk, .. }, block) = create_chunk(&mut env.clients[0], None, None);
@@ -236,7 +233,7 @@ fn test_verify_chunk_proofs_malicious_challenge_no_changes() {
 
 #[test]
 fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -272,7 +269,7 @@ fn test_verify_chunk_proofs_malicious_challenge_valid_order_transactions() {
 
 #[test]
 fn test_verify_chunk_proofs_challenge_transaction_order() {
-    let mut env = TestEnv::default_builder().build();
+    let mut env = TestEnv::default_builder().mock_epoch_managers().build();
     env.produce_block(0, 1);
 
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -334,10 +331,7 @@ fn challenge(
 fn test_verify_chunk_invalid_state_challenge() {
     let mut genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     genesis.config.min_gas_price = 0;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = InMemorySigner::from_seed("test0".parse().unwrap(), KeyType::ED25519, "test0");
     let validator_signer = create_test_signer("test0");
     let genesis_hash = *env.clients[0].chain.genesis().hash();
@@ -435,7 +429,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        Clock::real().now_utc(),
     );
 
     let challenge_body =

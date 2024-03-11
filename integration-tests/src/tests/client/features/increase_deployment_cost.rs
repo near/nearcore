@@ -8,7 +8,6 @@ use near_primitives::transaction::{Action, DeployContractAction};
 use near_primitives::version::ProtocolFeature;
 use near_primitives::views::FinalExecutionStatus;
 use near_primitives_core::version::PROTOCOL_VERSION;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 /// Tests if the cost of deployment is higher after the protocol update 53
@@ -35,7 +34,6 @@ fn test_deploy_cost_increased() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],

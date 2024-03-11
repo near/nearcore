@@ -242,7 +242,6 @@ fn input_data(db_config: &RocksDBTestConfig, data_size: usize) -> Vec<u8> {
 fn backup_input_data(data: &[u8]) {
     let mut stats_file = std::fs::OpenOptions::new()
         .read(true)
-        .write(true)
         .append(true)
         .create(true)
         .open("names-to-stats.txt")

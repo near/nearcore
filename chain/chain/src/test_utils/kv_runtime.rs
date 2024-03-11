@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::BlockHeader;
 use borsh::{BorshDeserialize, BorshSerialize};
+use near_async::time::Duration;
 use near_chain_configs::{ProtocolConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
 use near_chain_primitives::Error;
 use near_crypto::{KeyType, PublicKey, SecretKey, Signature};
@@ -13,6 +14,7 @@ use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManagerAdapter, RngSeed};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -52,7 +54,6 @@ use num_rational::Ratio;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// Simple key value runtime for tests.
 ///
@@ -589,6 +590,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(shard_ids)
     }
 
+    fn get_prev_shard_id(
+        &self,
+        _prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        Ok(shard_id)
+    }
+
     fn get_shard_layout_from_prev_block(
         &self,
         _parent_hash: &CryptoHash,
@@ -686,6 +695,18 @@ impl EpochManagerAdapter for MockEpochManager {
     ) -> Result<Vec<ValidatorStake>, EpochError> {
         tracing::warn!("not implemented, returning a dummy value");
         Ok(vec![])
+    }
+
+    /// We need to override the default implementation to make
+    /// `Chain::should_produce_state_witness_for_this_or_next_epoch` work
+    /// since `get_epoch_chunk_producers` returns empty Vec which results
+    /// in state transition data not being saved on disk.
+    fn is_chunk_producer_for_epoch(
+        &self,
+        _epoch_id: &EpochId,
+        _account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(true)
     }
 
     fn get_block_producer(
@@ -934,6 +955,14 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(true)
     }
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        _state_witness: &ChunkStateWitness,
+        _epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        Ok(true)
+    }
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -980,6 +1009,14 @@ impl EpochManagerAdapter for MockEpochManager {
         let shard_layout = self.get_shard_layout(&epoch_id)?;
         let next_shard_layout = self.get_shard_layout(&next_epoch_id)?;
         Ok(shard_layout != next_shard_layout)
+    }
+
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        _tip: &Tip,
+        _height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        unimplemented!();
     }
 
     #[cfg(feature = "new_epoch_sync")]
@@ -1046,7 +1083,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        _storage: RuntimeStorageConfig,
+        storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1057,7 +1094,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof: None })
+        Ok(PreparedTransactions {
+            transactions: res,
+            limited_by: None,
+            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
+        })
     }
 
     fn apply_chunk(
@@ -1068,7 +1109,6 @@ impl RuntimeAdapter for KeyValueRuntime {
         receipts: &[Receipt],
         transactions: &[SignedTransaction],
     ) -> Result<ApplyChunkResult, Error> {
-        assert!(!storage_config.record_storage);
         let mut tx_results = vec![];
         let shard_id = chunk.shard_id;
 
@@ -1078,7 +1118,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         let mut balance_transfers = vec![];
 
         for receipt in receipts.iter() {
-            if let ReceiptEnum::Action(action) = &receipt.receipt {
+            if let ReceiptEnum::Action(action) | ReceiptEnum::PromiseYield(action) =
+                &receipt.receipt
+            {
                 assert_eq!(account_id_to_shard_id(&receipt.receiver_id, self.num_shards), shard_id);
                 if !state.receipt_nonces.contains(&receipt.receipt_id) {
                     state.receipt_nonces.insert(receipt.receipt_id);
@@ -1095,7 +1137,7 @@ impl RuntimeAdapter for KeyValueRuntime {
                     panic!("receipts should never be applied twice");
                 }
             } else {
-                unreachable!();
+                unreachable!("only action receipts can be applied");
             }
         }
 
@@ -1216,7 +1258,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: None,
+            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
             processed_delayed_receipts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
@@ -1242,8 +1284,10 @@ impl RuntimeAdapter for KeyValueRuntime {
                             |state| *state.amounts.get(account_id).unwrap_or(&0),
                         ),
                         0,
+                        0,
                         CryptoHash::default(),
                         0,
+                        PROTOCOL_VERSION,
                     )
                     .into(),
                 ),

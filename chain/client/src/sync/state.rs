@@ -24,11 +24,11 @@ use crate::metrics;
 use crate::sync::external::{
     create_bucket_readonly, external_storage_location, ExternalConnection,
 };
-use actix_rt::ArbiterHandle;
 use borsh::BorshDeserialize;
-use chrono::{DateTime, Duration, Utc};
 use futures::{future, FutureExt};
-use near_async::messaging::CanSendAsync;
+use near_async::futures::{FutureSpawner, FutureSpawnerExt};
+use near_async::messaging::SendAsync;
+use near_async::time::{Clock, Duration, Utc};
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::near_chain_primitives;
 use near_chain::resharding::ReshardingRequest;
@@ -50,7 +50,6 @@ use near_primitives::state_part::PartId;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, StatePartKey,
 };
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{AccountId, EpochHeight, EpochId, ShardId, StateRoot};
 use near_store::DBCol;
 use rand::seq::SliceRandom;
@@ -60,7 +59,6 @@ use std::ops::Add;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Duration as TimeDuration;
 use tokio::sync::{Semaphore, TryAcquireError};
 use tracing::info;
 
@@ -73,7 +71,7 @@ pub const MAX_STATE_PART_REQUEST: u64 = 16;
 pub const MAX_PENDING_PART: u64 = MAX_STATE_PART_REQUEST * 10000;
 /// Time limit per state dump iteration.
 /// A node must check external storage for parts to dump again once time is up.
-pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: u64 = 300;
+pub const STATE_DUMP_ITERATION_TIME_LIMIT_SECS: i64 = 300;
 
 pub enum StateSyncResult {
     /// State sync still in progress. No action needed by the caller.
@@ -83,17 +81,18 @@ pub enum StateSyncResult {
 }
 
 struct PendingRequestStatus {
+    clock: Clock,
     /// Number of parts that are in progress (we requested them from a given peer but didn't get the answer yet).
     missing_parts: usize,
-    wait_until: DateTime<Utc>,
+    wait_until: Utc,
 }
 
 impl PendingRequestStatus {
-    fn new(timeout: Duration) -> Self {
-        Self { missing_parts: 1, wait_until: StaticClock::utc().add(timeout) }
+    fn new(clock: Clock, timeout: Duration) -> Self {
+        Self { clock: clock.clone(), missing_parts: 1, wait_until: clock.now_utc().add(timeout) }
     }
     fn expired(&self) -> bool {
-        StaticClock::utc() > self.wait_until
+        self.clock.now_utc() > self.wait_until
     }
 }
 
@@ -134,6 +133,7 @@ enum StateSyncInner {
 
 /// Helper to track state sync.
 pub struct StateSync {
+    clock: Clock,
     /// How to retrieve the state data.
     inner: StateSyncInner,
 
@@ -158,8 +158,9 @@ pub struct StateSync {
 
 impl StateSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
-        timeout: TimeDuration,
+        timeout: Duration,
         chain_id: &str,
         sync_config: &SyncConfig,
         catchup: bool,
@@ -176,7 +177,11 @@ impl StateSync {
             }) => {
                 let external = match location {
                     ExternalStorageLocation::S3 { bucket, region, .. } => {
-                        let bucket = create_bucket_readonly(&bucket, &region, timeout);
+                        let bucket = create_bucket_readonly(
+                            &bucket,
+                            &region,
+                            timeout.max(Duration::ZERO).unsigned_abs(),
+                        );
                         if let Err(err) = bucket {
                             panic!("Failed to create an S3 bucket: {}", err);
                         }
@@ -203,9 +208,9 @@ impl StateSync {
                 }
             }
         };
-        let timeout = Duration::from_std(timeout).unwrap();
         let (tx, rx) = channel::<StateSyncGetFileResult>();
         StateSync {
+            clock,
             inner,
             network_adapter,
             timeout,
@@ -227,10 +232,10 @@ impl StateSync {
         epoch_manager: &dyn EpochManagerAdapter,
         highest_height_peers: &[HighestHeightPeerInfo],
         tracking_shards: Vec<ShardId>,
-        now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
-        state_parts_arbiter_handle: &ArbiterHandle,
+        now: Utc,
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
+        state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<bool, near_chain::Error> {
@@ -337,7 +342,7 @@ impl StateSync {
                 tracing::warn!(
                     target: "sync",
                     %shard_id,
-                    timeout_sec = self.timeout.num_seconds(),
+                    timeout_sec = self.timeout.whole_seconds(),
                     "State sync didn't download the state, sending StateRequest again");
                 tracing::debug!(
                     target: "sync",
@@ -357,7 +362,7 @@ impl StateSync {
                     shard_sync_download,
                     highest_height_peers,
                     runtime_adapter.clone(),
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 )?;
             }
         }
@@ -533,7 +538,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         highest_height_peers: &[HighestHeightPeerInfo],
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), near_chain::Error> {
         let mut possible_targets = vec![];
         match self.inner {
@@ -558,7 +563,7 @@ impl StateSync {
                     sync_hash,
                     &possible_targets,
                     shard_sync_download,
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 );
             }
             ShardSyncStatus::StateDownloadParts => {
@@ -569,7 +574,7 @@ impl StateSync {
                     shard_sync_download,
                     chain,
                     runtime_adapter,
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                 );
             }
             _ => {}
@@ -586,7 +591,7 @@ impl StateSync {
         sync_hash: CryptoHash,
         possible_targets: &[PeerId],
         new_shard_sync_download: &mut ShardSyncDownload,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) {
         let header_download = new_shard_sync_download.get_header_download_mut().unwrap();
         match &mut self.inner {
@@ -628,7 +633,7 @@ impl StateSync {
                     epoch_height,
                     &chain_id.clone(),
                     external.clone(),
-                    state_parts_arbiter_handle,
+                    state_parts_future_spawner,
                     self.state_parts_mpsc_tx.clone(),
                 );
             }
@@ -644,7 +649,7 @@ impl StateSync {
         new_shard_sync_download: &mut ShardSyncDownload,
         chain: &Chain,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) {
         // Iterate over all parts that needs to be requested (i.e. download.run_me is true).
         // Parts are ordered such that its index match its part_id.
@@ -664,6 +669,7 @@ impl StateSync {
                     parts_to_fetch(new_shard_sync_download).zip(possible_targets_sampler)
                 {
                     sent_request_part(
+                        self.clock.clone(),
                         target.clone(),
                         part_id,
                         shard_id,
@@ -706,7 +712,7 @@ impl StateSync {
                         semaphore.clone(),
                         external.clone(),
                         runtime_adapter.clone(),
-                        state_parts_arbiter_handle,
+                        state_parts_future_spawner,
                         self.state_parts_mpsc_tx.clone(),
                     );
                     if semaphore.available_permits() == 0 {
@@ -731,15 +737,15 @@ impl StateSync {
         highest_height_peers: &[HighestHeightPeerInfo],
         // Shards to sync.
         tracking_shards: Vec<ShardId>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
+        state_parts_future_spawner: &dyn FutureSpawner,
         use_colour: bool,
         runtime_adapter: Arc<dyn RuntimeAdapter>,
     ) -> Result<StateSyncResult, near_chain::Error> {
         let _span = tracing::debug_span!(target: "sync", "run", sync = "StateSync").entered();
         tracing::trace!(target: "sync", %sync_hash, ?tracking_shards, "syncing state");
-        let now = StaticClock::utc();
+        let now = self.clock.now_utc();
 
         if tracking_shards.is_empty() {
             // This case is possible if a validator cares about the same shards in the new epoch as
@@ -762,7 +768,7 @@ impl StateSync {
             now,
             state_parts_task_scheduler,
             resharding_scheduler,
-            state_parts_arbiter_handle,
+            state_parts_future_spawner,
             use_colour,
             runtime_adapter,
         )?;
@@ -852,7 +858,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &Chain,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> Result<(bool, bool), near_chain::Error> {
         let download = &mut shard_sync_download.downloads[0];
         // StateDownloadHeader is the first step. We want to fetch the basic information about the state (its size, hash etc).
@@ -896,7 +902,7 @@ impl StateSync {
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> (bool, bool) {
         // Step 2 - download all the parts (each part is usually around 1MB).
         let mut download_timeout = false;
@@ -955,8 +961,8 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
-        now: DateTime<Utc>,
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
+        now: Utc,
+        state_parts_task_scheduler: &near_async::messaging::Sender<ApplyStatePartsRequest>,
     ) -> Result<(), near_chain::Error> {
         let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
         let state_num_parts = shard_state_header.num_state_parts();
@@ -993,7 +999,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &mut Chain,
-        now: DateTime<Utc>,
+        now: Utc,
     ) -> Result<(), near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
@@ -1048,7 +1054,7 @@ impl StateSync {
         shard_sync_download: &mut ShardSyncDownload,
         sync_hash: CryptoHash,
         chain: &Chain,
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
         chain.build_state_for_resharding_preprocessing(
@@ -1129,7 +1135,7 @@ fn request_header_from_external_storage(
     epoch_height: EpochHeight,
     chain_id: &str,
     external: ExternalConnection,
-    state_parts_arbiter_handle: &ArbiterHandle,
+    state_parts_future_spawner: &dyn FutureSpawner,
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
 ) {
     if !download.run_me.swap(false, Ordering::SeqCst) {
@@ -1146,7 +1152,8 @@ fn request_header_from_external_storage(
         shard_id,
         &StateFileType::StateHeader,
     );
-    if state_parts_arbiter_handle.spawn({
+    state_parts_future_spawner.spawn(
+        "download_header_from_external_storage", 
         async move {
             let result = download_header_from_external_storage(shard_id, sync_hash, location, external).await;
             match state_parts_mpsc_tx.send(StateSyncGetFileResult {
@@ -1161,10 +1168,7 @@ fn request_header_from_external_storage(
                 },
             }
         }
-    }) == false
-    {
-        tracing::error!(target: "sync", %shard_id, "Unable to spawn download. state_parts_arbiter has died.");
-    }
+    );
 }
 
 async fn download_and_store_part_from_external_storage(
@@ -1212,7 +1216,7 @@ fn request_part_from_external_storage(
     semaphore: Arc<Semaphore>,
     external: ExternalConnection,
     runtime_adapter: Arc<dyn RuntimeAdapter>,
-    state_parts_arbiter_handle: &ArbiterHandle,
+    state_parts_future_spawner: &dyn FutureSpawner,
     state_parts_mpsc_tx: Sender<StateSyncGetFileResult>,
 ) {
     if !download.run_me.swap(false, Ordering::SeqCst) {
@@ -1232,7 +1236,8 @@ fn request_part_from_external_storage(
 
     match semaphore.try_acquire_owned() {
         Ok(permit) => {
-            if state_parts_arbiter_handle.spawn({
+            state_parts_future_spawner.spawn(
+                "download_and_store_part_from_external_storage",
                 async move {
                     let file_type = StateFileType::StatePart { part_id, num_parts };
                     let part_id = PartId{ idx: part_id, total: num_parts };
@@ -1260,14 +1265,11 @@ fn request_part_from_external_storage(
                     }
                     drop(permit)
                 }
-            }) == false
-            {
-                tracing::error!(target: "sync", %shard_id, part_id, "Unable to spawn download. state_parts_arbiter has died.");
-            }
-        },
+            );
+        }
         Err(TryAcquireError::NoPermits) => {
             download.run_me.store(true, Ordering::SeqCst);
-        },
+        }
         Err(TryAcquireError::Closed) => {
             download.run_me.store(true, Ordering::SeqCst);
             tracing::warn!(target: "sync", %shard_id, part_id, "Failed to schedule download. Semaphore closed.");
@@ -1310,6 +1312,7 @@ fn request_part_from_peers(
 }
 
 fn sent_request_part(
+    clock: Clock,
     peer_id: PeerId,
     part_id: u64,
     shard_id: ShardId,
@@ -1325,7 +1328,7 @@ fn sent_request_part(
         .and_modify(|pending_request| {
             pending_request.missing_parts += 1;
         })
-        .or_insert_with(|| PendingRequestStatus::new(timeout));
+        .or_insert_with(|| PendingRequestStatus::new(clock, timeout));
 }
 
 /// Works around how data requests to external storage are done.
@@ -1428,6 +1431,9 @@ mod test {
     use actix::System;
     use actix_rt::Arbiter;
     use near_actix_test_utils::run_actix;
+    use near_async::futures::ActixArbiterHandleFutureSpawner;
+    use near_async::messaging::{noop, IntoMultiSender, IntoSender};
+    use near_async::time::Clock;
     use near_chain::test_utils;
     use near_chain::{test_utils::process_block_sync, BlockProcessingArtifact, Provenance};
     use near_crypto::SecretKey;
@@ -1444,27 +1450,28 @@ mod test {
     fn test_ask_for_header() {
         let mock_peer_manager = Arc::new(MockPeerManagerAdapter::default());
         let mut state_sync = StateSync::new(
-            mock_peer_manager.clone().into(),
-            TimeDuration::from_secs(1),
+            Clock::real(),
+            mock_peer_manager.as_multi_sender(),
+            Duration::seconds(1),
             "chain_id",
             &SyncConfig::Peers,
             false,
         );
         let mut new_shard_sync = HashMap::new();
 
-        let (mut chain, kv, runtime, signer) = test_utils::setup();
+        let (mut chain, kv, runtime, signer) = test_utils::setup(Clock::real());
 
         // TODO: lower the epoch length
         for _ in 0..(chain.epoch_length + 1) {
             let prev = chain.get_block(&chain.head().unwrap().last_block_hash).unwrap();
             let block = if kv.is_next_block_epoch_start(prev.hash()).unwrap() {
-                TestBlockBuilder::new(&prev, signer.clone())
+                TestBlockBuilder::new(Clock::real(), &prev, signer.clone())
                     .epoch_id(prev.header().next_epoch_id().clone())
                     .next_epoch_id(EpochId { 0: *prev.hash() })
                     .next_bp_hash(*prev.header().next_bp_hash())
                     .build()
             } else {
-                TestBlockBuilder::new(&prev, signer.clone()).build()
+                TestBlockBuilder::new(Clock::real(), &prev, signer.clone()).build()
             };
 
             process_block_sync(
@@ -1483,9 +1490,6 @@ mod test {
             ShardStateSyncResponseHeader::V1(_) => panic!("Invalid header"),
             ShardStateSyncResponseHeader::V2(internal) => internal,
         };
-
-        let apply_parts_fn = move |_: ApplyStatePartsRequest| {};
-        let resharding_fn = move |_: ReshardingRequest| {};
 
         let secret_key = SecretKey::from_random(near_crypto::KeyType::ED25519);
         let public_key = secret_key.public_key();
@@ -1509,9 +1513,9 @@ mod test {
                     kv.as_ref(),
                     &[highest_height_peer_info],
                     vec![0],
-                    &apply_parts_fn,
-                    &resharding_fn,
-                    &Arbiter::new().handle(),
+                    &noop().into_sender(),
+                    &noop().into_sender(),
+                    &ActixArbiterHandleFutureSpawner(Arbiter::new().handle()),
                     false,
                     runtime,
                 )

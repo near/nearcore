@@ -2,6 +2,7 @@ use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
 use near_chain_configs::GenesisConfig;
+use near_primitives::block::Tip;
 use near_primitives::checked_feature;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::{EpochInfo, EpochSummary};
@@ -474,7 +475,7 @@ impl EpochManager {
             }
             let block_stats = block_validator_tracker
                 .get(&(i as u64))
-                .unwrap_or_else(|| &ValidatorStats { expected: 0, produced: 0 })
+                .unwrap_or(&ValidatorStats { expected: 0, produced: 0 })
                 .clone();
             let mut chunk_stats = ValidatorStats { produced: 0, expected: 0 };
             for (_, tracker) in chunk_validator_tracker.iter() {
@@ -544,9 +545,6 @@ impl EpochManager {
             if let Some(validator) = max_validator {
                 validator_kickout.remove(&validator);
             }
-        }
-        for account_id in validator_kickout.keys() {
-            validator_block_chunk_stats.remove(account_id);
         }
         (validator_kickout, validator_block_chunk_stats)
     }
@@ -678,7 +676,7 @@ impl EpochManager {
         let EpochSummary {
             all_proposals,
             validator_kickout,
-            validator_block_chunk_stats,
+            mut validator_block_chunk_stats,
             next_version,
             ..
         } = epoch_summary;
@@ -690,6 +688,15 @@ impl EpochManager {
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
+            for (account_id, reason) in validator_kickout.iter() {
+                if matches!(
+                    reason,
+                    ValidatorKickoutReason::NotEnoughBlocks { .. }
+                        | ValidatorKickoutReason::NotEnoughChunks { .. }
+                ) {
+                    validator_block_chunk_stats.remove(account_id);
+                }
+            }
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,
@@ -748,7 +755,7 @@ impl EpochManager {
         let mut store_update = self.store.store_update();
         // Check that we didn't record this block yet.
         if !self.has_block_info(&current_hash)? {
-            if block_info.prev_hash() == &CryptoHash::default() {
+            if block_info.is_genesis() {
                 // This is genesis block, we special case as new epoch.
                 assert_eq!(block_info.proposals_iter().len(), 0);
                 let pre_genesis_epoch_id = EpochId::default();
@@ -763,7 +770,7 @@ impl EpochManager {
                 let prev_block_info = self.get_block_info(block_info.prev_hash())?;
 
                 let mut is_epoch_start = false;
-                if prev_block_info.prev_hash() == &CryptoHash::default() {
+                if prev_block_info.is_genesis() {
                     // This is first real block, starts the new epoch.
                     *block_info.epoch_id_mut() = EpochId::default();
                     *block_info.epoch_first_block_mut() = current_hash;
@@ -1029,7 +1036,7 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<ValidatorStake, EpochError> {
         let epoch_info = self.get_epoch_info(epoch_id)?;
-        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id);
+        let validator_id = Self::chunk_producer_from_info(&epoch_info, height, shard_id)?;
         Ok(epoch_info.get_validator(validator_id))
     }
 
@@ -1361,7 +1368,7 @@ impl EpochManager {
                         let block_stats = aggregator
                             .block_tracker
                             .get(&(validator_id as u64))
-                            .unwrap_or_else(|| &ValidatorStats { produced: 0, expected: 0 })
+                            .unwrap_or(&ValidatorStats { produced: 0, expected: 0 })
                             .clone();
 
                         let mut chunks_produced_by_shard: HashMap<ShardId, NumBlocks> =
@@ -1556,13 +1563,17 @@ impl EpochManager {
         epoch_info: &EpochInfo,
         height: BlockHeight,
         shard_id: ShardId,
-    ) -> ValidatorId {
-        epoch_info.sample_chunk_producer(height, shard_id)
+    ) -> Result<ValidatorId, EpochError> {
+        epoch_info.sample_chunk_producer(height, shard_id).ok_or_else(|| {
+            EpochError::ChunkProducerSelectionError(format!(
+                "Invalid shard {shard_id} for height {height}"
+            ))
+        })
     }
 
     /// Returns true, if given current block info, next block supposed to be in the next epoch.
     fn is_next_block_in_next_epoch(&self, block_info: &BlockInfo) -> Result<bool, EpochError> {
-        if block_info.prev_hash() == &CryptoHash::default() {
+        if block_info.is_genesis() {
             return Ok(true);
         }
         let protocol_version = self.get_epoch_info_from_hash(block_info.hash())?.protocol_version();
@@ -1849,10 +1860,9 @@ impl EpochManager {
             // current block, but then drop it so that we can call
             // get_block_info for previous block.
             let block_info = self.get_block_info(&cur_hash)?;
-            let prev_hash = *block_info.prev_hash();
             let different_epoch = &epoch_id != block_info.epoch_id();
 
-            if different_epoch || prev_hash == CryptoHash::default() {
+            if different_epoch || block_info.is_genesis() {
                 // We’ve reached the beginning of an epoch or a genesis block
                 // without seeing self.epoch_info_aggregator.last_block_hash.
                 // This implies self.epoch_info_aggregator.last_block_hash
@@ -1862,6 +1872,7 @@ impl EpochManager {
                 break (aggregator, true);
             }
 
+            let prev_hash = *block_info.prev_hash();
             let prev_info = self.get_block_info(&prev_hash)?;
             let prev_height = prev_info.height();
             let prev_epoch = prev_info.epoch_id().clone();
@@ -1898,6 +1909,81 @@ impl EpochManager {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn possible_epochs_of_height_around_tip(
+        &self,
+        tip: &Tip,
+        height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        // If the tip is at the genesis block, it has to be handled in a special way.
+        // For genesis block, epoch_first_block() is the dummy block (11111...)
+        // with height 0, which could cause issues with estimating the epoch end
+        // if the genesis height is nonzero. It's easier to handle it manually.
+        if tip.prev_block_hash == CryptoHash::default() {
+            if tip.height == height {
+                return Ok(vec![tip.epoch_id.clone()]);
+            }
+
+            if height > tip.height {
+                return Ok(vec![tip.next_epoch_id.clone()]);
+            }
+
+            return Ok(vec![]);
+        }
+
+        // See if the height is in the current epoch
+        let current_epoch_first_block_hash =
+            *self.get_block_info(&tip.last_block_hash)?.epoch_first_block();
+        let current_epoch_first_block_info =
+            self.get_block_info(&current_epoch_first_block_hash)?;
+
+        let current_epoch_start = current_epoch_first_block_info.height();
+        let current_epoch_length = self.get_epoch_config(&tip.epoch_id)?.epoch_length;
+        let current_epoch_estimated_end = current_epoch_start.saturating_add(current_epoch_length);
+
+        // All blocks with height lower than the estimated end are guaranteed to reside in the current epoch.
+        // The situation is clear here.
+        if (current_epoch_start..current_epoch_estimated_end).contains(&height) {
+            return Ok(vec![tip.epoch_id.clone()]);
+        }
+
+        // If the height is higher than the current epoch's estimated end, then it's
+        // not clear in which epoch it'll be. Under normal circumstances it would be
+        // in the next epoch, but with missing blocks the current epoch could stretch out
+        // past its estimated end, so the height might end up being in the current epoch,
+        // even though its height is higher than the estimated end.
+        if height >= current_epoch_estimated_end {
+            return Ok(vec![tip.epoch_id.clone(), tip.next_epoch_id.clone()]);
+        }
+
+        // Finally try the previous epoch.
+        // First and last blocks of the previous epoch are already known, so the situation is clear.
+        let prev_epoch_last_block_hash = current_epoch_first_block_info.prev_hash();
+        let prev_epoch_last_block_info = self.get_block_info(prev_epoch_last_block_hash)?;
+        let prev_epoch_first_block_info =
+            self.get_block_info(prev_epoch_last_block_info.epoch_first_block())?;
+
+        // If the current epoch is the epoch after genesis, then the previous
+        // epoch contains only the genesis block. This case has to be handled separately
+        // because epoch_first_block() points to the dummy block (1111..), which has height 0.
+        if tip.epoch_id == EpochId(CryptoHash::default()) {
+            let genesis_block_info = prev_epoch_last_block_info;
+            if height == genesis_block_info.height() {
+                return Ok(vec![genesis_block_info.epoch_id().clone()]);
+            } else {
+                return Ok(vec![]);
+            }
+        }
+
+        if (prev_epoch_first_block_info.height()..=prev_epoch_last_block_info.height())
+            .contains(&height)
+        {
+            return Ok(vec![prev_epoch_last_block_info.epoch_id().clone()]);
+        }
+
+        // The height doesn't belong to any of the epochs around the tip, return an empty Vec.
+        Ok(vec![])
     }
 
     #[cfg(feature = "new_epoch_sync")]

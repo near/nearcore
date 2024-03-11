@@ -15,12 +15,12 @@ use near_network::{
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
 use near_o11y::testonly::init_test_logger;
+use near_primitives::utils::from_timestamp;
 use near_primitives::{
     shard_layout::ShardLayout,
     types::{AccountId, EpochId, ShardId},
 };
 use near_primitives_core::{checked_feature, version::PROTOCOL_VERSION};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use tracing::log::debug;
 
@@ -41,9 +41,11 @@ impl AdversarialBehaviorTestData {
 
         let accounts: Vec<AccountId> =
             (0..num_clients).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let mut genesis = Genesis::test(accounts, num_validators as u64);
         {
             let config = &mut genesis.config;
+            config.genesis_time = from_timestamp(clock.now_utc().unix_timestamp_nanos() as u64);
             config.epoch_length = epoch_length;
             config.shard_layout = ShardLayout::v1_test();
             config.num_block_producer_seats_per_shard = vec![
@@ -57,12 +59,10 @@ impl AdversarialBehaviorTestData {
             config.block_producer_kickout_threshold = 50;
             config.chunk_producer_kickout_threshold = 50;
         }
-        let clock = FakeClock::new(Utc::UNIX_EPOCH);
         let env = TestEnv::builder(&genesis.config)
             .clock(clock.clock())
             .clients_count(num_clients)
             .validator_seats(num_validators as usize)
-            .real_epoch_managers()
             .track_all_shards()
             .nightshade_runtimes(&genesis)
             .build();
@@ -259,24 +259,16 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
 
                         // This is the first block with invalid chunks in the current epoch.
                         // In pre-stateless validation protocol the first block with invalid chunks
-                        // was skipped, but stateless validation is able to deal with invalid chunks
-                        // without skipping blocks. The expected behavior depends on whether we are
-                        // using stateless validation or not.
-                        if uses_stateless_validation {
-                            // With stateless validation the block usually isn't skipped. Chunk validators
-                            // won't send chunk endorsements for this chunk, which means that it won't be
-                            // included in the block at all. The only exception is the first few blocks after
-                            // genesis, which are currently handled in a special way.
-                            // In this test the block with height 2 is skipped.
-                            // TODO(#10502): Properly handle blocks right after genesis, ideally no blocks
-                            // would be skipped when using stateless validation.
-                            this_block_should_be_skipped = height < 3;
-                        } else {
-                            // In the old protocol, chunks are first included in the block and then the block
-                            // is validated. This means that this block, which includes an invalid chunk,
-                            // will be invalid and it should be skipped. Once this happens, the malicious
-                            // chunk producer is banned for the whole epoch and no blocks are skipped until
-                            // we reach the next epoch.
+                        // was skipped.
+                        // In the old protocol, chunks are first included in the block and then the block
+                        // is validated. This means that this block, which includes an invalid chunk,
+                        // will be invalid and it should be skipped. Once this happens, the malicious
+                        // chunk producer is banned for the whole epoch and no blocks are skipped until
+                        // we reach the next epoch.
+                        // With stateless validation the block usually isn't skipped. Chunk validators
+                        // won't send chunk endorsements for this chunk, which means that it won't be
+                        // included in the block at all.
+                        if !uses_stateless_validation {
                             this_block_should_be_skipped = true;
                         }
                     }

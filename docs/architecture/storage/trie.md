@@ -91,6 +91,9 @@ Describes all keys which may be inserted to `Trie`:
 * `DelayedReceiptIndices`
 * `DelayedReceipt`
 * `ContractData`
+* `YieldedPromiseQueueIndices`
+* `YieldedPromiseQueueEntries`
+* `PromiseYieldReceipt`
 
 Each key is uniquely converted to `Vec<u8>`. Internally, each such vector is
 converted to `NibbleSlice` (nibble is a half of a byte), and each its item

@@ -304,8 +304,8 @@ fn cold_store_initial_migration_loop(
             // Here we pick the second option.
             Err(err) => {
                 let dur = split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", "initial migration failed with error {}, sleeping {}s and trying again", err, dur.as_secs());
-                std::thread::sleep(dur);
+                tracing::error!(target: "cold_store", "initial migration failed with error {}, sleeping {}s and trying again", err, dur.whole_seconds());
+                std::thread::sleep(dur.unsigned_abs());
             }
             // Any Ok status from `cold_store_initial_migration` function means that we can proceed to regular run.
             Ok(status) => {
@@ -360,17 +360,17 @@ fn cold_store_loop(
         match result {
             Err(err) => {
                 tracing::error!(target : "cold_store", error = format!("{err:#?}"), "cold_store_copy failed");
-                std::thread::sleep(sleep_duration);
+                std::thread::sleep(sleep_duration.unsigned_abs());
             }
             // If no block was copied the cold head is up to date with final head and
             // this loop should sleep while waiting for a new block to get finalized.
             Ok(ColdStoreCopyResult::NoBlockCopied) => {
-                std::thread::sleep(sleep_duration);
+                std::thread::sleep(sleep_duration.unsigned_abs());
             }
             // The final head block was copied. There are no more blocks to be copied now
             // this loop should sleep while waiting for a new block to get finalized.
             Ok(ColdStoreCopyResult::LatestBlockCopied) => {
-                std::thread::sleep(sleep_duration);
+                std::thread::sleep(sleep_duration.unsigned_abs());
             }
             // A block older than the final head was copied. We should continue copying
             // until cold head reaches final head.

@@ -12,7 +12,9 @@ use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
-use near_store::{get, get_account, get_postponed_receipt, TrieAccess, TrieUpdate};
+use near_store::{
+    get, get_account, get_postponed_receipt, get_yielded_promise, TrieAccess, TrieUpdate,
+};
 use std::collections::HashSet;
 
 /// Returns delayed receipts with given range of indices.
@@ -38,7 +40,7 @@ fn receipt_cost(
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
     Ok(match &receipt.receipt {
-        ReceiptEnum::Action(action_receipt) => {
+        ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
             if !receipt.predecessor_id.is_system() {
                 let mut total_gas = safe_add_gas(
@@ -55,7 +57,7 @@ fn receipt_cost(
             }
             total_cost
         }
-        ReceiptEnum::Data(_) => 0,
+        ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => 0,
     })
 }
 
@@ -76,26 +78,44 @@ fn total_accounts_balance(
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
     accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
-        let (amount, locked) = match get_account(state, account_id)? {
+        let (amount, locked, nonrefundable) = match get_account(state, account_id)? {
             None => return Ok(accumulator),
-            Some(account) => (account.amount(), account.locked()),
+            Some(account) => (account.amount(), account.locked(), account.nonrefundable()),
         };
-        Ok(safe_add_balance_apply!(accumulator, amount, locked))
+        Ok(safe_add_balance_apply!(accumulator, amount, locked, nonrefundable))
     })
+}
+
+#[derive(Eq, Hash, PartialEq)]
+enum PostponedReceiptType {
+    Action,
+    PromiseYield,
 }
 
 /// Calculates and returns total costs of all the postponed receipts.
 fn total_postponed_receipts_cost(
     state: &dyn TrieAccess,
     config: &RuntimeConfig,
-    receipt_ids: &HashSet<(AccountId, crate::CryptoHash)>,
+    receipt_ids: &HashSet<(PostponedReceiptType, AccountId, crate::CryptoHash)>,
 ) -> Result<Balance, RuntimeError> {
     receipt_ids.iter().try_fold(0, |total, item| {
-        let (account_id, receipt_id) = item;
-        let cost = match get_postponed_receipt(state, account_id, *receipt_id)? {
-            None => return Ok(total),
-            Some(receipt) => receipt_cost(config, &receipt)?,
+        let (receipt_type, account_id, lookup_id) = item;
+
+        let cost = match receipt_type {
+            PostponedReceiptType::Action => {
+                match get_postponed_receipt(state, account_id, *lookup_id)? {
+                    None => return Ok(total),
+                    Some(receipt) => receipt_cost(config, &receipt)?,
+                }
+            }
+            PostponedReceiptType::PromiseYield => {
+                match get_yielded_promise(state, account_id, *lookup_id)? {
+                    None => return Ok(total),
+                    Some(receipt) => receipt_cost(config, &receipt)?,
+                }
+            }
         };
+
         safe_add_balance(total, cost).map_err(|_| RuntimeError::UnexpectedIntegerOverflow)
     })
 }
@@ -163,6 +183,7 @@ pub(crate) fn check_balance(
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
+
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
     // account ID when the input data is not received yet.
     // We calculate all potential receipts IDs that might be postponed initially or after the
@@ -173,7 +194,9 @@ pub(crate) fn check_balance(
         .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
-                ReceiptEnum::Action(_) => Some(Ok((account_id.clone(), receipt.receipt_id))),
+                ReceiptEnum::Action(_) => {
+                    Some(Ok((PostponedReceiptType::Action, account_id.clone(), receipt.receipt_id)))
+                }
                 ReceiptEnum::Data(data_receipt) => {
                     let result = get(
                         initial_state,
@@ -185,9 +208,21 @@ pub(crate) fn check_balance(
                     match result {
                         Err(err) => Some(Err(err)),
                         Ok(None) => None,
-                        Ok(Some(receipt_id)) => Some(Ok((account_id.clone(), receipt_id))),
+                        Ok(Some(receipt_id)) => {
+                            Some(Ok((PostponedReceiptType::Action, account_id.clone(), receipt_id)))
+                        }
                     }
                 }
+                ReceiptEnum::PromiseYield(action_receipt) => Some(Ok((
+                    PostponedReceiptType::PromiseYield,
+                    account_id.clone(),
+                    action_receipt.input_data_ids[0],
+                ))),
+                ReceiptEnum::PromiseResume(data_receipt) => Some(Ok((
+                    PostponedReceiptType::PromiseYield,
+                    account_id.clone(),
+                    data_receipt.data_id,
+                ))),
             }
         })
         .collect::<Result<HashSet<_>, StorageError>>()?;
@@ -426,6 +461,7 @@ mod tests {
         .unwrap();
     }
 
+    /// This tests shows how overflow (which we do not expect) would be handled on a transfer.
     #[test]
     fn test_total_balance_overflow_returns_unexpected_overflow() {
         let tries = TestTriesBuilder::new().build();
@@ -436,8 +472,10 @@ mod tests {
         let deposit = 1000;
 
         let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
-        let alice = account_new(u128::MAX, hash(&[]));
-        let bob = account_new(1u128, hash(&[]));
+        // We use `u128::MAX - 1`, because `u128::MAX` is used as a sentinel value for accounts version 2 or higher.
+        // See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+        let alice = account_new(u128::MAX - 1, hash(&[]));
+        let bob = account_new(2u128, hash(&[]));
 
         set_account(&mut initial_state, alice_id.clone(), &alice);
         set_account(&mut initial_state, bob_id.clone(), &bob);
@@ -446,8 +484,9 @@ mod tests {
         let signer =
             InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
 
+        // Sending 2 yoctoNEAR, so that we have an overflow when adding to alice's balance.
         let tx =
-            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 2, CryptoHash::default());
 
         let receipt = Receipt {
             predecessor_id: tx.transaction.signer_id.clone(),
@@ -474,6 +513,64 @@ mod tests {
                 &ApplyStats::default(),
             ),
             Err(RuntimeError::UnexpectedIntegerOverflow)
+        );
+    }
+
+    /// This tests shows what would happen if the total balance becomes u128::MAX
+    /// which is also the sentinel value use to distinguish between accounts version 1 and 2 or higher
+    /// See NEP-491 for more details: https://github.com/near/NEPs/pull/491.
+    #[test]
+    fn test_total_balance_u128_max() {
+        let tries = TestTriesBuilder::new().build();
+        let root = MerkleHash::default();
+        let alice_id = alice_account();
+        let bob_id = bob_account();
+        let gas_price = 100;
+        let deposit = 1000;
+
+        let mut initial_state = tries.new_trie_update(ShardUId::single_shard(), root);
+        let alice = account_new(u128::MAX - 1, hash(&[]));
+        let bob = account_new(1u128, hash(&[]));
+
+        set_account(&mut initial_state, alice_id.clone(), &alice);
+        set_account(&mut initial_state, bob_id.clone(), &bob);
+        initial_state.commit(StateChangeCause::NotWritableToDisk);
+
+        let signer =
+            InMemorySigner::from_seed(alice_id.clone(), KeyType::ED25519, alice_id.as_ref());
+
+        let tx =
+            SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
+
+        let receipt = Receipt {
+            predecessor_id: tx.transaction.signer_id.clone(),
+            receiver_id: tx.transaction.receiver_id.clone(),
+            receipt_id: Default::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: tx.transaction.signer_id.clone(),
+                signer_public_key: tx.transaction.public_key.clone(),
+                gas_price,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Transfer(TransferAction { deposit })],
+            }),
+        };
+
+        // Alice's balance becomes u128::MAX, which causes it is interpreted as
+        // the Alice's account version to be 2 or higher, instead of being interpreted
+        // as Alice's balance. Another field is then interpreted as the balance which causes
+        // `BalanceMismatchError`.
+        assert_matches!(
+            check_balance(
+                &RuntimeConfig::test(),
+                &initial_state,
+                &None,
+                &[receipt],
+                &[tx],
+                &[],
+                &ApplyStats::default(),
+            ),
+            Err(RuntimeError::BalanceMismatchError { .. })
         );
     }
 }

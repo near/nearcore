@@ -8,7 +8,6 @@ use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 #[cfg_attr(all(target_arch = "aarch64", target_vendor = "apple"), ignore)]
@@ -28,7 +27,6 @@ fn test_nearvm_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let mut env = TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
                 vec![RuntimeConfigStore::new(None)],

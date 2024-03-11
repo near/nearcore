@@ -1,5 +1,6 @@
 /// Tests which check correctness of background flat storage creation.
 use assert_matches::assert_matches;
+use near_async::time::Clock;
 use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
@@ -19,7 +20,6 @@ use near_store::flat::{
 use near_store::test_utils::create_test_store;
 use near_store::trie::TrieNodesCount;
 use near_store::{KeyLookupMode, Store, TrieTraversalItem};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::str::FromStr;
 use std::thread;
@@ -33,11 +33,7 @@ const CREATION_TIMEOUT: BlockHeight = 30;
 
 /// Setup environment with one Near client for testing.
 fn setup_env(genesis: &Genesis, store: Store) -> TestEnv {
-    TestEnv::builder(&genesis.config)
-        .stores(vec![store])
-        .real_epoch_managers()
-        .nightshade_runtimes(genesis)
-        .build()
+    TestEnv::builder(&genesis.config).stores(vec![store]).nightshade_runtimes(genesis).build()
 }
 
 /// Waits for flat storage creation on given shard for `CREATION_TIMEOUT` blocks.
@@ -455,6 +451,7 @@ fn test_flat_storage_iter() {
         ShardLayout::v1(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], None, 0);
 
     let genesis = Genesis::test_with_seeds(
+        Clock::real(),
         vec!["test0".parse().unwrap()],
         1,
         vec![1; num_shards],

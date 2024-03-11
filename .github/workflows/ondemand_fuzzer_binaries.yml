@@ -86,5 +86,5 @@ jobs:
       - name: "Compile fuzzers and upload to GCS"
         run: |
           NAME="nearcore-$branch_type-$(env TZ=Etc/UTC  date +"%Y%m%d%H%M%S")"
-          RUSTFLAGS="-A warnings --cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
+          RUSTFLAGS="--cfg fuzz" cargo +nightly bolero build-clusterfuzz --all-features --profile fuzz
           gsutil cp -Z target/fuzz/clusterfuzz.tar "gs://fuzzer_targets/$branch_type/$NAME.tar.gz"

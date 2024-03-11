@@ -90,8 +90,10 @@ use metrics::{
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_HEADER,
     PARTIAL_ENCODED_CHUNK_FORWARD_CACHED_WITHOUT_PREV_BLOCK, PARTIAL_ENCODED_CHUNK_RESPONSE_DELAY,
 };
+use near_async::futures::{DelayedActionRunner, DelayedActionRunnerExt};
 use near_async::messaging::Sender;
 use near_async::time;
+use near_async::time::Duration;
 use near_chain::byzantine_assert;
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
@@ -303,6 +305,21 @@ impl ShardsManager {
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
         }
+    }
+
+    pub fn periodically_resend_chunk_requests(
+        &mut self,
+        delayed_action_runner: &mut dyn DelayedActionRunner<Self>,
+        interval: Duration,
+    ) {
+        delayed_action_runner.run_later(
+            "resend_chunk_requests",
+            interval,
+            move |this, delayed_action_runner| {
+                this.resend_chunk_requests();
+                this.periodically_resend_chunk_requests(delayed_action_runner, interval);
+            },
+        )
     }
 
     pub fn update_chain_heads(&mut self, head: Tip, header_head: Tip) {
@@ -1182,7 +1199,7 @@ impl ShardsManager {
                 let parts = forward.parts.into_iter().filter_map(|part| {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         None
                     } else {
                         Some((part_ord, part))
@@ -1195,7 +1212,7 @@ impl ShardsManager {
                 for part in forward.parts {
                     let part_ord = part.part_ord;
                     if part_ord > num_total_parts {
-                        warn!(target: "chunks", "Received chunk part with part_ord greater than the the total number of chunks");
+                        warn!(target: "chunks", "Received chunk part with part_ord greater than the total number of chunks");
                         continue;
                     }
                     existing_parts.insert(part_ord, part);
@@ -2062,6 +2079,27 @@ impl ShardsManager {
             ShardsManagerRequestFromClient::CheckIncompleteChunks(prev_block_hash) => {
                 self.check_incomplete_chunks(&prev_block_hash)
             }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunk {
+                candidate_chunk,
+                request_header,
+                prev_hash,
+            } => {
+                if let Err(err) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", ?err, "Error processing partial encoded chunk");
+                    self.request_chunk_single(&request_header, prev_hash, false);
+                }
+            }
+            ShardsManagerRequestFromClient::ProcessOrRequestChunkForOrphan {
+                candidate_chunk,
+                request_header,
+                ancestor_hash,
+                epoch_id,
+            } => {
+                if let Err(e) = self.process_partial_encoded_chunk(candidate_chunk.into()) {
+                    warn!(target: "chunks", "Error processing partial encoded chunk: {:?}", e);
+                    self.request_chunks_for_orphan(vec![request_header], &epoch_id, ancestor_hash);
+                }
+            }
         }
     }
 
@@ -2546,7 +2584,7 @@ mod test {
 
     #[test]
     // Test that when a validator receives a chunk forward before the chunk header, and that the
-    // chunk header first arrives as part of a block, it should store the the forward and use it
+    // chunk header first arrives as part of a block, it should store the forward and use it
     // when it receives the header.
     fn test_receive_forward_before_chunk_header_from_block() {
         let fixture = ChunkTestFixture::default();

@@ -1,9 +1,10 @@
 use assert_matches::assert_matches;
 
+use near_async::time::Duration;
 use near_chain::near_chain_primitives::error::QueryError;
 use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
 use near_chain_configs::ExternalStorageLocation::Filesystem;
-use near_chain_configs::{DumpConfig, Genesis};
+use near_chain_configs::{DumpConfig, Genesis, NEAR_BASE};
 use near_client::sync::external::{external_storage_location, StateFileType};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
@@ -21,13 +22,10 @@ use near_primitives::views::{QueryRequest, QueryResponseKind};
 use near_store::flat::store_helper;
 use near_store::DBCol;
 use near_store::Store;
-use nearcore::config::GenesisExt;
 use nearcore::state_sync::spawn_state_sync_dump;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[test]
 /// Produce several blocks, wait for the state dump thread to notice and
@@ -43,7 +41,6 @@ fn test_state_dump() {
             .clients_count(1)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers()
             .nightshade_runtimes(&genesis)
             .build();
 
@@ -141,7 +138,6 @@ fn run_state_sync_with_dumped_parts(
             .clients_count(num_clients)
             .use_state_snapshots()
             .real_stores()
-            .real_epoch_managers()
             .nightshade_runtimes(&genesis)
             .build();
 

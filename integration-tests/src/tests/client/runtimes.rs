@@ -11,7 +11,6 @@ use near_primitives::hash::hash;
 use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::validator_signer::InMemoryValidatorSigner;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,10 +18,7 @@ use std::sync::Arc;
 #[test]
 fn test_pending_approvals() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
     let signer = create_test_signer("test0");
     let parent_hash = hash(&[1]);
     let approval = Approval::new(parent_hash, 0, 1, &signer);
@@ -41,7 +37,6 @@ fn test_invalid_approvals() {
     let genesis = Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
     let network_adapter = Arc::new(MockPeerManagerAdapter::default());
     let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
         .nightshade_runtimes(&genesis)
         .network_adapters(vec![network_adapter])
         .build();
@@ -71,10 +66,7 @@ fn test_cap_max_gas_price() {
     genesis.config.max_gas_price = 1_000_000;
     genesis.config.protocol_version = ProtocolFeature::CapMaxGasPrice.protocol_version();
     genesis.config.epoch_length = epoch_length;
-    let mut env = TestEnv::builder(&genesis.config)
-        .real_epoch_managers()
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     for i in 1..epoch_length {
         let block = env.clients[0].produce_block(i).unwrap().unwrap();

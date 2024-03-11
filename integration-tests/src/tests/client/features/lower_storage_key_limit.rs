@@ -11,7 +11,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::transaction::{Action, FunctionCallAction, Transaction};
 use near_primitives::types::BlockHeight;
 use near_primitives::views::FinalExecutionStatus;
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 
 use crate::tests::client::process_blocks::{
@@ -44,7 +43,6 @@ fn protocol_upgrade() {
         genesis.config.epoch_length = epoch_length;
         genesis.config.protocol_version = old_protocol_version;
         let mut env = TestEnv::builder(&genesis.config)
-            .real_epoch_managers()
             .track_all_shards()
             .nightshade_runtimes_with_runtime_config_store(
                 &genesis,
