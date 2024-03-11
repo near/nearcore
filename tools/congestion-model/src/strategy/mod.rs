@@ -2,10 +2,12 @@ use crate::model::ChunkExecutionContext;
 use crate::{QueueId, ShardId};
 
 pub use global_tx_stop::GlobalTxStopShard;
+pub use new_tx_last::NewTxLast;
 pub use no_queues::NoQueueShard;
 pub use simple_backpressure::SimpleBackpressure;
 
 mod global_tx_stop;
+mod new_tx_last;
 mod no_queues;
 mod simple_backpressure;
 
@@ -24,5 +26,5 @@ pub trait CongestionStrategy {
 
 /// Use this to create queues.
 pub trait QueueFactory {
-    fn register_queue(&mut self, to: ShardId) -> QueueId;
+    fn register_queue(&mut self, to: ShardId, name: &str) -> QueueId;
 }

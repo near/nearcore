@@ -170,6 +170,8 @@ impl TransactionBuilder {
         Transaction {
             id: self.id,
             sender_shard: self.sender_shard,
+            initial_receipt_receiver: receipts[&initial_receipt].receiver,
+            initial_receipt_gas: receipts[&initial_receipt].attached_gas,
             initial_receipt,
             tx_conversion_cost: self.tx_conversion_cost,
             outgoing,

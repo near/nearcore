@@ -1,3 +1,4 @@
+use chrono::{Duration, Utc};
 pub use transaction_progress::TransactionStatus;
 
 use crate::{GGas, Model, ShardId};
@@ -25,6 +26,9 @@ pub struct Progress {
     pub waiting_transactions: usize,
     pub failed_transactions: usize,
 }
+
+// The stats writer can be used to dump stats into a CSV file.
+pub type StatsWriter = Option<Box<csv::Writer<std::fs::File>>>;
 
 impl Model {
     pub fn queue_lengths(&self) -> HashMap<ShardId, ShardQueueLengths> {
@@ -71,5 +75,54 @@ impl Model {
             waiting_transactions,
             failed_transactions,
         }
+    }
+
+    pub fn write_stats_header(&self, stats_writer: &mut StatsWriter) {
+        let Some(stats_writer) = stats_writer else { return };
+
+        stats_writer.write_field("time").unwrap();
+        stats_writer.write_field("round").unwrap();
+
+        stats_writer.write_field("finished_transactions").unwrap();
+        stats_writer.write_field("pending_transactions").unwrap();
+        stats_writer.write_field("waiting_transactions").unwrap();
+        stats_writer.write_field("failed_transactions").unwrap();
+
+        for shard_id in self.shard_ids.clone() {
+            for queue in self.queues.shard_queues(shard_id) {
+                let field_name = format!("shard_{}_queue_{}", shard_id, queue.name());
+                stats_writer.write_field(field_name).unwrap();
+            }
+        }
+        stats_writer.write_record(None::<&[u8]>).unwrap();
+    }
+
+    pub fn write_stats_values(
+        &self,
+        stats_writer: &mut StatsWriter,
+        start_time: chrono::prelude::DateTime<Utc>,
+        round: usize,
+    ) {
+        let Some(stats_writer) = stats_writer else { return };
+
+        let time = start_time + Duration::seconds(round as i64);
+
+        stats_writer.write_field(format!("{:?}", time)).unwrap();
+        stats_writer.write_field(format!("{}", round)).unwrap();
+
+        // This is slow and takes up to 10s for the slowest workloads and strategies.
+        let progress = self.progress();
+        stats_writer.write_field(format!("{}", progress.finished_transactions)).unwrap();
+        stats_writer.write_field(format!("{}", progress.pending_transactions)).unwrap();
+        stats_writer.write_field(format!("{}", progress.waiting_transactions)).unwrap();
+        stats_writer.write_field(format!("{}", progress.failed_transactions)).unwrap();
+
+        for shard_id in self.shard_ids.clone() {
+            for queue in self.queues.shard_queues(shard_id) {
+                stats_writer.write_field(format!("{}", queue.len())).unwrap();
+            }
+        }
+
+        stats_writer.write_record(None::<&[u8]>).unwrap();
     }
 }
