@@ -193,7 +193,7 @@ mod tests {
     }
 
     fn create_chain_store(store: &Store) -> ChainStore {
-        ChainStore::new(store.clone(), 0, true)
+        ChainStore::new(store.clone(), 0, true, false)
     }
 
     fn save_state_transition_data(
