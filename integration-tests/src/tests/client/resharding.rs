@@ -25,12 +25,12 @@ use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryReq
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
 use near_store::metadata::DbKind;
-use near_store::test_utils::{gen_account, gen_unique_accounts};
+use near_store::test_utils::{gen_account, gen_shard_accounts, gen_unique_accounts};
 use near_store::trie::SnapshotError;
 use near_store::{DBCol, ShardUId};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use rand::rngs::StdRng;
-use rand::seq::{IteratorRandom, SliceRandom};
+use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -188,8 +188,9 @@ impl TestReshardingEnv {
         let mut rng = SeedableRng::seed_from_u64(rng_seed);
         let validators: Vec<AccountId> =
             (0..num_validators).map(|i| format!("test{}", i).parse().unwrap()).collect();
+        let shard_accounts = gen_shard_accounts();
         let other_accounts = gen_unique_accounts(&mut rng, num_init_accounts, num_init_accounts);
-        let initial_accounts = [validators, other_accounts].concat();
+        let initial_accounts = [validators, shard_accounts, other_accounts].concat();
         let genesis = setup_genesis(
             epoch_length,
             num_validators as u64,
@@ -1134,35 +1135,28 @@ fn setup_test_env_with_cross_contract_txs(
     epoch_length: u64,
 ) -> HashMap<CryptoHash, AccountId> {
     let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
-    // Use test0, test1 and two random accounts to deploy contracts because we want accounts on
-    // different shards.
-    let indices = (4..test_env.initial_accounts.len()).choose_multiple(&mut test_env.rng, 2);
-    let contract_accounts = vec![
-        test_env.initial_accounts[0].clone(),
-        test_env.initial_accounts[1].clone(),
-        test_env.initial_accounts[indices[0]].clone(),
-        test_env.initial_accounts[indices[1]].clone(),
-    ];
-    let init_txs = contract_accounts
-        .iter()
-        .map(|account_id| {
-            let signer = InMemorySigner::from_seed(
-                account_id.clone(),
-                KeyType::ED25519,
-                account_id.as_ref(),
-            );
-            SignedTransaction::from_actions(
-                1,
-                account_id.clone(),
-                account_id.clone(),
-                &signer,
-                vec![Action::DeployContract(DeployContractAction {
-                    code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
-                })],
-                genesis_hash,
-            )
-        })
-        .collect();
+
+    // Use the shard accounts where there should be one account per shard to get
+    // traffic in every shard.
+    let contract_accounts = gen_shard_accounts();
+
+    let mut init_txs = vec![];
+    for account_id in &contract_accounts {
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
+        })];
+        let tx = SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            actions,
+            genesis_hash,
+        );
+        init_txs.push(tx);
+    }
     test_env.set_init_tx(init_txs);
 
     let mut nonce = 100;
@@ -1171,9 +1165,11 @@ fn setup_test_env_with_cross_contract_txs(
 
     // add a bunch of transactions before the two epoch boundaries
     for height in [
+        epoch_length - 3,
         epoch_length - 2,
         epoch_length - 1,
         epoch_length,
+        2 * epoch_length - 3,
         2 * epoch_length - 2,
         2 * epoch_length - 1,
         2 * epoch_length,
@@ -1185,8 +1181,8 @@ fn setup_test_env_with_cross_contract_txs(
             &mut all_accounts,
             &mut new_accounts,
             &mut nonce,
-            5,
-            8,
+            15,
+            20,
         );
 
         test_env.set_tx_at_height(height, txs);
@@ -1343,7 +1339,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 
@@ -1406,7 +1402,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
     init_test_logger();
 
     // setup
-    let epoch_length = 5;
+    let epoch_length = 10;
     let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
     let target_protocol_version = get_target_protocol_version(&resharding_type);
 

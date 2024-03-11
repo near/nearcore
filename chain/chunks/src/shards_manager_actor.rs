@@ -13,6 +13,7 @@ use near_o11y::WithSpanContext;
 use near_performance_metrics_macros::perf;
 use near_primitives::types::AccountId;
 use near_store::{DBCol, Store, HEADER_HEAD_KEY, HEAD_KEY};
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 pub struct ShardsManagerActor {
@@ -20,21 +21,25 @@ pub struct ShardsManagerActor {
     chunk_request_retry_period: Duration,
 }
 
+// Needed for DerefMut.
+impl Deref for ShardsManagerActor {
+    type Target = ShardsManager;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shards_mgr
+    }
+}
+
+// Needed to convert actix `Context<ShardsManagerActor>` to `dyn DelayedActionRunner<ShardsManager>`.
+impl DerefMut for ShardsManagerActor {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.shards_mgr
+    }
+}
+
 impl ShardsManagerActor {
     fn new(shards_mgr: ShardsManager, chunk_request_retry_period: Duration) -> Self {
         Self { shards_mgr, chunk_request_retry_period }
-    }
-
-    fn periodically_resend_chunk_requests(&mut self, ctx: &mut Context<Self>) {
-        self.shards_mgr.resend_chunk_requests();
-
-        near_performance_metrics::actix::run_later(
-            ctx,
-            self.chunk_request_retry_period.max(Duration::ZERO).unsigned_abs(),
-            move |act, ctx| {
-                act.periodically_resend_chunk_requests(ctx);
-            },
-        );
     }
 }
 
@@ -42,7 +47,7 @@ impl Actor for ShardsManagerActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        self.periodically_resend_chunk_requests(ctx);
+        self.shards_mgr.periodically_resend_chunk_requests(ctx, self.chunk_request_retry_period);
     }
 }
 
