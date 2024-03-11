@@ -159,7 +159,7 @@ impl Client {
         shard_id: ShardId,
         transition: &mut ChunkStateTransition
     ) {
-        const CUT_OFF_VALUE_SIZE: usize = 32000;
+        const CUT_OFF_VALUE_SIZE: usize = 8000;
         const MAX_CACHE_SIZE: usize = 1000;
         let cache = self.state_cache.entry(shard_id).or_default();
         let PartialState::TrieValues(values) = &mut transition.base_state;
