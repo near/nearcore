@@ -742,8 +742,8 @@ class NeardRunner:
                     # protocol_versions in range [56, 63] need to have these
                     # genesis parameters, otherwise nodes get stuck because at
                     # some point it produces an incompatible EpochInfo.
-                    # TODO: Make so that the node always constructs EpochInfo
-                    #       using `AllEpochConfig::for_protocol_version()`.
+                    # TODO: remove these changes once mocknet tests will probably
+                    # only ever be run with binaries including https://github.com/near/nearcore/pull/10722
                     genesis_config['num_block_producer_seats'] = 100
                     genesis_config['num_block_producer_seats_per_shard'] = [
                         100, 100, 100, 100

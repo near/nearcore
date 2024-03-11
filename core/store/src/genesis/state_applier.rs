@@ -12,7 +12,7 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, Rece
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
@@ -338,15 +338,13 @@ impl GenesisStateApplier {
     pub fn apply(
         op_limit: &atomic::AtomicUsize,
         tries: ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &StorageUsageConfig,
         genesis: &Genesis,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        let shard_uid =
-            ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
         let mut storage =
             AutoFlushingTrieUpdate::new(op_limit, StateRoot::default(), &tries, shard_uid);
         Self::apply_batch(
