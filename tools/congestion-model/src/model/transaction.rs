@@ -112,7 +112,7 @@ impl Transaction {
         Some(receipt)
     }
 
-    pub(crate) fn receiver(&self) -> ShardId {
+    pub(crate) fn initial_receipt_receiver(&self) -> ShardId {
         self.initial_receipt_receiver
     }
 
