@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
-blst.workspace = true
+blst = { workspace = true, optional = true }
 base64.workspace = true
 bn.workspace = true
 borsh.workspace = true
@@ -86,6 +86,7 @@ wat.workspace = true
 nightly_protocol = [
   "near-parameters/nightly_protocol",
   "near-primitives-core/nightly_protocol",
+  "protocol_feature_bls12381",
 ]
 wasmer0_vm = [ "wasmer-runtime", "wasmer-runtime-core", "prepare" ]
 wasmtime_vm = [ "wasmtime", "anyhow", "prepare" ]
@@ -114,6 +115,10 @@ no_cache = []
 
 protocol_feature_fix_contract_loading_cost = [
     "near-primitives-core/protocol_feature_fix_contract_loading_cost",
+]
+
+protocol_feature_bls12381 = [
+    "blst",
 ]
 
 nightly = [

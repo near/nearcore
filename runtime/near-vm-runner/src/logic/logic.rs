@@ -18,6 +18,7 @@ use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
+#[cfg(feature = "protocol_feature_bls12381")]
 use std::ptr::null;
 use ExtCosts::*;
 
@@ -919,6 +920,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p1_sum(
         &mut self,
         value_len: u64,
@@ -1040,6 +1042,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p2_sum(
         &mut self,
         value_len: u64,
@@ -1158,6 +1161,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_p1_multiexp_base + bls12381_p1_multiexp_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p1_multiexp(
         &mut self,
         value_len: u64,
@@ -1276,6 +1280,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_p2_multiexp_base + bls12381_p2_multiexp_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p2_multiexp(
         &mut self,
         value_len: u64,
@@ -1385,6 +1390,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_map_fp_to_g1(
         &mut self,
         value_len: u64,
@@ -1491,6 +1497,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_map_fp2_to_g2(
         &mut self,
         value_len: u64,
@@ -1622,6 +1629,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
         self.gas_counter.pay_base(bls12381_pairing_base)?;
 
@@ -1733,6 +1741,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p1_decompress(
         &mut self,
         value_len: u64,
@@ -1813,6 +1822,7 @@ impl<'a> VMLogic<'a> {
     /// # Cost
     /// `base + write_register_base + write_register_byte * num_bytes +
     ///  bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
     pub fn bls12381_p2_decompress(
         &mut self,
         value_len: u64,

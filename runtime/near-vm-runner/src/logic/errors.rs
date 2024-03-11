@@ -252,6 +252,7 @@ pub enum HostError {
         msg: String,
     },
     // Invalid input to bls12381 family of functions
+    #[cfg(feature = "protocol_feature_bls12381")]
     BLS12381InvalidInput {
         msg: String,
     },
@@ -488,6 +489,7 @@ impl std::fmt::Display for HostError {
             Ed25519VerifyInvalidInput { msg } => {
                 write!(f, "ED25519 signature verification error: {}", msg)
             }
+            #[cfg(feature = "protocol_feature_bls12381")]
             BLS12381InvalidInput { msg } => write!(f, "BLS12-381 invalid input: {}", msg),
             YieldPayloadLength { length, limit } => write!(
                 f,
