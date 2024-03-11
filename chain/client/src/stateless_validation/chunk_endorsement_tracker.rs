@@ -193,7 +193,7 @@ impl ChunkEndorsementTracker {
         let Some(chunk_endorsements) = self.chunk_endorsements.get(&chunk_header.chunk_hash())
         else {
             // Early return if no chunk_endorsements found in our cache.
-            return Ok(ChunkEndorsementsState::NotEnoughStake(Default::default()));
+            return Ok(ChunkEndorsementsState::NotEnoughStake(None));
         };
 
         let endorsement_stats = chunk_validator_assignments
