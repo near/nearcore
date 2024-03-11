@@ -1,15 +1,17 @@
-use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManager;
-use near_store::genesis::initialize_genesis_state;
-use tempfile::tempdir;
-
+use near_async::time::Clock;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::ChainConfig;
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::Genesis;
+use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManager;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use nearcore::NightshadeRuntime;
+use std::sync::Arc;
+use tempfile::tempdir;
 
 /// Compute genesis hash from genesis.
 pub fn genesis_hash(genesis: &Genesis) -> CryptoHash {
@@ -27,6 +29,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
     let runtime =
         NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,
@@ -34,6 +37,7 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     chain.genesis().clone()
@@ -50,6 +54,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
     let runtime =
         NightshadeRuntime::test(dir.path(), store, &genesis.config, epoch_manager.clone());
     let chain = Chain::new(
+        Clock::real(),
         epoch_manager,
         shard_tracker,
         runtime,
@@ -57,6 +62,7 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         DoomslugThresholdMode::TwoThirds,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()

@@ -72,6 +72,7 @@ members = [
     "test-utils/testlib",
     "tools/database",
     "tools/chainsync-loadtest",
+    "tools/congestion-model",
     "tools/fork-network",
     "tools/indexer/example",
     "tools/mirror",
@@ -93,9 +94,6 @@ members = [
     "utils/near-cache",
     "utils/stdx",
 ]
-
-[workspace.lints.rust]
-warnings = "deny"
 
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
@@ -148,7 +146,6 @@ cpu-time = "1.0"
 criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
-crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.1", default-features = false, features = ["alloc", "precomputed-tables", "rand_core"] }
 derive-enum-from-into = "0.1.1"
@@ -324,7 +321,7 @@ testlib = { path = "test-utils/testlib" }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
 thiserror = "1.0.30"
 tikv-jemallocator = "0.5.0"
-time = "0.3.9"
+time = { version = "0.3.9", features = ["parsing", "serde"] }
 tokio = { version = "1.28", features = [
     "fs",
     "macros",
@@ -368,6 +365,8 @@ yansi = "0.5.1"
 stdx = { package = "near-stdx", path = "utils/stdx" }
 
 [patch.crates-io]
+protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
+protobuf-support = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.

@@ -3,7 +3,7 @@
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::ClientActor;
 use actix::{Context, Handler};
-
+use near_async::time::Clock;
 use near_chain::crypto_hash_timer::CryptoHashTimer;
 use near_chain::{near_chain_primitives, Chain, ChainStoreAccess};
 use near_client_primitives::debug::{
@@ -33,7 +33,6 @@ use std::collections::{HashMap, HashSet};
 use near_client_primitives::debug::{DebugBlockStatus, DebugChunkStatus};
 use near_network::types::{ConnectedPeerInfo, NetworkInfo, PeerType};
 use near_primitives::sharding::ChunkHash;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::views::{
     AccountDataView, KnownProducerView, NetworkInfoView, PeerInfoView, Tier1ProxyView,
 };
@@ -94,7 +93,7 @@ impl BlockProductionTracker {
         chunk_collections: Vec<ChunkCollection>,
     ) {
         if let Some(block_production) = self.0.get_mut(&height) {
-            block_production.block_production_time = Some(StaticClock::utc());
+            block_production.block_production_time = Some(Clock::real().now_utc());
             block_production.chunks_collection_time = chunk_collections;
         }
     }
@@ -107,7 +106,7 @@ impl BlockProductionTracker {
             // Check that chunk_collection is set and we haven't received this chunk yet.
             if let Some(chunk_collection) = chunk_collections.get_mut(shard_id as usize) {
                 if chunk_collection.received_time.is_none() {
-                    chunk_collection.received_time = Some(StaticClock::utc());
+                    chunk_collection.received_time = Some(Clock::real().now_utc());
                 }
             }
             // Otherwise, it means chunk_collections is not set yet, which means the block wasn't produced.
@@ -470,7 +469,7 @@ impl ClientActor {
                             processing_time_ms: CryptoHashTimer::get_timer_value(
                                 chunk.chunk_hash().0,
                             )
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         })
                         .collect(),
                     None => vec![],
@@ -487,7 +486,7 @@ impl ClientActor {
                         is_on_canonical_chain,
                         chunks,
                         processing_time_ms: CryptoHashTimer::get_timer_value(block_hash)
-                            .map(|s| s.as_millis() as u64),
+                            .map(|s| s.whole_milliseconds() as u64),
                         block_timestamp: block_header.raw_timestamp(),
                         gas_price_ratio: block_header.next_gas_price() as f64
                             / initial_gas_price as f64,
@@ -705,11 +704,7 @@ pub(crate) fn new_network_info_view(chain: &Chain, network_info: &NetworkInfo) -
                     })
                     .collect(),
                 account_key: d.account_key.clone(),
-                timestamp: chrono::DateTime::from_naive_utc_and_offset(
-                    chrono::NaiveDateTime::from_timestamp_opt(d.timestamp.unix_timestamp(), 0)
-                        .unwrap(),
-                    chrono::Utc,
-                ),
+                timestamp: d.timestamp,
             })
             .collect(),
         tier1_connections: network_info

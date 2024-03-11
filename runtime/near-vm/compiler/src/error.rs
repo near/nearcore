@@ -10,11 +10,11 @@ use crate::lib::std::string::String;
 /// [compiler-error]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WebAssembly/CompileError
 #[derive(Debug, thiserror::Error)]
 pub enum CompileError {
-    /// A Wasm translation error occured.
+    /// A Wasm translation error occurred.
     #[error("WebAssembly translation error: {0}")]
     Wasm(WasmError),
 
-    /// A compilation error occured.
+    /// A compilation error occurred.
     #[error("Compilation error: {0}")]
     Codegen(String),
 

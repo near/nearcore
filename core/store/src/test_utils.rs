@@ -18,7 +18,7 @@ use near_primitives::types::{NumShards, StateRoot};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashMap;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::sync::Arc;
 
 /// Creates an in-memory node storage.
@@ -249,6 +249,15 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize)
     accounts.dedup();
     accounts.shuffle(rng);
     accounts
+}
+
+// returns one account for each shard
+pub fn gen_shard_accounts() -> Vec<AccountId> {
+    vec!["aaa", "aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
+        .into_iter()
+        .map(AccountId::from_str)
+        .map(Result::unwrap)
+        .collect()
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {

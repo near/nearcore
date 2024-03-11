@@ -4,13 +4,10 @@ use near_primitives::errors::{EpochError, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, TrieCacheMode};
-use near_primitives::utils::create_data_id;
+use near_primitives::utils::create_receipt_id_from_action_hash;
 use near_primitives::version::ProtocolVersion;
-use near_store::{
-    get_code, get_yielded_promise, remove_yielded_promise, KeyLookupMode, TrieUpdate,
-    TrieUpdateValuePtr,
-};
-use near_vm_runner::logic::errors::{AnyError, HostError, VMLogicError};
+use near_store::{get_code, has_yielded_promise, KeyLookupMode, TrieUpdate, TrieUpdateValuePtr};
+use near_vm_runner::logic::errors::{AnyError, VMLogicError};
 use near_vm_runner::logic::types::ReceiptIndex;
 use near_vm_runner::logic::{External, StorageGetMode, ValuePtr};
 use near_vm_runner::ContractCode;
@@ -176,7 +173,7 @@ impl<'a> External for RuntimeExt<'a> {
     }
 
     fn generate_data_id(&mut self) -> CryptoHash {
-        let data_id = create_data_id(
+        let data_id = create_receipt_id_from_action_hash(
             self.current_protocol_version,
             self.action_hash,
             self.prev_block_hash,
@@ -203,7 +200,7 @@ impl<'a> External for RuntimeExt<'a> {
             .map_err(|e| ExternalError::ValidatorError(e).into())
     }
 
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
@@ -211,47 +208,35 @@ impl<'a> External for RuntimeExt<'a> {
         let data_ids = std::iter::from_fn(|| Some(self.generate_data_id()))
             .take(receipt_indices.len())
             .collect();
-        self.receipt_manager.create_receipt(data_ids, receipt_indices, receiver_id)
+        self.receipt_manager.create_action_receipt(data_ids, receipt_indices, receiver_id)
     }
 
-    fn yield_create_action_receipt(
+    fn create_promise_yield_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError> {
         let input_data_id = self.generate_data_id();
         self.receipt_manager
-            .create_yielded_action_receipt(input_data_id, receiver_id)
+            .create_promise_yield_receipt(input_data_id, receiver_id)
             .map(|receipt_index| (receipt_index, input_data_id))
     }
 
-    fn yield_submit_data_receipt(
+    fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<(), VMLogicError> {
+    ) -> Result<bool, VMLogicError> {
         // If the yielded promise was created by a previous transaction, we'll find it in the trie
-        if let Some(yielded_promise) =
-            get_yielded_promise(self.trie_update, data_id).map_err(wrap_storage_error)?
+        if has_yielded_promise(self.trie_update, self.account_id.clone(), data_id)
+            .map_err(wrap_storage_error)?
         {
-            // Yields are only resumable by the account which created them
-            if yielded_promise.account_id != *self.account_id {
-                return Err(
-                    HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into()
-                );
-            }
-
-            remove_yielded_promise(self.trie_update, data_id);
-            return self.receipt_manager.create_data_receipt(data_id, data);
+            self.receipt_manager.create_promise_resume_receipt(data_id, data)?;
+            return Ok(true);
         }
 
         // If the yielded promise was created by the current transaction, we'll find it in the
-        // receipt manager. In such case we erase it from `yielded_data_ids` as there is no longer
-        // a need to store it as pending in the trie and enqueue a timeout for it.
-        if self.receipt_manager.yielded_data_ids.remove(&(self.account_id.clone(), data_id)) {
-            return self.receipt_manager.create_data_receipt(data_id, data);
-        }
-
-        Err(HostError::YieldedPromiseNotFound { data_id: data_id.to_string() }.into())
+        // receipt manager.
+        self.receipt_manager.checked_resolve_promise_yield(data_id, data)
     }
 
     fn append_action_create_account(

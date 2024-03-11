@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use crate::types::{ChainConfig, RuntimeStorageConfig};
 use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
-use near_chain_configs::test_utils::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, RngSeed};
@@ -18,6 +18,7 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use near_chain_configs::{
     default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    NEAR_BASE,
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -36,6 +37,8 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 
 use super::*;
 
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use near_async::time::Clock;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -1518,7 +1521,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::new(&GenesisConfig::test());
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {
@@ -1531,6 +1534,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     );
 
     let chain = Chain::new(
+        Clock::real(),
         env.epoch_manager.clone(),
         ShardTracker::new_empty(env.epoch_manager.clone()),
         env.runtime.clone(),
@@ -1538,6 +1542,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 

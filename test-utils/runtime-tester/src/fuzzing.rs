@@ -1,4 +1,5 @@
 use crate::run_test::{BlockConfig, NetworkConfig, RuntimeConfig, Scenario, TransactionConfig};
+use near_chain_configs::{test_utils::TESTING_INIT_BALANCE, NEAR_BASE};
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_primitives::{
     account::{AccessKey, AccessKeyPermission, FunctionCallPermission},
@@ -8,7 +9,6 @@ use near_primitives::{
     },
     types::{AccountId, Balance, BlockHeight, Nonce},
 };
-use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE};
 
 use libfuzzer_sys::arbitrary::{Arbitrary, Result, Unstructured};
 

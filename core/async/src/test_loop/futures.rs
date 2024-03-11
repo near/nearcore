@@ -1,5 +1,6 @@
 use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
-use crate::futures::DelayedActionRunner;
+use crate::futures::{AsyncComputationSpawner, DelayedActionRunner};
+use crate::time::Duration;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
@@ -139,7 +140,7 @@ impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
     fn run_later_boxed(
         &mut self,
         name: &str,
-        dur: std::time::Duration,
+        dur: Duration,
         action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {
         self.sender.send_with_delay(
@@ -147,4 +148,37 @@ impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
             dur.try_into().unwrap(),
         );
     }
+}
+
+/// An event that represents async computation. See async_computation_spawner() in DelaySender.
+pub struct TestLoopAsyncComputationEvent {
+    name: String,
+    f: Box<dyn FnOnce() + Send>,
+}
+
+impl Debug for TestLoopAsyncComputationEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("AsyncComputation").field(&self.name).finish()
+    }
+}
+
+/// AsyncComputationSpawner that spawns the computation in the TestLoop.
+pub struct TestLoopAsyncComputationSpawner {
+    pub(crate) sender: DelaySender<TestLoopAsyncComputationEvent>,
+    pub(crate) artificial_delay: Box<dyn Fn(&str) -> Duration + Send + Sync>,
+}
+
+impl AsyncComputationSpawner for TestLoopAsyncComputationSpawner {
+    fn spawn_boxed(&self, name: &str, f: Box<dyn FnOnce() + Send>) {
+        self.sender.send_with_delay(
+            TestLoopAsyncComputationEvent { name: name.to_string(), f },
+            (self.artificial_delay)(name),
+        );
+    }
+}
+
+pub fn drive_async_computations() -> LoopEventHandler<(), TestLoopAsyncComputationEvent> {
+    LoopEventHandler::new_simple(|event: TestLoopAsyncComputationEvent, _data: &mut ()| {
+        (event.f)();
+    })
 }

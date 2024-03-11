@@ -27,13 +27,11 @@ use std::collections::HashMap;
 use std::net;
 use std::sync::Arc;
 
-pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
+pub fn make_genesis_block(clock: &time::Clock, chunks: Vec<ShardChunk>) -> Block {
     Block::genesis(
         version::PROTOCOL_VERSION,
         chunks.into_iter().map(|c| c.take_header()).collect(),
-        // TODO: this should be clock.now(), but Block::genesis has to be migrated
-        // from chrono to time first.
-        chrono::Utc::now(),
+        clock.now_utc(),
         0,
         1000,
         1000,
@@ -42,7 +40,7 @@ pub fn make_genesis_block(_clock: &time::Clock, chunks: Vec<ShardChunk>) -> Bloc
 }
 
 pub fn make_block(
-    _clock: &time::Clock,
+    clock: &time::Clock,
     signer: &dyn ValidatorSigner,
     prev: &Block,
     chunks: Vec<ShardChunk>,
@@ -68,8 +66,7 @@ pub fn make_block(
         signer,
         CryptoHash::default(),
         CryptoHash::default(),
-        // TODO: migrate to clock.now()
-        Some(chrono::Utc::now()),
+        clock.now_utc(),
     )
 }
 

@@ -15,6 +15,7 @@ mod increase_deployment_cost;
 mod increase_storage_compute_cost;
 mod limit_contract_functions_number;
 mod lower_storage_key_limit;
+mod multinode_test_loop_example;
 mod nearvm;
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 mod nonrefundable_transfer;

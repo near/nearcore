@@ -9,13 +9,15 @@ use futures::{future, FutureExt};
 use itertools::Itertools;
 use near_actix_test_utils::run_actix;
 use near_async::messaging::Sender;
+use near_async::time::{Clock, Duration};
 use near_chain::chain::ApplyStatePartsRequest;
 use near_chain::test_utils::ValidatorSchedule;
 use near_chain::types::{LatestKnown, RuntimeAdapter};
 use near_chain::validate::validate_chunk_with_chunk_extra;
 use near_chain::ChainStore;
 use near_chain::{Block, BlockProcessingArtifact, ChainStoreAccess, Error, Provenance};
-use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::{Genesis, GenesisConfig, DEFAULT_GC_NUM_EPOCHS_TO_KEEP, NEAR_BASE};
 use near_client::test_utils::{
     create_chunk_on_height, setup_mock, setup_mock_all_validators, TestEnv,
 };
@@ -56,7 +58,6 @@ use near_primitives::transaction::{
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{AccountId, BlockHeight, EpochId, NumBlocks, ProtocolVersion};
-use near_primitives::utils::to_timestamp;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{
@@ -70,9 +71,7 @@ use near_store::metadata::DB_VERSION;
 use near_store::test_utils::create_test_node_storage_with_cold;
 use near_store::NodeStorage;
 use near_store::{get, DBCol, TrieChanges};
-use nearcore::config::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 
@@ -267,6 +266,7 @@ fn produce_two_blocks() {
     run_actix(async {
         let count = Arc::new(AtomicUsize::new(0));
         setup_mock(
+            Clock::real(),
             vec!["test".parse().unwrap()],
             "test".parse().unwrap(),
             true,
@@ -295,6 +295,7 @@ fn receive_network_block() {
         // it. The second header announce will happen with the endorsement a little later.
         let first_header_announce = Arc::new(RwLock::new(true));
         let actor_handles = setup_mock(
+            Clock::real(),
             vec!["test2".parse().unwrap(), "test1".parse().unwrap(), "test3".parse().unwrap()],
             "test2".parse().unwrap(),
             true,
@@ -345,7 +346,7 @@ fn receive_network_block() {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                Clock::real().now_utc(),
             );
             actor_handles.client_actor.do_send(
                 BlockResponse { block, peer_id: PeerInfo::random().id, was_requested: false }
@@ -366,6 +367,7 @@ fn produce_block_with_approvals() {
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
     run_actix(async {
         let actor_handles = setup_mock(
+            Clock::real(),
             validators.clone(),
             "test1".parse().unwrap(),
             true,
@@ -430,7 +432,7 @@ fn produce_block_with_approvals() {
                 &signer1,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                Clock::real().now_utc(),
             );
             actor_handles.client_actor.do_send(
                 BlockResponse {
@@ -485,6 +487,7 @@ fn produce_block_with_approvals_arrived_early() {
     run_actix(async move {
         let mut approval_counter = 0;
         setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -561,6 +564,7 @@ fn invalid_blocks_common(is_requested: bool) {
     run_actix(async move {
         let mut ban_counter = 0;
         let actor_handles = setup_mock(
+            Clock::real(),
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             true,
@@ -644,7 +648,7 @@ fn invalid_blocks_common(is_requested: bool) {
                 &signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
-                None,
+                Clock::real().now_utc(),
             );
             // Send block with invalid chunk mask
             let mut block = valid_block.clone();
@@ -765,6 +769,7 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
         let mut ban_counter = 0;
         let mut sent_bad_blocks = false;
         setup_mock_all_validators(
+            Clock::real(),
             vs,
             key_pairs,
             true,
@@ -922,6 +927,7 @@ fn skip_block_production() {
     init_test_logger();
     run_actix(async {
         setup_mock(
+            Clock::real(),
             vec!["test1".parse().unwrap(), "test2".parse().unwrap()],
             "test2".parse().unwrap(),
             true,
@@ -950,6 +956,7 @@ fn client_sync_headers() {
         let peer_info1 = PeerInfo::random();
         let peer_info2 = peer_info1.clone();
         let actor_handles = setup_mock(
+            Clock::real(),
             vec!["test".parse().unwrap()],
             "other".parse().unwrap(),
             false,
@@ -1059,9 +1066,9 @@ fn test_time_attack() {
     let client = &mut env.clients[0];
     let signer = client.validator_signer.as_ref().unwrap();
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_lite.timestamp =
-        to_timestamp(b1.header().timestamp() + chrono::Duration::seconds(60));
+        (b1.header().timestamp() + Duration::seconds(60)).unix_timestamp_nanos() as u64;
     b1.mut_header().resign(signer.as_ref());
 
     let _ = client.process_block_test(b1.into(), Provenance::NONE).unwrap();
@@ -1081,14 +1088,14 @@ fn test_no_double_sign() {
 #[test]
 fn test_invalid_gas_price() {
     init_test_logger();
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     genesis_config.min_gas_price = 100;
     let mut env = TestEnv::builder(&genesis_config).clients_count(1).mock_epoch_managers().build();
     let client = &mut env.clients[0];
     let signer = client.validator_signer.as_ref().unwrap();
 
     let genesis = client.chain.get_block_by_height(0).unwrap();
-    let mut b1 = TestBlockBuilder::new(&genesis, signer.clone()).build();
+    let mut b1 = TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build();
     b1.mut_header().get_mut().inner_rest.next_gas_price = 0;
     b1.mut_header().resign(signer.as_ref());
 
@@ -1102,7 +1109,7 @@ fn test_invalid_height_too_large() {
     let b1 = env.clients[0].produce_block(1).unwrap().unwrap();
     let _ = env.clients[0].process_block_test(b1.clone().into(), Provenance::PRODUCED).unwrap();
     let signer = Arc::new(create_test_signer("test0"));
-    let b2 = TestBlockBuilder::new(&b1, signer).height(u64::MAX).build();
+    let b2 = TestBlockBuilder::new(Clock::real(), &b1, signer).height(u64::MAX).build();
     let res = env.clients[0].process_block_test(b2.into(), Provenance::NONE);
     assert_matches!(res.unwrap_err(), Error::InvalidBlockHeight(_));
 }
@@ -1215,7 +1222,12 @@ fn test_bad_chunk_mask() {
     // Create a TestEnv with two shards and two validators who track both shards
     let accounts = vec!["test0".parse().unwrap(), "test1".parse().unwrap()];
     let num_validators: u64 = accounts.len().try_into().unwrap();
-    let genesis = Genesis::test_sharded(accounts.clone(), num_validators, vec![num_validators; 2]);
+    let genesis = Genesis::test_sharded(
+        Clock::real(),
+        accounts.clone(),
+        num_validators,
+        vec![num_validators; 2],
+    );
     let mut env = TestEnv::builder(&genesis.config)
         .clients(accounts)
         .nightshade_runtimes(&genesis)
@@ -1286,7 +1298,7 @@ fn test_bad_chunk_mask() {
 #[test]
 fn test_minimum_gas_price() {
     let min_gas_price = 100;
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     genesis_config.min_gas_price = min_gas_price;
     genesis_config.gas_price_adjustment_rate = Ratio::new(1, 10);
     let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
@@ -1539,7 +1551,7 @@ fn test_archival_gc_split_storage_behind() {
 
 #[test]
 fn test_gc_block_skips() {
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     genesis_config.epoch_length = 5;
     let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
     for i in 1..=1000 {
@@ -1564,7 +1576,7 @@ fn test_gc_block_skips() {
 
 #[test]
 fn test_gc_chunk_tail() {
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     let epoch_length = 100;
     genesis_config.epoch_length = epoch_length;
     let mut env = TestEnv::builder(&genesis_config).mock_epoch_managers().build();
@@ -1725,7 +1737,7 @@ fn test_gc_fork_tail() {
 
 #[test]
 fn test_tx_forwarding() {
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     genesis_config.epoch_length = 100;
     let mut env = TestEnv::builder(&genesis_config)
         .clients_count(50)
@@ -1744,7 +1756,7 @@ fn test_tx_forwarding() {
 
 #[test]
 fn test_tx_forwarding_no_double_forwarding() {
-    let mut genesis_config = GenesisConfig::test();
+    let mut genesis_config = GenesisConfig::test(Clock::real());
     genesis_config.epoch_length = 100;
     let mut env = TestEnv::builder(&genesis_config)
         .clients_count(50)

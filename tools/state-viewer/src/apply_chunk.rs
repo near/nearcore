@@ -479,6 +479,7 @@ pub(crate) fn apply_receipt(
 
 #[cfg(test)]
 mod test {
+    use near_async::time::Clock;
     use near_chain::{ChainStore, ChainStoreAccess, Provenance};
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
@@ -515,6 +516,7 @@ mod test {
     #[test]
     fn test_apply_chunk() {
         let genesis = Genesis::test_sharded(
+            Clock::real(),
             vec![
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),
@@ -599,6 +601,7 @@ mod test {
     #[test]
     fn test_apply_tx_apply_receipt() {
         let genesis = Genesis::test_sharded(
+            Clock::real(),
             vec![
                 "test0".parse().unwrap(),
                 "test1".parse().unwrap(),

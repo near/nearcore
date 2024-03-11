@@ -267,7 +267,7 @@ pub trait External {
     /// Returns total stake of validators in the current epoch.
     fn validator_total_stake(&self) -> Result<Balance>;
 
-    /// Create a receipt which will be executed after all the receipts identified by
+    /// Create an action receipt which will be executed after all the receipts identified by
     /// `receipt_indices` are complete.
     ///
     /// If any of the [`ReceiptIndex`]es do not refer to a known receipt, this function will fail
@@ -277,38 +277,42 @@ pub trait External {
     ///
     /// * `receipt_indices` - a list of receipt indices the new receipt is depend on
     /// * `receiver_id` - account id of the receiver of the receipt created
-    fn create_receipt(
+    fn create_action_receipt(
         &mut self,
         receipt_indices: Vec<ReceiptIndex>,
         receiver_id: AccountId,
     ) -> Result<ReceiptIndex, VMLogicError>;
 
-    /// Create a receipt with a new input data dependency.
+    /// Create a PromiseYield action receipt.
     ///
     /// Returns the ReceiptIndex of the newly created receipt and the id of its data dependency.
     ///
     /// # Arguments
     ///
     /// * `receiver_id` - account id of the receiver of the receipt created
-    fn yield_create_action_receipt(
+    fn create_promise_yield_receipt(
         &mut self,
         receiver_id: AccountId,
     ) -> Result<(ReceiptIndex, CryptoHash), VMLogicError>;
 
-    /// Creates a DataReceipt under the specified `data_id`.
+    /// Creates a receipt under the specified `data_id` containing given `data`.
     ///
-    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or if the
-    /// corresponding ActionReceipt was already resolved, this function will fail with an error.
+    /// This function shall return `Ok(true)` if the data dependency of the yield receipt has been
+    /// successfully resolved.
+    ///
+    /// If given `data_id` was not produced by a call to `yield_create_action_receipt`, or the data
+    /// dependency could not be resolved for any other reason (e.g. because it timed out,)
+    /// `Ok(false)` is returned.
     ///
     /// # Arguments
     ///
     /// * `data_id` - `data_id` with which the DataReceipt should be created
     /// * `data` - contents of the DataReceipt
-    fn yield_submit_data_receipt(
+    fn submit_promise_resume_data(
         &mut self,
         data_id: CryptoHash,
         data: Vec<u8>,
-    ) -> Result<(), VMLogicError>;
+    ) -> Result<bool, VMLogicError>;
 
     /// Attach the [`CreateAccountAction`] action to an existing receipt.
     ///

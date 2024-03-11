@@ -2,6 +2,11 @@
 
 # TODO(resharding) The resharding V2 is now stabilized so the V1 code is no
 # longer exercised and can be removed.
+import unittest
+
+from cluster import get_binary_protocol_version, load_config
+from utils import MetricsTracker
+
 V1_PROTOCOL_VERSION = 48
 V2_PROTOCOL_VERSION = 64
 
@@ -163,3 +168,39 @@ def get_client_config_changes(num_nodes, initial_delay=None):
             "nanos": 0
         }
     return {i: single for i in range(num_nodes)}
+
+
+class ReshardingTestBase(unittest.TestCase):
+
+    def setUp(self, epoch_length):
+        self.epoch_length = epoch_length
+        self.config = load_config()
+        self.binary_protocol_version = get_binary_protocol_version(self.config)
+        assert self.binary_protocol_version is not None
+
+        self.genesis_shard_layout_version = get_genesis_shard_layout_version(
+            self.binary_protocol_version)
+        self.target_shard_layout_version = get_target_shard_layout_version(
+            self.binary_protocol_version)
+
+        self.genesis_num_shards = get_genesis_num_shards(
+            self.binary_protocol_version)
+        self.target_num_shards = get_target_num_shards(
+            self.binary_protocol_version)
+
+        self.epoch_offset = get_epoch_offset(self.binary_protocol_version)
+
+    def get_metric(self, metrics_tracker: MetricsTracker, metric_name):
+        return metrics_tracker.get_int_metric_value(metric_name)
+
+    def get_version(self, metrics_tracker: MetricsTracker):
+        return self.get_metric(metrics_tracker, "near_shard_layout_version")
+
+    def get_num_shards(self, metrics_tracker: MetricsTracker):
+        return self.get_metric(metrics_tracker, "near_shard_layout_num_shards")
+
+    def get_resharding_status(self, metrics_tracker: MetricsTracker):
+        return metrics_tracker.get_metric_all_values("near_resharding_status")
+
+    def get_flat_storage_head(self, metrics_tracker: MetricsTracker):
+        return metrics_tracker.get_metric_all_values("flat_storage_head_height")

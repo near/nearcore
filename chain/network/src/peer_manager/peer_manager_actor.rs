@@ -465,7 +465,7 @@ impl PeerManagerActor {
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
     ///
-    /// Safe set contruction process:
+    /// Safe set construction process:
     /// 1. Add all whitelisted peers to the safe set.
     /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
     ///    add all outbound connections to the safe set.

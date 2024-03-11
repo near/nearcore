@@ -3,11 +3,10 @@ name = "near-async-derive"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 description = "This crate contains derive macros for near-async"
 repository.workspace = true
 license.workspace = true
-publish = false
+publish = true
 
 [lints]
 workspace = true

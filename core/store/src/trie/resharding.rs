@@ -57,7 +57,7 @@ impl ShardTries {
                 },
                 TrieKey::YieldedPromiseQueueIndices => {}
                 TrieKey::YieldedPromiseQueueEntry { .. } => todo!(),
-                TrieKey::YieldedPromise { .. } => todo!(),
+                TrieKey::PromiseYieldReceipt { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }

@@ -19,7 +19,7 @@ use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExec
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    YieldedPromise, YieldedPromiseQueueIndices,
+    YieldedPromiseQueueEntry, YieldedPromiseQueueIndices,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -36,13 +36,15 @@ use near_primitives::types::{
     EpochId, EpochInfoProvider, Gas, RawStateChangesWithTrieKey, StateChangeCause, StateRoot,
 };
 use near_primitives::utils::{
-    create_action_hash, create_receipt_id_from_receipt_id, create_receipt_id_from_transaction,
+    create_action_hash_from_receipt_id, create_receipt_id_from_receipt_id,
+    create_receipt_id_from_transaction,
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, has_received_data,
-    remove_postponed_receipt, set, set_account, set_delayed_receipt, set_postponed_receipt,
-    set_received_data, PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_received_data, get_yielded_promise,
+    has_received_data, remove_postponed_receipt, remove_yielded_promise, set, set_account,
+    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise,
+    PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
@@ -505,8 +507,12 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt =
-            &receipt.receipt.action().expect("given receipt should be an action receipt");
+        let action_receipt = match &receipt.receipt {
+            ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
+                action_receipt
+            }
+            _ => unreachable!("given receipt should be an action receipt"),
+        };
         let account_id = &receipt.receiver_id;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -550,9 +556,9 @@ impl Runtime {
         result.compute_usage = exec_fees;
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
-            let action_hash = create_action_hash(
+            let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
-                receipt,
+                &receipt.receipt_id,
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 action_index,
@@ -774,7 +780,10 @@ impl Runtime {
                 );
 
                 new_receipt.receipt_id = receipt_id;
-                let is_action = new_receipt.receipt.is_action();
+                let is_action = matches!(
+                    &new_receipt.receipt,
+                    ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
+                );
                 outgoing_receipts.push(new_receipt);
                 if is_action {
                     Some(receipt_id)
@@ -859,7 +868,7 @@ impl Runtime {
                 gas_balance_refund = 0;
             }
         } else {
-            // Refund for the difference of the purchased gas price and the the current gas price.
+            // Refund for the difference of the purchased gas price and the current gas price.
             gas_balance_refund = safe_add_balance(
                 gas_balance_refund,
                 safe_gas_to_balance(
@@ -898,7 +907,7 @@ impl Runtime {
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
         let account_id = &receipt.receiver_id;
         match receipt.receipt {
-            ReceiptEnum::Data(ref data_receipt) | ReceiptEnum::PromiseResume(ref data_receipt) => {
+            ReceiptEnum::Data(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
                 set_received_data(
@@ -984,8 +993,7 @@ impl Runtime {
                     }
                 }
             }
-            ReceiptEnum::Action(ref action_receipt)
-            | ReceiptEnum::PromiseYield(ref action_receipt) => {
+            ReceiptEnum::Action(ref action_receipt) => {
                 // Received a new action receipt. We'll first check how many input data items
                 // were already received before and saved in the state.
                 // And if we have all input data, then we can immediately execute the receipt.
@@ -1033,6 +1041,49 @@ impl Runtime {
                     );
                     // Save the receipt itself into the state.
                     set_postponed_receipt(state_update, receipt);
+                }
+            }
+            ReceiptEnum::PromiseYield(_) => {
+                // Received a new PromiseYield receipt. We simply store it and await
+                // the corresponding PromiseResume receipt.
+                set_yielded_promise(state_update, receipt);
+            }
+            ReceiptEnum::PromiseResume(ref data_receipt) => {
+                // Received a new PromiseResume receipt delivering input data for a PromiseYield.
+                // It is guaranteed that the PromiseYield has exactly one input data dependency
+                // and that it arrives first, so we can simply find and execute it.
+                if let Some(yield_receipt) =
+                    get_yielded_promise(state_update, account_id, data_receipt.data_id)?
+                {
+                    // Remove the receipt from the state
+                    remove_yielded_promise(state_update, account_id, data_receipt.data_id);
+
+                    // Save the data into the state keyed by the data_id
+                    set_received_data(
+                        state_update,
+                        account_id.clone(),
+                        data_receipt.data_id,
+                        &ReceivedData { data: data_receipt.data.clone() },
+                    );
+
+                    // Execute the PromiseYield receipt. It will read the input data and clean it
+                    // up from the state.
+                    return self
+                        .apply_action_receipt(
+                            state_update,
+                            apply_state,
+                            &yield_receipt,
+                            outgoing_receipts,
+                            validator_proposals,
+                            stats,
+                            epoch_info_provider,
+                        )
+                        .map(Some);
+                } else {
+                    // If the user happens to call `promise_yield_resume` multiple times, it may so
+                    // happen that multiple PromiseResume receipts are delivered. We can safely
+                    // ignore all but the first.
+                    return Ok(None);
                 }
             }
         };
@@ -1236,10 +1287,11 @@ impl Runtime {
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
 
+        let protocol_version = apply_state.current_protocol_version;
         let _span = tracing::debug_span!(
             target: "runtime",
             "apply",
-            protocol_version = apply_state.current_protocol_version,
+            protocol_version,
             num_transactions = transactions.len())
         .entered();
 
@@ -1266,7 +1318,7 @@ impl Runtime {
                 &mut state_update,
                 &apply_state.migration_data,
                 &apply_state.migration_flags,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(RuntimeError::StorageError)?;
         // If we have receipts that need to be restored, prepend them to the list of incoming receipts
@@ -1282,8 +1334,7 @@ impl Runtime {
         let initial_delayed_receipt_indices = delayed_receipts_indices.clone();
 
         if !apply_state.is_new_chunk
-            && apply_state.current_protocol_version
-                >= ProtocolFeature::FixApplyChunks.protocol_version()
+            && protocol_version >= ProtocolFeature::FixApplyChunks.protocol_version()
         {
             let (trie, trie_changes, state_changes) = state_update.finalize()?;
             let proof = trie.recorded_storage();
@@ -1336,7 +1387,7 @@ impl Runtime {
                     .expect("`process_transaction` must populate compute usage"),
             )?;
 
-            if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+            if !checked_feature!("stable", ComputeCosts, protocol_version) {
                 assert_eq!(
                     total_compute_usage, total_gas_burnt,
                     "Compute usage must match burnt gas"
@@ -1385,7 +1436,7 @@ impl Runtime {
                         .expect("`process_receipt` must populate compute usage"),
                 )?;
 
-                if !checked_feature!("stable", ComputeCosts, apply_state.current_protocol_version) {
+                if !checked_feature!("stable", ComputeCosts, protocol_version) {
                     assert_eq!(
                         total_compute_usage, total_gas_burnt,
                         "Compute usage must match burnt gas"
@@ -1399,6 +1450,12 @@ impl Runtime {
         // TODO(#8859): Introduce a dedicated `compute_limit` for the chunk.
         // For now compute limit always matches the gas limit.
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
+        let proof_size_limit =
+            if checked_feature!("stable", StateWitnessSizeLimit, protocol_version) {
+                Some(apply_state.config.storage_proof_size_soft_limit)
+            } else {
+                None
+            };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1407,7 +1464,12 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
-            if total_compute_usage < compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+            } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
                 process_receipt(
@@ -1416,15 +1478,16 @@ impl Runtime {
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
                 )?;
-            } else {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
         metrics.local_receipts_done(total_gas_burnt, total_compute_usage);
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_compute_usage >= compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
                 break;
             }
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
@@ -1445,7 +1508,7 @@ impl Runtime {
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 &receipt,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
@@ -1479,18 +1542,21 @@ impl Runtime {
             validate_receipt(
                 &apply_state.config.wasm_config.limit_config,
                 receipt,
-                apply_state.current_protocol_version,
+                protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_compute_usage < compute_limit {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
+            } else {
                 process_receipt(
                     receipt,
                     &mut state_update,
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
                 )?;
-            } else {
-                set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
         metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
@@ -1510,8 +1576,8 @@ impl Runtime {
             let queue_entry_key =
                 TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
 
-            let (data_id, expires_at): (CryptoHash, BlockHeight) =
-                get(&state_update, &queue_entry_key)?.ok_or_else(|| {
+            let queue_entry = get::<YieldedPromiseQueueEntry>(&state_update, &queue_entry_key)?
+                .ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
                         "Yielded promise queue entry #{} should be in the state",
                         yielded_promise_indices.first_index
@@ -1519,21 +1585,25 @@ impl Runtime {
                 })?;
 
             // Queue entries are ordered by expires_at
-            if expires_at > apply_state.block_height {
+            if queue_entry.expires_at > apply_state.block_height {
                 break;
             }
 
             // Check if the yielded promise still needs to be resolved
-            let yielded_promise_key = TrieKey::YieldedPromise { data_id };
-            if let Some(yielded_promise) =
-                get::<YieldedPromise>(&state_update, &yielded_promise_key)?
-            {
+            let yielded_promise_key = TrieKey::PromiseYieldReceipt {
+                receiver_id: queue_entry.account_id.clone(),
+                data_id: queue_entry.data_id,
+            };
+            if state_update.contains_key(&yielded_promise_key)? {
                 // Deliver a DataReceipt without any data to resolve the timed-out yield
-                let new_receipt = ReceiptEnum::Data(DataReceipt { data_id, data: None });
+                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt {
+                    data_id: queue_entry.data_id,
+                    data: None,
+                });
 
                 let new_receipt_id = create_receipt_id_from_receipt_id(
-                    apply_state.current_protocol_version,
-                    &data_id,
+                    protocol_version,
+                    &queue_entry.data_id,
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     new_receipt_index,
@@ -1541,13 +1611,11 @@ impl Runtime {
                 new_receipt_index += 1;
 
                 outgoing_receipts.push(Receipt {
-                    predecessor_id: yielded_promise.account_id.clone(),
-                    receiver_id: yielded_promise.account_id,
+                    predecessor_id: queue_entry.account_id.clone(),
+                    receiver_id: queue_entry.account_id.clone(),
                     receipt_id: new_receipt_id,
                     receipt: new_receipt,
                 });
-
-                state_update.remove(yielded_promise_key);
             }
 
             state_update.remove(queue_entry_key);
@@ -2774,6 +2842,80 @@ mod tests {
             assert_eq!(second.id, first_call_receipt.receipt_id);
             assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
+    }
+
+    #[test]
+    fn test_storage_proof_size_soft_limit() {
+        if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
+            return;
+        }
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+            setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
+
+        // Change storage_proof_size_soft_limit to a smaller value
+        // The value of 500 is small enough to let the first receipt go through but not the second
+        let mut runtime_config = RuntimeConfig::test();
+        runtime_config.storage_proof_size_soft_limit = 5000;
+        apply_state.config = Arc::new(runtime_config);
+
+        let create_acc_fn = |account_id| {
+            create_receipt_with_actions(
+                account_id,
+                signer.clone(),
+                vec![Action::DeployContract(DeployContractAction {
+                    code: near_test_contracts::sized_contract(5000).to_vec(),
+                })],
+            )
+        };
+
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+                &None,
+                &apply_state,
+                &vec![create_acc_fn(alice_account()), create_acc_fn(bob_account())],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        let mut store_update = tries.store_update();
+        let root = tries.apply_all(
+            &apply_result.trie_changes,
+            ShardUId::single_shard(),
+            &mut store_update,
+        );
+        store_update.commit().unwrap();
+
+        let function_call_fn = |account_id| {
+            create_receipt_with_actions(
+                account_id,
+                signer.clone(),
+                vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                    method_name: "main".to_string(),
+                    args: Vec::new(),
+                    gas: 1,
+                    deposit: 0,
+                }))],
+            )
+        };
+
+        // The function call to bob_account should hit the storage_proof_size_soft_limit
+        let apply_result = runtime
+            .apply(
+                tries.get_trie_for_shard(ShardUId::single_shard(), root).recording_reads(),
+                &None,
+                &apply_state,
+                &vec![function_call_fn(alice_account()), function_call_fn(bob_account())],
+                &[],
+                &epoch_info_provider,
+                Default::default(),
+            )
+            .unwrap();
+
+        // We expect function_call_fn(bob_account()) to be in delayed receipts
+        assert_eq!(apply_result.delayed_receipts_count, 1);
     }
 }
 

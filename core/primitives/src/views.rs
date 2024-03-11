@@ -39,7 +39,7 @@ use crate::types::{
 };
 use crate::version::{ProtocolVersion, Version};
 use borsh::{BorshDeserialize, BorshSerialize};
-use chrono::DateTime;
+use near_async::time::Utc;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
@@ -351,11 +351,13 @@ pub struct StatusSyncInfo {
     pub latest_block_hash: CryptoHash,
     pub latest_block_height: BlockHeight,
     pub latest_state_root: CryptoHash,
-    pub latest_block_time: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub latest_block_time: Utc,
     pub syncing: bool,
     pub earliest_block_hash: Option<CryptoHash>,
     pub earliest_block_height: Option<BlockHeight>,
-    pub earliest_block_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub earliest_block_time: Option<Utc>,
     pub epoch_id: Option<EpochId>,
     pub epoch_start_height: Option<BlockHeight>,
 }
@@ -407,7 +409,8 @@ pub struct AccountDataView {
     pub peer_id: PublicKey,
     pub proxies: Vec<Tier1ProxyView>,
     pub account_key: PublicKey,
-    pub timestamp: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub timestamp: Utc,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
@@ -588,9 +591,8 @@ pub struct ChainProcessingInfo {
 pub struct BlockProcessingInfo {
     pub height: BlockHeight,
     pub hash: CryptoHash,
-    pub received_timestamp: DateTime<chrono::Utc>,
-    /// Timestamp when block was received.
-    //pub received_timestamp: DateTime<chrono::Utc>,
+    #[serde(with = "near_async::time::serde_utc_as_iso")]
+    pub received_timestamp: Utc,
     /// Time (in ms) between when the block was first received and when it was processed
     pub in_progress_ms: u128,
     /// Time (in ms) that the block spent in the orphan pool. If the block was never put in the
@@ -655,9 +657,11 @@ pub struct ChunkProcessingInfo {
     pub created_by: Option<AccountId>,
     pub status: ChunkProcessingStatus,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the chunk is complete
-    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub completed_timestamp: Option<Utc>,
     /// Time (in millis) that it takes between when the chunk is requested and when it is completed.
     pub request_duration: Option<u64>,
     pub chunk_parts_collection: Vec<PartCollectionInfo>,
@@ -667,11 +671,14 @@ pub struct ChunkProcessingInfo {
 pub struct PartCollectionInfo {
     pub part_owner: AccountId,
     // Time when the part is received through any message
-    pub received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub received_time: Option<Utc>,
     // Time when we receive a PartialEncodedChunkForward containing this part
-    pub forwarded_received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub forwarded_received_time: Option<Utc>,
     // Time when we receive the PartialEncodedChunk message containing this part
-    pub chunk_received_time: Option<DateTime<chrono::Utc>>,
+    #[serde(with = "near_async::time::serde_opt_utc_as_iso")]
+    pub chunk_received_time: Option<Utc>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -1116,7 +1123,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockView {
     pub author: AccountId,
     pub header: BlockHeaderView,
@@ -1699,8 +1706,6 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
-    Ord,
-    PartialOrd,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
@@ -1708,6 +1713,11 @@ pub enum TxExecutionStatus {
     None,
     /// Transaction is included into the block. The block may be not finalised yet
     Included,
+    /// Transaction is included into the block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    #[default]
+    ExecutedOptimistic,
     /// Transaction is included into finalised block
     IncludedFinal,
     /// Transaction is included into finalised block +
@@ -1716,7 +1726,6 @@ pub enum TxExecutionStatus {
     Executed,
     /// Transaction is included into finalised block +
     /// Execution of transaction receipts is finalised
-    #[default]
     Final,
 }
 
@@ -2242,7 +2251,7 @@ impl From<StateChangeKind> for StateChangeKindView {
 pub type StateChangesKindsView = Vec<StateChangeKindView>;
 
 /// See crate::types::StateChangeCause for details.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeCauseView {
     NotWritableToDisk,
@@ -2287,7 +2296,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
 }
 
 #[serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
     AccountUpdate {
@@ -2361,7 +2370,7 @@ impl From<StateChangeValue> for StateChangeValueView {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateChangeWithCauseView {
     pub cause: StateChangeCauseView,
     #[serde(flatten)]
@@ -2391,6 +2400,8 @@ pub struct SplitStorageInfoView {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
@@ -2400,7 +2411,6 @@ mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
         use near_primitives_core::version::PROTOCOL_VERSION;
@@ -2413,7 +2423,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2422,7 +2431,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2431,7 +2439,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);

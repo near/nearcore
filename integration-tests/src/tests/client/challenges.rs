@@ -1,4 +1,5 @@
 use assert_matches::assert_matches;
+use near_async::time::Clock;
 use near_chain::validate::validate_challenge;
 use near_chain::{Block, ChainStoreAccess, Error, Provenance};
 use near_chain_configs::Genesis;
@@ -113,7 +114,7 @@ fn test_verify_block_double_sign_challenge() {
         &signer,
         *b1.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        Clock::real().now_utc(),
     );
     let epoch_id = b1.header().epoch_id().clone();
     let valid_challenge = Challenge::produce(
@@ -428,7 +429,7 @@ fn test_verify_chunk_invalid_state_challenge() {
         &validator_signer,
         *last_block.header().next_bp_hash(),
         block_merkle_tree.root(),
-        None,
+        Clock::real().now_utc(),
     );
 
     let challenge_body =

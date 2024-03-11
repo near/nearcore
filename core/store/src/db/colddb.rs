@@ -26,7 +26,7 @@ impl ColdDB {
         format!("Reading from column missing from cold storage. {col:?}")
     }
 
-    // Checks if the column is is the cold db and returns an error if not.
+    // Checks if the column is the cold db and returns an error if not.
     fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
         if !col.is_in_colddb() {
             return Err(std::io::Error::other(Self::err_msg(col)));
@@ -34,7 +34,7 @@ impl ColdDB {
         Ok(())
     }
 
-    // Checks if the column is is the cold db and panics if not.
+    // Checks if the column is the cold db and panics if not.
     fn log_assert_is_in_colddb(col: DBCol) {
         log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
