@@ -10,6 +10,8 @@ use near_parameters::{transfer_exec_fee, transfer_send_fee, ActionCosts, Runtime
 pub use near_primitives::num_rational::Rational32;
 use near_primitives::transaction::{Action, DeployContractAction, Transaction};
 use near_primitives::types::{AccountId, Balance, Compute, Gas};
+use near_primitives_core::checked_feature;
+use near_primitives_core::types::ProtocolVersion;
 
 /// Describes the cost of converting this transaction into a receipt.
 #[derive(Debug)]
@@ -248,6 +250,7 @@ pub fn tx_cost(
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
+    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -264,14 +267,17 @@ pub fn tx_cost(
         total_prepaid_gas(&transaction.actions)?,
         total_prepaid_send_fees(config, &transaction.actions)?,
     )?;
-    // If signer is equals to receiver the receipt will be processed at the same block as this
-    // transaction. Otherwise it will processed in the next block and the gas might be inflated.
-    let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
-    let minimum_new_receipt_gas = fees.min_receipt_with_function_call_gas();
     // In case the config is free, we don't care about the maximum depth.
-    let receipt_gas_price = if gas_price == 0 {
-        0
+    let receipt_gas_price = if gas_price == 0
+        || checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version)
+    {
+        gas_price
     } else {
+        // If signer is equals to receiver the receipt will be processed at the same block as this
+        // transaction. Otherwise it will processed in the next block and the gas might be inflated.
+        let initial_receipt_hop =
+            if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
+        let minimum_new_receipt_gas = fees.min_receipt_with_function_call_gas();
         let maximum_depth =
             if minimum_new_receipt_gas > 0 { prepaid_gas / minimum_new_receipt_gas } else { 0 };
         let inflation_exponent = u8::try_from(initial_receipt_hop + maximum_depth)

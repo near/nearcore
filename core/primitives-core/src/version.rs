@@ -142,6 +142,9 @@ pub enum ProtocolFeature {
     SingleShardTracking,
     // Stateless validation: state witness size limits.
     StateWitnessSizeLimit,
+    // Disable gas price refunds and require some amount of gas for refunds.
+    #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
+    GasPriceRefundAdjustment,
 }
 
 impl ProtocolFeature {
@@ -206,6 +209,8 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonRefundableBalance => 140,
+            #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
+            ProtocolFeature::GasPriceRefundAdjustment => 141,
         }
     }
 }
