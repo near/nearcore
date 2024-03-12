@@ -1144,12 +1144,7 @@ fn bls12381_map_fp_to_g1_base(ctx: &mut EstimatorContext) -> GasCost {
 
 #[cfg(feature = "protocol_feature_bls12381")]
 fn bls12381_map_fp_to_g1_element(ctx: &mut EstimatorContext) -> GasCost {
-    fn_cost(
-        ctx,
-        "bls12381_map_fp_to_g1_50_100",
-        ExtCosts::bls12381_map_fp_to_g1_element,
-        50 * 100,
-    )
+    fn_cost(ctx, "bls12381_map_fp_to_g1_50_100", ExtCosts::bls12381_map_fp_to_g1_element, 50 * 100)
 }
 
 #[cfg(feature = "protocol_feature_bls12381")]
