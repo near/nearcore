@@ -1,8 +1,10 @@
 //! Helper functions to compute the costs of certain actions assuming they succeed and the only
 //! actions in the transaction batch.
 use near_parameters::{ActionCosts, RuntimeConfig, RuntimeFeesConfig};
+use near_primitives::checked_feature;
 use near_primitives::transaction::Action;
 use near_primitives::types::{AccountId, Balance, Gas};
+use near_primitives::version::PROTOCOL_VERSION;
 
 pub struct FeeHelper {
     pub rt_cfg: RuntimeConfig,
@@ -19,9 +21,14 @@ impl FeeHelper {
     }
 
     pub fn gas_to_balance_inflated(&self, gas: Gas) -> Balance {
-        gas as Balance
-            * (self.gas_price * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
-                / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128))
+        if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+            self.gas_to_balance(gas)
+        } else {
+            gas as Balance
+                * (self.gas_price
+                    * (*self.cfg().pessimistic_gas_price_inflation_ratio.numer() as u128)
+                    / (*self.cfg().pessimistic_gas_price_inflation_ratio.denom() as u128))
+        }
     }
 
     pub fn gas_to_balance(&self, gas: Gas) -> Balance {
@@ -85,13 +92,18 @@ impl FeeHelper {
     }
 
     pub fn create_account_transfer_full_key_cost_fail_on_create_account(&self) -> Balance {
-        let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
-            + self.cfg().fee(ActionCosts::create_account).exec_fee();
-        let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
-            + self.cfg().fee(ActionCosts::create_account).send_fee(false)
-            + self.cfg().fee(ActionCosts::transfer).send_fee(false)
-            + self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
-        self.gas_to_balance(exec_gas + send_gas)
+        if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+            // The full cost due to the fact that the gas refund receipt would be too expensive.
+            self.create_account_transfer_full_key_cost()
+        } else {
+            let exec_gas = self.cfg().fee(ActionCosts::new_action_receipt).exec_fee()
+                + self.cfg().fee(ActionCosts::create_account).exec_fee();
+            let send_gas = self.cfg().fee(ActionCosts::new_action_receipt).send_fee(false)
+                + self.cfg().fee(ActionCosts::create_account).send_fee(false)
+                + self.cfg().fee(ActionCosts::transfer).send_fee(false)
+                + self.cfg().fee(ActionCosts::add_full_access_key).send_fee(false);
+            self.gas_to_balance(exec_gas + send_gas)
+        }
     }
 
     pub fn deploy_contract_cost(&self, num_bytes: u64) -> Balance {
@@ -191,5 +203,9 @@ impl FeeHelper {
             + receipt.send_fee(sir)
             + node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver).unwrap();
         self.gas_to_balance(total_gas)
+    }
+
+    pub fn gas_refund_fee(&self) -> Gas {
+        self.cfg().gas_fee_for_gas_refund()
     }
 }

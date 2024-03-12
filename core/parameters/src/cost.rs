@@ -1,7 +1,7 @@
 use crate::parameter::Parameter;
 use enum_map::{enum_map, EnumMap};
 use near_account_id::AccountType;
-use near_primitives_core::types::{Balance, BlockHeight, Compute, Gas};
+use near_primitives_core::types::{Balance, Compute, Gas};
 use num_rational::Rational32;
 
 /// Costs associated with an object that can only be sent over the network (and executed
@@ -489,10 +489,19 @@ impl RuntimeFeesConfig {
             + self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()
     }
 
-    /// The cost is currently set to a fixed 5 TGas. But in the future, it will grow based on the
-    /// time passed from the enabled block height.
-    pub fn gas_fee_for_gas_refund(&self, _block_height: BlockHeight) -> Gas {
-        5_000_000_000_000
+    /// The cost is currently set to a fixed 5 TGas.
+    /// Note, in the future this cost will be dynamic and grow based on the distance from the
+    /// enabled block height to discourage function call refunds.
+    pub fn gas_fee_for_gas_refund(&self) -> Gas {
+        if self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee()
+            + self.fee(ActionCosts::transfer).min_send_and_exec_fee()
+            > 0
+        {
+            5_000_000_000_000
+        } else {
+            // To account for free config
+            0
+        }
     }
 }
 
