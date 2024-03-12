@@ -1354,7 +1354,11 @@ impl MoveFlatHeadBackCmd {
                 panic!("cannot create flat storage for shard {shard_uid:?} with status {status:?}")
             }
         };
-        let mut height = flat_head.height;
+        let height = flat_head.height;
+        let block_hash =
+            chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        let block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
+        let mut height = chain_store.get_block_height(&block_hash).unwrap();
         let flat_storage_manager = runtime.get_flat_storage_manager();
         flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
