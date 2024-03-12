@@ -32,7 +32,7 @@ struct Args {
     #[clap(long, default_value = "false")]
     write_stats: bool,
 
-    /// Optional path the the file where the stats should be saved. By default
+    /// Optional path the file where the stats should be saved. By default
     /// the stats will be saved to a file name with prefix "stats", the strategy
     /// and workload name concatenated and ".csv" extension. This option can
     /// only be used when a single strategy and a single workflow are selected
