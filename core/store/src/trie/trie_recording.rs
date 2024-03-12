@@ -22,6 +22,10 @@ impl TrieRecorder {
         }
     }
 
+    pub fn contains(&self, hash: &CryptoHash) -> bool {
+        self.recorded.contains_key(hash)
+    }
+
     pub fn recorded_storage(&mut self) -> PartialStorage {
         let mut nodes: Vec<_> = self.recorded.drain().map(|(_key, value)| value).collect();
         nodes.sort();

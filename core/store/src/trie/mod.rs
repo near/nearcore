@@ -34,6 +34,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::hash::Hash;
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::str;
 use std::sync::{Arc, RwLock};
@@ -1487,7 +1488,13 @@ impl Trie {
                 // If we have in-memory tries, use it to construct the changes entirely (for
                 // both in-memory and on-disk updates) because it's much faster.
                 let guard = memtries.read().unwrap();
-                let mut trie_update = guard.update(self.root, true)?;
+                let mut recorder_borrow =
+                    self.recorder.as_ref().map(|recorder| recorder.borrow_mut());
+                let mut trie_update = guard.update(
+                    self.root,
+                    true,
+                    recorder_borrow.as_mut().map(|recorder| recorder.deref_mut()),
+                )?;
                 for (key, value) in changes {
                     match value {
                         Some(arr) => {
