@@ -128,7 +128,7 @@ fn apply_block_from_range(
     // normally save_trie_changes depends on whether the node is
     // archival, but here we don't care, and can just set it to false
     // since we're not writing anything to the store anyway
-    let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+    let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let block_hash = match chain_store.get_block_hash_by_height(height) {
         Ok(block_hash) => block_hash,
         Err(_) => {
