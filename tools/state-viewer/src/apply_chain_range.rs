@@ -133,7 +133,7 @@ fn apply_block_from_range(
         Ok(block_hash) => block_hash,
         Err(_) => {
             // Skipping block because it's not available in ChainStore.
-            progress_reporter.inc_and_report_progress(0);
+            // progress_reporter.inc_and_report_progress(0);
             return;
         }
     };
@@ -154,7 +154,7 @@ fn apply_block_from_range(
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
-        progress_reporter.inc_and_report_progress(0);
+        // progress_reporter.inc_and_report_progress(0);
         return;
     } else if block.chunks()[shard_id as usize].height_included() == height {
         chunk_present = true;
@@ -190,7 +190,7 @@ fn apply_block_from_range(
                         chunk_present
                     ),
                 );
-                progress_reporter.inc_and_report_progress(0);
+                // progress_reporter.inc_and_report_progress(0);
                 return;
             }
         };
@@ -323,7 +323,7 @@ fn apply_block_from_range(
             apply_result.trie_changes.state_changes().len(),
         ),
     );
-    progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+    // progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
 
     let changes = FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
     let delta = near_store::flat::FlatStateDelta {
