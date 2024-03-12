@@ -127,6 +127,9 @@ pub enum ProtocolFeature {
     /// NEP: https://github.com/near/NEPs/pull/491
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     NonRefundableBalance,
+    // NEP: https://github.com/near/NEPs/pull/488
+    #[cfg(feature = "protocol_feature_bls12381")]
+    BLS12381,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -203,6 +206,8 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonRefundableBalance => 140,
+            #[cfg(feature = "protocol_feature_bls12381")]
+            ProtocolFeature::BLS12381 => 141,
         }
     }
 }
