@@ -47,10 +47,10 @@ nightly = [
   "protocol_feature_nonrefundable_transfer_nep491",
   "protocol_feature_reject_blocks_with_outdated_protocol_version",
   "yield_resume",
-  "protocol_feature_bls12381"
 ]
 
 nightly_protocol = [
+  "protocol_feature_bls12381",
 ]
 
 statelessnet_protocol = []

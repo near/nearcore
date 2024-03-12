@@ -223,7 +223,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
     83
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    140
+    141
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
