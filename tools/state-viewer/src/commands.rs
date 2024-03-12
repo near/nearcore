@@ -1339,8 +1339,12 @@ impl MoveFlatHeadBackCmd {
         );
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
 
         let shard_id = self.shard_id;
         let shard_uid = ShardUId { version: self.version, shard_id: shard_id as u32 };
