@@ -38,11 +38,10 @@ use near_primitives_core::types::Gas;
 use near_store::flat::{store_helper, BlockInfo, FlatStorageChunkView, FlatStorageStatus};
 use near_store::flat::{FlatStateChanges, FlatStorageManager};
 use near_store::test_utils::create_test_store;
-use near_store::trie::OptimizedValueRef;
+use near_store::TrieStorage;
 use near_store::{
     DBCol, KeyLookupMode, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage,
 };
-use near_store::{StoreOpener, TrieStorage};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
