@@ -8,13 +8,14 @@ use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate};
 use near_chain_configs::Genesis;
 use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_primitives::receipt::DelayedReceiptIndices;
+use near_primitives::shard_layout::ShardUId;
 use near_primitives::transaction::{Action, ExecutionOutcomeWithId, ExecutionOutcomeWithProof};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::flat::{BlockInfo, FlatStateChanges, FlatStorageStatus};
 use near_store::{DBCol, Store};
 use nearcore::NightshadeRuntime;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -131,7 +132,7 @@ fn apply_block_from_range(
         Ok(block_hash) => block_hash,
         Err(_) => {
             // Skipping block because it's not available in ChainStore.
-            progress_reporter.inc_and_report_progress(0);
+            // progress_reporter.inc_and_report_progress(0);
             return;
         }
     };
@@ -152,7 +153,7 @@ fn apply_block_from_range(
         if verbose_output {
             println!("Skipping the genesis block #{}.", height);
         }
-        progress_reporter.inc_and_report_progress(0);
+        // progress_reporter.inc_and_report_progress(0);
         return;
     } else if block.chunks()[shard_id as usize].height_included() == height {
         chunk_present = true;
@@ -188,7 +189,7 @@ fn apply_block_from_range(
                         chunk_present
                     ),
                 );
-                progress_reporter.inc_and_report_progress(0);
+                // progress_reporter.inc_and_report_progress(0);
                 return;
             }
         };
@@ -321,7 +322,30 @@ fn apply_block_from_range(
             apply_result.trie_changes.state_changes().len(),
         ),
     );
-    progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+    // progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
+
+    let changes = FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
+    let delta = near_store::flat::FlatStateDelta {
+        metadata: near_store::flat::FlatStateDeltaMetadata {
+            block: BlockInfo {
+                hash: block_hash,
+                height: block.header().height(),
+                prev_hash: block.header().prev_hash().clone(),
+            },
+            prev_block_with_changes: None,
+        },
+        changes,
+    };
+
+    let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+    let flat_storage = flat_storage_manager.get_flat_storage_for_shard(shard_uid).unwrap();
+    let store_update = flat_storage.add_delta(delta).unwrap();
+    store_update.commit().unwrap();
+    flat_storage.update_flat_head(&block_hash, true).unwrap();
+
+    let mut fake_store_update = store.store_update();
+    apply_result.trie_changes.insertions_into(&mut fake_store_update);
+    apply_result.trie_changes.deletions_into(&mut fake_store_update);
 }
 
 pub fn apply_chain_range(
@@ -338,40 +362,56 @@ pub fn apply_chain_range(
     sequential: bool,
     use_flat_storage: bool,
 ) {
-    let parent_span = tracing::debug_span!(
-        target: "state_viewer",
-        "apply_chain_range",
-        ?start_height,
-        ?end_height,
-        %shard_id,
-        only_contracts,
-        sequential,
-        use_flat_storage)
-    .entered();
-    let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
-    let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
-    let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
+    assert!(use_flat_storage);
+    assert!(end_height.is_none());
+    // let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
+    assert!(start_height.is_none());
+    // let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
-    println!(
-        "Applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
-    );
+    // println!(
+    //     "Applying chunks in the range {}..={} for shard_id {}",
+    //     start_height, end_height, shard_id
+    // );
 
     println!("Printing results including outcomes of applying receipts");
     let csv_file_mutex = Mutex::new(csv_file);
     maybe_add_to_csv(&csv_file_mutex, "Height,Hash,Author,#Tx,#Receipt,Timestamp,GasUsed,ChunkPresent,#ProcessedDelayedReceipts,#DelayedReceipts,#StateChanges");
 
-    let range = start_height..=end_height;
+    // let range = start_height..=end_height;
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         ts: AtomicU64::new(timestamp_ms()),
-        all: end_height - start_height,
+        all: 0,
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
         non_empty_blocks: AtomicU64::new(0),
         tgas_burned: AtomicU64::new(0),
     };
-    let process_height = |height| {
+    assert!(sequential);
+
+    let mut chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
+    let final_head = chain_store.final_head().unwrap();
+    let shard_layout = epoch_manager.get_shard_layout(&final_head.epoch_id).unwrap();
+    let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
+    let flat_head = match near_store::flat::store_helper::get_flat_storage_status(&store, shard_uid)
+    {
+        Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+        status => {
+            panic!("cannot create flat storage for shard {shard_id} with status {status:?}")
+        }
+    };
+    let mut height = flat_head.height;
+    let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
+    loop {
+        let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
+        if block_hash == final_head.last_block_hash {
+            break;
+        }
+        let block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
+        height = chain_store.get_block_height(&block_hash).unwrap();
+        println!("applying {height}");
         apply_block_from_range(
             height,
             shard_id,
@@ -385,34 +425,7 @@ pub fn apply_chain_range(
             only_contracts,
             use_flat_storage,
         );
-    };
-
-    if sequential {
-        range.into_iter().for_each(|height| {
-            let _span = tracing::debug_span!(
-                target: "state_viewer",
-                parent: &parent_span,
-                "process_block_in_order",
-                height)
-            .entered();
-            process_height(height)
-        });
-    } else {
-        range.into_par_iter().for_each(|height| {
-            let _span = tracing::debug_span!(
-                target: "mock_node",
-                parent: &parent_span,
-                "process_block_in_parallel",
-                height)
-            .entered();
-            process_height(height)
-        });
     }
-
-    println!(
-        "No differences found after applying chunks in the range {}..={} for shard_id {}",
-        start_height, end_height, shard_id
-    );
 }
 
 /**
