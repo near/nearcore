@@ -62,20 +62,20 @@ impl Producer for AllForOneProducer {
             hops_enabled.push(3);
         }
 
-        (0..self.messages_per_round)
-            .zip(hops_enabled.iter().cycle())
-            .map(|(_, hops)| {
-                let shard = self.round_robin_shards.next().unwrap();
-                let mut tx = tx_factory(shard);
-                match hops {
-                    1 => self.produce_one_hop_tx(shards, &mut tx),
-                    2 => self.produce_two_hops_tx(shards, &mut tx),
-                    3 => self.produce_three_hops_tx(shards, &mut tx),
-                    _ => unreachable!(),
-                }
-                tx
-            })
-            .collect()
+        let mut out = vec![];
+        for i in 0..self.messages_per_round {
+            let hops = hops_enabled[i % hops_enabled.len()];
+            let shard = self.round_robin_shards.next().unwrap();
+            let mut tx_builder = tx_factory(shard);
+            match hops {
+                1 => self.produce_one_hop_tx(shards, &mut tx_builder),
+                2 => self.produce_two_hops_tx(shards, &mut tx_builder),
+                3 => self.produce_three_hops_tx(shards, &mut tx_builder),
+                _ => unreachable!(),
+            }
+            out.push(tx_builder);
+        }
+        out
     }
 }
 
@@ -126,7 +126,7 @@ impl AllForOneProducer {
         ReceiptDefinition {
             receiver: shards[0],
             size: self.receipt_size,
-            attached_gas: self.attached_gas - self.last_execution_gas * prior_hops,
+            attached_gas: self.attached_gas - self.light_execution_gas * prior_hops,
             execution_gas: self.last_execution_gas,
         }
     }
@@ -135,7 +135,7 @@ impl AllForOneProducer {
         ReceiptDefinition {
             receiver: shard,
             size: self.receipt_size,
-            attached_gas: self.attached_gas - self.last_execution_gas * prior_hops,
+            attached_gas: self.attached_gas - self.light_execution_gas * prior_hops,
             execution_gas: self.light_execution_gas,
         }
     }
