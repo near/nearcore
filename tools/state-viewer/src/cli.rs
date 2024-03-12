@@ -94,6 +94,7 @@ pub enum StateViewerSubCommand {
     /// View trie structure.
     #[clap(alias = "view_trie")]
     ViewTrie(ViewTrieCmd),
+    MoveFlatHeadBack(MoveFlatHeadBackCmd),
 }
 
 impl StateViewerSubCommand {
@@ -150,6 +151,7 @@ impl StateViewerSubCommand {
             StateViewerSubCommand::StateStats(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::ViewChain(cmd) => cmd.run(near_config, store),
             StateViewerSubCommand::ViewTrie(cmd) => cmd.run(store),
+            StateViewerSubCommand::MoveFlatHeadBack(cmd) => cmd.run(home_dir, near_config, store),
             StateViewerSubCommand::TrieIterationBenchmark(cmd) => cmd.run(near_config, store),
         }
     }

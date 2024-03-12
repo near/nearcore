@@ -1,8 +1,10 @@
+use clap::Parser;
+use std::path::PathBuf;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
 
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_epoch_manager::EpochManager;
-use near_primitives::shard_layout::ShardLayout;
+use near_primitives::shard_layout::{ShardLayout, ShardVersion};
 use near_primitives::sharding::ShardChunkHeader;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::col;
@@ -10,7 +12,8 @@ use near_primitives::trie_key::trie_key_parsers::{
     parse_account_id_from_access_key_key, parse_account_id_from_trie_key_with_separator,
 };
 use near_primitives_core::types::ShardId;
-use near_store::{ShardUId, Store, Trie, TrieDBStorage};
+use near_store::flat::{store_helper, FlatStorageStatus};
+use near_store::{ShardUId, Store, StoreOpener, Trie, TrieDBStorage};
 use nearcore::NearConfig;
 
 #[derive(Clone)]

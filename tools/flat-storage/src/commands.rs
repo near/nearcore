@@ -447,6 +447,9 @@ impl FlatStorageCommand {
             SubCommand::MoveFlatHead(cmd) => {
                 self.move_flat_head(cmd, home_dir, &near_config, opener)
             }
+            SubCommand::MoveFlatHeadBack(cmd) => {
+                self.move_flat_head_back(cmd, home_dir, &near_config, opener)
+            }
         }
     }
 }
