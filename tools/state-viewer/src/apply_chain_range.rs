@@ -353,6 +353,13 @@ pub fn apply_chain_range(
     let end_height = end_height.unwrap_or_else(|| chain_store.head().unwrap().height);
     let start_height = start_height.unwrap_or_else(|| chain_store.tail().unwrap());
 
+    let start_block_hash =
+        chain_store.get_block_hash_by_height(start_height).expect("First block does not exist");
+    let epoch_id = epoch_manager.get_epoch_id(&start_block_hash).unwrap();
+    let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &epoch_id).unwrap();
+    let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
+    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
     println!(
         "Applying chunks in the range {}..={} for shard_id {}",
         start_height, end_height, shard_id
