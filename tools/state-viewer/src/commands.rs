@@ -12,11 +12,11 @@ use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyChunkBlockContext;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::ApplyChunkShardContext;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
+use near_chain::types::{ApplyChunkBlockContext, StorageDataSource};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -91,9 +91,15 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
+        let mut storage_config =
+            RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage);
+        if !use_flat_storage {
+            storage_config.source = StorageDataSource::DbTrieOnly;
+        }
+
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                storage_config,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -112,10 +118,15 @@ pub(crate) fn apply_block(
     } else {
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+        let mut storage_config =
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage);
+        if !use_flat_storage {
+            storage_config.source = StorageDataSource::DbTrieOnly;
+        }
 
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                storage_config,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
@@ -1354,13 +1365,13 @@ impl MoveFlatHeadBackCmd {
                 panic!("cannot create flat storage for shard {shard_uid:?} with status {status:?}")
             }
         };
-        let height = flat_head.height;
-        let block_hash =
-            chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
-        let block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
-        let mut height = chain_store.get_block_height(&block_hash).unwrap();
-        let flat_storage_manager = runtime.get_flat_storage_manager();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        let mut height = flat_head.height;
+        // let block_hash =
+        //     chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        // let block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
+        // let mut height = chain_store.get_block_height(&block_hash).unwrap();
+        // let flat_storage_manager = runtime.get_flat_storage_manager();
+        // flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
         for _ in 0..self.steps {
             let block_hash =
@@ -1377,9 +1388,12 @@ impl MoveFlatHeadBackCmd {
                 epoch_manager.as_ref(),
                 runtime.as_ref(),
                 &mut chain_store,
-                true,
+                false,
             );
 
+            let existing_chunk_extra =
+                chain_store.get_chunk_extra(&block_hash, &shard_uid).unwrap();
+            assert_eq!(&apply_result.new_root, existing_chunk_extra.state_root());
             let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
             let state_root = chunk_extra.state_root().clone();
             let prev_trie =
