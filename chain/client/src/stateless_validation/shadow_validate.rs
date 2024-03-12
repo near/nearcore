@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use lru::LruCache;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
@@ -9,7 +10,6 @@ use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{ChunkStateTransition, ChunkStateWitnessInner};
 use near_primitives::types::ShardId;
 
-use crate::metrics::STATE_VALUES_CACHE_SIZE;
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
 };
@@ -159,18 +159,23 @@ impl Client {
         shard_id: ShardId,
         transition: &mut ChunkStateTransition
     ) {
-        const CUT_OFF_VALUE_SIZE: usize = 8000;
+        const CUT_OFF_VALUE_SIZE: usize = 32000;
         const MAX_CACHE_SIZE: usize = 1000;
-        let cache = self.state_cache.entry(shard_id).or_default();
+        let cache = self.state_cache.entry(shard_id).or_insert_with(|| LruCache::new(MAX_CACHE_SIZE));
         let PartialState::TrieValues(values) = &mut transition.base_state;
-        values.retain(|v| v.len() < CUT_OFF_VALUE_SIZE || !cache.contains(&CryptoHash::hash_bytes(v.as_ref())));
+        values.retain(|v| v.len() < CUT_OFF_VALUE_SIZE || cache.get(&CryptoHash::hash_bytes(v.as_ref())).is_none());
         values.sort_by_key(|v| v.len());
-        for v in values.iter().rev() {
-            if cache.len() < MAX_CACHE_SIZE && v.len() >= CUT_OFF_VALUE_SIZE {
-                cache.insert(CryptoHash::hash_bytes(v.as_ref()));
-            }
+        let mut updated = false;
+        for v in values.iter().rev().filter(|v| v.len() >= CUT_OFF_VALUE_SIZE) {
+            cache.push(CryptoHash::hash_bytes(v.as_ref()), ());
+            updated = true;
         }
-        STATE_VALUES_CACHE_SIZE
+        if updated {
+            metrics::STATE_VALUES_CACHE_UPDATED_COUNT
+                .with_label_values(&[&shard_id.to_string()])
+                .inc();
+        } 
+        metrics::STATE_VALUES_CACHE_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .set(cache.len() as i64);
     }
