@@ -1352,7 +1352,7 @@ impl MoveFlatHeadBackCmd {
         };
         let mut height = flat_head.height;
         let flat_storage_manager = runtime.get_flat_storage_manager();
-        flat_storage_manager.create_flat_storage_for_shard(shard_uid)?;
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
 
         for _ in 0..self.steps {
             let block_hash =
