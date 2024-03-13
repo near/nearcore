@@ -410,7 +410,7 @@ pub fn validate_action(
         Action::Transfer(_) => Ok(()),
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
         Action::NonrefundableStorageTransfer(_) => {
-            check_feature_enabled(ProtocolFeature::PermanentStorageBytes, current_protocol_version)
+            check_feature_enabled(ProtocolFeature::NonrefundableStorage, current_protocol_version)
         }
         Action::Stake(a) => validate_stake_action(a),
         Action::AddKey(a) => validate_add_key_action(limit_config, a),

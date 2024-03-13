@@ -126,7 +126,7 @@ pub enum ProtocolFeature {
     /// Allows creating an account with a non refundable balance to cover storage costs.
     /// NEP: https://github.com/near/NEPs/pull/491
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    PermanentStorageBytes,
+    NonrefundableStorage,
     RestrictTla,
     /// Increases the number of chunk producers.
     TestnetFewerBlockProducers,
@@ -199,7 +199,7 @@ impl ProtocolFeature {
             ProtocolFeature::RejectBlocksWithOutdatedProtocolVersions => 132,
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            ProtocolFeature::PermanentStorageBytes => 140,
+            ProtocolFeature::NonrefundableStorage => 140,
         }
     }
 }

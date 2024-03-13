@@ -91,7 +91,7 @@ impl Account {
         let account_version = AccountVersion::V1;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let account_version = if checked_feature!("stable", PermanentStorageBytes, protocol_version)
+        let account_version = if checked_feature!("stable", NonrefundableStorage, protocol_version)
         {
             AccountVersion::V2
         } else {
@@ -478,7 +478,7 @@ mod tests {
         let protocol_version = crate::version::PROTOCOL_VERSION;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let protocol_version = ProtocolFeature::PermanentStorageBytes.protocol_version() - 1;
+        let protocol_version = ProtocolFeature::NonrefundableStorage.protocol_version() - 1;
 
         Account::new(0, 0, 1, CryptoHash::default(), 0, protocol_version);
     }

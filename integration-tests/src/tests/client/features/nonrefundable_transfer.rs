@@ -660,7 +660,7 @@ fn reject_non_refundable_transfer_existing_account() {
 #[test]
 fn reject_non_refundable_transfer_in_older_versions() {
     let mut env = setup_env_with_protocol_version(Some(
-        ProtocolFeature::PermanentStorageBytes.protocol_version() - 1,
+        ProtocolFeature::NonrefundableStorage.protocol_version() - 1,
     ));
     for transfers in TEST_CASES {
         let tx_result = exec_transfers(
@@ -678,8 +678,8 @@ fn reject_non_refundable_transfer_in_older_versions() {
             tx_result,
             Err(InvalidTxError::ActionsValidation(
                 ActionsValidationError::UnsupportedProtocolFeature {
-                    protocol_feature: "PermanentStorageBytes".to_string(),
-                    version: ProtocolFeature::PermanentStorageBytes.protocol_version()
+                    protocol_feature: "NonrefundableStorage".to_string(),
+                    version: ProtocolFeature::NonrefundableStorage.protocol_version()
                 }
             ))
         );
