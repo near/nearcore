@@ -1,17 +1,15 @@
 use super::sync_actor::SyncActor;
-use actix::dev::ToEnvelope;
-use actix::prelude::SendError;
 use actix::{Actor, Message};
 use actix_rt::Arbiter;
 use core::fmt::Debug;
-use near_async::messaging::Sender;
-use near_network::types::{
-    PeerManagerMessageRequest, StateSync as NetworkStateSync, StateSyncResponse,
-};
-use near_o11y::WithSpanContextExt;
+use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::{IntoSender, Sender};
+use near_network::types::{PeerManagerMessageRequest, StateSyncResponse};
 use near_primitives::hash::CryptoHash;
 use near_store::ShardUId;
 use std::collections::HashMap;
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex};
 use tracing::warn;
 
 /// Information about the shard being synced
@@ -31,86 +29,108 @@ pub enum SyncMessage {
     SyncDone(SyncShardInfo),
 }
 
-struct ActorHandler {
-    /// Address of actor mailbox
-    addr: actix::Addr<SyncActor>,
-    /// Thread handler of actor
-    arbiter: actix::Arbiter,
+pub struct SyncActorHandler {
+    pub client_sender: Sender<SyncMessage>,
+    pub network_sender: Sender<StateSyncResponse>,
+    pub shutdown: Mutex<Box<dyn FnMut() + Send>>,
+}
+
+impl Drop for SyncActorHandler {
+    fn drop(&mut self) {
+        std::mem::replace(self.shutdown.lock().unwrap().deref_mut(), Box::new(|| {}))();
+    }
 }
 
 /// Manager for state sync threads.
 /// Offers functions to interact with the sync actors, such as start, stop and send messages.
 pub struct SyncAdapter {
     /// Address of the sync actors indexed by the SharUid
-    actor_handler_map: HashMap<ShardUId, ActorHandler>,
+    actor_handler_map: HashMap<ShardUId, SyncActorHandler>,
     /// Message channel for client
     client_adapter: Sender<SyncMessage>,
     /// Message channel with network
     network_adapter: Sender<PeerManagerMessageRequest>,
+    /// Function to make an actor
+    actor_maker: Arc<
+        dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
+            + Send
+            + Sync,
+    >,
 }
 
 impl SyncAdapter {
     pub fn new(
         client_adapter: Sender<SyncMessage>,
         network_adapter: Sender<PeerManagerMessageRequest>,
+        actor_maker: Arc<
+            dyn Fn(
+                    ShardUId,
+                    Sender<SyncMessage>,
+                    Sender<PeerManagerMessageRequest>,
+                ) -> SyncActorHandler
+                + Send
+                + Sync,
+        >,
     ) -> Self {
-        Self { actor_handler_map: [].into(), client_adapter, network_adapter }
+        Self { actor_handler_map: [].into(), client_adapter, network_adapter, actor_maker }
+    }
+
+    pub fn actix_actor_maker() -> Arc<
+        dyn Fn(ShardUId, Sender<SyncMessage>, Sender<PeerManagerMessageRequest>) -> SyncActorHandler
+            + Send
+            + Sync,
+    > {
+        Arc::new(|shard_uid, client_sender, network_sender| {
+            let arbiter = Arbiter::new();
+            let arbiter_handle = arbiter.handle();
+            let sync_actor = SyncActor::start_in_arbiter(&arbiter_handle, move |_ctx| {
+                SyncActor::new(shard_uid, client_sender, network_sender)
+            });
+            SyncActorHandler {
+                client_sender: sync_actor.clone().with_auto_span_context().into_sender(),
+                network_sender: sync_actor.with_auto_span_context().into_sender(),
+                shutdown: Mutex::new(Box::new(move || {
+                    arbiter.stop();
+                })),
+            }
+        })
     }
 
     /// Starts a new arbiter and runs the actor on it
     pub fn start(&mut self, shard_uid: ShardUId) {
         assert!(!self.actor_handler_map.contains_key(&shard_uid), "Actor already started.");
-        let arbiter = Arbiter::new();
-        let arbiter_handle = arbiter.handle();
         let client = self.client_adapter.clone();
         let network = self.network_adapter.clone();
-        let addr = SyncActor::start_in_arbiter(&arbiter_handle, move |_ctx| {
-            SyncActor::new(shard_uid, client, network)
-        });
-        self.actor_handler_map.insert(shard_uid, ActorHandler { addr, arbiter });
+        self.actor_handler_map.insert(shard_uid, (self.actor_maker)(shard_uid, client, network));
     }
 
     /// Stop the actor and remove it
     pub fn stop(&mut self, shard_uid: ShardUId) {
-        self.actor_handler_map.remove(&shard_uid).expect("Actor not started.").arbiter.stop();
+        self.actor_handler_map.remove(&shard_uid).expect("Actor not started.");
     }
 
     pub fn stop_all(&mut self) {
-        self.actor_handler_map.drain().for_each(|(_shard_uid, handler)| {
-            handler.arbiter.stop();
-        });
+        self.actor_handler_map.clear();
     }
 
     /// Forward message to the right shard
-    pub fn send<M>(&self, shard_uid: ShardUId, msg: M)
-    where
-        M: Message + Send + 'static,
-        M::Result: Send,
-        SyncActor: actix::Handler<M>,
-        <SyncActor as Actor>::Context: ToEnvelope<SyncActor, M>,
-    {
+    pub fn send_state_sync_response(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
         let handler = self.actor_handler_map.get(&shard_uid);
         match handler {
             None => {
                 warn!(target: "sync", ?shard_uid, "Tried sending message to non existing actor.")
             }
-            Some(handler) => match handler.addr.try_send(msg) {
-                Ok(_) => {}
-                Err(SendError::Closed(_)) => {
-                    warn!(target: "sync", ?shard_uid, "Error sending message, mailbox is closed.")
-                }
-                Err(SendError::Full(_)) => {
-                    warn!(target: "sync", ?shard_uid, "Error sending message, mailbox is full.")
-                }
-            },
+            Some(handler) => handler.network_sender.send(msg),
         }
     }
-}
 
-/// Interface for network
-#[async_trait::async_trait]
-impl NetworkStateSync for SyncAdapter {
-    async fn send(&self, shard_uid: ShardUId, msg: StateSyncResponse) {
-        self.send(shard_uid, msg.with_span_context());
+    pub fn send_sync_message(&self, shard_uid: ShardUId, msg: SyncMessage) {
+        let handler = self.actor_handler_map.get(&shard_uid);
+        match handler {
+            None => {
+                warn!(target: "sync", ?shard_uid, "Tried sending message to non existing actor.")
+            }
+            Some(handler) => handler.client_sender.send(msg),
+        }
     }
 }

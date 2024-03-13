@@ -457,11 +457,8 @@ fn sync_state_dump() {
             near1.config.store.state_snapshot_enabled = true;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
-            let nearcore::NearNode {
-                view_client: view_client1,
-                state_sync_dump_handle: _state_sync_dump_handle,
-                ..
-            } = start_with_config(dir1.path(), near1).expect("start_with_config");
+            let nearcore::NearNode { view_client: view_client1, .. } =
+                start_with_config(dir1.path(), near1).expect("start_with_config");
             let dir2 = tempfile::Builder::new().prefix("sync_nodes_2").tempdir().unwrap();
 
             let view_client2_holder = Arc::new(RwLock::new(None));
