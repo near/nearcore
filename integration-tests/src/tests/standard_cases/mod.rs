@@ -508,9 +508,12 @@ pub fn test_smart_contract_reward(node: impl Node) {
 
     let fee_helper = fee_helper(&node);
     let bob = node_user.view_account(&bob_account()).unwrap();
-    let gas_burnt_for_function_call = transaction_result.receipts_outcome[0].outcome.gas_burnt
-        - fee_helper.gas_refund_fee()
+    let mut gas_burnt_for_function_call = transaction_result.receipts_outcome[0].outcome.gas_burnt
         - fee_helper.function_call_exec_gas(b"run_test".len() as u64);
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+        // There is a cost that is not function call for gas refund receipt.
+        gas_burnt_for_function_call -= fee_helper.transfer_fee();
+    }
     let reward = fee_helper.gas_burnt_to_reward(gas_burnt_for_function_call);
     assert_eq!(bob.amount, TESTING_INIT_BALANCE - TESTING_INIT_STAKE + reward);
 }
@@ -1039,9 +1042,17 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         transaction_result.status,
         FinalExecutionStatus::SuccessValue(10i32.to_le_bytes().to_vec())
     );
-    let gas_refund = fee_helper.gas_to_balance(
-        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt,
-    );
+
+    let mut gas_refund =
+        prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt;
+
+    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+        // There is fixed cost for a gas refund receipt, but only the transfer cost is included in
+        // the burnt gas
+        gas_refund = gas_refund + fee_helper.transfer_fee() - fee_helper.gas_refund_fee();
+    }
+
+    let gas_refund_amount = fee_helper.gas_to_balance(gas_refund);
 
     assert_eq!(transaction_result.receipts_outcome.len(), 2);
     let new_root = node_user.get_state_root();
@@ -1053,7 +1064,7 @@ pub fn test_access_key_smart_contract(node: impl Node) {
         AccessKey {
             nonce: view_access_key.nonce,
             permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
-                allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost + gas_refund),
+                allowance: Some(FUNCTION_CALL_AMOUNT - function_call_cost + gas_refund_amount),
                 receiver_id: bob_account().into(),
                 method_names: vec![],
             }),

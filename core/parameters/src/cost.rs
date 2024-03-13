@@ -579,3 +579,30 @@ pub fn transfer_send_fee(
         }
     }
 }
+
+pub fn transfer_send_and_exec_fee(
+    cfg: &RuntimeFeesConfig,
+    sender_is_receiver: bool,
+    implicit_account_creation_allowed: bool,
+    eth_implicit_accounts_enabled: bool,
+    receiver_account_type: AccountType,
+) -> Gas {
+    // TODO: Add `Copy` to `AccountType`.
+    let copy_of_receiver_account_type = match &receiver_account_type {
+        AccountType::NamedAccount => AccountType::NamedAccount,
+        AccountType::NearImplicitAccount => AccountType::NearImplicitAccount,
+        AccountType::EthImplicitAccount => AccountType::EthImplicitAccount,
+    };
+    transfer_send_fee(
+        cfg,
+        sender_is_receiver,
+        implicit_account_creation_allowed,
+        eth_implicit_accounts_enabled,
+        receiver_account_type,
+    ) + transfer_exec_fee(
+        cfg,
+        implicit_account_creation_allowed,
+        eth_implicit_accounts_enabled,
+        copy_of_receiver_account_type,
+    )
+}
