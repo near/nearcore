@@ -410,8 +410,9 @@ otherwise prefer a `snake_case` name.
 Default to the [`#[tracing::instrument]`](instrument) macro. When instrumenting asynchronous
 functions either this or the `Future::instrument` is **required**. The spans produced in these
 contexts will be wrong if the span is held across an await point. Correct handling of this is
-handled for you via either of these methods. If instrumentation of async functions is not done
-according to this guidance it can lead to difficult to troubleshoot issues such as stack overflows.
+handled for you via either of the suggested methods. If instrumentation of async functions is not
+done according to this guidance it can lead to difficult to troubleshoot issues such as stack
+overflows.
 
 Always use `level`, `target` and `skip_all` to avoid implicit defaults for the level, target or
 adding all function arguments as the span fields (this can get really expensive quite fast). After
