@@ -25,6 +25,7 @@ mod wasmer_runner;
 mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
+pub use crate::near_vm_runner::VMArtifact;
 pub use cache::{get_contract_cache_key, precompile_contract, MockCompiledContractCache};
 pub use code::ContractCode;
 pub use profile::ProfileDataV2;
