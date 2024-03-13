@@ -839,8 +839,10 @@ fn call_promise() {
     }
 }
 
-// Function which expects to receive exactly one promise result,
-// the contents of which should match the function's input.
+/// Function which expects to receive exactly one promise result,
+/// the contents of which should match the function's input.
+///
+/// Used as the yield callback in tests of yield create / yield resume.
 #[no_mangle]
 unsafe fn check_promise_result() {
     input(0);
@@ -849,21 +851,69 @@ unsafe fn check_promise_result() {
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-    match promise_result(0, 0) {
+
+    let status = match promise_result(0, 0) {
         1 => {
             let mut result = vec![0; register_len(0) as usize];
             read_register(0, result.as_ptr() as *const u64 as u64);
             assert_eq!(expected, result);
 
-            // Return the first byte of the payload, doubled
+            // Double the first byte of the payload, then return it.
+            // Used in tests to verify that this function's return value is handled as expected.
             result[0] *= 2;
             value_return(1u64, result.as_ptr() as u64);
+
+            "Resumed "
         }
         2 => {
             assert_eq!(expected_result_len, 0);
+
+            "Timeout "
         }
         _ => unreachable!(),
-    }
+    };
+
+    // Write promise status to state.
+    // Used in tests to determine whether this function has been executed.
+    let key = 123u64.to_le_bytes().to_vec();
+    storage_write(
+        key.len() as u64,
+        key.as_ptr() as u64,
+        status.len() as u64,
+        status.as_ptr() as u64,
+        0,
+    );
+}
+
+/// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
+/// Given input is passed as the argument to the `check_promise_result` function call.
+#[cfg(feature = "nightly")]
+#[no_mangle]
+pub unsafe fn call_yield_create() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    // Create a promise yield with callback `check_promise_result`,
+    // passing the expected payload as an argument to the function.
+    let method_name = "check_promise_result";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        data_id_register,
+    );
+
+    let data_id = vec![0u8; register_len(0) as usize];
+    read_register(data_id_register, data_id.as_ptr() as u64);
+
+    value_return(data_id.len() as u64, data_id.as_ptr() as u64);
 }
 
 /// Call promise_yield_resume.

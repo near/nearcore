@@ -34,6 +34,88 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
 }
 
 #[test]
+fn create_then_resume() {
+    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+
+    let yield_payload = vec![6u8; 16];
+
+    // Hardcoded key under which the yield callback will write data.
+    // We use this to observe whether the callback has been executed.
+    let key = 123u64.to_le_bytes().to_vec();
+
+    // Set up the yield execution
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "call_yield_create",
+            yield_payload.clone(),
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+
+    let data_id = match res.status {
+        FinalExecutionStatus::SuccessValue(data_id) => data_id,
+        _ => {
+            panic!("{res:?} unexpected result; expected some data id");
+        }
+    };
+
+    // Confirm that the yield callback hasn't been executed yet
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "read_value",
+            key.clone(),
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+    assert_eq!(res.status, FinalExecutionStatus::SuccessValue(vec![]), "{res:?} unexpected result",);
+
+    // Call yield resume with the payload followed by the data id
+    let args: Vec<u8> = yield_payload.into_iter().chain(data_id.into_iter()).collect();
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "call_yield_resume",
+            args,
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue(vec![1u8]),
+        "{res:?} unexpected result; expected 1",
+    );
+
+    // Confirm that the yield callback was executed
+    let res = node
+        .user()
+        .function_call(
+            "alice.near".parse().unwrap(),
+            "test_contract".parse().unwrap(),
+            "read_value",
+            key,
+            MAX_GAS,
+            0,
+        )
+        .unwrap();
+    assert_eq!(
+        res.status,
+        FinalExecutionStatus::SuccessValue("Resumed ".as_bytes().to_vec()),
+        "{res:?} unexpected result",
+    );
+}
+
+#[test]
 fn create_and_resume_in_one_call() {
     let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
 
