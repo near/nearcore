@@ -164,6 +164,7 @@ fn test_client_with_simple_test_loop() {
     let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         builder.sender().into_sender(),
         noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
     )));
     let runtime_adapter = NightshadeRuntime::test(
         Path::new("."),

@@ -1,4 +1,5 @@
 mod kv_runtime;
+pub mod test_loop;
 mod validator_schedule;
 
 use std::cmp::Ordering;

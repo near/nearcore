@@ -59,7 +59,6 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
-use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -2393,10 +2392,9 @@ impl Client {
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
                     match self.state_sync_adapter.clone().read() {
-                        Ok(sync_adapter) => sync_adapter.send(
+                        Ok(sync_adapter) => sync_adapter.send_sync_message(
                             shard_uid,
-                            (SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }))
-                                .with_span_context(),
+                            SyncMessage::StartSync(SyncShardInfo { shard_uid, sync_hash }),
                         ),
                         Err(_) => {
                             error!(target:"catchup", "State sync adapter lock is poisoned.")

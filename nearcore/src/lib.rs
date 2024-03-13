@@ -4,7 +4,7 @@ use crate::entity_debug::EntityDebugHandlerImpl;
 use crate::metrics::spawn_trie_metrics_loop;
 
 use crate::cold_storage::spawn_cold_store_loop;
-use crate::state_sync::{spawn_state_sync_dump, StateSyncDumpHandle};
+use crate::state_sync::StateSyncDumper;
 use actix::{Actor, Addr};
 use actix_rt::ArbiterHandle;
 use anyhow::Context;
@@ -215,7 +215,7 @@ pub struct NearNode {
     /// It's a handle to a background thread that copies data from the hot store to the cold store.
     pub cold_store_loop_handle: Option<ColdStoreLoopHandle>,
     /// Contains handles to background threads that may be dumping state to S3.
-    pub state_sync_dump_handle: Option<StateSyncDumpHandle>,
+    pub state_sync_dumper: StateSyncDumper,
     /// A handle to control background flat state values inlining migration.
     /// Needed temporarily, will be removed after the migration is completed.
     pub flat_state_migration_handle: FlatStateValuesInliningMigrationHandle,
@@ -314,6 +314,7 @@ pub fn start_with_config_and_synchronization(
     let sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
         client_adapter_for_sync.as_sender(),
         network_adapter_for_sync.as_sender(),
+        SyncAdapter::actix_actor_maker(),
     )));
 
     let node_id = config.network_config.node_id();
@@ -339,9 +340,13 @@ pub fn start_with_config_and_synchronization(
         network_adapter.as_multi_sender(),
         runtime.get_tries(),
     );
-    let delete_snapshot_callback = get_delete_snapshot_callback(state_snapshot_actor.clone());
-    let make_snapshot_callback =
-        get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
+    let delete_snapshot_callback = get_delete_snapshot_callback(
+        state_snapshot_actor.clone().with_auto_span_context().into_multi_sender(),
+    );
+    let make_snapshot_callback = get_make_snapshot_callback(
+        state_snapshot_actor.with_auto_span_context().into_multi_sender(),
+        runtime.get_flat_storage_manager(),
+    );
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
     let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
@@ -384,14 +389,18 @@ pub fn start_with_config_and_synchronization(
             config.client_config.client_background_migration_threads,
         );
 
-    let state_sync_dump_handle = spawn_state_sync_dump(
-        &config.client_config,
+    let mut state_sync_dumper = StateSyncDumper {
+        clock: Clock::real(),
+        client_config: config.client_config.clone(),
         chain_genesis,
         epoch_manager,
         shard_tracker,
         runtime,
-        config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
-    )?;
+        account_id: config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
+        dump_future_runner: StateSyncDumper::arbiter_dump_future_runner(),
+        handle: None,
+    };
+    state_sync_dumper.start()?;
 
     let hot_store = storage.get_hot_store();
 
@@ -460,7 +469,7 @@ pub fn start_with_config_and_synchronization(
         rpc_servers,
         arbiters,
         cold_store_loop_handle,
-        state_sync_dump_handle,
+        state_sync_dumper,
         flat_state_migration_handle,
         resharding_handle,
     })
