@@ -1236,6 +1236,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "itertools",
 ]
 
 [[package]]
