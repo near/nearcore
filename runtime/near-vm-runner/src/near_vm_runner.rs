@@ -226,7 +226,7 @@ pub(crate) fn near_vm_vm_hash() -> u64 {
     VM_CONFIG.config_hash()
 }
 
-pub(crate) type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
+pub type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
 
 pub(crate) struct NearVM {
     pub(crate) config: Config,
@@ -353,6 +353,9 @@ impl NearVM {
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, &self.config);
+        if let Some(Ok(Some(entry))) = cache.map(|cache| cache.hack_get(&key)) {
+            return Ok(Ok(entry));
+        }
         let cache_record = cache
             .map(|cache| cache.get(&key))
             .transpose()
@@ -387,16 +390,25 @@ impl NearVM {
         };
 
         Ok(if let Some(it) = stored_artifact {
+            if let Some(cache) = cache {
+                cache.hack_put(&key, it.clone()).unwrap();
+            }
             Ok(it)
         } else {
-            match self.compile_and_cache(code, cache)? {
+            let result = match self.compile_and_cache(code, cache)? {
                 Ok(executable) => Ok(self
                     .engine
                     .load_universal_executable(&executable)
                     .map(Arc::new)
                     .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
                 Err(err) => Err(err),
+            };
+            if let Ok(v) = &result {
+                if let Some(cache) = cache {
+                    cache.hack_put(&key, v.clone()).unwrap();
+                }
             }
+            result
         })
     }
 

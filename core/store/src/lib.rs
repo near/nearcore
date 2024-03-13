@@ -3,7 +3,7 @@ extern crate core;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -879,11 +879,13 @@ where
 
 pub struct StoreCompiledContractCache {
     db: Arc<dyn Database>,
+    #[allow(unused)]
+    pub(crate) hack_cache: Mutex<lru::LruCache<CryptoHash, near_vm_runner::VMArtifact>>,
 }
 
 impl StoreCompiledContractCache {
     pub fn new(store: &Store) -> Self {
-        Self { db: store.storage.clone() }
+        Self { db: store.storage.clone(), hack_cache: Mutex::new(lru::LruCache::new(100)) }
     }
 }
 
@@ -912,6 +914,18 @@ impl CompiledContractCache for StoreCompiledContractCache {
             Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
+    }
+
+    fn hack_put(&self, key: &CryptoHash, value: near_vm_runner::VMArtifact) -> std::io::Result<()> {
+        let mut lock = self.hack_cache.lock().unwrap();
+        lock.put(*key, value);
+        Ok(())
+    }
+
+    fn hack_get(&self, key: &CryptoHash) -> std::io::Result<Option<near_vm_runner::VMArtifact>> {
+        let mut lock = self.hack_cache.lock().unwrap();
+        let result = lock.get(key).cloned();
+        Ok(result)
     }
 
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
