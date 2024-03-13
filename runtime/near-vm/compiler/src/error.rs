@@ -40,8 +40,8 @@ pub enum CompileError {
     Resource(String),
 
     /// Cannot downcast the engine to a specific type.
-    #[error("data offset is out of bounds")]
-    InvalidOffset,
+    #[error("cannot downcast the engine to a specific type")]
+    EngineDowncast,
 }
 
 impl From<WasmError> for CompileError {

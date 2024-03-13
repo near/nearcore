@@ -7,7 +7,6 @@ pub struct Universal {
     compiler_config: Option<Box<dyn CompilerConfig>>,
     target: Option<Target>,
     features: Option<Features>,
-    pool: Option<super::LimitedMemoryPool>,
 }
 
 impl Universal {
@@ -16,17 +15,12 @@ impl Universal {
     where
         T: Into<Box<dyn CompilerConfig>>,
     {
-        Self {
-            compiler_config: Some(compiler_config.into()),
-            target: None,
-            features: None,
-            pool: None,
-        }
+        Self { compiler_config: Some(compiler_config.into()), target: None, features: None }
     }
 
     /// Create a new headless Universal
     pub fn headless() -> Self {
-        Self { compiler_config: None, target: None, features: None, pool: None }
+        Self { compiler_config: None, target: None, features: None }
     }
 
     /// Set the target
@@ -41,25 +35,17 @@ impl Universal {
         self
     }
 
-    /// Set the pool of reusable code memory
-    pub fn code_memory_pool(mut self, pool: super::LimitedMemoryPool) -> Self {
-        self.pool = Some(pool);
-        self
-    }
-
     /// Build the `UniversalEngine` for this configuration
     pub fn engine(self) -> UniversalEngine {
         let target = self.target.unwrap_or_default();
-        let pool =
-            self.pool.unwrap_or_else(|| panic!("Universal::code_memory_pool was not set up!"));
         if let Some(compiler_config) = self.compiler_config {
             let features = self
                 .features
                 .unwrap_or_else(|| compiler_config.default_features_for_target(&target));
             let compiler = compiler_config.compiler();
-            UniversalEngine::new(compiler, target, features, pool)
+            UniversalEngine::new(compiler, target, features)
         } else {
-            UniversalEngine::headless(pool)
+            UniversalEngine::headless()
         }
     }
 }
