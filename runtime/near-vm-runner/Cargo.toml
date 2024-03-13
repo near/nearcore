@@ -72,6 +72,7 @@ ark-serialize.workspace = true
 ark-std.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
+csv.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true
