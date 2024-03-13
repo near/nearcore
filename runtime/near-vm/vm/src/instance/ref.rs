@@ -20,7 +20,7 @@ struct InstanceInner {
     instance_layout: Layout,
 
     /// The `Instance` itself. It must be the last field of
-    /// `InstanceRef` since `Instance` is dyamically-sized.
+    /// `InstanceRef` since `Instance` is dynamically-sized.
     ///
     /// `Instance` must not be dropped manually by Rust, because it's
     /// allocated manually with `alloc` and a specific layout (Rust

@@ -93,7 +93,7 @@ pub struct VMTable {
 /// # Safety
 /// This is correct because there is no non-threadsafe logic directly in this type;
 /// correct use of the raw table from multiple threads via `definition` requires `unsafe`
-/// and is the responsibilty of the user of this type.
+/// and is the responsibility of the user of this type.
 unsafe impl Send for VMTable {}
 
 /// # Safety
@@ -148,7 +148,7 @@ pub struct VMMemory {
 /// # Safety
 /// This is correct because there is no non-threadsafe logic directly in this type;
 /// correct use of the raw memory from multiple threads via `definition` requires `unsafe`
-/// and is the responsibilty of the user of this type.
+/// and is the responsibility of the user of this type.
 unsafe impl Send for VMMemory {}
 
 /// # Safety
@@ -203,7 +203,7 @@ pub struct VMGlobal {
 /// # Safety
 /// This is correct because there is no non-threadsafe logic directly in this type;
 /// correct use of the raw global from multiple threads via `definition` requires `unsafe`
-/// and is the responsibilty of the user of this type.
+/// and is the responsibility of the user of this type.
 unsafe impl Send for VMGlobal {}
 
 /// # Safety

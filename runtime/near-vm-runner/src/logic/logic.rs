@@ -811,7 +811,7 @@ impl<'a> VMLogic<'a> {
     ///    alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
     ///
     ///   `value` is encoded as packed, little-endian
-    ///   `[(u8, (u256, u256))]` slice. `0u8` is postive sign,
+    ///   `[(u8, (u256, u256))]` slice. `0u8` is positive sign,
     ///   `1u8` -- negative.
     ///
     /// # Errors
