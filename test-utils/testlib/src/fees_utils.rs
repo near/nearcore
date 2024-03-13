@@ -206,6 +206,10 @@ impl FeeHelper {
     }
 
     pub fn gas_refund_fee(&self) -> Gas {
-        self.cfg().gas_fee_for_gas_refund()
+        if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+            self.cfg().gas_fee_for_gas_refund()
+        } else {
+            0
+        }
     }
 }

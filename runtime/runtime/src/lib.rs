@@ -884,11 +884,9 @@ impl Runtime {
                 result.gas_burnt,
             )?;
             if gas_balance_refund >= refund_result.gas_deficit_amount {
-                // We first charge the refund balance.
                 gas_balance_refund -= refund_result.gas_deficit_amount;
                 refund_result.gas_deficit_amount = 0;
             } else {
-                // Not enough to cover the whole deficit.
                 refund_result.gas_deficit_amount -= gas_balance_refund;
                 gas_balance_refund = 0;
             }
