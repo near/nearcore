@@ -220,7 +220,7 @@ fn record_storage_proof_value_size_distribution(witness: &ChunkStateWitnessInner
         for val in values {
             for (rng, lbl) in ranges.iter() {
                 if rng.contains(&val.len()) {
-                    metrics::CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUES_TOTAL_SIZE
+                    metrics::CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUES_SIZE_TOTAL
                         .with_label_values(&[&shard_id.to_string(), lbl.as_str()])
                         .inc_by(val.len() as u64);
                     break;

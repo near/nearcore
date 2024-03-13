@@ -601,14 +601,15 @@ pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_TIME: Lazy<HistogramVec> = Laz
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUES_TOTAL_SIZE: Lazy<IntCounterVec> = Lazy::new(|| {
-    try_create_int_counter_vec(
-        "near_chunk_state_witness_storage_proof_values_total_size",
-        "Total size of storage proof values",
-        &["shard_id", "size"],
-    )
-    .unwrap()
-});
+pub(crate) static CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUES_SIZE_TOTAL: Lazy<IntCounterVec> =
+    Lazy::new(|| {
+        try_create_int_counter_vec(
+            "near_chunk_state_witness_storage_proof_values_size_total",
+            "Total size of storage proof values",
+            &["shard_id", "size"],
+        )
+        .unwrap()
+    });
 
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
@@ -625,7 +626,7 @@ pub(crate) static CHUNK_STATE_WITNESS_REDUCED_SIZE: Lazy<HistogramVec> = Lazy::n
         "near_chunk_state_witness_reduced_size",
         "Stateless validation reduced state witness size in bytes",
         &["shard_id", "strategy"],
-        Some(linear_buckets(500_000.0, 500_000.0, 40).unwrap()),
+        Some(linear_buckets(500_000.0, 125_000.0, 100).unwrap()),
     )
     .unwrap()
 });

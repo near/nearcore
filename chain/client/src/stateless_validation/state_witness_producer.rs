@@ -147,7 +147,6 @@ impl Client {
         Ok(witness_inner)
     }
 
-
     /// Collect state transition data necessary to produce state witness for
     /// `chunk_header`.
     fn collect_state_transition_data(
