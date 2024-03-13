@@ -37,6 +37,7 @@ pub use runner::{run, VM};
 #[doc(hidden)]
 pub mod internal {
     pub use crate::runner::VMKindExt;
+    pub use rkyv;
     #[cfg(feature = "prepare")]
     pub use wasmparser;
 }

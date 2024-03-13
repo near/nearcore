@@ -6,6 +6,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_store::StoreCompiledContractCache;
+use near_vm_runner::internal::rkyv;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
@@ -62,8 +63,12 @@ impl CompiledContractCache for MockCompiledContractCache {
         Ok(())
     }
 
-    fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        Ok(None)
+    fn with(
+        &self,
+        _: &CryptoHash,
+        _: &mut dyn FnMut(&rkyv::Archived<CompiledContract>),
+    ) -> std::io::Result<bool> {
+        Ok(false)
     }
 }
 

@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use std::any::Any;
 use std::fmt::{self, Error, Formatter};
 use std::io;
@@ -94,7 +93,16 @@ pub enum MethodResolveError {
     MethodInvalidSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, strum::IntoStaticStr)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    strum::IntoStaticStr,
+)]
 pub enum CompilationError {
     CodeDoesNotExist {
         account_id: Box<str>,
@@ -108,7 +116,7 @@ pub enum CompilationError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 /// Error that can occur while preparing or executing Wasm smart-contract.
 pub enum PrepareError {
     /// Error happened while serializing the module.

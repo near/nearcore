@@ -1,4 +1,3 @@
-use borsh::{BorshDeserialize, BorshSerialize};
 use near_primitives_core::hash::CryptoHash;
 use std::fmt;
 
@@ -25,7 +24,7 @@ pub use near_parameters::vm::{Config, ContractPrepareVersion, LimitConfig, Stora
 pub use near_primitives_core::types::ProtocolVersion;
 pub use types::ReturnData;
 
-#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+#[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum CompiledContract {
     CompileModuleError(errors::CompilationError),
     Code(Vec<u8>),
@@ -34,9 +33,21 @@ pub enum CompiledContract {
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
+    /// Inspect the cache for the `key`.
+    ///
+    /// If a lookup fails, `Err` is returned.
+    ///
+    /// The callback is called with a reference to the value in case the contract is found. If this
+    /// happens, this function is guaranteed to return `Ok(true)`.
+    ///
+    /// Otherwise, the `key` was not found in the cache and `Ok(false)` is returned.
+    fn with(
+        &self,
+        key: &CryptoHash,
+        callback: &mut dyn FnMut(&rkyv::Archived<CompiledContract>),
+    ) -> std::io::Result<bool>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        self.get(key).map(|entry| entry.is_some())
+        self.with(key, &mut |_| {})
     }
 }
 

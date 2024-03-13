@@ -272,10 +272,14 @@ impl CompiledContractCache for FaultingCompiledContractCache {
         self.inner.put(key, value)
     }
 
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+    fn with(
+        &self,
+        key: &CryptoHash,
+        callback: &mut dyn FnMut(&rkyv::Archived<CompiledContract>),
+    ) -> std::io::Result<bool> {
         if self.read_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
-        self.inner.get(key)
+        self.inner.with(key, callback)
     }
 }

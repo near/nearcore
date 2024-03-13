@@ -2694,12 +2694,7 @@ mod tests {
         let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
         let key =
             near_vm_runner::get_contract_cache_key(&contract_code, &apply_state.config.wasm_config);
-        apply_state
-            .cache
-            .unwrap()
-            .get(&key)
-            .expect("Compiled contract should be cached")
-            .expect("Compilation result should be non-empty");
+        apply_state.cache.unwrap().has(&key).expect("Compiled contract should be cached");
     }
 
     #[test]

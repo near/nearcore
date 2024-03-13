@@ -9,6 +9,7 @@ use std::{fmt, io};
 use borsh::{BorshDeserialize, BorshSerialize};
 use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use once_cell::sync::Lazy;
+use rkyv::ser::serializers::AllocSerializer;
 use strum;
 
 pub use columns::DBCol;
@@ -29,6 +30,7 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_vm_runner::internal::rkyv;
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
 use near_vm_runner::ContractCode;
 
@@ -972,24 +974,50 @@ impl StoreCompiledContractCache {
 impl CompiledContractCache for StoreCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
+        // FIXME: this may need to encode the offset and parse it out on the other end.
+        let mut serializer = AllocSerializer::<1024>::default();
+        let pos = rkyv::ser::Serializer::serialize_value(&mut serializer, &value)
+            .map_err(|e| std::io::Error::other(e.to_string()))? as u64;
+        let pos_bytes = pos.to_le_bytes();
+        let data = serializer.into_serializer().into_inner();
+        let mut out = Vec::with_capacity(pos_bytes.len() + data.len());
+        out.extend(data.as_slice());
+        out.extend(&pos_bytes);
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
         // same contract concurrently on two threads, the `value`s might differ,
         // but this doesn't matter.
-        update.set(
-            DBCol::CachedContractCode,
-            key.as_ref().to_vec(),
-            borsh::to_vec(&value).unwrap(),
-        );
+        update.set(DBCol::CachedContractCode, key.as_ref().to_vec(), out);
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+    fn with(
+        &self,
+        key: &CryptoHash,
+        callback: &mut dyn FnMut(&rkyv::Archived<CompiledContract>),
+    ) -> io::Result<bool> {
+        // FIXME: rocksdb does not align its buffers to the usual 16 bytes. Using a different
+        // store would save us this allocation.
+        let mut bytes = rkyv::AlignedVec::new();
         match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
-            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
-            Ok(None) => Ok(None),
-            Err(err) => Err(err),
+            Ok(Some(data)) => bytes.extend_from_slice(data.as_slice()),
+            Ok(None) => return Ok(false),
+            Err(err) => return Err(err),
+        };
+        unsafe {
+            // SAFETY: this data is coming from a trusted enough source and should've been
+            // produced by a serialization function above. If people are mucking with raw bytes in
+            // their database, its on them.
+            let (remaining, position) = bytes.split_at(bytes.len() - 8);
+            let position_value = <[u8; 8]>::try_from(position).expect("8 bytes");
+            let position = u64::from_le_bytes(position_value);
+            if position > remaining.len() as u64 {
+                return Err(std::io::Error::other("cached contract is malformed"));
+            }
+            let archive = rkyv::archived_value::<CompiledContract>(remaining, position as usize);
+            callback(archive);
         }
+        Ok(true)
     }
 
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
@@ -1000,6 +1028,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
+    use near_vm_runner::internal::rkyv::{self, Deserialize};
 
     use super::{DBCol, NodeStorage, Store};
 
@@ -1120,12 +1149,20 @@ mod tests {
         let cache = super::StoreCompiledContractCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
 
-        assert_eq!(None, cache.get(&key).unwrap());
+        assert_eq!(false, cache.with(&key, &mut |_| { panic!("should not execute") }).unwrap());
         assert_eq!(false, cache.has(&key).unwrap());
 
         let record = CompiledContract::Code(b"foo".to_vec());
         cache.put(&key, record.clone()).unwrap();
-        assert_eq!(Some(record), cache.get(&key).unwrap());
+        assert_eq!(
+            true,
+            cache
+                .with(&key, &mut |archive| {
+                    assert_eq!(record, archive.deserialize(&mut rkyv::Infallible).unwrap());
+                })
+                .unwrap()
+        );
+
         assert_eq!(true, cache.has(&key).unwrap());
     }
 

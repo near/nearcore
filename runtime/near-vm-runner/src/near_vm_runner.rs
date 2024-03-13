@@ -15,6 +15,7 @@ use crate::{get_contract_cache_key, imports, ContractCode};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
     LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
@@ -23,6 +24,7 @@ use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_
 use near_vm_vm::{
     Artifact, Instantiatable, LinearMemory, LinearTable, Memory, MemoryStyle, TrapCode, VMMemory,
 };
+use rkyv::Deserialize;
 use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;
@@ -228,6 +230,57 @@ pub(crate) fn near_vm_vm_hash() -> u64 {
 
 pub(crate) type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
 
+#[tracing::instrument(level = "info", target = "vm", "Wasmer2VM::read_from_cache", skip_all)]
+fn read_from_cache(
+    key: &CryptoHash,
+    cache: &dyn CompiledContractCache,
+    engine: &UniversalEngine,
+) -> VMResult<Option<Result<VMArtifact, CompilationError>>> {
+    let mut result: VMResult<Option<Result<VMArtifact, CompilationError>>> = Ok(None);
+    let mut span = Some(tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered());
+    cache
+        .with(&key, &mut |archive| {
+            span.take().map(|s| s.exit());
+            use crate::logic::ArchivedCompiledContract as ACC;
+            result = Ok(Some(match archive {
+                ACC::Code(module) => {
+                    unsafe {
+                        // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
+                        // `serialize`.
+                        //
+                        // In practice this is not necessarily true. One could have forgotten to change the
+                        // cache key when upgrading the version of the wasmer library or the database could
+                        // have had its data corrupted while at rest.
+                        //
+                        // There should definitely be some validation in wasmer to ensure we load what we think
+                        // we load.
+                        let executable = match UniversalExecutableRef::deserialize(&module) {
+                            Ok(executable) => executable,
+                            Err(_) => {
+                                result = Err(CacheError::DeserializationError.into());
+                                return;
+                            }
+                        };
+                        let artifact =
+                            engine.load_universal_executable_ref(&executable).map(Arc::new);
+                        match artifact {
+                            Ok(m) => Ok(m),
+                            Err(e) => {
+                                result = Err(VMRunnerError::LoadingError(e.to_string()));
+                                return;
+                            }
+                        }
+                    }
+                }
+                ACC::CompileModuleError(err) => {
+                    Err(err.deserialize(&mut rkyv::Infallible).unwrap())
+                }
+            }));
+        })
+        .map_err(CacheError::ReadError)?;
+    result
+}
+
 pub(crate) struct NearVM {
     pub(crate) config: Config,
     pub(crate) engine: UniversalEngine,
@@ -295,11 +348,11 @@ impl NearVM {
         Self::new_for_target(config, Target::new(Triple::host(), target_features))
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "NearVM::compile_uncached", skip_all)]
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
     ) -> Result<UniversalExecutable, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_uncached").entered();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::NearVm)
             .map_err(CompilationError::PrepareError)?;
 
@@ -317,6 +370,7 @@ impl NearVM {
         Ok(executable)
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "NearVM::compile_and_cache", skip_all)]
     fn compile_and_cache(
         &self,
         code: &ContractCode,
@@ -341,6 +395,7 @@ impl NearVM {
         Ok(executable_or_error)
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "NearVM::compile_and_load", skip_all)]
     fn compile_and_load(
         &self,
         code: &ContractCode,
@@ -351,53 +406,19 @@ impl NearVM {
         // Caches also cache _compilation_ errors, so that we don't have to
         // re-parse invalid code (invalid code, in a sense, is a normal
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, &self.config);
-        let cache_record = {
-            let _span = tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
-            cache.map(|cache| cache.get(&key)).transpose().map_err(CacheError::ReadError)?.flatten()
-        };
-
-        let stored_artifact: Option<VMArtifact> = match cache_record {
-            None => None,
-            Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
-            Some(CompiledContract::Code(serialized_module)) => {
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::deserialize_module_from_cache")
-                        .entered();
-                unsafe {
-                    // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                    // `serialize`.
-                    //
-                    // In practice this is not necessarily true. One could have forgotten to change the
-                    // cache key when upgrading the version of the near_vm library or the database could
-                    // have had its data corrupted while at rest.
-                    //
-                    // There should definitely be some validation in near_vm to ensure we load what we think
-                    // we load.
-                    let executable = UniversalExecutableRef::deserialize(&serialized_module)
-                        .map_err(|_| CacheError::DeserializationError)?;
-                    let artifact = self
-                        .engine
-                        .load_universal_executable_ref(&executable)
-                        .map(Arc::new)
-                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                    Some(artifact)
-                }
-            }
-        };
-
-        Ok(if let Some(it) = stored_artifact {
-            Ok(it)
-        } else {
-            match self.compile_and_cache(code, cache)? {
+        let stored_module =
+            cache.map(|c| read_from_cache(&key, c, &self.engine)).transpose()?.flatten();
+        Ok(match stored_module {
+            Some(r) => r,
+            None => match self.compile_and_cache(code, cache)? {
                 Ok(executable) => Ok(self
                     .engine
                     .load_universal_executable(&executable)
                     .map(Arc::new)
                     .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
                 Err(err) => Err(err),
-            }
+            },
         })
     }
 

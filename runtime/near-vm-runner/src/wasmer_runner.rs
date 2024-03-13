@@ -12,7 +12,10 @@ use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
+use near_primitives_core::hash::CryptoHash;
+use rkyv::Deserialize;
 use wasmer_runtime::{ImportObject, Module};
+use wasmer_runtime_core::cache::Artifact;
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
     let info = module.info();
@@ -233,16 +236,57 @@ pub(crate) struct Wasmer0VM {
     config: Config,
 }
 
+#[tracing::instrument(level = "info", target = "vm", "Wasmer0VM::read_from_cache", skip_all)]
+fn read_from_cache(
+    key: &CryptoHash,
+    cache: &dyn CompiledContractCache,
+) -> VMResult<Option<Result<wasmer_runtime::Module, CompilationError>>> {
+    let mut result: VMResult<Option<Result<wasmer_runtime::Module, CompilationError>>> = Ok(None);
+    cache
+        .with(&key, &mut |archive| {
+            use crate::logic::ArchivedCompiledContract as ACC;
+            result = Ok(Some(match archive {
+                ACC::Code(module) => {
+                    let artifact = match Artifact::deserialize(module.as_slice()) {
+                        Ok(artifact) => artifact,
+                        Err(_) => {
+                            result = Err(CacheError::DeserializationError.into());
+                            return;
+                        }
+                    };
+                    let compiler =
+                        wasmer_runtime::compiler_for_backend(wasmer_runtime::Backend::Singlepass)
+                            .unwrap();
+                    let module = unsafe {
+                        wasmer_runtime_core::load_cache_with(artifact, compiler.as_ref())
+                    };
+                    match module {
+                        Ok(m) => Ok(m),
+                        Err(e) => {
+                            result = Err(VMRunnerError::LoadingError(format!("{e:?}")));
+                            return;
+                        }
+                    }
+                }
+                ACC::CompileModuleError(err) => {
+                    Err(err.deserialize(&mut rkyv::Infallible).unwrap())
+                }
+            }));
+        })
+        .map_err(CacheError::ReadError)?;
+    result
+}
+
 impl Wasmer0VM {
     pub(crate) fn new(config: Config) -> Self {
         Self { config }
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "Wasmer0VM::compile_uncached", skip_all)]
     pub(crate) fn compile_uncached(
         &self,
         code: &ContractCode,
     ) -> Result<wasmer_runtime::Module, CompilationError> {
-        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_uncached").entered();
         let prepared_code = prepare::prepare_contract(code.code(), &self.config, VMKind::Wasmer0)
             .map_err(CompilationError::PrepareError)?;
         wasmer_runtime::compile(&prepared_code).map_err(|err| match err {
@@ -257,6 +301,7 @@ impl Wasmer0VM {
         })
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "Wasmer0VM::compile_and_cache", skip_all)]
     pub(crate) fn compile_and_cache(
         &self,
         code: &ContractCode,
@@ -282,60 +327,18 @@ impl Wasmer0VM {
         Ok(module_or_error)
     }
 
+    #[tracing::instrument(level = "info", target = "vm", "Wasmer0VM::compile_and_load", skip_all)]
     pub(crate) fn compile_and_load(
         &self,
         code: &ContractCode,
         cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
-        let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
-
         let key = get_contract_cache_key(code, &self.config);
-
-        let compile_or_read_from_cache =
-            || -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
-                let _span =
-                    tracing::debug_span!(target: "vm", "Wasmer0VM::compile_or_read_from_cache")
-                        .entered();
-
-                let cache_record = cache
-                    .map(|cache| cache.get(&key))
-                    .transpose()
-                    .map_err(CacheError::ReadError)?
-                    .flatten();
-
-                let stored_module: Option<wasmer_runtime::Module> = match cache_record {
-                    None => None,
-                    Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
-                    Some(CompiledContract::Code(serialized_module)) => {
-                        let _span =
-                            tracing::debug_span!(target: "vm", "Wasmer0VM::read_from_cache")
-                                .entered();
-                        let artifact = wasmer_runtime_core::cache::Artifact::deserialize(
-                            serialized_module.as_slice(),
-                        )
-                        .map_err(|_e| CacheError::DeserializationError)?;
-                        unsafe {
-                            let compiler = wasmer_runtime::compiler_for_backend(
-                                wasmer_runtime::Backend::Singlepass,
-                            )
-                            .unwrap();
-                            let module = wasmer_runtime_core::load_cache_with(
-                                artifact,
-                                compiler.as_ref(),
-                            )
-                            .map_err(|err| VMRunnerError::LoadingError(format!("{err:?}")))?;
-                            Some(module)
-                        }
-                    }
-                };
-
-                Ok(match stored_module {
-                    Some(it) => Ok(it),
-                    None => self.compile_and_cache(code, cache)?,
-                })
-            };
-
-        return compile_or_read_from_cache();
+        let stored_module = cache.map(|c| read_from_cache(&key, c)).transpose()?.flatten();
+        Ok(match stored_module {
+            Some(r) => r,
+            None => self.compile_and_cache(code, cache)?,
+        })
     }
 }
 

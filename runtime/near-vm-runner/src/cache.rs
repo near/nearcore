@@ -57,7 +57,7 @@ pub fn get_contract_cache_key(code: &ContractCode, config: &Config) -> CryptoHas
 
 #[derive(Default)]
 pub struct MockCompiledContractCache {
-    store: Arc<Mutex<HashMap<CryptoHash, CompiledContract>>>,
+    store: Arc<Mutex<HashMap<CryptoHash, rkyv::AlignedVec>>>,
 }
 
 impl MockCompiledContractCache {
@@ -68,12 +68,22 @@ impl MockCompiledContractCache {
 
 impl CompiledContractCache for MockCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
-        self.store.lock().unwrap().insert(*key, value);
+        let bytes =
+            rkyv::to_bytes::<_, 1024>(&value).map_err(|e| std::io::Error::other(e.to_string()))?;
+        self.store.lock().unwrap().insert(*key, bytes);
         Ok(())
     }
 
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        Ok(self.store.lock().unwrap().get(key).map(Clone::clone))
+    fn with(
+        &self,
+        key: &CryptoHash,
+        callback: &mut dyn FnMut(&rkyv::Archived<CompiledContract>),
+    ) -> std::io::Result<bool> {
+        let guard = self.store.lock().unwrap();
+        let Some(bytes) = guard.get(key) else { return Ok(false) };
+        let archived = unsafe { rkyv::archived_root::<CompiledContract>(&bytes[..]) };
+        callback(archived);
+        Ok(true)
     }
 }
 

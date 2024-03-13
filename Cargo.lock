@@ -4547,6 +4547,7 @@ dependencies = [
  "pwasm-utils",
  "rand",
  "ripemd",
+ "rkyv",
  "serde",
  "serde_json",
  "serde_repr",
