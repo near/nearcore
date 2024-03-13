@@ -44,8 +44,8 @@ fn vm_hash(vm_kind: VMKind) -> u64 {
     }
 }
 
+#[tracing::instrument(level = "trace", target = "vm", "get_key", skip_all)]
 pub fn get_contract_cache_key(code: &ContractCode, config: &Config) -> CryptoHash {
-    let _span = tracing::debug_span!(target: "vm", "get_key").entered();
     let key = ContractCacheKey::Version4 {
         code_hash: *code.hash(),
         vm_config_non_crypto_hash: config.non_crypto_hash(),
