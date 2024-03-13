@@ -354,7 +354,7 @@ impl NearVM {
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, &self.config);
         let cache_record = {
-            let _span = tracing::debug_span!(target:"vm","NearVM::read_cache_record").entered();
+            let _span = tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
             cache.map(|cache| cache.get(&key)).transpose().map_err(CacheError::ReadError)?.flatten()
         };
 
