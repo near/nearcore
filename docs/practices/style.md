@@ -407,16 +407,45 @@ find a particular span in logs or other tools ingesting the span data. If a
 span begins at the top of a function, prefer giving it a name of that function,
 otherwise prefer a `snake_case` name.
 
-Use the regular span API over convenience macros such as `#[instrument]`, as
-this allows instrumenting portions of a function without affecting the code
-structure:
+Use the regular span API if you need to instrument portions of a function without affecting the
+code structure:
 
 ```rust
 fn compile_and_serialize_wasmer(code: &[u8]) -> Result<wasmer::Module> {
-    let _span = tracing::debug_span!(target: "vm", "compile_and_serialize_wasmer").entered();
-    // ...
-    // _span will be dropped when this scope ends, terminating the span created above.
-    // You can also `drop` it manually, to end the span early with `drop(_span)`.
+    // Some code...
+    {
+        let _span = tracing::debug_span!(target: "vm", "compile_wasmer").entered();
+        // ...
+        // _span will be dropped when this scope ends, terminating the span created above.
+        // You can also `drop` it manually, to end the span early with `drop(_span)`.
+    }
+    // Some more code...
+}
+```
+
+Use the [`#[tracing::instrument]`](instrument) macro to instrument asynchronous functions. The
+spans produced in these contexts will be wrong if the span is held across an await point, and it
+can lead to difficult to troubleshoot issues such as stack overflows. Always use `level`, `target`
+and `skip_all` to avoid implicit defaults for the level, target or adding all function arguments as
+the span fields (this can get really expensive quite fast). After careful consideration specify the
+fields you want to have through `fields()` option:
+
+[instrument]: https://docs.rs/tracing-attributes/latest/tracing_attributes/attr.instrument.html
+
+```rust
+#[tracing::instrument(
+    level = "trace",
+    target = "network",
+    "handle_sync_routing_table",
+    skip_all
+)]
+async fn handle_sync_routing_table(
+    clock: &time::Clock,
+    network_state: &Arc<NetworkState>,
+    conn: Arc<connection::Connection>,
+    rtu: RoutingTableUpdate,
+) {
+    ...
 }
 ```
 
