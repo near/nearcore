@@ -44,7 +44,7 @@ use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
     StoreCompiledContractCache, Trie, TrieConfig, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::CompiledContractCache;
+// use near_vm_runner::logic::CompiledContractCache;
 // use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
 use node_runtime::adapter::ViewRuntimeAdapter;
