@@ -92,7 +92,7 @@ fn test_evil_deep_trie() {
 /// well be necessary to adjust the `expected_max_depth` to at most that limit.
 #[test]
 fn test_self_delay() {
-    let node = setup_test_contract(near_test_contracts::nightly_rs_contract());
+    let node = setup_test_contract(near_test_contracts::rs_contract());
     let res = node
         .user()
         .function_call(
