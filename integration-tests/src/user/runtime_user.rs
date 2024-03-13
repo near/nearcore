@@ -159,7 +159,9 @@ impl RuntimeUser {
             epoch_height: 0,
             // Note, previously `pessimistic_gas_price_inflation_ratio` made all gas prices to be 0,
             // if the ratio was 0. Now it's disabled when `GasPriceRefundAdjustment` feature is on.
-            gas_price: if *self.runtime_config.fees.pessimistic_gas_price_inflation_ratio.numer() > 0 {
+            gas_price: if *self.runtime_config.fees.pessimistic_gas_price_inflation_ratio.numer()
+                > 0
+            {
                 MIN_GAS_PRICE
             } else {
                 0

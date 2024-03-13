@@ -50,7 +50,6 @@ fn num_refund_outcome() -> usize {
     } else {
         1
     }
-
 }
 
 /// Adds given access key to the given account_id using signer2.
