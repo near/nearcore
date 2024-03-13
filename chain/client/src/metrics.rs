@@ -573,16 +573,6 @@ pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy
     .unwrap()
 });
 
-pub(crate) static CHUNK_STATE_WITNESS_CACHED_STATE_PROOF_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_cached_state_proof_size",
-        "Stateless validation state witness size in bytes",
-        &["shard_id"],
-        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
-    )
-    .unwrap()
-});
-
 pub(crate) static STATE_VALUES_CACHE_UPDATED_COUNT: Lazy<IntCounterVec> = Lazy::new(|| {
     try_create_int_counter_vec(
         "near_state_values_cache_updated_count",
@@ -601,12 +591,41 @@ pub(crate) static STATE_VALUES_CACHE_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compression_time",
+        "State witness compression latency in seconds",
+        &["shard_id", "level"],
+        Some(linear_buckets(0.025, 0.025, 40).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUES_TOTAL_SIZE: Lazy<IntCounterVec> = Lazy::new(|| {
+    try_create_int_counter_vec(
+        "near_chunk_state_witness_storage_proof_values_total_size",
+        "Total size of storage proof values",
+        &["shard_id", "size"],
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
         "Stateless validation state witness size in bytes",
         &["shard_id"],
         Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_REDUCED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_reduced_size",
+        "Stateless validation reduced state witness size in bytes",
+        &["shard_id", "strategy"],
+        Some(linear_buckets(500_000.0, 500_000.0, 40).unwrap()),
     )
     .unwrap()
 });
