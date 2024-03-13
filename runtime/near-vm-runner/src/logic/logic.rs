@@ -18,6 +18,8 @@ use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
 use std::mem::size_of;
+#[cfg(feature = "protocol_feature_bls12381")]
+use std::ptr::null;
 use ExtCosts::*;
 
 pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
@@ -881,6 +883,986 @@ impl<'a> VMLogic<'a> {
         let res = super::alt_bn128::pairing_check(elements)?;
 
         Ok(res as u64)
+    }
+
+    /// Calculates the sum of signed elements on the BLS12-381 curve.
+    /// It accepts an arbitrary number of pairs (sign_i, p_i),
+    /// where p_i from E(Fp) and sign_i is 0 or 1.
+    /// It calculates sum_i (-1)^{sign_i} * p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (sign:bool, p:E(Fp)), where
+    ///    p is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[(u8, ([u8;48], [u8;48]))]` slice.
+    ///   `0u8` is positive sign, `1u8` -- negative.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// the resulting points from E(Fp) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve,
+    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 97 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p1_sum_base + bls12381_p1_sum_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p1_sum(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p1_sum_base)?;
+
+        const BLS_BOOL_SIZE: usize = 1;
+        const BLS_P1_SIZE: usize = 96;
+        const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p1_sum: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res_pk = blst::blst_p1::default();
+
+        let elements_count = data.len() / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p1_sum_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let mut pk_aff = blst::blst_p1_affine::default();
+            let error_code = unsafe {
+                blst::blst_p1_deserialize(
+                    &mut pk_aff,
+                    data[i * (BLS_BOOL_SIZE + BLS_P1_SIZE) + BLS_BOOL_SIZE
+                        ..(i + BLS_BOOL_SIZE) * ITEM_SIZE]
+                        .as_ptr(),
+                )
+            };
+
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
+                || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
+            {
+                return Ok(1);
+            }
+
+            let mut pk = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_from_affine(&mut pk, &pk_aff);
+            }
+
+            let sign = data[i * ITEM_SIZE];
+            if sign == 1 {
+                unsafe {
+                    blst::blst_p1_cneg(&mut pk, true);
+                }
+            } else if sign != 0 {
+                return Ok(1);
+            }
+
+            unsafe {
+                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk);
+            }
+        }
+
+        let mut res_affine = blst::blst_p1_affine::default();
+
+        unsafe {
+            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; BLS_P1_SIZE];
+        unsafe {
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Calculates the sum of signed elements on the twisted BLS12-381 curve.
+    /// It accepts an arbitrary number of pairs (sign_i, p_i),
+    /// where p_i from E'(Fp^2) and sign_i is 0 or 1.
+    /// It calculates sum_i (-1)^{sign_i} * p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (sign:bool, p:E'(Fp^2)), where
+    ///    p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[(u8, ([u8;96], [u8;96]))]` slice.
+    ///   `0u8` is positive sign, `1u8` -- negative.
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///    where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192 bytes represent
+    /// the resulting points from E'(Fp^2) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve,
+    /// the sign or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 193 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p2_sum_base + bls12381_p2_sum_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p2_sum(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p2_sum_base)?;
+
+        const BLS_BOOL_SIZE: usize = 1;
+        const BLS_P2_SIZE: usize = 192;
+        const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P2_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p2_sum: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res_pk = blst::blst_p2::default();
+
+        let elements_count = data.len() / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p2_sum_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let mut pk_aff = blst::blst_p2_affine::default();
+            let error_code = unsafe {
+                blst::blst_p2_deserialize(
+                    &mut pk_aff,
+                    data[i * ITEM_SIZE + BLS_BOOL_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
+                )
+            };
+
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
+                || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
+            {
+                return Ok(1);
+            }
+
+            let mut pk = blst::blst_p2::default();
+            unsafe {
+                blst::blst_p2_from_affine(&mut pk, &pk_aff);
+            }
+
+            let sign = data[i * ITEM_SIZE];
+            if sign == 1 {
+                unsafe {
+                    blst::blst_p2_cneg(&mut pk, true);
+                }
+            } else if sign != 0 {
+                return Ok(1);
+            }
+
+            unsafe {
+                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk);
+            }
+        }
+
+        let mut res_affine = blst::blst_p2_affine::default();
+
+        unsafe {
+            blst::blst_p2_to_affine(&mut res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; BLS_P2_SIZE];
+        unsafe {
+            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &res_affine);
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Calculates multiexp on BLS12-381 curve:
+    /// accepts an arbitrary number of pairs (p_i, s_i),
+    /// where p_i from E(Fp) and s_i is a scalar and
+    /// calculates sum_i s_i*p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (p:E(Fp), s:u256), where
+    ///    p is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[(([u8;48], [u8;48]), [u8;32])]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///    Scalars encoded as little-endian [u8;32].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96 bytes represent
+    /// the resulting points from E(Fp) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 128 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p1_multiexp_base + bls12381_p1_multiexp_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p1_multiexp(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p1_multiexp_base)?;
+
+        const BLS_SCALAR_SIZE: usize = 32;
+        const BLS_P1_SIZE: usize = 96;
+        const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p1_multiexp: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let elements_count = data.len() / ((BLS_P1_SIZE + BLS_SCALAR_SIZE) as usize);
+        self.gas_counter.pay_per(bls12381_p1_multiexp_element, elements_count as u64)?;
+
+        let mut res_pk = blst::blst_p1::default();
+
+        for i in 0..elements_count {
+            let mut pk_aff = blst::blst_p1_affine::default();
+            let error_code = unsafe {
+                blst::blst_p1_deserialize(
+                    &mut pk_aff,
+                    data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
+                )
+            };
+
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+                return Ok(1);
+            }
+
+            let mut pk = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_from_affine(&mut pk, &pk_aff);
+            }
+
+            let mut pk_mul = blst::blst_p1::default();
+            unsafe {
+                blst::blst_p1_unchecked_mult(
+                    &mut pk_mul,
+                    &pk,
+                    data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
+                    BLS_SCALAR_SIZE * 8,
+                );
+            }
+
+            unsafe {
+                blst::blst_p1_add_or_double(&mut res_pk, &res_pk, &pk_mul);
+            }
+        }
+
+        let mut res_affine = blst::blst_p1_affine::default();
+
+        unsafe {
+            blst::blst_p1_to_affine(&mut res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; BLS_P1_SIZE];
+        unsafe {
+            blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Calculates multiexp on twisted BLS12-381 curve:
+    /// accepts an arbitrary number of pairs (p_i, s_i),
+    /// where p_i from E'(Fp^2) and s_i is a scalar and
+    /// calculates sum_i s_i*p_i
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (p:E'(Fp^2), s:u256), where
+    ///    p is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[(([u8;96], [u8;96]), [u8;32])]` slice.
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    //     where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///    Scalars encoded as little-endian [u8;32].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192 bytes represent
+    /// the resulting points from E'(Fp^2) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 224 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_p2_multiexp_base + bls12381_p2_multiexp_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p2_multiexp(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p2_multiexp_base)?;
+
+        const BLS_SCALAR_SIZE: usize = 32;
+        const BLS_P2_SIZE: usize = 192;
+        const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p2_multiexp: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let elements_count = data.len() / ((BLS_P2_SIZE + BLS_SCALAR_SIZE) as usize);
+        self.gas_counter.pay_per(bls12381_p2_multiexp_element, elements_count as u64)?;
+
+        let mut res_pk = blst::blst_p2::default();
+        for i in 0..elements_count {
+            let mut pk_aff = blst::blst_p2_affine::default();
+            let error_code = unsafe {
+                blst::blst_p2_deserialize(
+                    &mut pk_aff,
+                    data[i * ITEM_SIZE..(i * ITEM_SIZE + BLS_P2_SIZE)].as_ptr(),
+                )
+            };
+
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+                return Ok(1);
+            }
+
+            let mut pk = blst::blst_p2::default();
+            unsafe {
+                blst::blst_p2_from_affine(&mut pk, &pk_aff);
+            }
+
+            let mut pk_mul = blst::blst_p2::default();
+            unsafe {
+                blst::blst_p2_unchecked_mult(
+                    &mut pk_mul,
+                    &pk,
+                    data[(i * ITEM_SIZE + BLS_P2_SIZE)..(i + 1) * ITEM_SIZE].as_ptr(),
+                    BLS_SCALAR_SIZE * 8,
+                );
+            }
+
+            unsafe {
+                blst::blst_p2_add_or_double(&mut res_pk, &res_pk, &pk_mul);
+            }
+        }
+
+        let mut mul_res_affine = blst::blst_p2_affine::default();
+
+        unsafe {
+            blst::blst_p2_to_affine(&mut mul_res_affine, &res_pk);
+        }
+
+        let mut res = [0u8; BLS_P2_SIZE];
+        unsafe {
+            blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Maps elements from Fp to the G1 subgroup of BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p from Fp.
+    ///
+    ///   `value` is encoded as packed `[[u8;48]]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96*num_elements bytes represent
+    /// the resulting points from G1 which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the element >= p, then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_map_fp_to_g1_base + bls12381_map_fp_to_g1_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_map_fp_to_g1(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_map_fp_to_g1_base)?;
+
+        const BLS_P1_SIZE: usize = 96;
+        const BLS_FP_SIZE: usize = 48;
+        const ITEM_SIZE: usize = BLS_FP_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_map_fp_to_g1: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let mut fp_point = blst::blst_fp::default();
+
+        let elements_count: usize = (value_len as usize) / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_map_fp_to_g1_element, elements_count as u64)?;
+
+        let mut res_concat: Vec<u8> = vec![];
+
+        for i in 0..elements_count {
+            unsafe {
+                blst::blst_fp_from_bendian(
+                    &mut fp_point,
+                    data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
+                );
+            }
+
+            let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &fp_point);
+            }
+
+            for j in 0..BLS_FP_SIZE {
+                if fp_row[j] != data[i * BLS_FP_SIZE + j] {
+                    return Ok(1);
+                }
+            }
+
+            let mut g1_point = blst::blst_p1::default();
+            unsafe {
+                blst::blst_map_to_g1(&mut g1_point, &fp_point, null());
+            }
+
+            let mut mul_res_affine = blst::blst_p1_affine::default();
+
+            unsafe {
+                blst::blst_p1_to_affine(&mut mul_res_affine, &g1_point);
+            }
+
+            let mut res = [0u8; BLS_P1_SIZE];
+            unsafe {
+                blst::blst_p1_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+            }
+
+            res_concat.append(&mut res.to_vec());
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res_concat.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Maps elements from Fp^2 to the G2 subgroup of twisted BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p from Fp^2.
+    ///
+    ///   `value` is encoded as packed `[[u8;96]]` slice.
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///     where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192*num_elements bytes represent
+    /// the resulting points from G2 which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the element not valid Fp^2, then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_map_fp2_to_g2_base + bls12381_map_fp2_to_g2_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_map_fp2_to_g2(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_map_fp2_to_g2_base)?;
+
+        const BLS_P2_SIZE: usize = 192;
+        const BLS_FP_SIZE: usize = 48;
+        const BLS_FP2_SIZE: usize = 96;
+        const ITEM_SIZE: usize = BLS_FP2_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_map_fp2_to_g2: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let elements_count: usize = (value_len as usize) / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_map_fp2_to_g2_element, elements_count as u64)?;
+
+        let mut res_concat: Vec<u8> = vec![];
+
+        for i in 0..elements_count {
+            let mut c_fp1 = [blst::blst_fp::default(); 2];
+
+            unsafe {
+                blst::blst_fp_from_bendian(
+                    &mut c_fp1[1],
+                    data[i * ITEM_SIZE..i * ITEM_SIZE + BLS_FP_SIZE].as_ptr(),
+                );
+                blst::blst_fp_from_bendian(
+                    &mut c_fp1[0],
+                    data[i * ITEM_SIZE + BLS_FP_SIZE..(i + 1) * ITEM_SIZE].as_ptr(),
+                );
+            }
+
+            let mut fp_row: [u8; BLS_FP_SIZE] = [0u8; BLS_FP_SIZE];
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[0]);
+            }
+
+            for j in BLS_FP_SIZE..BLS_FP2_SIZE {
+                if fp_row[j - BLS_FP_SIZE] != data[BLS_FP2_SIZE * i + j] {
+                    return Ok(1);
+                }
+            }
+
+            unsafe {
+                blst::blst_bendian_from_fp(fp_row.as_mut_ptr(), &c_fp1[1]);
+            }
+
+            for j in 0..BLS_FP_SIZE {
+                if fp_row[j] != data[BLS_FP2_SIZE * i + j] {
+                    return Ok(1);
+                }
+            }
+
+            let fp2_point: blst::blst_fp2 = blst::blst_fp2 { fp: c_fp1 };
+
+            let mut g2_point = blst::blst_p2::default();
+            unsafe {
+                blst::blst_map_to_g2(&mut g2_point, &fp2_point, null());
+            }
+
+            let mut mul_res_affine = blst::blst_p2_affine::default();
+
+            unsafe {
+                blst::blst_p2_to_affine(&mut mul_res_affine, &g2_point);
+            }
+
+            let mut res = [0u8; BLS_P2_SIZE];
+            unsafe {
+                blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
+            }
+
+            res_concat.append(&mut res.to_vec());
+        }
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            res_concat.as_slice(),
+        )?;
+        Ok(0)
+    }
+
+    /// Computes pairing check on BLS12-381 curve.
+    /// \sum_i e(g_{1 i}, g_{2 i}) should be equal one (in additive notation), e(g1, g2) is pairing
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of (g1:G1, g2:G2), where
+    ///    g1 is point (x:Fp, y:Fp) on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///    g2 is point (x:Fp^2, y:Fp^2) on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[(([u8;48], [u8;48]), ([u8;96], [u8;96]))]` slice.
+    ///    Elements from Fp encoded as big-endian [u8;48].
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    ///    where c1 and c0 from Fp.
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct and
+    /// the pairing result equals the multiplicative identity returns 0.
+    ///
+    /// If one of the points not on the curve, not from G1/G2 or
+    /// incorrectly encoded then 1 will be returned
+    ///
+    /// If the input data is correct and
+    /// the pairing result NOT equals the multiplicative identity returns 2.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 288 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///   bls12381_pairing_base + bls12381_pairing_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_pairing_check(&mut self, value_len: u64, value_ptr: u64) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_pairing_base)?;
+
+        const BLS_P1_SIZE: usize = 96;
+        const BLS_P2_SIZE: usize = 192;
+        const ITEM_SIZE: usize = BLS_P1_SIZE + BLS_P2_SIZE;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_pairing_check: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+        let elements_count = data.len() / ITEM_SIZE;
+
+        self.gas_counter.pay_per(bls12381_pairing_element, elements_count as u64)?;
+
+        let mut blst_g1_list: Vec<blst::blst_p1_affine> =
+            vec![blst::blst_p1_affine::default(); elements_count];
+        let mut blst_g2_list: Vec<blst::blst_p2_affine> =
+            vec![blst::blst_p2_affine::default(); elements_count];
+
+        for i in 0..elements_count {
+            let error_code = unsafe {
+                blst::blst_p1_deserialize(
+                    &mut blst_g1_list[i],
+                    data[(i * ITEM_SIZE)..(i * ITEM_SIZE + BLS_P1_SIZE)].as_ptr(),
+                )
+            };
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
+                return Ok(1);
+            }
+
+            let g1_check = unsafe { blst::blst_p1_affine_in_g1(&blst_g1_list[i]) };
+            if g1_check == false {
+                return Ok(1);
+            }
+
+            let error_code = unsafe {
+                blst::blst_p2_deserialize(
+                    &mut blst_g2_list[i],
+                    data[(i * ITEM_SIZE + BLS_P1_SIZE)..((i + 1) * ITEM_SIZE)].as_ptr(),
+                )
+            };
+            if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
+                || (data[i * ITEM_SIZE + BLS_P1_SIZE] & 0x80 != 0)
+            {
+                return Ok(1);
+            }
+
+            let g2_check = unsafe { blst::blst_p2_affine_in_g2(&blst_g2_list[i]) };
+            if g2_check == false {
+                return Ok(1);
+            }
+        }
+
+        let mut pairing_fp12 = blst::blst_fp12::default();
+        for i in 0..elements_count {
+            pairing_fp12 *= blst::blst_fp12::miller_loop(&blst_g2_list[i], &blst_g1_list[i]);
+        }
+        pairing_fp12 = pairing_fp12.final_exp();
+
+        let pairing_res = unsafe { blst::blst_fp12_is_one(&pairing_fp12) };
+
+        if pairing_res {
+            Ok(0)
+        } else {
+            Ok(2)
+        }
+    }
+
+    /// Decompress points from BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p:E(Fp), where
+    ///    p is point in compressed format on BLS12-381,
+    ///    BLS12-381 is Y^2 = X^3 + 4 curve over Fp.
+    ///
+    ///   `value` is encoded as packed `[[u8;48]]` slice.
+    ///    Where points (x: Fp, y: Fp) from E(Fp) encoded as
+    ///    [u8; 48] -- big-endian x: Fp. y determined by the formula y=+-sqrt(x^3 + 4)
+    ///
+    ///    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+    ///    The third-highest bit represent the sign of y (0 for positive).
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 96*num_elements bytes represent
+    /// the resulting uncompressed points from E(Fp) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 48 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///  bls12381_p1_decompress_base + bls12381_p1_decompress_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p1_decompress(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p1_decompress_base)?;
+        const ITEM_SIZE: usize = 48;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p1_decompress: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res = Vec::<u8>::new();
+
+        let elements_count = data.len() / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p1_decompress_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let pk_res =
+                blst::min_pk::PublicKey::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+            let pk_ser = if let Ok(pk) = pk_res {
+                pk.serialize()
+            } else {
+                return Ok(1);
+            };
+
+            res.extend_from_slice(pk_ser.as_slice());
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;
+        Ok(0)
+    }
+
+    /// Decompress points from twisted BLS12-381 curve.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` -  sequence of p:E'(Fp^2), where
+    ///    p is point in compressed format on twisted BLS12-381,
+    ///    twisted BLS12-381 is Y^2 = X^3 + 4(u + 1) curve over Fp^2.
+    ///
+    ///   `value` is encoded as packed `[[u8;96]]` slice.
+    ///    Where points (x: Fp^2, y: Fp^2) from E'(Fp^2) encoded as
+    ///    [u8; 96] -- x: Fp^2. y determined by the formula y=+-sqrt(x^3 + 4)
+    ///
+    ///    Elements q = c0 + c1 * u from Fp^2 encoded as concatenation of c1 and c0,
+    //     where c1 and c0 from Fp and encoded as big-endian [u8;48].
+    ///
+    ///    The highest bit should be set as 1, the second-highest bit marks the point at infinity,
+    ///    The third-highest bit represent the sign of y (0 for positive).
+    ///
+    /// # Output
+    ///
+    /// If the input data is correct returns 0 and the 192*num_elements bytes represent
+    /// the resulting uncompressed points from E'(Fp^2) which will be written to the register with
+    /// the register_id identifier
+    ///
+    /// If one of the points not on the curve
+    /// or points are incorrectly encoded then 1 will be returned
+    /// and nothing will be written to the register.
+    ///
+    /// # Errors
+    ///
+    /// If `value_len + value_ptr` points outside the memory or the registers use more memory than
+    /// the function returns `MemoryAccessViolation`.
+    ///
+    /// If `value_len % 96 != 0`, the function returns `BLS12381InvalidInput`.
+    ///
+    /// # Cost
+    /// `base + write_register_base + write_register_byte * num_bytes +
+    ///  bls12381_p2_decompress_base + bls12381_p2_decompress_element * num_elements`
+    #[cfg(feature = "protocol_feature_bls12381")]
+    pub fn bls12381_p2_decompress(
+        &mut self,
+        value_len: u64,
+        value_ptr: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(bls12381_p2_decompress_base)?;
+        const ITEM_SIZE: usize = 96;
+
+        if value_len % (ITEM_SIZE as u64) != 0 {
+            return Err(HostError::BLS12381InvalidInput {
+                msg: format!(
+                    "Incorrect input length for bls12381_p2_decompress: {} is not divisible by {}",
+                    value_len, ITEM_SIZE
+                ),
+            }
+            .into());
+        }
+
+        let data = get_memory_or_register!(self, value_ptr, value_len)?;
+
+        let mut res = Vec::<u8>::new();
+
+        let elements_count = data.len() / ITEM_SIZE;
+        self.gas_counter.pay_per(bls12381_p2_decompress_element, elements_count as u64)?;
+
+        for i in 0..elements_count {
+            let sig_res =
+                blst::min_pk::Signature::uncompress(&data[i * ITEM_SIZE..(i + 1) * ITEM_SIZE]);
+            let sig_ser = if let Ok(sig) = sig_res {
+                sig.serialize()
+            } else {
+                return Ok(1);
+            };
+
+            res.extend_from_slice(sig_ser.as_slice());
+        }
+
+        self.registers.set(&mut self.gas_counter, &self.config.limit_config, register_id, res)?;
+        Ok(0)
     }
 
     /// Writes random seed into the register.
