@@ -1667,7 +1667,7 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TxStatusView {
     pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
     pub status: TxExecutionStatus,
