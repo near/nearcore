@@ -407,16 +407,15 @@ find a particular span in logs or other tools ingesting the span data. If a
 span begins at the top of a function, prefer giving it a name of that function,
 otherwise prefer a `snake_case` name.
 
-Default to the [`#[tracing::instrument]`](instrument) macro. When instrumenting asynchronous
-functions either this or the `Future::instrument` is **required**. The spans produced in these
-contexts will be wrong if the span is held across an await point. Correct handling of this is
-handled for you via either of the suggested methods. If instrumentation of async functions is not
-done according to this guidance it can lead to difficult to troubleshoot issues such as stack
-overflows.
+When instrumenting asynchronous functions the [`#[tracing::instrument]`](instrument) macro or the
+`Future::instrument` is **required**. Using `Span::entered` or a similar method that is not aware
+of yield points will result in incorrect span data and could lead to difficult to troubleshoot
+issues such as stack overflows.
 
-Always use `level`, `target` and `skip_all` to avoid implicit defaults for the level, target or
-adding all function arguments as the span fields (this can get really expensive quite fast). After
-careful consideration specify the fields you want to record through `fields()` option:
+Always explicitly specify the `level`, `target`, and `skip_all` options and do not rely on the
+default values. `skip_all` avoids adding all function arguments as span fields which can lead
+recording potentially unnecessary and expensive information. Carefully consider which information
+needs recording and the cost of recording the information when using the `fields` option.
 
 [instrument]: https://docs.rs/tracing-attributes/latest/tracing_attributes/attr.instrument.html
 
