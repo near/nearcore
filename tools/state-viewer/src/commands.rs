@@ -7,15 +7,16 @@ use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
 use bytesize::ByteSize;
+use clap::Parser;
 use itertools::GroupBy;
 use itertools::Itertools;
 use near_chain::chain::collect_receipts_from_response;
 use near_chain::migrations::check_if_block_is_first_with_chunk_of_version;
-use near_chain::types::ApplyChunkBlockContext;
 use near_chain::types::ApplyChunkResult;
 use near_chain::types::ApplyChunkShardContext;
 use near_chain::types::RuntimeAdapter;
 use near_chain::types::RuntimeStorageConfig;
+use near_chain::types::{ApplyChunkBlockContext, StorageDataSource};
 use near_chain::{ChainStore, ChainStoreAccess, ChainStoreUpdate, Error};
 use near_chain_configs::GenesisChangeConfig;
 use near_epoch_manager::types::BlockHeaderInfo;
@@ -24,8 +25,8 @@ use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
-use near_primitives::shard_layout::ShardLayout;
 use near_primitives::shard_layout::ShardUId;
+use near_primitives::shard_layout::{ShardLayout, ShardVersion};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
@@ -34,11 +35,13 @@ use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
-use near_store::flat::FlatStorageChunkView;
-use near_store::flat::FlatStorageManager;
+use near_store::flat::{store_helper, BlockInfo, FlatStorageChunkView, FlatStorageStatus};
+use near_store::flat::{FlatStateChanges, FlatStorageManager};
 use near_store::test_utils::create_test_store;
 use near_store::TrieStorage;
-use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
+use near_store::{
+    DBCol, KeyLookupMode, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage,
+};
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -88,9 +91,15 @@ pub(crate) fn apply_block(
         )
         .unwrap();
 
+        let mut storage_config =
+            RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage);
+        if !use_flat_storage {
+            storage_config.source = StorageDataSource::DbTrieOnly;
+        }
+
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage),
+                storage_config,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_inner.prev_validator_proposals(),
@@ -109,10 +118,15 @@ pub(crate) fn apply_block(
     } else {
         let chunk_extra =
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
+        let mut storage_config =
+            RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage);
+        if !use_flat_storage {
+            storage_config.source = StorageDataSource::DbTrieOnly;
+        }
 
         runtime
             .apply_chunk(
-                RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage),
+                storage_config,
                 ApplyChunkShardContext {
                     shard_id,
                     last_validator_proposals: chunk_extra.validator_proposals(),
@@ -1314,6 +1328,104 @@ impl std::fmt::Debug for StateStatsAccount {
             .field("account_id", &self.account_id.as_str())
             .field("size", &self.size)
             .finish()
+    }
+}
+
+#[derive(Parser)]
+pub struct MoveFlatHeadBackCmd {
+    #[clap(long)]
+    shard_id: ShardId,
+    #[clap(long)]
+    version: ShardVersion,
+    #[clap(long)]
+    steps: usize,
+}
+
+impl MoveFlatHeadBackCmd {
+    pub fn run(&self, home_dir: &Path, near_config: NearConfig, store: Store) {
+        let mut chain_store = ChainStore::new(
+            store.clone(),
+            near_config.genesis.config.genesis_height,
+            near_config.client_config.save_trie_changes,
+        );
+        let epoch_manager =
+            EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
+        let runtime = NightshadeRuntime::from_config(
+            home_dir,
+            store.clone(),
+            &near_config,
+            epoch_manager.clone(),
+        );
+
+        let shard_id = self.shard_id;
+        let shard_uid = ShardUId { version: self.version, shard_id: shard_id as u32 };
+        let flat_head = match store_helper::get_flat_storage_status(&store, shard_uid) {
+            Ok(FlatStorageStatus::Ready(ready_status)) => ready_status.flat_head,
+            status => {
+                panic!("cannot create flat storage for shard {shard_uid:?} with status {status:?}")
+            }
+        };
+        let mut height = flat_head.height;
+        // let block_hash =
+        //     chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+        // let block_hash = chain_store.get_next_block_hash(&block_hash).unwrap();
+        // let mut height = chain_store.get_block_height(&block_hash).unwrap();
+        // let flat_storage_manager = runtime.get_flat_storage_manager();
+        // flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
+        for _ in 0..self.steps {
+            let block_hash =
+                chain_store.get_block_hash_by_height(height.clone()).expect("Block does not exist");
+            let header = chain_store.get_block_header(&block_hash).unwrap();
+            let prev_hash = header.prev_hash();
+            let prev_header = chain_store.get_block_header(&prev_hash).unwrap();
+            let prev_height = prev_header.height();
+            let prev_prev_hash = prev_header.prev_hash().clone();
+
+            let (_, apply_result) = apply_block(
+                block_hash,
+                shard_id,
+                epoch_manager.as_ref(),
+                runtime.as_ref(),
+                &mut chain_store,
+                false,
+            );
+
+            let existing_chunk_extra =
+                chain_store.get_chunk_extra(&block_hash, &shard_uid).unwrap();
+            assert_eq!(&apply_result.new_root, existing_chunk_extra.state_root());
+            let chunk_extra = chain_store.get_chunk_extra(&prev_hash, &shard_uid).unwrap();
+            let state_root = chunk_extra.state_root().clone();
+            let prev_trie =
+                runtime.get_trie_for_shard(shard_id, &block_hash, state_root, false).unwrap();
+            let mut old_delta = FlatStateChanges::default();
+            for state_change in apply_result.trie_changes.state_changes() {
+                let key = state_change.trie_key.clone();
+                let prev_value = prev_trie
+                    .get_optimized_ref(&key.to_vec(), KeyLookupMode::Trie)
+                    .unwrap()
+                    .map(|value_ref| FlatStateValue::Ref(value_ref.into_value_ref()));
+                old_delta.insert(key.to_vec(), prev_value);
+            }
+
+            let mut store_update = store.store_update();
+            old_delta.apply_to_flat_state(&mut store_update, shard_uid);
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(near_store::flat::FlatStorageReadyStatus {
+                    flat_head: BlockInfo {
+                        hash: prev_hash.clone(),
+                        height: prev_height.clone(),
+                        prev_hash: prev_prev_hash,
+                    },
+                }),
+            );
+            store_update.commit().unwrap();
+
+            height = prev_height;
+            eprintln!("{}", height);
+        }
     }
 }
 
