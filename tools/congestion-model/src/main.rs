@@ -120,7 +120,8 @@ fn normalize_cmdline_arg(value: &str) -> String {
 fn workload(workload_name: &str) -> Box<dyn Producer> {
     match workload_name {
         "Balanced" => Box::<BalancedProducer>::default(),
-        "All To One" => Box::<AllForOneProducer>::default(),
+        "All To One" => Box::new(AllForOneProducer::one_hop_only()),
+        "Indirect All To One" => Box::<AllForOneProducer>::default(),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
         _ => panic!("unknown workload: {}", workload_name),
     }
@@ -145,8 +146,12 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
 }
 
 fn parse_workload_names(workload_name: &str) -> Vec<String> {
-    let available: Vec<String> =
-        vec!["Balanced".to_string(), "All To One".to_string(), "Linear Imbalance".to_string()];
+    let available: Vec<String> = vec![
+        "Balanced".to_string(),
+        "All To One".to_string(),
+        "Indirect All To One".to_string(),
+        "Linear Imbalance".to_string(),
+    ];
 
     if workload_name == "all" {
         return available;
