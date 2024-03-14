@@ -586,7 +586,7 @@ pub trait StoreMigrator {
 pub fn checkpoint_hot_storage_and_cleanup_columns(
     hot_store: &Store,
     checkpoint_base_path: &std::path::Path,
-    columns_to_keep: Option<Vec<DBCol>>,
+    columns_to_keep: Option<&[DBCol]>,
 ) -> Result<NodeStorage, StoreOpenerError> {
     let _span =
         tracing::info_span!(target: "state_snapshot", "checkpoint_hot_storage_and_cleanup_columns")
@@ -607,8 +607,6 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
     let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
 
     if let Some(columns_to_keep) = columns_to_keep {
-        let columns_to_keep_set: std::collections::HashSet<DBCol> =
-            std::collections::HashSet::from_iter(columns_to_keep.into_iter());
         let mut transaction = DBTransaction::new();
         // Force the checkpoint to be a Hot DB kind to simplify opening the snapshots later.
         transaction.set(
@@ -618,7 +616,7 @@ pub fn checkpoint_hot_storage_and_cleanup_columns(
         );
 
         for col in DBCol::iter() {
-            if !columns_to_keep_set.contains(&col) {
+            if !columns_to_keep.contains(&col) {
                 transaction.delete_all(col);
             }
         }
@@ -673,7 +671,7 @@ mod tests {
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,
             &home_dir.path().join(PathBuf::from("checkpoint_some")),
-            Some(vec![DBCol::Block]),
+            Some(&[DBCol::Block]),
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
@@ -683,7 +681,7 @@ mod tests {
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,
             &home_dir.path().join(PathBuf::from("checkpoint_all")),
-            Some(vec![DBCol::Block, DBCol::Chunks, DBCol::BlockHeader]),
+            Some(&[DBCol::Block, DBCol::Chunks, DBCol::BlockHeader]),
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, true);
@@ -693,7 +691,7 @@ mod tests {
         let store = checkpoint_hot_storage_and_cleanup_columns(
             &hot_store,
             &home_dir.path().join(PathBuf::from("checkpoint_empty")),
-            Some(vec![]),
+            Some(&[]),
         )
         .unwrap();
         check_keys_existence(&store.get_hot_store(), &DBCol::Block, &keys, false);

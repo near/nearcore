@@ -198,7 +198,7 @@ impl ShardTries {
             ),
             // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
-            Some(vec![
+            Some(&[
                 // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
                 DBCol::DbVersion,
                 DBCol::BlockMisc,
