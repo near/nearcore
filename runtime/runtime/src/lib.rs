@@ -340,6 +340,11 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action",
+        )
+        .entered();
         let exec_fees = exec_fee(&apply_state.config, action, &receipt.receiver_id);
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
@@ -507,6 +512,11 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
+        let _span = tracing::debug_span!(
+            target: "runtime",
+            "apply_action_receipt",
+        )
+        .entered();
         let action_receipt = match &receipt.receipt {
             ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                 action_receipt
@@ -1403,7 +1413,7 @@ impl Runtime {
                                    total_gas_burnt: &mut Gas,
                                    total_compute_usage: &mut Compute|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(
+            let span = tracing::debug_span!(
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
@@ -1426,6 +1436,8 @@ impl Runtime {
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
             if let Some(outcome_with_id) = result? {
+                span.record("burnt_gas", outcome_with_id.outcome.gas_burnt);
+                span.record("trie_nodes_touched", node_counter_after - node_counter_before);
                 *total_gas_burnt =
                     safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
                 *total_compute_usage = safe_add_compute(
