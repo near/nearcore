@@ -1,4 +1,6 @@
-use near_store::{checkpoint_hot_storage_and_cleanup_columns, Mode, NodeStorage, StoreConfig};
+use near_store::{
+    checkpoint_hot_storage_and_cleanup_columns, DBCol, Mode, NodeStorage, StoreConfig,
+};
 use std::path::{Path, PathBuf};
 
 #[derive(clap::Args)]
@@ -6,6 +8,8 @@ pub(crate) struct MakeSnapshotCommand {
     /// Destination directory.
     #[clap(long)]
     destination: PathBuf,
+    #[clap(long)]
+    flat_state_only: bool,
 }
 
 impl MakeSnapshotCommand {
@@ -17,10 +21,22 @@ impl MakeSnapshotCommand {
     ) -> anyhow::Result<()> {
         let opener = NodeStorage::opener(home_dir, archive, store_config, None);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
+        let columns_to_keep = if self.flat_state_only {
+            Some(&[
+                DBCol::DbVersion,
+                DBCol::BlockMisc,
+                DBCol::FlatState,
+                DBCol::FlatStateChanges,
+                DBCol::FlatStateDeltaMetadata,
+                DBCol::FlatStorageStatus,
+            ])
+        } else {
+            None
+        };
         checkpoint_hot_storage_and_cleanup_columns(
             &node_storage.get_hot_store(),
             &self.destination,
-            None,
+            columns_to_keep.map(AsRef::as_ref),
         )?;
         Ok(())
     }
