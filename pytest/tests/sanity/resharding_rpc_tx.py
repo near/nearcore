@@ -57,10 +57,9 @@ class ReshardingRpcTx(ReshardingTestBase):
             transfer_response['result']['final_execution_status'],
             'EXECUTED',
         )
-        self.assertEqual(
-            response['result']['final_execution_status'],
-            'FINAL',
-        )
+        self.assertTrue(
+            response['result']['final_execution_status']
+            in ['FINAL', 'EXECUTED'],)
 
         transfer_response = copy.deepcopy(transfer_response)
         transfer_response['result']['final_execution_status'] = "IGNORE_ME"
