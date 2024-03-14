@@ -1,11 +1,12 @@
 use chrono::Utc;
-use std::time::Duration;
-
 use congestion_model::strategy::{GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure};
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
 };
-use congestion_model::{summary_table, CongestionStrategy, Model, StatsWriter, PGAS};
+use congestion_model::{
+    summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS,
+};
+use std::time::Duration;
 
 use clap::Parser;
 
@@ -96,6 +97,7 @@ fn run_model(
     let strategy = strategy(strategy_name, num_shards);
     let workload = workload(workload_name);
     let mut model = Model::new(strategy, workload);
+    let mut max_queues = ShardQueueLengths::default();
 
     // Set the start time to an half hour ago to make it visible by default in
     // grafana. Each round is 1 virtual second so hald an hour is good for
@@ -108,8 +110,15 @@ fn run_model(
     for round in 0..num_rounds {
         model.write_stats_values(&mut stats_writer, start_time, round);
         model.step();
+        max_queues = max_queues.max_component_wise(&model.max_queue_length());
     }
-    summary_table::print_summary_row(&model, workload_name, strategy_name);
+    summary_table::print_summary_row(
+        workload_name,
+        strategy_name,
+        &model.progress(),
+        &model.gas_throughput(),
+        &max_queues,
+    );
 }
 
 fn normalize_cmdline_arg(value: &str) -> String {
@@ -199,7 +208,7 @@ fn print_report(model: &Model) {
     println!("{:>6} transactions failed", progress.failed_transactions);
     for shard_id in model.shard_ids() {
         println!("SHARD {shard_id}");
-        println!("    {:>6} receipts incoming", queues[shard_id].incoming_receipts);
-        println!("    {:>6} receipts queued", queues[shard_id].queued_receipts);
+        println!("    {:>6} receipts incoming", queues[shard_id].incoming_receipts.num);
+        println!("    {:>6} receipts queued", queues[shard_id].queued_receipts.num);
     }
 }
