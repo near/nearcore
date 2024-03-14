@@ -1,3 +1,23 @@
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+
+use actix::Addr;
+use lazy_static::lazy_static;
+use rocksdb::DB;
+use tokio::sync::mpsc;
+use tokio::time;
+use tracing::{debug, error, info};
+
+use near_indexer_primitives::{
+    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
+    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
+    StreamerMessage,
+};
+use near_parameters::RuntimeConfig;
+use near_primitives::hash::CryptoHash;
+use near_primitives::views;
+
 use self::errors::FailedToFetchData;
 use self::fetchers::{
     fetch_block, fetch_block_by_height, fetch_block_chunks, fetch_latest_block, fetch_outcomes,
@@ -7,26 +27,16 @@ use self::utils::convert_transactions_sir_into_local_receipts;
 use crate::streamer::fetchers::fetch_protocol_config;
 use crate::INDEXER;
 use crate::{AwaitForNodeSyncedEnum, IndexerConfig};
-use actix::Addr;
-use async_recursion::async_recursion;
-use near_indexer_primitives::{
-    IndexerChunkView, IndexerExecutionOutcomeWithOptionalReceipt,
-    IndexerExecutionOutcomeWithReceipt, IndexerShard, IndexerTransactionWithOutcome,
-    StreamerMessage,
-};
-use near_parameters::RuntimeConfig;
-use near_primitives::hash::CryptoHash;
-use near_primitives::views;
-use rocksdb::DB;
-use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio::time;
-use tracing::{debug, info};
 
 mod errors;
 mod fetchers;
 mod metrics;
 mod utils;
+
+lazy_static! {
+    static ref DELAYED_LOCAL_RECEIPTS_CACHE: Arc<RwLock<HashMap<CryptoHash, views::ReceiptView>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
 
 const INTERVAL: Duration = Duration::from_millis(500);
 
@@ -63,8 +73,7 @@ fn test_problematic_blocks_hash() {
 /// This function supposed to return the entire `StreamerMessage`.
 /// It fetches the block and all related parts (chunks, outcomes, state changes etc.)
 /// and returns everything together in one struct
-#[async_recursion]
-pub async fn build_streamer_message(
+async fn build_streamer_message(
     client: &Addr<near_client::ViewClientActor>,
     block: views::BlockView,
 ) -> Result<StreamerMessage, FailedToFetchData> {
@@ -138,6 +147,11 @@ pub async fn build_streamer_message(
             {
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
+            } else {
+                DELAYED_LOCAL_RECEIPTS_CACHE
+                    .write()
+                    .unwrap() // TODO handle this unwrap
+                    .insert(receipt.receipt_id.clone(), receipt.clone());
             }
         }
 
@@ -149,34 +163,65 @@ pub async fn build_streamer_message(
             let receipt = if let Some(receipt) = receipt {
                 receipt
             } else {
-                // Receipt might be missing only in case of delayed local receipt
-                // that appeared in some of the previous blocks
-                // we will be iterating over previous blocks until we found the receipt
-                let mut prev_block_tried = 0u16;
-                let mut prev_block_hash = block.header.prev_hash;
-                'find_local_receipt: loop {
-                    if prev_block_tried > 1000 {
-                        panic!("Failed to find local receipt in 1000 prev blocks");
-                    }
-                    let prev_block = match fetch_block(&client, prev_block_hash).await {
-                        Ok(block) => block,
-                        Err(err) => panic!("Unable to get previous block: {:?}", err),
-                    };
-
-                    prev_block_hash = prev_block.header.prev_hash;
-
-                    if let Some(receipt) = find_local_receipt_by_id_in_block(
-                        &client,
-                        &runtime_config,
-                        prev_block,
+                // Attempt to find the receipt in the cache
+                if let Some(receipt) = DELAYED_LOCAL_RECEIPTS_CACHE
+                    .write()
+                    .unwrap() // TODO handle this unwrap
+                    .remove(&execution_outcome.id)
+                {
+                    receipt
+                } else {
+                    tracing::warn!(
+                        target: INDEXER,
+                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, starting to look for it in up to 1000 blocks back in time",
                         execution_outcome.id,
-                    )
-                    .await?
-                    {
-                        break 'find_local_receipt receipt;
-                    }
+                    );
+                    // Receipt might be missing only in case of delayed local receipt
+                    // that appeared in some of the previous blocks
+                    // we will be iterating over previous blocks until we found the receipt
+                    let mut prev_block_tried = 0u16;
+                    let mut prev_block_hash = block.header.prev_hash;
+                    'find_local_receipt: loop {
+                        if prev_block_tried > 1000 {
+                            panic!("Failed to find local receipt in 1000 prev blocks");
+                        }
+                        // Log a warning every 100 blocks
+                        if prev_block_tried % 100 == 0 {
+                            tracing::warn!(
+                                target: INDEXER,
+                                "Still looking for receipt {} in previous blocks. {} blocks back already",
+                                execution_outcome.id,
+                                prev_block_tried,
+                            );
+                        }
+                        let prev_block = match fetch_block(&client, prev_block_hash).await {
+                            Ok(block) => block,
+                            Err(err) => panic!("Unable to get previous block: {:?}", err),
+                        };
 
-                    prev_block_tried += 1;
+                        prev_block_hash = prev_block.header.prev_hash;
+
+                        if let Some(receipt) = find_local_receipt_by_id_in_block(
+                            &client,
+                            &runtime_config,
+                            prev_block,
+                            execution_outcome.id,
+                        )
+                        .await?
+                        {
+                            tracing::debug!(
+                                target: INDEXER,
+                                "Found receipt {} in previous block {}",
+                                execution_outcome.id,
+                                prev_block_tried,
+                            );
+                            metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK
+                                .set(prev_block_tried as i64);
+                            break 'find_local_receipt receipt;
+                        }
+
+                        prev_block_tried += 1;
+                    }
                 }
             };
             receipt_execution_outcomes
@@ -296,8 +341,11 @@ pub(crate) async fn start(
             .path()
             .join("indexer");
 
-    // TODO: implement proper error handling
-    let db = DB::open_default(indexer_db_path).unwrap();
+    let db = match DB::open_default(indexer_db_path) {
+        Ok(db) => db,
+        Err(err) => panic!("Unable to open indexer db: {:?}", err),
+    };
+
     let mut last_synced_block_height: Option<near_primitives::types::BlockHeight> = None;
 
     'main: loop {
@@ -353,9 +401,9 @@ pub(crate) async fn start(
 
                 match response {
                     Ok(streamer_message) => {
-                        debug!(target: INDEXER, "{:#?}", &streamer_message);
+                        debug!(target: INDEXER, "Sending streamer message for block #{} to the listener", streamer_message.block.header.height);
                         if blocks_sink.send(streamer_message).await.is_err() {
-                            info!(
+                            error!(
                                 target: INDEXER,
                                 "Unable to send StreamerMessage to listener, listener doesn't listen. terminating..."
                             );
