@@ -4547,6 +4547,7 @@ dependencies = [
  "pwasm-utils",
  "rand",
  "ripemd",
+ "rustix 0.38.24",
  "serde",
  "serde_json",
  "serde_repr",

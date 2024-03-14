@@ -1766,7 +1766,8 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
+    use near_store::{set_access_key, ShardTries};
+    use near_vm_runner::FilesystemCompiledContractCache;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1877,7 +1878,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
+            cache: Some(Box::new(FilesystemCompiledContractCache::new())),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),

@@ -39,12 +39,12 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
+    TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_vm_runner::{precompile_contract, FilesystemCompiledContractCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -358,7 +358,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
+            cache: Some(Box::new(FilesystemCompiledContractCache::new())),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -457,7 +457,7 @@ impl NightshadeRuntime {
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
         let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
-            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
+            Some(Box::new(FilesystemCompiledContractCache::new()));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -1275,7 +1275,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
+            cache: Some(Box::new(FilesystemCompiledContractCache::new())),
         };
         self.trie_viewer.call_function(
             state_update,
