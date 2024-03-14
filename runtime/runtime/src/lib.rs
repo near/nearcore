@@ -1603,9 +1603,6 @@ impl Runtime {
                 data_id: queue_entry.data_id,
             };
             if state_update.contains_key(&yielded_promise_key)? {
-                // Process a PromiseResume receipt to resolve the timed-out yield.
-                // Note that we don't invoke the prefetcher as it doesn't do anything
-                // for data receipts
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     protocol_version,
                     &queue_entry.data_id,
@@ -1615,7 +1612,8 @@ impl Runtime {
                 );
                 new_receipt_index += 1;
 
-                let new_receipt = Receipt {
+                // Create a PromiseResume receipt to resolve the timed-out yield.
+                let resume_receipt = Receipt {
                     predecessor_id: queue_entry.account_id.clone(),
                     receiver_id: queue_entry.account_id.clone(),
                     receipt_id: new_receipt_id,
@@ -1625,13 +1623,19 @@ impl Runtime {
                     }),
                 };
 
+                // For yielded promises the sender is always the receiver. We can process
+                // the receipt directly because we know it is destined for the local shard.
+                //
+                // Note that we don't invoke the prefetcher as it doesn't do anything
+                // for data receipts.
                 process_receipt(
-                    &new_receipt,
+                    &resume_receipt,
                     &mut state_update,
                     &mut total_gas_burnt,
                     &mut total_compute_usage,
                 )?;
-                timeout_receipts.push(new_receipt);
+
+                timeout_receipts.push(resume_receipt);
             }
 
             state_update.remove(queue_entry_key);
