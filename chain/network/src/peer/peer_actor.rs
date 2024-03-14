@@ -427,6 +427,7 @@ impl PeerActor {
         tracing::trace!(target: "network", msg_len = bytes_len);
         self.framed.send(stream::Frame(bytes));
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
+        let msg_type = msg.msg_variant();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
             .with_label_values(&[msg_type])
@@ -936,7 +937,7 @@ impl PeerActor {
         target = "network",
         "receive_routed_message",
         skip_all,
-        fields("type" = body_type),
+        fields(body_type = <&'static str>::from(&body)),
     )]
     async fn receive_routed_message(
         clock: &time::Clock,
@@ -1174,7 +1175,7 @@ impl PeerActor {
         target = "network",
         "handle_msg_ready",
         skip_all,
-        fields("type" = <&PeerMessage as Into<&'static str>>::into(&peer_msg)),
+        fields(msg_type = <&'static str>::from(&peer_msg)),
     )]
     fn handle_msg_ready(
         &mut self,
