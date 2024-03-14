@@ -311,6 +311,7 @@ mod tests {
             &[],
             &[],
             &[],
+            &[],
             &ApplyStats::default(),
         )
         .unwrap();
@@ -326,6 +327,7 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000)],
+            &[],
             &[],
             &[],
             &ApplyStats::default(),
@@ -385,6 +387,7 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&account_id, refund_balance)],
+            &[],
             &[],
             &[],
             &ApplyStats::default(),
@@ -453,6 +456,7 @@ mod tests {
             &final_state,
             &None,
             &[],
+            &[],
             &[tx],
             &[receipt],
             &ApplyStats {
@@ -512,6 +516,7 @@ mod tests {
                 &initial_state,
                 &None,
                 &[receipt],
+                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
@@ -570,6 +575,7 @@ mod tests {
                 &initial_state,
                 &None,
                 &[receipt],
+                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
