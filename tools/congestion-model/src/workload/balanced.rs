@@ -49,7 +49,7 @@ impl Producer for BalancedProducer {
                     let mut prev_depth_receipts = vec![first_receipt];
                     let mut next_depth_receipts = vec![];
                     // if depth >= 2, generate receipts for each additional layer
-                    for depth in 2..=self.depth + 1 {
+                    for depth in 2..=self.depth {
                         // if fan_out is >= 2, layers have an increasing number of receipts
                         for parent in &prev_depth_receipts {
                             for _ in 0..self.fan_out {
