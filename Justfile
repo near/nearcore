@@ -56,8 +56,6 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
-<<<<<<< HEAD
-=======
 # check various build configurations compile as anticipated
 check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
@@ -82,7 +80,6 @@ check-cargo-deny:
 check-themis:
     env CARGO_TARGET_DIR="target/themis" cargo run --locked -p themis
 
->>>>>>> b03bfffa4 (do not have a globally-set warnings=deny, but set it locally in CI only (#10738))
 # generate a codecov report for RULE
 codecov RULE:
     #!/usr/bin/env bash
