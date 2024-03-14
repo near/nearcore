@@ -206,14 +206,10 @@ impl BlockSync {
         }
 
         let header_head = chain.header_head()?;
-        // Assume that peers are configured to keep as many epochs does this
-        // node and expect peers to have blocks in the range
-        // [gc_stop_height, header_head.last_block_hash].
-        let gc_stop_height = chain.runtime_adapter.get_gc_stop_height(&header_head.last_block_hash);
 
         let mut num_requests = 0;
         for (height, hash) in requests {
-            let request_from_archival = self.archive && height < gc_stop_height;
+            let request_from_archival = header_head.height.saturating_sub(height) > 120000;
             // Assume that heads of `highest_height_peers` are ahead of the blocks we're requesting.
             let peer = if request_from_archival {
                 // Normal peers are unlikely to have old blocks, request from an archival node.
