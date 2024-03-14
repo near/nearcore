@@ -970,6 +970,13 @@ impl StoreCompiledContractCache {
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
 impl CompiledContractCache for StoreCompiledContractCache {
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreCompiledContractCache::put",
+        skip_all,
+        fields(key = key.to_string(), value.len = value.debug_len()),
+    )]
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
@@ -984,6 +991,13 @@ impl CompiledContractCache for StoreCompiledContractCache {
         self.db.write(update)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreCompiledContractCache::get",
+        skip_all,
+        fields(key = key.to_string()),
+    )]
     fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
         match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
             Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
