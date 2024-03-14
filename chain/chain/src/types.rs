@@ -515,6 +515,12 @@ pub trait RuntimeAdapter: Send + Sync {
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
     fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError>;
+
+    /// Loads in-memory trie upon catchup. This may only be called when flat storage is ready.
+    fn load_mem_trie_on_catchup(&self, shard_uid: &ShardUId) -> Result<(), StorageError>;
+
+    /// Unloads trie upon catchup. Call this before flat storage is cleared.
+    fn unload_trie_on_catchup(&self, shard_uid: &ShardUId);
 }
 
 /// The last known / checked height and time when we have processed it.

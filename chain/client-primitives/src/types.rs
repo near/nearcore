@@ -97,6 +97,8 @@ pub enum ShardSyncStatus {
     StateDownloadComplete,
     ReshardingScheduling,
     ReshardingApplying,
+    MemtrieLoadScheduling,
+    MemtrieLoadApplying,
     StateSyncDone,
 }
 
@@ -110,7 +112,9 @@ impl ShardSyncStatus {
             ShardSyncStatus::StateDownloadComplete => 4,
             ShardSyncStatus::ReshardingScheduling => 5,
             ShardSyncStatus::ReshardingApplying => 6,
-            ShardSyncStatus::StateSyncDone => 7,
+            ShardSyncStatus::MemtrieLoadScheduling => 7,
+            ShardSyncStatus::MemtrieLoadApplying => 8,
+            ShardSyncStatus::StateSyncDone => 9,
         }
     }
 }
@@ -134,6 +138,8 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
             ShardSyncStatus::ReshardingScheduling => "resharding scheduling".to_string(),
             ShardSyncStatus::ReshardingApplying => "resharding applying".to_string(),
+            ShardSyncStatus::MemtrieLoadScheduling => "memtrie load scheduling".to_string(),
+            ShardSyncStatus::MemtrieLoadApplying => "memtrie load applying".to_string(),
             ShardSyncStatus::StateSyncDone => "done".to_string(),
         }
     }

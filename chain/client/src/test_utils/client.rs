@@ -289,6 +289,7 @@ pub fn run_catchup(
             &noop().into_sender(),
             &block_catch_up,
             &resharding,
+            &noop().into_sender(),
             Arc::new(|_| {}),
             &state_parts_future_spawner,
         )?;

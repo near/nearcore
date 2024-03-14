@@ -1,6 +1,6 @@
 use crate::sync_jobs_actions::SyncJobsActions;
 use near_async::futures::ActixFutureSpawner;
-use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest};
+use near_chain::chain::{ApplyStatePartsRequest, BlockCatchUpRequest, LoadMemtrieRequest};
 use near_chain::resharding::ReshardingRequest;
 use near_o11y::{handler_debug_span, WithSpanContext};
 use near_performance_metrics_macros::perf;
@@ -15,6 +15,20 @@ impl SyncJobsActor {
 
 impl actix::Actor for SyncJobsActor {
     type Context = actix::Context<Self>;
+}
+
+impl actix::Handler<WithSpanContext<LoadMemtrieRequest>> for SyncJobsActor {
+    type Result = ();
+
+    #[perf]
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<LoadMemtrieRequest>,
+        _: &mut Self::Context,
+    ) -> Self::Result {
+        let (_span, msg) = handler_debug_span!(target: "client", msg);
+        self.actions.handle_load_memtrie_request(msg);
+    }
 }
 
 impl actix::Handler<WithSpanContext<ApplyStatePartsRequest>> for SyncJobsActor {

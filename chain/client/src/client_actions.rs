@@ -21,6 +21,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
+    LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -91,6 +92,7 @@ pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
     pub resharding: Sender<ReshardingRequest>,
+    pub load_memtrie: Sender<LoadMemtrieRequest>,
 }
 
 pub struct ClientActions {
@@ -1395,6 +1397,7 @@ impl ClientActions {
                 &self.sync_jobs_sender.apply_state_parts,
                 &self.sync_jobs_sender.block_catch_up,
                 &self.sync_jobs_sender.resharding,
+                &self.sync_jobs_sender.load_memtrie,
                 self.get_apply_chunks_done_callback(),
                 self.state_parts_future_spawner.as_ref(),
             ) {
@@ -1629,6 +1632,7 @@ impl ClientActions {
                         shards_to_sync,
                         &self.sync_jobs_sender.apply_state_parts,
                         &self.sync_jobs_sender.resharding,
+                        &self.sync_jobs_sender.load_memtrie,
                         self.state_parts_future_spawner.as_ref(),
                         use_colour,
                         self.client.runtime_adapter.clone(),
@@ -1786,6 +1790,21 @@ impl ClientActionHandler<ReshardingResponse> for ClientActions {
             sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
         } else {
             self.client.state_sync.set_resharding_result(msg.shard_id, msg.new_state_roots);
+        }
+    }
+}
+
+impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
+    type Result = ();
+
+    #[perf]
+    fn handle(&mut self, msg: LoadMemtrieResponse) -> Self::Result {
+        tracing::debug!(target: "client", ?msg);
+        if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+            // We are doing catchup
+            sync.set_load_memtrie_result(msg.shard_id, msg.load_memtrie_result);
+        } else {
+            self.client.state_sync.set_load_memtrie_result(msg.shard_id, msg.load_memtrie_result);
         }
     }
 }

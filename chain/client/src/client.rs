@@ -20,9 +20,9 @@ use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
 use near_async::time::{Clock, Duration, Instant};
-use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
+    LoadMemtrieRequest, VerifyBlockHashAndSignatureResult,
 };
 use near_chain::flat_storage_creator::FlatStorageCreator;
 use near_chain::orphan::OrphanMissingChunks;
@@ -2324,6 +2324,7 @@ impl Client {
         state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
         block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
         resharding_scheduler: &Sender<ReshardingRequest>,
+        load_memtrie_scheduler: &Sender<LoadMemtrieRequest>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
         state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {
@@ -2397,6 +2398,7 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 resharding_scheduler,
+                load_memtrie_scheduler,
                 state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),

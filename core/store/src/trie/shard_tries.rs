@@ -379,6 +379,13 @@ impl ShardTries {
         remove_all_state_values(store_update, shard_uid);
     }
 
+    /// Loads in-memory-trie for given shard.
+    pub fn load_mem_trie_for_shard(&self, shard_uid: &ShardUId) -> Result<(), StorageError> {
+        let mem_tries = load_trie_from_flat_state_and_delta(&self.0.store, *shard_uid)?;
+        self.0.mem_tries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
+        Ok(())
+    }
+
     /// Should be called upon startup to load in-memory tries for enabled shards.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
@@ -393,19 +400,10 @@ impl ShardTries {
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
             })
             .collect::<Vec<_>>();
-        let store = self.0.store.clone();
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()
-            .map(|shard_uid| -> Result<(), StorageError> {
-                let mem_tries = load_trie_from_flat_state_and_delta(&store, *shard_uid)?;
-                self.0
-                    .mem_tries
-                    .write()
-                    .unwrap()
-                    .insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
-                Ok(())
-            })
+            .map(|shard_uid| self.load_mem_trie_for_shard(shard_uid))
             .collect::<Vec<Result<_, _>>>()
             .into_iter()
             .collect::<Result<_, _>>()?;

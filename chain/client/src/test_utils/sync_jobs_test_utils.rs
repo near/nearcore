@@ -16,5 +16,8 @@ pub fn forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
         SyncJobsSenderForClientMessage::_resharding(msg) => {
             sync_jobs_actions.handle_resharding_request(msg, &future_spawner);
         }
+        SyncJobsSenderForClientMessage::_load_memtrie(msg) => {
+            sync_jobs_actions.handle_load_memtrie_request(msg);
+        }
     })
 }

@@ -1456,4 +1456,10 @@ impl RuntimeAdapter for KeyValueRuntime {
     fn load_mem_tries_on_startup(&self, _shard_uids: &[ShardUId]) -> Result<(), StorageError> {
         Ok(())
     }
+
+    fn load_mem_trie_on_catchup(&self, _shard_uid: &ShardUId) -> Result<(), StorageError> {
+        Ok(())
+    }
+
+    fn unload_trie_on_catchup(&self, _shard_uid: &ShardUId) {}
 }
