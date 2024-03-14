@@ -216,7 +216,7 @@ type BlockApplyChunksResult = (CryptoHash, Vec<(ShardId, Result<ShardUpdateResul
 /// Facade to the blockchain block processing and storage.
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
-    chain_store: ChainStore,
+    pub chain_store: ChainStore,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
