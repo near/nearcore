@@ -4,6 +4,7 @@ use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature}
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
+use anyhow::Context;
 use once_cell::sync::Lazy;
 use std::io;
 use std::ops::Deref;
@@ -406,11 +407,47 @@ impl Database for RocksDB {
         }
     }
 
-    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+    fn create_checkpoint(
+        &self,
+        path: &std::path::Path,
+        columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "create_checkpoint", ?path).entered();
         let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
-        cp.create_checkpoint(path)?;
+        cp.create_checkpoint(path)
+            .with_context(|| format!("failed to create checkpoint at {}", path.display()))?;
+
+        if let Some(columns_to_keep) = columns_to_keep {
+            let opts = common_rocksdb_options();
+            let cfs = cf_descriptors(
+                &DBCol::iter().collect::<Vec<_>>(),
+                &StoreConfig::default(),
+                Temperature::Hot,
+            );
+            let mut db = DB::open_cf_descriptors(&opts, path, cfs)
+                .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
+            for col in DBCol::iter() {
+                if !columns_to_keep.contains(&col) {
+                    if col == DBCol::DbVersion {
+                        // We need to keep DbVersion because it's expected to be there when
+                        // we check the metadata in DBOpener::get_metadata()
+                        tracing::debug!(
+                            target: "store",
+                            "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
+                        );
+                        continue;
+                    }
+                    db.drop_cf(col_name(col)).with_context(|| {
+                        format!(
+                            "failed to drop column family {:?} from checkpoint at {}",
+                            col,
+                            path.display()
+                        )
+                    })?;
+                }
+            }
+        }
         Ok(())
     }
 }
