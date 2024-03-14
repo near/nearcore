@@ -129,20 +129,11 @@ impl RocksDB {
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
-        let cf_descriptors = columns
-            .iter()
-            .copied()
-            .map(|col| {
-                rocksdb::ColumnFamilyDescriptor::new(
-                    col_name(col),
-                    rocksdb_column_options(col, store_config, temp),
-                )
-            })
-            .collect::<Vec<_>>();
+        let cfs = cf_descriptors(columns, store_config, temp);
         let db = if mode.read_only() {
-            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+            DB::open_cf_descriptors_read_only(&options, path, cfs, false)
         } else {
-            DB::open_cf_descriptors(&options, path, cf_descriptors)
+            DB::open_cf_descriptors(&options, path, cfs)
         }
         .map_err(io::Error::other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -424,15 +415,29 @@ impl Database for RocksDB {
     }
 }
 
+fn cf_descriptors(
+    columns: &[DBCol],
+    store_config: &StoreConfig,
+    temp: Temperature,
+) -> Vec<rocksdb::ColumnFamilyDescriptor> {
+    columns
+        .iter()
+        .copied()
+        .map(|col| {
+            rocksdb::ColumnFamilyDescriptor::new(
+                col_name(col),
+                rocksdb_column_options(col, store_config, temp),
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
 /// DB level options
-fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+fn common_rocksdb_options() -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(mode.read_write());
-    opts.create_if_missing(mode.can_create());
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
@@ -450,7 +455,14 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(bytesize::GIB);
     }
+    opts
+}
 
+fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+    let mut opts = common_rocksdb_options();
+    opts.create_missing_column_families(mode.read_write());
+    opts.create_if_missing(mode.can_create());
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     // TODO(mina86): Perhaps enable statistics even in read-only mode?
     if mode.read_write() && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level
