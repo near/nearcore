@@ -4554,6 +4554,7 @@ dependencies = [
  "sha2",
  "sha3",
  "strum",
+ "tempfile",
  "thiserror",
  "tracing",
  "wasm-encoder 0.27.0",

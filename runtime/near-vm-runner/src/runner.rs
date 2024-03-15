@@ -1,13 +1,10 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
-use crate::logic::{CompiledContract, CompiledContractCache, External, VMContext, VMOutcome};
+use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
 use crate::ContractCode;
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
-use std::io::{Read, Write};
-use std::path::PathBuf;
 
 /// Returned by VM::run method.
 ///
@@ -145,80 +142,6 @@ impl VMKindExt for VMKind {
             _ => {
                 let _ = config;
                 None
-            }
-        }
-    }
-}
-
-pub struct FilesystemCompiledContractCache {
-    dir: rustix::fd::OwnedFd,
-}
-
-impl FilesystemCompiledContractCache {
-    pub fn new() -> Self {
-        let path = std::env::var_os("NEAR_CONTRACT_CACHE");
-        let path = path.map(PathBuf::from).unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").expect("$HOME"))
-                .join(".near")
-                .join("data")
-                .join("contracts")
-        });
-        std::fs::create_dir_all(&path).expect("create contract directory");
-        let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())
-            .expect("open contract dir");
-        Self { dir }
-    }
-}
-
-/// Cache for compiled contracts code in plain filesystem.
-impl CompiledContractCache for FilesystemCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
-        use rustix::fs::{Mode, OFlags};
-        let final_filename = key.to_string();
-        let filename = format!("{}.temp", key);
-        let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
-        let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-        // FIXME: we probably want to make a file with a temporary name here first (use mktemp
-        // crate) and then move it into the expected place.
-        // FIXME: remove the file once done if it still exists.
-        let mut file = std::fs::File::from(rustix::fs::openat(&self.dir, &filename, flags, mode)?);
-        match value {
-            CompiledContract::CompileModuleError(_) => {
-                // TODO: ideally we probably want this to go into a separate file, or use some sort
-                // of heuristic unique flag rather than attempting to encode this entire enum.
-                // That's because just dumping the bytes down below gives us pretty nice
-                // properties, such as being able to "just" mmap the file...
-            }
-            CompiledContract::Code(bytes) => {
-                file.write_all(&bytes)?;
-            }
-        }
-        drop(file);
-        // This is atomic, so there won't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.dir, filename, &self.dir, final_filename)?;
-        Ok(())
-    }
-
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        use rustix::fs::{Mode, OFlags};
-        let filename = key.to_string();
-        let mode = Mode::empty();
-        let flags = OFlags::RDONLY;
-        let file = rustix::fs::openat(&self.dir, &filename, flags, mode);
-        match file {
-            Ok(file) => {
-                let stat = rustix::fs::fstat(&file)?;
-                // FIXME: this could be file mmap too :)
-                let mut out = Vec::with_capacity(stat.st_size.try_into().unwrap());
-                let mut file = std::fs::File::from(file);
-                file.read_to_end(&mut out)?;
-                return Ok(Some(CompiledContract::Code(out)));
-            }
-            Err(rustix::io::Errno::NOENT) => {
-                return Ok(None);
-            }
-            Err(e) => {
-                return Err(e.into());
             }
         }
     }
