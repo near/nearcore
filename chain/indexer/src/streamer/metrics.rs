@@ -43,3 +43,11 @@ pub(crate) static BUILD_STREAMER_MESSAGE_TIME: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
+
+pub(crate) static LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK: Lazy<IntGauge> = Lazy::new(|| {
+    try_create_int_gauge(
+        "near_indexer_local_receipt_lookup_in_history_blocks_back",
+        "Time taken to lookup a receipt in history blocks back",
+    )
+    .unwrap()
+});
