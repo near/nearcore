@@ -148,10 +148,15 @@ pub async fn build_streamer_message(
                 debug_assert!(outcome.receipt.is_none());
                 outcome.receipt = Some(receipt.clone());
             } else {
-                DELAYED_LOCAL_RECEIPTS_CACHE
-                    .write()
-                    .unwrap() // TODO handle this unwrap
-                    .insert(receipt.receipt_id.clone(), receipt.clone());
+                if let Ok(mut cache) = DELAYED_LOCAL_RECEIPTS_CACHE.write() {
+                    cache.insert(receipt.receipt_id, receipt.clone());
+                } else {
+                    tracing::warn!(
+                        target: INDEXER,
+                        "Unable to insert receipt {} into DELAYED_LOCAL_RECEIPTS_CACHE",
+                        receipt.receipt_id,
+                    );
+                }
             }
         }
 
@@ -163,65 +168,44 @@ pub async fn build_streamer_message(
             let receipt = if let Some(receipt) = receipt {
                 receipt
             } else {
-                // Attempt to find the receipt in the cache
-                if let Some(receipt) = DELAYED_LOCAL_RECEIPTS_CACHE
-                    .write()
-                    .unwrap() // TODO handle this unwrap
-                    .remove(&execution_outcome.id)
-                {
-                    receipt
-                } else {
-                    tracing::warn!(
-                        target: INDEXER,
-                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, starting to look for it in up to 1000 blocks back in time",
-                        execution_outcome.id,
-                    );
-                    // Receipt might be missing only in case of delayed local receipt
-                    // that appeared in some of the previous blocks
-                    // we will be iterating over previous blocks until we found the receipt
-                    let mut prev_block_tried = 0u16;
-                    let mut prev_block_hash = block.header.prev_hash;
-                    'find_local_receipt: loop {
-                        if prev_block_tried > 1000 {
-                            panic!("Failed to find local receipt in 1000 prev blocks");
+                // Attempt to extract the receipt or decide to fetch it based on cache access success
+                let maybe_receipt = {
+                    match DELAYED_LOCAL_RECEIPTS_CACHE.write() {
+                        Ok(mut cache) => {
+                            // Lock acquired, attempt to remove the receipt
+                            cache.remove(&execution_outcome.id)
                         }
-                        // Log a warning every 100 blocks
-                        if prev_block_tried % 100 == 0 {
+                        Err(_) => {
+                            // Failed to acquire lock, log this event and decide to fetch the receipt
                             tracing::warn!(
                                 target: INDEXER,
-                                "Still looking for receipt {} in previous blocks. {} blocks back already",
+                                "Failed to acquire DELAYED_LOCAL_RECEIPTS_CACHE lock, starting to look for receipt {} in up to 1000 blocks back in time",
                                 execution_outcome.id,
-                                prev_block_tried,
                             );
+                            None // Indicate that receipt needs to be fetched
                         }
-                        let prev_block = match fetch_block(&client, prev_block_hash).await {
-                            Ok(block) => block,
-                            Err(err) => panic!("Unable to get previous block: {:?}", err),
-                        };
-
-                        prev_block_hash = prev_block.header.prev_hash;
-
-                        if let Some(receipt) = find_local_receipt_by_id_in_block(
-                            &client,
-                            &runtime_config,
-                            prev_block,
-                            execution_outcome.id,
-                        )
-                        .await?
-                        {
-                            tracing::debug!(
-                                target: INDEXER,
-                                "Found receipt {} in previous block {}",
-                                execution_outcome.id,
-                                prev_block_tried,
-                            );
-                            metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK
-                                .set(prev_block_tried as i64);
-                            break 'find_local_receipt receipt;
-                        }
-
-                        prev_block_tried += 1;
                     }
+                };
+
+                // Depending on whether you got the receipt from the cache, proceed
+                if let Some(receipt) = maybe_receipt {
+                    // Receipt was found in cache
+                    receipt
+                } else {
+                    // Receipt not found in cache or failed to acquire lock, proceed to look it up
+                    // in the history of blocks (up to 1000 blocks back)
+                    tracing::warn!(
+                        target: INDEXER,
+                        "Receipt {} is missing in block and in DELAYED_LOCAL_RECEIPTS_CACHE, looking for it in up to 1000 blocks back in time",
+                        execution_outcome.id,
+                    );
+                    lookup_delayed_local_receipt_in_previous_blocks(
+                        &client,
+                        &runtime_config,
+                        block.clone(),
+                        execution_outcome.id,
+                    )
+                    .await?
                 }
             };
             receipt_execution_outcomes
@@ -276,6 +260,56 @@ pub async fn build_streamer_message(
     }
 
     Ok(StreamerMessage { block, shards: indexer_shards })
+}
+
+// Receipt might be missing only in case of delayed local receipt
+// that appeared in some of the previous blocks
+// we will be iterating over previous blocks until we found the receipt
+// or panic if we didn't find it in 1000 blocks
+async fn lookup_delayed_local_receipt_in_previous_blocks(
+    client: &Addr<near_client::ViewClientActor>,
+    runtime_config: &RuntimeConfig,
+    block: views::BlockView,
+    receipt_id: CryptoHash,
+) -> Result<views::ReceiptView, FailedToFetchData> {
+    let mut prev_block_tried = 0u16;
+    let mut prev_block_hash = block.header.prev_hash;
+    'find_local_receipt: loop {
+        if prev_block_tried > 1000 {
+            panic!("Failed to find local receipt in 1000 prev blocks");
+        }
+        // Log a warning every 100 blocks
+        if prev_block_tried % 100 == 0 {
+            tracing::warn!(
+                target: INDEXER,
+                "Still looking for receipt {} in previous blocks. {} blocks back already",
+                receipt_id,
+                prev_block_tried,
+            );
+        }
+        let prev_block = match fetch_block(&client, prev_block_hash).await {
+            Ok(block) => block,
+            Err(err) => panic!("Unable to get previous block: {:?}", err),
+        };
+
+        prev_block_hash = prev_block.header.prev_hash;
+
+        if let Some(receipt) =
+            find_local_receipt_by_id_in_block(&client, &runtime_config, prev_block, receipt_id)
+                .await?
+        {
+            tracing::debug!(
+                target: INDEXER,
+                "Found receipt {} in previous block {}",
+                receipt_id,
+                prev_block_tried,
+            );
+            metrics::LOCAL_RECEIPT_LOOKUP_IN_HISTORY_BLOCKS_BACK.set(prev_block_tried as i64);
+            break 'find_local_receipt Ok(receipt);
+        }
+
+        prev_block_tried += 1;
+    }
 }
 
 /// Function that tries to find specific local receipt by it's ID and returns it
