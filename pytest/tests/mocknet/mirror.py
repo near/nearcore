@@ -7,6 +7,7 @@ import pathlib
 import json
 import random
 from rc import pmap
+import re
 import sys
 import time
 
@@ -219,11 +220,53 @@ def reset_cmd(args, traffic_generator, nodes):
         )
         if sys.stdin.readline().strip() != 'yes':
             sys.exit()
+    if args.backup_id is None:
+        backups = nodes[0].neard_runner_ls_backups()
+        backups_msg = 'ID |  Time  | Description\n'
+        if 'start' not in backups:
+            backups_msg += 'start | None | initial test state after state root computation\n'
+        for backup_id, backup_data in backups.items():
+            backups_msg += f'{backup_id} | {backup_data.get("time")} | {backup_data.get("description")}\n'
+
+        print(f'Backups as reported by {nodes[0].name()}):\n\n{backups_msg}')
+        print('please enter a backup ID here:')
+        args.backup_id = sys.stdin.readline().strip()
+        if args.backup_id != 'start' and args.backup_id not in backups:
+            print(
+                f'Given backup ID ({args.backup_id}) was not in the list given')
+            sys.exit()
+
     all_nodes = nodes + [traffic_generator]
-    pmap(lambda node: node.neard_runner_reset(), all_nodes)
+    pmap(lambda node: node.neard_runner_reset(backup_id=args.backup_id),
+         all_nodes)
     logger.info(
         'Data dir reset in progress. Run the `status` command to see when this is finished. Until it is finished, neard runners may not respond to HTTP requests.'
     )
+
+
+def make_backup_cmd(args, traffic_generator, nodes):
+    if not args.yes:
+        print(
+            'this will stop all nodes and create a new backup of their home dirs. continue? [yes/no]'
+        )
+        if sys.stdin.readline().strip() != 'yes':
+            sys.exit()
+
+    if args.backup_id is None:
+        print('please enter a backup ID:')
+        args.backup_id = sys.stdin.readline().strip()
+        if re.match(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$', args.backup_id) is None:
+            sys.exit('invalid backup ID')
+    if args.description is None:
+        print('please enter a description (enter nothing to skip):')
+        description = sys.stdin.readline().strip()
+        if len(description) > 0:
+            args.description = description
+
+    all_nodes = nodes + [traffic_generator]
+    pmap(
+        lambda node: node.neard_runner_make_backup(
+            backup_id=args.backup_id, description=args.description), all_nodes)
 
 
 def stop_nodes_cmd(args, traffic_generator, nodes):
@@ -373,6 +416,15 @@ if __name__ == '__main__':
         help='stop the traffic generator, but leave the other nodes running')
     stop_parser.set_defaults(func=stop_traffic_cmd)
 
+    backup_parser = subparsers.add_parser('make-backup',
+                                          help='''
+    Stops all nodes and haves them make a backup of the data dir that can later be restored to with the reset command
+    ''')
+    backup_parser.add_argument('--yes', action='store_true')
+    backup_parser.add_argument('--backup-id', type=str)
+    backup_parser.add_argument('--description', type=str)
+    backup_parser.set_defaults(func=make_backup_cmd)
+
     reset_parser = subparsers.add_parser('reset',
                                          help='''
     The new_test command saves the data directory after the genesis state roots are computed so that
@@ -380,6 +432,7 @@ if __name__ == '__main__':
     data dirs to what was saved then, so that start-traffic will start the test all over again.
     ''')
     reset_parser.add_argument('--yes', action='store_true')
+    reset_parser.add_argument('--backup-id', type=str)
     reset_parser.set_defaults(func=reset_cmd)
 
     # It re-uses the same binary urls because it's quite easy to do it with the

@@ -100,8 +100,19 @@ class NodeHandle:
     def neard_runner_ready(self):
         return self.neard_runner_jsonrpc('ready')
 
-    def neard_runner_reset(self):
-        return self.neard_runner_jsonrpc('reset')
+    def neard_runner_make_backup(self, backup_id, description=None):
+        return self.neard_runner_jsonrpc('make_backup',
+                                         params={
+                                             'backup_id': backup_id,
+                                             'description': description
+                                         })
+
+    def neard_runner_ls_backups(self):
+        return self.neard_runner_jsonrpc('ls_backups')
+
+    def neard_runner_reset(self, backup_id=None):
+        return self.neard_runner_jsonrpc('reset',
+                                         params={'backup_id': backup_id})
 
     def neard_runner_update_binaries(self):
         return self.neard_runner_jsonrpc('update_binaries')
