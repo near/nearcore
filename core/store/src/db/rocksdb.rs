@@ -418,34 +418,35 @@ impl Database for RocksDB {
         cp.create_checkpoint(path)
             .with_context(|| format!("failed to create checkpoint at {}", path.display()))?;
 
-        if let Some(columns_to_keep) = columns_to_keep {
-            let opts = common_rocksdb_options();
-            let cfs = cf_descriptors(
-                &DBCol::iter().collect::<Vec<_>>(),
-                &StoreConfig::default(),
-                Temperature::Hot,
-            );
-            let mut db = DB::open_cf_descriptors(&opts, path, cfs)
-                .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
-            for col in DBCol::iter() {
-                if !columns_to_keep.contains(&col) {
-                    if col == DBCol::DbVersion {
-                        // We need to keep DbVersion because it's expected to be there when
-                        // we check the metadata in DBOpener::get_metadata()
-                        tracing::debug!(
-                            target: "store",
-                            "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
-                        );
-                        continue;
-                    }
-                    db.drop_cf(col_name(col)).with_context(|| {
-                        format!(
-                            "failed to drop column family {:?} from checkpoint at {}",
-                            col,
-                            path.display()
-                        )
-                    })?;
+        let Some(columns_to_keep) = columns_to_keep else {
+            return Ok(());
+        };
+        let opts = common_rocksdb_options();
+        let cfs = cf_descriptors(
+            &DBCol::iter().collect::<Vec<_>>(),
+            &StoreConfig::default(),
+            Temperature::Hot,
+        );
+        let mut db = DB::open_cf_descriptors(&opts, path, cfs)
+            .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
+        for col in DBCol::iter() {
+            if !columns_to_keep.contains(&col) {
+                if col == DBCol::DbVersion {
+                    // We need to keep DbVersion because it's expected to be there when
+                    // we check the metadata in DBOpener::get_metadata()
+                    tracing::debug!(
+                        target: "store",
+                        "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
+                    );
+                    continue;
                 }
+                db.drop_cf(col_name(col)).with_context(|| {
+                    format!(
+                        "failed to drop column family {:?} from checkpoint at {}",
+                        col,
+                        path.display()
+                    )
+                })?;
             }
         }
         Ok(())
