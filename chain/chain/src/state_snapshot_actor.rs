@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 /// Runs tasks related to state snapshots.
 /// There are three main handlers in StateSnapshotActor and they are called in sequence
-/// 1. DeleteSnapshotRequest: deletes a snapshot and optionally calls CreateSnapshotRequest.
-/// 2. CreateSnapshotRequest: creates a new snapshot.
+/// 1. [`DeleteAndMaybeCreateSnapshotRequest`]: deletes a snapshot and optionally calls CreateSnapshotRequest.
+/// 2. [`CreateSnapshotRequest`]: creates a new snapshot.
 pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
