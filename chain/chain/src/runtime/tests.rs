@@ -37,6 +37,7 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 
 use super::*;
 
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
 use near_async::time::Clock;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::trie_key::TrieKey;
@@ -1541,6 +1542,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 

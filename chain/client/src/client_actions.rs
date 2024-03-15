@@ -101,7 +101,7 @@ pub struct ClientActions {
 
     // Sender to be able to send a message to myself.
     myself_sender: ClientSenderForClient,
-    pub(crate) client: Client,
+    pub client: Client,
     network_adapter: PeerManagerAdapter,
     network_info: NetworkInfo,
     /// Identity that represents this Client at the network level.
@@ -972,6 +972,9 @@ impl ClientActions {
                     have_all_chunks,
                     log_block_production_info,
                 ) {
+                    self.client
+                        .chunk_inclusion_tracker
+                        .record_endorsement_metrics(&head.last_block_hash);
                     if let Err(err) = self.produce_block(height) {
                         // If there is an error, report it and let it retry on the next loop step.
                         error!(target: "client", height, "Block production failed: {}", err);

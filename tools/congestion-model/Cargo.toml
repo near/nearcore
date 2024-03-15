@@ -9,7 +9,9 @@ license.workspace = true
 publish = false
 
 [dependencies]
+chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
+csv.workspace = true
 
 [lints]
 workspace = true

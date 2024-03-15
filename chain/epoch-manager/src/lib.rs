@@ -546,9 +546,6 @@ impl EpochManager {
                 validator_kickout.remove(&validator);
             }
         }
-        for account_id in validator_kickout.keys() {
-            validator_block_chunk_stats.remove(account_id);
-        }
         (validator_kickout, validator_block_chunk_stats)
     }
 
@@ -679,7 +676,7 @@ impl EpochManager {
         let EpochSummary {
             all_proposals,
             validator_kickout,
-            validator_block_chunk_stats,
+            mut validator_block_chunk_stats,
             next_version,
             ..
         } = epoch_summary;
@@ -691,6 +688,15 @@ impl EpochManager {
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
+            for (account_id, reason) in validator_kickout.iter() {
+                if matches!(
+                    reason,
+                    ValidatorKickoutReason::NotEnoughBlocks { .. }
+                        | ValidatorKickoutReason::NotEnoughChunks { .. }
+                ) {
+                    validator_block_chunk_stats.remove(account_id);
+                }
+            }
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,

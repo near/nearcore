@@ -776,7 +776,7 @@ fn test_chunk_forwarding_optimization() {
 
 /// Test asynchronous block processing (start_process_block_async).
 /// test0 produces 20 blocks. Shuffle the 20 blocks and make test1 process these blocks.
-/// Verify that test1 can succesfully finish processing the 20 blocks
+/// Verify that test1 can successfully finish processing the 20 blocks
 #[test]
 fn test_processing_blocks_async() {
     init_test_logger();

@@ -81,7 +81,7 @@ impl StandaloneRuntime {
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
-            0,
+            ShardUId::from_shard_id_and_layout(0, &genesis.config.shard_layout),
             &[],
             &runtime_config.fees.storage_usage_config,
             &genesis,

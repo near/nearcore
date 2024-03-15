@@ -2,9 +2,7 @@ use super::queue_bundle::QueueBundle;
 use super::transaction_registry::TransactionRegistry;
 use super::BlockInfo;
 use crate::model::transaction::ExecutionResult;
-use crate::{
-    GGas, Queue, QueueId, Receipt, Round, ShardId, TransactionId, GAS_LIMIT, TX_GAS_LIMIT,
-};
+use crate::{GGas, Queue, QueueId, Receipt, Round, ShardId, TransactionId, GAS_LIMIT};
 use std::collections::{BTreeMap, VecDeque};
 
 /// Transient struct created once for each shard per model execution round,
@@ -72,9 +70,12 @@ impl<'model> ChunkExecutionContext<'model> {
 
     /// Accept a transaction and convert it to a receipt.
     pub fn accept_transaction(&mut self, tx: TransactionId) -> Receipt {
+        // note: Check the total gas limit, not the TX gas limit because we want
+        // to allow changes to how the chunk space is split between transactions
+        // and receipts.
         assert!(
-            self.gas_burnt < TX_GAS_LIMIT,
-            "trying to accept more transactions than tx gas limit allows",
+            self.gas_burnt < GAS_LIMIT,
+            "trying to accept more transactions than gas limit allows",
         );
         let ExecutionResult { gas_burnt, mut new_receipts } =
             self.transactions[tx].start(self.round);
@@ -110,5 +111,28 @@ impl<'model> ChunkExecutionContext<'model> {
     /// integrate with the global execution context.
     pub(crate) fn finish(self) -> (Vec<Receipt>, BlockInfo) {
         (self.outgoing_receipts, self.block_info_output)
+    }
+
+    /// A sequence of increasing numbers.
+    pub fn block_height(&self) -> Round {
+        self.round
+    }
+
+    /// Gas cost to convert the transaction to a receipt.
+    pub fn tx_conversion_gas(&self, id: TransactionId) -> GGas {
+        self.transactions[id].tx_conversion_cost
+    }
+
+    /// Gas attached to the transaction after conversion.
+    ///
+    /// Like in real nearcore, this does not include the conversion cost. Unlike
+    /// real nearcore, we are not splitting between action execution gas and
+    /// attached gas.
+    pub fn tx_attached_gas(&self, id: TransactionId) -> GGas {
+        self.transactions[id].initial_receipt_gas()
+    }
+
+    pub fn tx_receiver(&self, id: TransactionId) -> ShardId {
+        self.transactions[id].initial_receipt_receiver()
     }
 }

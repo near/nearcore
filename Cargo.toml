@@ -95,9 +95,6 @@ members = [
     "utils/stdx",
 ]
 
-[workspace.lints.rust]
-warnings = "deny"
-
 [workspace.lints.clippy]
 all = { level = "allow", priority = -100 }
 correctness = { level = "deny", priority = -50 }
@@ -149,7 +146,6 @@ cpu-time = "1.0"
 criterion = { version = "0.5.1", default_features = false, features = ["html_reports", "cargo_bench_support"] }
 crossbeam = "0.8"
 crossbeam-channel = "0.5.8"
-crossbeam-queue = "0.3.8"
 csv = "1.2.1"
 curve25519-dalek = { version = "4.1.1", default-features = false, features = ["alloc", "precomputed-tables", "rand_core"] }
 derive-enum-from-into = "0.1.1"

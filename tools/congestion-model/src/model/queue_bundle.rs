@@ -23,7 +23,7 @@ impl QueueBundle {
         };
 
         for &shard in shards {
-            let mailbox = this.new_queue(shard);
+            let mailbox = this.new_queue(shard, "mailbox");
             this.shard_mailbox.insert(shard, mailbox);
             this.transaction_queues.insert(shard, VecDeque::new());
         }
@@ -31,9 +31,9 @@ impl QueueBundle {
         this
     }
 
-    pub fn new_queue(&mut self, shard_id: ShardId) -> QueueId {
+    pub fn new_queue(&mut self, shard_id: ShardId, name: &str) -> QueueId {
         let id = self.receipt_queues.len();
-        self.receipt_queues.push(Queue::new(shard_id));
+        self.receipt_queues.push(Queue::new(shard_id, name));
         QueueId(id)
     }
 
@@ -71,7 +71,7 @@ impl QueueBundle {
 }
 
 impl QueueFactory for QueueBundle {
-    fn register_queue(&mut self, shard_id: ShardId) -> QueueId {
-        self.new_queue(shard_id)
+    fn register_queue(&mut self, shard_id: ShardId, name: &str) -> QueueId {
+        self.new_queue(shard_id, name)
     }
 }

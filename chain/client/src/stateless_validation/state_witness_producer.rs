@@ -160,7 +160,9 @@ impl Client {
                     let message = format!(
                         "Missing main transition state proof for block {main_block} and shard {shard_id}"
                     );
-                    log_assert_fail!("{message}");
+                    if !cfg!(feature = "shadow_chunk_validation") {
+                        log_assert_fail!("{message}");
+                    }
                     Error::Other(message)
                 })?;
             (base_state, receipts_hash)
@@ -182,7 +184,9 @@ impl Client {
                     let message = format!(
                         "Missing implicit transition state proof for block {block_hash} and shard {shard_id}"
                     );
-                    log_assert_fail!("{message}");
+                    if !cfg!(feature = "shadow_chunk_validation") {
+                        log_assert_fail!("{message}");
+                    }
                     Error::Other(message)
                 })?;
             implicit_transitions.push(ChunkStateTransition {

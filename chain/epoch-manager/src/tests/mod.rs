@@ -1197,6 +1197,126 @@ fn update_tracker(
 }
 
 #[test]
+fn test_rewards_with_kickouts() {
+    let stake_amount = 1_000_000;
+    let validators = vec![
+        ("test1".parse().unwrap(), stake_amount),
+        ("test2".parse().unwrap(), stake_amount),
+        ("test3".parse().unwrap(), stake_amount),
+    ];
+    let epoch_length = 10;
+    let reward_calculator = RewardCalculator {
+        max_inflation_rate: Ratio::new(5, 100),
+        num_blocks_per_year: 1,
+        epoch_length,
+        protocol_reward_rate: Ratio::new(1, 10),
+        protocol_treasury_account: "near".parse().unwrap(),
+        online_min_threshold: Ratio::new(90, 100),
+        online_max_threshold: Ratio::new(99, 100),
+        num_seconds_per_year: NUM_SECONDS_IN_A_YEAR,
+    };
+    let mut em =
+        setup_epoch_manager(validators, epoch_length, 1, 3, 0, 10, 10, 0, reward_calculator);
+
+    let mut height: BlockHeight = 0;
+    let genesis_hash = hash(height.to_le_bytes().as_ref());
+    record_block(&mut em, Default::default(), genesis_hash, height, vec![]);
+
+    height += 1;
+    let first_hash = hash(height.to_le_bytes().as_ref());
+
+    // unstake test3 in the first block so we can see it in the kickouts later
+    record_block(
+        &mut em,
+        genesis_hash,
+        first_hash,
+        height,
+        vec![stake("test3".parse().unwrap(), 0)],
+    );
+
+    let mut prev_hash = first_hash;
+    let mut epoch_ids = Vec::new();
+
+    loop {
+        height += 1;
+        let block_hash = hash(height.to_le_bytes().as_ref());
+
+        let epoch_id = em.get_epoch_id_from_prev_block(&prev_hash).unwrap();
+        let epoch_info = em.get_epoch_info(&epoch_id).unwrap().clone();
+        let validator_id = EpochManager::block_producer_from_info(&epoch_info, height);
+        let block_producer = epoch_info.validator_account_id(validator_id);
+
+        // don't produce blocks for test2 so we can see it in the kickouts
+        if block_producer.as_str() != "test2" {
+            record_block(&mut em, prev_hash, block_hash, height, vec![]);
+            prev_hash = block_hash;
+        }
+
+        // save new epoch IDs as they come
+        if epoch_id != EpochId(CryptoHash::default()) {
+            if (epoch_ids.len() as BlockHeight) < epoch_info.epoch_height() {
+                // when there are 4 epoch IDs saved, 1 through 4 will be completed, but we only care about
+                // the prev epoch kickouts and rewards for 2 through 4 in the checks below
+                if epoch_ids.len() >= 4 {
+                    break;
+                }
+                assert!((epoch_ids.len() + 1) as u64 == epoch_info.epoch_height());
+                epoch_ids.push(epoch_id);
+            }
+        }
+    }
+
+    let wanted_rewards = HashMap::from([
+        (
+            2,
+            // test3 should still be rewarded even though it is in the kickouts for unstaking
+            HashMap::from([
+                ("near".parse().unwrap(), 1585),
+                ("test1".parse().unwrap(), 4756),
+                ("test3".parse().unwrap(), 4756),
+            ]),
+        ),
+        (
+            3,
+            HashMap::from([
+                ("near".parse().unwrap(), 1585),
+                ("test1".parse().unwrap(), 4756),
+                ("test3".parse().unwrap(), 4756),
+            ]),
+        ),
+        (4, HashMap::from([("near".parse().unwrap(), 1585), ("test1".parse().unwrap(), 14269)])),
+    ]);
+    let wanted_kickouts = HashMap::from([
+        (
+            2,
+            HashMap::from([
+                (
+                    "test2".parse().unwrap(),
+                    ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 3 },
+                ),
+                ("test3".parse().unwrap(), ValidatorKickoutReason::Unstaked),
+            ]),
+        ),
+        (
+            3,
+            HashMap::from([(
+                "test2".parse().unwrap(),
+                ValidatorKickoutReason::NotEnoughBlocks { produced: 0, expected: 1 },
+            )]),
+        ),
+        (4, HashMap::new()),
+    ]);
+    for epoch_height in 2..=4 {
+        let epoch_id = &epoch_ids[epoch_height - 1];
+        let epoch_info = em.get_epoch_info(epoch_id).unwrap();
+        assert!(epoch_info.epoch_height() == epoch_height as u64);
+
+        assert_eq!(epoch_info.validator_reward(), wanted_rewards.get(&epoch_height).unwrap());
+        assert_eq!(epoch_info.validator_kickout(), wanted_kickouts.get(&epoch_height).unwrap());
+    }
+}
+
+#[test]
 fn test_epoch_info_aggregator() {
     let stake_amount = 1_000_000;
     let validators =
@@ -2507,6 +2627,27 @@ fn test_validator_kickout_sanity() {
                 }
             ),
             (
+                "test1".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 90, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 159, expected: 200 }
+                }
+            ),
+            (
+                "test2".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 100, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 70, expected: 100 }
+                }
+            ),
+            (
+                "test3".parse().unwrap(),
+                BlockChunkValidatorStats {
+                    block_stats: ValidatorStats { produced: 89, expected: 100 },
+                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
+                }
+            ),
+            (
                 "test4".parse().unwrap(),
                 BlockChunkValidatorStats {
                     block_stats: ValidatorStats { produced: 0, expected: 0 },
@@ -2588,25 +2729,44 @@ fn test_max_kickout_stake_ratio() {
             ("test4".parse().unwrap(), NotEnoughChunks { produced: 50, expected: 100 }),
         ])
     );
-    assert_eq!(
-        validator_stats,
-        HashMap::from([
-            (
-                "test3".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
-                }
-            ),
-            (
-                "test1".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
-                }
-            ),
-        ])
-    );
+    let wanted_validator_stats = HashMap::from([
+        (
+            "test0".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 50, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+            },
+        ),
+        (
+            "test1".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 70, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 100 },
+            },
+        ),
+        (
+            "test2".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 70, expected: 100 },
+                chunk_stats: ValidatorStats { produced: 100, expected: 100 },
+            },
+        ),
+        (
+            "test3".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ValidatorStats { produced: 0, expected: 0 },
+            },
+        ),
+        (
+            "test4".parse().unwrap(),
+            BlockChunkValidatorStats {
+                block_stats: ValidatorStats { produced: 0, expected: 0 },
+                chunk_stats: ValidatorStats { produced: 50, expected: 100 },
+            },
+        ),
+    ]);
+    assert_eq!(validator_stats, wanted_validator_stats,);
     // At most 50% of total stake can be kicked out
     epoch_config.validator_max_kickout_stake_perc = 40;
     let (kickouts, validator_stats) = EpochManager::compute_kickout_info(
@@ -2627,39 +2787,7 @@ fn test_max_kickout_stake_ratio() {
             NotEnoughBlocks { produced: 50, expected: 100 }
         ),])
     );
-    assert_eq!(
-        validator_stats,
-        HashMap::from([
-            (
-                "test1".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 100 }
-                }
-            ),
-            (
-                "test2".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 70, expected: 100 },
-                    chunk_stats: ValidatorStats { produced: 100, expected: 100 }
-                }
-            ),
-            (
-                "test3".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 0, expected: 0 }
-                }
-            ),
-            (
-                "test4".parse().unwrap(),
-                BlockChunkValidatorStats {
-                    block_stats: ValidatorStats { produced: 0, expected: 0 },
-                    chunk_stats: ValidatorStats { produced: 50, expected: 100 }
-                }
-            ),
-        ])
-    );
+    assert_eq!(validator_stats, wanted_validator_stats,);
 }
 
 fn test_chunk_header(h: &[CryptoHash], signer: &dyn ValidatorSigner) -> ShardChunkHeader {

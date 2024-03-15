@@ -31,6 +31,18 @@ pub enum CompiledContract {
     Code(Vec<u8>),
 }
 
+impl CompiledContract {
+    /// Return the length of the compiled contract data.
+    ///
+    /// If the `CompiledContract` represents a compilation failure, returns `0`.
+    pub fn debug_len(&self) -> usize {
+        match self {
+            CompiledContract::CompileModuleError(_) => 0,
+            CompiledContract::Code(c) => c.len(),
+        }
+    }
+}
+
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;

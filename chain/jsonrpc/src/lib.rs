@@ -385,7 +385,7 @@ impl JsonRpcHandler {
                 process_method_call(request, |params| self.next_light_client_block(params)).await
             }
             "network_info" => process_method_call(request, |_params: ()| self.network_info()).await,
-            "send_tx" => process_method_call(request, |params| self.send_tx(params, false)).await,
+            "send_tx" => process_method_call(request, |params| self.send_tx(params)).await,
             "status" => process_method_call(request, |_params: ()| self.status()).await,
             "tx" => {
                 process_method_call(request, |params| self.tx_status_common(params, false)).await
@@ -579,7 +579,6 @@ impl JsonRpcHandler {
         tx_info: near_jsonrpc_primitives::types::transactions::TransactionInfo,
         finality: near_primitives::views::TxExecutionStatus,
         fetch_receipt: bool,
-        is_legacy_broadcast_tx_commit: bool,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
@@ -597,16 +596,7 @@ impl JsonRpcHandler {
                 .await;
                 match tx_status_result.clone() {
                     Ok(result) => {
-                        let ready_to_return = if is_legacy_broadcast_tx_commit {
-                            // `broadcast_tx_commit` does not have an option in TxExecutionStatus enum.
-                            // We need to provide the transaction with all the corresponding receipts,
-                            // but we don't want to wait until all of them will be in the canonical chain.
-                            result.execution_outcome.is_some()
-                        } else {
-                            result.status >= finality
-                        };
-
-                        if ready_to_return {
+                        if tx_execution_status_meets_expectations(&finality, &result.status) {
                             break Ok(result.into())
                         }
                         // else: No such transaction recorded on chain yet
@@ -638,15 +628,12 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?}",
                 tx_info,
                 fetch_receipt,
+                tx_status_result
             );
-            if let Err(error) = tx_status_result {
-                error
-            } else {
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-            }
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
     }
 
@@ -685,7 +672,6 @@ impl JsonRpcHandler {
     async fn send_tx(
         &self,
         request_data: near_jsonrpc_primitives::types::transactions::RpcSendTransactionRequest,
-        is_legacy_broadcast_tx_commit: bool,
     ) -> Result<
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
@@ -704,7 +690,6 @@ impl JsonRpcHandler {
                     near_jsonrpc_primitives::types::transactions::TransactionInfo::from_signed_tx(tx.clone()),
                     request_data.wait_until,
                     false,
-                    is_legacy_broadcast_tx_commit,
                 ).await
             }
             network_client_response=> {
@@ -724,14 +709,11 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionResponse,
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
-        self.send_tx(
-            RpcSendTransactionRequest {
-                signed_transaction: request_data.signed_transaction,
-                // Will be ignored, broadcast_tx_commit is not aligned with existing enum
-                wait_until: Default::default(),
-            },
-            true,
-        )
+        self.send_tx(RpcSendTransactionRequest {
+            signed_transaction: request_data.signed_transaction,
+            // Will be ignored, broadcast_tx_commit is not aligned with existing enum
+            wait_until: Default::default(),
+        })
         .await
     }
 
@@ -895,12 +877,7 @@ impl JsonRpcHandler {
         near_jsonrpc_primitives::types::transactions::RpcTransactionError,
     > {
         let tx_status = self
-            .tx_status_fetch(
-                request_data.transaction_info,
-                request_data.wait_until,
-                fetch_receipt,
-                false,
-            )
+            .tx_status_fetch(request_data.transaction_info, request_data.wait_until, fetch_receipt)
             .await?;
         Ok(tx_status.rpc_into())
     }
@@ -1579,4 +1556,30 @@ pub fn start_http(
     }
 
     servers
+}
+
+fn tx_execution_status_meets_expectations(
+    expected: &TxExecutionStatus,
+    actual: &TxExecutionStatus,
+) -> bool {
+    match expected {
+        TxExecutionStatus::None => true,
+        TxExecutionStatus::Included => actual != &TxExecutionStatus::None,
+        TxExecutionStatus::ExecutedOptimistic => [
+            TxExecutionStatus::ExecutedOptimistic,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::IncludedFinal => [
+            TxExecutionStatus::IncludedFinal,
+            TxExecutionStatus::Executed,
+            TxExecutionStatus::Final,
+        ]
+        .contains(actual),
+        TxExecutionStatus::Executed => {
+            [TxExecutionStatus::Executed, TxExecutionStatus::Final].contains(actual)
+        }
+        TxExecutionStatus::Final => actual == &TxExecutionStatus::Final,
+    }
 }
