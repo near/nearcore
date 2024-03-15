@@ -5,6 +5,7 @@ use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
 use anyhow::Context;
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::io;
 use std::ops::Deref;
@@ -87,7 +88,7 @@ impl RocksDB {
         mode: Mode,
         temp: Temperature,
     ) -> io::Result<Self> {
-        let columns: Vec<DBCol> = DBCol::iter().collect();
+        let columns = DBCol::iter().collect_vec();
         Self::open_with_columns(path, store_config, mode, temp, &columns)
     }
 
@@ -422,11 +423,8 @@ impl Database for RocksDB {
             return Ok(());
         };
         let opts = common_rocksdb_options();
-        let cfs = cf_descriptors(
-            &DBCol::iter().collect::<Vec<_>>(),
-            &StoreConfig::default(),
-            Temperature::Hot,
-        );
+        let cfs =
+            cf_descriptors(&DBCol::iter().collect_vec(), &StoreConfig::default(), Temperature::Hot);
         let mut db = DB::open_cf_descriptors(&opts, path, cfs)
             .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
         for col in DBCol::iter() {
