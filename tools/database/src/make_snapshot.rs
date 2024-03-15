@@ -70,7 +70,7 @@ mod tests {
         }
 
         let destination = home_dir.path().join("data").join("snapshot");
-        let cmd = MakeSnapshotCommand { destination: destination.clone() };
+        let cmd = MakeSnapshotCommand { destination: destination.clone(), flat_state_only: false };
         cmd.run(home_dir.path(), false, &store_config).unwrap();
         println!("Made a checkpoint");
 
