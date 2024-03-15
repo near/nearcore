@@ -454,7 +454,6 @@ fn sync_state_dump() {
                 credentials_file: None,
             });
             near1.config.store.state_snapshot_enabled = true;
-            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let dir1 = tempfile::Builder::new().prefix("sync_nodes_1").tempdir().unwrap();
             let nearcore::NearNode {
@@ -738,7 +737,6 @@ fn test_state_sync_headers() {
             let dir1 =
                 tempfile::Builder::new().prefix("test_state_sync_headers").tempdir().unwrap();
             near1.config.store.state_snapshot_enabled = true;
-            near1.config.store.state_snapshot_compaction_enabled = false;
 
             let nearcore::NearNode { view_client: view_client1, .. } =
                 start_with_config(dir1.path(), near1).expect("start_with_config");
@@ -935,7 +933,6 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .tempdir()
                 .unwrap();
             near1.config.store.state_snapshot_enabled = false;
-            near1.config.store.state_snapshot_compaction_enabled = false;
             near1.config.state_sync_enabled = false;
             near1.client_config.state_sync_enabled = false;
 
@@ -953,7 +950,6 @@ fn test_state_sync_headers_no_tracked_shards() {
                 .tempdir()
                 .unwrap();
             near2.config.store.state_snapshot_enabled = true;
-            near2.config.store.state_snapshot_compaction_enabled = false;
             near2.config.state_sync_enabled = false;
             near2.client_config.state_sync_enabled = false;
 

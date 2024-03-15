@@ -112,9 +112,6 @@ pub struct StoreConfig {
 
     // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
-
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_compaction_enabled: bool,
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
@@ -122,11 +119,6 @@ pub struct StoreConfig {
 #[serde(default)]
 pub struct StateSnapshotConfig {
     pub state_snapshot_type: StateSnapshotType,
-    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
-    /// amount of time.
-    /// It makes state snapshots tiny (10GB) over the course of an epoch.
-    /// We may want to disable it for archival nodes during resharding
-    pub compaction_enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -304,9 +296,6 @@ impl Default for StoreConfig {
 
             // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
-
-            // TODO: To be phased out in favor of state_snapshot_config
-            state_snapshot_compaction_enabled: false,
         }
     }
 }

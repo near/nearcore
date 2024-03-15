@@ -4,6 +4,8 @@ use crate::{metadata, metrics, DBCol, StoreConfig, StoreStatistics, Temperature}
 use ::rocksdb::{
     BlockBasedOptions, Cache, ColumnFamily, Env, IteratorMode, Options, ReadOptions, WriteBatch, DB,
 };
+use anyhow::Context;
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use std::io;
 use std::ops::Deref;
@@ -86,7 +88,7 @@ impl RocksDB {
         mode: Mode,
         temp: Temperature,
     ) -> io::Result<Self> {
-        let columns: Vec<DBCol> = DBCol::iter().collect();
+        let columns = DBCol::iter().collect_vec();
         Self::open_with_columns(path, store_config, mode, temp, &columns)
     }
 
@@ -129,20 +131,11 @@ impl RocksDB {
         columns: &[DBCol],
     ) -> io::Result<(DB, Options)> {
         let options = rocksdb_options(store_config, mode);
-        let cf_descriptors = columns
-            .iter()
-            .copied()
-            .map(|col| {
-                rocksdb::ColumnFamilyDescriptor::new(
-                    col_name(col),
-                    rocksdb_column_options(col, store_config, temp),
-                )
-            })
-            .collect::<Vec<_>>();
+        let cfs = cf_descriptors(columns, store_config, temp);
         let db = if mode.read_only() {
-            DB::open_cf_descriptors_read_only(&options, path, cf_descriptors, false)
+            DB::open_cf_descriptors_read_only(&options, path, cfs, false)
         } else {
-            DB::open_cf_descriptors(&options, path, cf_descriptors)
+            DB::open_cf_descriptors(&options, path, cfs)
         }
         .map_err(io::Error::other)?;
         if cfg!(feature = "single_thread_rocksdb") {
@@ -415,24 +408,72 @@ impl Database for RocksDB {
         }
     }
 
-    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
+    fn create_checkpoint(
+        &self,
+        path: &std::path::Path,
+        columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
         let _span =
             tracing::info_span!(target: "state_snapshot", "create_checkpoint", ?path).entered();
         let cp = ::rocksdb::checkpoint::Checkpoint::new(&self.db)?;
-        cp.create_checkpoint(path)?;
+        cp.create_checkpoint(path)
+            .with_context(|| format!("failed to create checkpoint at {}", path.display()))?;
+
+        let Some(columns_to_keep) = columns_to_keep else {
+            return Ok(());
+        };
+        let opts = common_rocksdb_options();
+        let cfs =
+            cf_descriptors(&DBCol::iter().collect_vec(), &StoreConfig::default(), Temperature::Hot);
+        let mut db = DB::open_cf_descriptors(&opts, path, cfs)
+            .with_context(|| format!("failed to open checkpoint at {}", path.display()))?;
+        for col in DBCol::iter() {
+            if !columns_to_keep.contains(&col) {
+                if col == DBCol::DbVersion {
+                    // We need to keep DbVersion because it's expected to be there when
+                    // we check the metadata in DBOpener::get_metadata()
+                    tracing::debug!(
+                        target: "store",
+                        "create_checkpoint called with columns to keep not including DBCol::DbVersion. Including it anyway."
+                    );
+                    continue;
+                }
+                db.drop_cf(col_name(col)).with_context(|| {
+                    format!(
+                        "failed to drop column family {:?} from checkpoint at {}",
+                        col,
+                        path.display()
+                    )
+                })?;
+            }
+        }
         Ok(())
     }
 }
 
+fn cf_descriptors(
+    columns: &[DBCol],
+    store_config: &StoreConfig,
+    temp: Temperature,
+) -> Vec<rocksdb::ColumnFamilyDescriptor> {
+    columns
+        .iter()
+        .copied()
+        .map(|col| {
+            rocksdb::ColumnFamilyDescriptor::new(
+                col_name(col),
+                rocksdb_column_options(col, store_config, temp),
+            )
+        })
+        .collect::<Vec<_>>()
+}
+
 /// DB level options
-fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+fn common_rocksdb_options() -> Options {
     let mut opts = Options::default();
 
     set_compression_options(&mut opts);
-    opts.create_missing_column_families(mode.read_write());
-    opts.create_if_missing(mode.can_create());
     opts.set_use_fsync(false);
-    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     opts.set_keep_log_file_num(1);
     opts.set_bytes_per_sync(bytesize::MIB);
     opts.set_write_buffer_size(256 * bytesize::MIB as usize);
@@ -450,7 +491,14 @@ fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
         opts.increase_parallelism(std::cmp::max(1, num_cpus::get() as i32 / 2));
         opts.set_max_total_wal_size(bytesize::GIB);
     }
+    opts
+}
 
+fn rocksdb_options(store_config: &StoreConfig, mode: Mode) -> Options {
+    let mut opts = common_rocksdb_options();
+    opts.create_missing_column_families(mode.read_write());
+    opts.create_if_missing(mode.can_create());
+    opts.set_max_open_files(store_config.max_open_files.try_into().unwrap_or(i32::MAX));
     // TODO(mina86): Perhaps enable statistics even in read-only mode?
     if mode.read_write() && store_config.enable_statistics {
         // Rust API doesn't permit choosing stats level. The default stats level

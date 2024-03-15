@@ -111,8 +111,12 @@ impl Database for ColdDB {
         self.cold.get_store_statistics()
     }
 
-    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        self.cold.create_checkpoint(path)
+    fn create_checkpoint(
+        &self,
+        path: &std::path::Path,
+        columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
+        self.cold.create_checkpoint(path, columns_to_keep)
     }
 }
 
