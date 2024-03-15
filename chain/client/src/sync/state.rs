@@ -483,7 +483,7 @@ impl StateSync {
         self.resharding_state_roots.insert(shard_id, result);
     }
 
-    // Called by the client actor, when it finished resharding.
+    // Called by the client actor, when it finished loading memtrie.
     pub fn set_load_memtrie_result(
         &mut self,
         shard_id: ShardId,
@@ -1158,13 +1158,10 @@ impl StateSync {
     ) -> Result<(), near_chain::Error> {
         let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
         let shard_uid = chain.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-        let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
 
         load_memtrie_scheduler.send(LoadMemtrieRequest {
             runtime_adapter: chain.runtime_adapter.clone(),
             shard_uid,
-            state_root,
             sync_hash,
         });
         tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "memtrie load scheduled");

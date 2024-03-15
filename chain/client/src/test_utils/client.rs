@@ -11,7 +11,9 @@ use actix_rt::{Arbiter, System};
 use itertools::Itertools;
 use near_async::futures::ActixArbiterHandleFutureSpawner;
 use near_async::messaging::{noop, IntoSender, Sender};
-use near_chain::chain::{do_apply_chunks, BlockCatchUpRequest};
+use near_chain::chain::{
+    do_apply_chunks, do_load_memtrie, BlockCatchUpRequest, LoadMemtrieRequest,
+};
 use near_chain::resharding::ReshardingRequest;
 use near_chain::test_utils::{wait_for_all_blocks_in_processing, wait_for_block_in_processing};
 use near_chain::{Chain, ChainStoreAccess, Provenance};
@@ -281,6 +283,11 @@ pub fn run_catchup(
     let resharding = Sender::from_fn(move |msg: ReshardingRequest| {
         resharding_inside_messages.write().unwrap().push(msg);
     });
+    let load_memtrie_messages = Arc::new(RwLock::new(vec![]));
+    let load_memtrie_inside_messages = load_memtrie_messages.clone();
+    let load_memtrie = Sender::from_fn(move |msg: LoadMemtrieRequest| {
+        load_memtrie_inside_messages.write().unwrap().push(msg);
+    });
     let _ = System::new();
     let state_parts_future_spawner = ActixArbiterHandleFutureSpawner(Arbiter::new().handle());
     loop {
@@ -289,7 +296,7 @@ pub fn run_catchup(
             &noop().into_sender(),
             &block_catch_up,
             &resharding,
-            &noop().into_sender(),
+            &load_memtrie,
             Arc::new(|_| {}),
             &state_parts_future_spawner,
         )?;
@@ -318,6 +325,17 @@ pub fn run_catchup(
                 client
                     .state_sync
                     .set_resharding_result(response.shard_id, response.new_state_roots);
+            }
+            catchup_done = false;
+        }
+        for msg in load_memtrie_messages.write().unwrap().drain(..) {
+            let shard_id = msg.shard_uid.shard_id as ShardId;
+            let result = do_load_memtrie(msg.runtime_adapter, msg.shard_uid);
+            if let Some((sync, _, _)) = client.catchup_state_syncs.get_mut(&msg.sync_hash) {
+                // We are doing catchup
+                sync.set_load_memtrie_result(shard_id, result);
+            } else {
+                client.state_sync.set_load_memtrie_result(shard_id, result);
             }
             catchup_done = false;
         }

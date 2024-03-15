@@ -2692,28 +2692,6 @@ impl Chain {
         Ok(())
     }
 
-    pub fn schedule_load_memtrie(
-        &self,
-        shard_id: ShardId,
-        sync_hash: CryptoHash,
-        load_memtrie_task_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
-    ) -> Result<(), Error> {
-        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
-        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
-
-        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
-
-        load_memtrie_task_scheduler.send(LoadMemtrieRequest {
-            runtime_adapter: self.runtime_adapter.clone(),
-            shard_uid,
-            state_root,
-            sync_hash,
-        });
-
-        Ok(())
-    }
-
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
@@ -4409,12 +4387,21 @@ pub fn collect_receipts_from_response(
     )
 }
 
+pub fn do_load_memtrie(
+    runtime_adapter: Arc<dyn RuntimeAdapter>,
+    shard_uid: ShardUId,
+) -> Result<(), Error> {
+    runtime_adapter.unload_trie_on_catchup(&shard_uid);
+    runtime_adapter
+        .load_mem_trie_on_catchup(&shard_uid)
+        .map_err(|err| near_chain_primitives::Error::StorageError(err))
+}
+
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct LoadMemtrieRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shard_uid: ShardUId,
-    pub state_root: StateRoot,
     pub sync_hash: CryptoHash,
 }
 
@@ -4425,7 +4412,6 @@ impl Debug for LoadMemtrieRequest {
         f.debug_struct("LoadMemtrieRequest")
             .field("runtime_adapter", &"<not shown>")
             .field("shard_uid", &self.shard_uid)
-            .field("state_root", &self.state_root)
             .field("sync_hash", &self.sync_hash)
             .finish()
     }

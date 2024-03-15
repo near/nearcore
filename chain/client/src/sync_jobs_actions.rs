@@ -3,8 +3,8 @@ use near_async::messaging::{CanSend, Sender};
 use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
-    do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
+    do_apply_chunks, do_load_memtrie, ApplyStatePartsRequest, ApplyStatePartsResponse,
+    BlockCatchUpRequest, BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::Chain;
@@ -82,16 +82,11 @@ impl SyncJobsActions {
     }
 
     pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
-        let shard_uid = msg.shard_uid;
-        msg.runtime_adapter.unload_trie_on_catchup(&shard_uid);
-        let result = msg
-            .runtime_adapter
-            .load_mem_trie_on_catchup(&shard_uid)
-            .map_err(|err| near_chain_primitives::Error::StorageError(err));
+        let result = do_load_memtrie(msg.runtime_adapter, msg.shard_uid);
 
         self.client_sender.send(LoadMemtrieResponse {
             load_memtrie_result: result,
-            shard_id: shard_uid.shard_id as ShardId,
+            shard_id: msg.shard_uid.shard_id as ShardId,
             sync_hash: msg.sync_hash,
         });
     }
