@@ -3440,8 +3440,12 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
-        let mut caches: Vec<FilesystemCompiledContractCache> =
-            env.clients.iter().map(|_| FilesystemCompiledContractCache::new()).collect();
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let mut caches: Vec<FilesystemCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|_| FilesystemCompiledContractCache::new(&cache_dir, None::<&str>).unwrap())
+            .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let epoch_id = env.clients[0]
             .chain
@@ -3544,8 +3548,12 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<FilesystemCompiledContractCache> =
-            env.clients.iter().map(|_| FilesystemCompiledContractCache::new()).collect();
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let caches: Vec<FilesystemCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|_| FilesystemCompiledContractCache::new(&cache_dir, None::<&str>).unwrap())
+            .collect();
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3622,8 +3630,12 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
-        let caches: Vec<FilesystemCompiledContractCache> =
-            env.clients.iter().map(|_| FilesystemCompiledContractCache::new()).collect();
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let caches: Vec<FilesystemCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|_| FilesystemCompiledContractCache::new(&cache_dir, None::<&str>).unwrap())
+            .collect();
 
         let epoch_id = env.clients[0]
             .chain

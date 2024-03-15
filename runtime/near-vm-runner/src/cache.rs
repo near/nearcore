@@ -57,7 +57,7 @@ pub fn get_contract_cache_key(code: &ContractCode, config: &Config) -> CryptoHas
     CryptoHash::hash_borsh(key)
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MockCompiledContractCache {
     store: Arc<Mutex<HashMap<CryptoHash, CompiledContract>>>,
 }
@@ -87,23 +87,30 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
+#[derive(Clone)]
 pub struct FilesystemCompiledContractCache {
-    dir: rustix::fd::OwnedFd,
+    dir: Arc<rustix::fd::OwnedFd>,
 }
 
 impl FilesystemCompiledContractCache {
-    pub fn new() -> Self {
-        let path = std::env::var_os("NEAR_CONTRACT_CACHE");
+    pub fn new<HD: AsRef<std::path::Path> + ?Sized, SP: AsRef<std::path::Path> + ?Sized>(
+        home_dir: &HD,
+        store_path: Option<&SP>,
+    ) -> std::io::Result<Self> {
+        let path = std::env::var_os("NEAR_COMPILED_CACHE");
         let path = path.map(PathBuf::from).unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").expect("$HOME"))
-                .join(".near")
-                .join("data")
-                .join("contracts")
+            let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
+            home_dir.as_ref().join(store_path).join("contracts")
         });
-        std::fs::create_dir_all(&path).expect("create contract directory");
-        let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())
-            .expect("open contract dir");
-        Self { dir }
+        std::fs::create_dir_all(&path)?;
+        let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
+        Ok(Self { dir: Arc::new(dir) })
+    }
+
+    pub fn test() -> std::io::Result<(tempfile::TempDir, Self)> {
+        let tempdir = tempfile::TempDir::new()?;
+        let cache = Self::new(tempdir.path(), None::<&str>)?;
+        Ok((tempdir, cache))
     }
 }
 

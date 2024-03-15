@@ -197,10 +197,14 @@ impl TestEnv {
         let runtime_config_store =
             if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() };
 
+        let compiled_contract_cache =
+            FilesystemCompiledContractCache::new(&dir, None::<&str>).unwrap();
+
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::new(
             store.clone(),
+            compiled_contract_cache,
             &genesis.config,
             epoch_manager.clone(),
             None,

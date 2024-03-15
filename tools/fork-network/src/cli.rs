@@ -1,5 +1,6 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
+use anyhow::Context;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
@@ -317,7 +318,8 @@ impl ForkNetworkCommand {
             .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
             .collect();
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
         runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
@@ -359,7 +361,8 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);

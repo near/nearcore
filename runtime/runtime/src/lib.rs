@@ -1836,8 +1836,15 @@ mod tests {
         initial_balance: Balance,
         initial_locked: Balance,
         gas_limit: Gas,
-    ) -> (Runtime, ShardTries, CryptoHash, ApplyState, Arc<InMemorySigner>, impl EpochInfoProvider)
-    {
+    ) -> (
+        Runtime,
+        ShardTries,
+        CryptoHash,
+        ApplyState,
+        Arc<InMemorySigner>,
+        impl EpochInfoProvider,
+        tempfile::TempDir,
+    ) {
         let tries = TestTriesBuilder::new().build();
         let root = MerkleHash::default();
         let runtime = Runtime::new();
@@ -1865,6 +1872,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
+        let (contract_cache_dir, contract_cache) = FilesystemCompiledContractCache::test().unwrap();
 
         let apply_state = ApplyState {
             block_height: 1,
@@ -1878,18 +1886,26 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Box::new(FilesystemCompiledContractCache::new())),
+            cache: Some(Box::new(contract_cache)),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
         };
 
-        (runtime, tries, root, apply_state, signer, MockEpochInfoProvider::default())
+        (
+            runtime,
+            tries,
+            root,
+            apply_state,
+            signer,
+            MockEpochInfoProvider::default(),
+            contract_cache_dir,
+        )
     }
 
     #[test]
     fn test_apply_no_op() {
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), 0, 10u64.pow(15));
         runtime
             .apply(
@@ -1909,7 +1925,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let reward = to_yocto(10_000_000);
         let small_refund = to_yocto(500);
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
         let validator_accounts_update = ValidatorAccountsUpdate {
@@ -1939,7 +1955,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -1984,7 +2000,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 1;
-        let (runtime, tries, mut root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 10;
@@ -2028,7 +2044,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_gas_cost =
@@ -2079,7 +2095,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider) =
+        let (runtime, tries, mut root, mut apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_gas_cost =
@@ -2182,7 +2198,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, 1);
 
         let receipt_exec_gas_fee = 1000;
@@ -2428,7 +2444,7 @@ mod tests {
         let initial_locked = to_yocto(500_000);
         let small_transfer = to_yocto(10_000);
         let gas_limit = 10u64.pow(15);
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let n = 1;
@@ -2456,7 +2472,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let gas_limit = 10u64.pow(15);
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let gas = 2 * 10u64.pow(14);
@@ -2519,7 +2535,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let gas_limit = 10u64.pow(15);
-        let (runtime, tries, root, apply_state, _, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, _, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let gas = 1_000_000;
@@ -2573,7 +2589,7 @@ mod tests {
     #[test]
     fn test_delete_key_add_key() {
         let initial_locked = to_yocto(500_000);
-        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
         let state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2617,7 +2633,7 @@ mod tests {
     #[test]
     fn test_delete_key_underflow() {
         let initial_locked = to_yocto(500_000);
-        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), initial_locked, 10u64.pow(15));
 
         let mut state_update = tries.new_trie_update(ShardUId::single_shard(), root);
@@ -2668,7 +2684,7 @@ mod tests {
         let initial_balance = to_yocto(1_000_000);
         let initial_locked = to_yocto(500_000);
         let gas_limit = 10u64.pow(15);
-        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(initial_balance, initial_locked, gas_limit);
 
         let wasm_code = near_test_contracts::rs_contract().to_vec();
@@ -2705,7 +2721,7 @@ mod tests {
 
     #[test]
     fn test_compute_usage_limit() {
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 1);
 
         let mut free_config = RuntimeConfig::free();
@@ -2802,7 +2818,7 @@ mod tests {
 
     #[test]
     fn test_compute_usage_limit_with_failed_receipt() {
-        let (runtime, tries, root, apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
         let deploy_contract_receipt = create_receipt_with_actions(
@@ -2850,7 +2866,7 @@ mod tests {
         if !checked_feature!("stable", StateWitnessSizeLimit, PROTOCOL_VERSION) {
             return;
         }
-        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider) =
+        let (runtime, tries, root, mut apply_state, signer, epoch_info_provider, _guard) =
             setup_runtime(to_yocto(1_000_000), to_yocto(500_000), 10u64.pow(15));
 
         // Change storage_proof_size_soft_limit to a smaller value

@@ -114,7 +114,8 @@ impl ValidateEpochSyncInfoCmd {
             storage.get_hot_store(),
             &config,
             epoch_manager.clone(),
-        );
+        )
+        .context("could not create the transaction runtime")?;
         let chain_update = ChainUpdate::new(
             &mut chain_store,
             epoch_manager,
