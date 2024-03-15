@@ -348,7 +348,7 @@ impl StateSync {
                 }
                 ShardSyncStatus::MemtrieLoadApplying => {
                     debug_assert!(need_to_load_memtrie);
-                    self.sync_shards_memtrie_load_applying_status(
+                    shard_sync_done = self.sync_shards_memtrie_load_applying_status(
                         shard_uid,
                         shard_sync_download,
                         sync_hash,
