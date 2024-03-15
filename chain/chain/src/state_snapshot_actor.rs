@@ -82,7 +82,11 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<CreateSnapshotRequest>, _context: &mut Context<Self>) {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<CreateSnapshotRequest>,
+        _context: &mut Context<Self>,
+    ) {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         tracing::debug!(target: "state_snapshot", ?msg);
 
