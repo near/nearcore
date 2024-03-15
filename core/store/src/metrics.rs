@@ -263,15 +263,6 @@ pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_compact_state_snapshot_elapsed_sec",
-        "Latency of compaction of a state snapshot, in seconds",
-        exponential_buckets(0.001, 1.6, 40).unwrap(),
-    )
-    .unwrap()
-});
-
 pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_move_state_snapshot_flat_head_elapsed_sec",
