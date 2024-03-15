@@ -1572,7 +1572,15 @@ impl Runtime {
         let initial_yielded_promise_indices = yielded_promise_indices.clone();
         let mut new_receipt_index: usize = 0;
 
+        let mut timeout_receipts = vec![];
         while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
+            if total_compute_usage >= compute_limit
+                || proof_size_limit
+                    .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
+            {
+                break;
+            }
+
             let queue_entry_key =
                 TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
 
@@ -1595,12 +1603,6 @@ impl Runtime {
                 data_id: queue_entry.data_id,
             };
             if state_update.contains_key(&yielded_promise_key)? {
-                // Deliver a DataReceipt without any data to resolve the timed-out yield
-                let new_receipt = ReceiptEnum::PromiseResume(DataReceipt {
-                    data_id: queue_entry.data_id,
-                    data: None,
-                });
-
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     protocol_version,
                     &queue_entry.data_id,
@@ -1610,12 +1612,30 @@ impl Runtime {
                 );
                 new_receipt_index += 1;
 
-                outgoing_receipts.push(Receipt {
+                // Create a PromiseResume receipt to resolve the timed-out yield.
+                let resume_receipt = Receipt {
                     predecessor_id: queue_entry.account_id.clone(),
                     receiver_id: queue_entry.account_id.clone(),
                     receipt_id: new_receipt_id,
-                    receipt: new_receipt,
-                });
+                    receipt: ReceiptEnum::PromiseResume(DataReceipt {
+                        data_id: queue_entry.data_id,
+                        data: None,
+                    }),
+                };
+
+                // For yielded promises the sender is always the receiver. We can process
+                // the receipt directly because we know it is destined for the local shard.
+                //
+                // Note that we don't invoke the prefetcher as it doesn't do anything
+                // for data receipts.
+                process_receipt(
+                    &resume_receipt,
+                    &mut state_update,
+                    &mut total_gas_burnt,
+                    &mut total_compute_usage,
+                )?;
+
+                timeout_receipts.push(resume_receipt);
             }
 
             state_update.remove(queue_entry_key);
@@ -1637,6 +1657,7 @@ impl Runtime {
             &state_update,
             validator_accounts_update,
             incoming_receipts,
+            &timeout_receipts,
             transactions,
             &outgoing_receipts,
             &stats,

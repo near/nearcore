@@ -1,3 +1,4 @@
+use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
@@ -39,6 +40,7 @@ pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
 mod adapter;
+mod metrics;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -569,13 +571,6 @@ impl EpochManager {
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
-        // Next protocol version calculation.
-        // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
-        let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker {
-            let stake = epoch_info.validator_stake(validator_id);
-            *versions.entry(version).or_insert(0) += stake;
-        }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
             .iter()
@@ -584,6 +579,21 @@ impl EpochManager {
             .iter()
             .map(|&id| epoch_info.validator_stake(id))
             .sum();
+
+        // Next protocol version calculation.
+        // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
+        let mut versions = HashMap::new();
+        for (validator_id, version) in version_tracker {
+            let stake = epoch_info.validator_stake(validator_id);
+            *versions.entry(version).or_insert(0) += stake;
+        }
+        PROTOCOL_VERSION_VOTES.reset();
+        for (version, stake) in &versions {
+            let stake_percent = 100 * stake / total_block_producer_stake;
+            let stake_percent = stake_percent as i64;
+            PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
+            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
+        }
 
         let protocol_version =
             if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
@@ -609,6 +619,10 @@ impl EpochManager {
         } else {
             protocol_version
         };
+
+        PROTOCOL_VERSION_NEXT.set(next_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_version, "Protocol version voting.");
+
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {

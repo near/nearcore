@@ -1,6 +1,7 @@
 use crate::adjust_database::ChangeDbKindCommand;
 use crate::analyse_data_size_distribution::AnalyseDataSizeDistributionCommand;
 use crate::analyse_gas_usage::AnalyseGasUsageCommand;
+use crate::analyze_delayed_receipt::AnalyzeDelayedReceiptCommand;
 use crate::compact::RunCompactionCommand;
 use crate::corrupt::CorruptStateSnapshotCommand;
 use crate::make_snapshot::MakeSnapshotCommand;
@@ -46,6 +47,9 @@ enum SubCommand {
 
     /// Loads an in-memory trie for research purposes.
     LoadMemTrie(LoadMemTrieCommand),
+
+    // Analyze congestion through delayed receipts
+    AnalyzeDelayedReceipt(AnalyzeDelayedReceiptCommand),
 }
 
 impl DatabaseCommand {
@@ -74,6 +78,7 @@ impl DatabaseCommand {
                 .unwrap_or_else(|e| panic!("Error loading config: {:#}", e));
                 cmd.run(near_config, home)
             }
+            SubCommand::AnalyzeDelayedReceipt(cmd) => cmd.run(home),
         }
     }
 }
