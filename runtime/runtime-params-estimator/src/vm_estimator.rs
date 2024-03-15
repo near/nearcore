@@ -77,15 +77,10 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let (_guard, cache_store1) = FilesystemCompiledContractCache::test().unwrap();
+    let cache_store1 = FilesystemCompiledContractCache::test().unwrap();
     let cache_store2 = MockCompiledContractCache;
     let use_store = true;
-    let cache: &dyn CompiledContractCache = if use_store {
-        let _store = near_store::test_utils::create_test_store();
-        &cache_store1
-    } else {
-        &cache_store2
-    };
+    let cache: &dyn CompiledContractCache = if use_store { &cache_store1 } else { &cache_store2 };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -149,7 +144,7 @@ pub(crate) fn compile_single_contract_cost(
     contract_bytes: &[u8],
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
-    let (_fs, cache) = FilesystemCompiledContractCache::test().unwrap();
+    let cache = FilesystemCompiledContractCache::test().unwrap();
     measure_contract(vm_kind, metric, &contract, &cache)
 }
 

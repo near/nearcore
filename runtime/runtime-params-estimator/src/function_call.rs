@@ -63,7 +63,7 @@ fn compute_function_call_cost(
     warmup_repeats: u64,
     contract: &ContractCode,
 ) -> GasCost {
-    let (_guard, cache_store) = FilesystemCompiledContractCache::test().unwrap();
+    let cache_store = FilesystemCompiledContractCache::test().unwrap();
     let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);

@@ -87,9 +87,14 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
+struct FilesystemCompiledContractCacheState {
+    dir: rustix::fd::OwnedFd,
+    test_temp_dir: Option<tempfile::TempDir>,
+}
+
 #[derive(Clone)]
 pub struct FilesystemCompiledContractCache {
-    dir: Arc<rustix::fd::OwnedFd>,
+    state: Arc<FilesystemCompiledContractCacheState>,
 }
 
 impl FilesystemCompiledContractCache {
@@ -104,13 +109,16 @@ impl FilesystemCompiledContractCache {
         });
         std::fs::create_dir_all(&path)?;
         let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
-        Ok(Self { dir: Arc::new(dir) })
+        Ok(Self {
+            state: Arc::new(FilesystemCompiledContractCacheState { dir, test_temp_dir: None }),
+        })
     }
 
-    pub fn test() -> std::io::Result<(tempfile::TempDir, Self)> {
+    pub fn test() -> std::io::Result<Self> {
         let tempdir = tempfile::TempDir::new()?;
-        let cache = Self::new(tempdir.path(), None::<&str>)?;
-        Ok((tempdir, cache))
+        let mut cache = Self::new(tempdir.path(), None::<&str>)?;
+        Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
+        Ok(cache)
     }
 }
 
@@ -124,7 +132,7 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
         let mut temp_file = tempfile::Builder::new().make_in("", |filename| {
             let mode = Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP;
             let flags = OFlags::CREATE | OFlags::TRUNC | OFlags::WRONLY;
-            Ok(std::fs::File::from(rustix::fs::openat(&self.dir, dbg!(filename), flags, mode)?))
+            Ok(std::fs::File::from(rustix::fs::openat(&self.state.dir, filename, flags, mode)?))
         })?;
         // This section manually "serializes" the data. The cache is quite sensitive to
         // unnecessary overheads and in order to enable things like mmap-based file access, we want
@@ -143,7 +151,7 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
         }
         let temp_filename = temp_file.into_temp_path();
         // This is atomic, so there wouldn't be instances where getters see an intermediate state.
-        rustix::fs::renameat(&self.dir, &*temp_filename, &self.dir, final_filename)?;
+        rustix::fs::renameat(&self.state.dir, &*temp_filename, &self.state.dir, final_filename)?;
         // Don't attempt deleting the temporary file now that it has been moved.
         std::mem::forget(temp_filename);
         Ok(())
@@ -154,7 +162,7 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
         let filename = key.to_string();
         let mode = Mode::empty();
         let flags = OFlags::RDONLY;
-        let file = rustix::fs::openat(&self.dir, &filename, flags, mode);
+        let file = rustix::fs::openat(&self.state.dir, &filename, flags, mode);
         let file = match file {
             Err(rustix::io::Errno::NOENT) => return Ok(None),
             Err(e) => return Err(e.into()),
