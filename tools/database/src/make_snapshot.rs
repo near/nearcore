@@ -1,5 +1,6 @@
 use near_store::{
-    checkpoint_hot_storage_and_cleanup_columns, DBCol, Mode, NodeStorage, StoreConfig,
+    checkpoint_hot_storage_and_cleanup_columns, Mode, NodeStorage, StoreConfig,
+    STATE_SNAPSHOT_COLUMNS,
 };
 use std::path::{Path, PathBuf};
 
@@ -8,6 +9,7 @@ pub(crate) struct MakeSnapshotCommand {
     /// Destination directory.
     #[clap(long)]
     destination: PathBuf,
+    /// If true, keep only the columns needed for a state snapshot
     #[clap(long)]
     flat_state_only: bool,
 }
@@ -21,18 +23,8 @@ impl MakeSnapshotCommand {
     ) -> anyhow::Result<()> {
         let opener = NodeStorage::opener(home_dir, archive, store_config, None);
         let node_storage = opener.open_in_mode(Mode::ReadWriteExisting)?;
-        let columns_to_keep = if self.flat_state_only {
-            Some(&[
-                DBCol::DbVersion,
-                DBCol::BlockMisc,
-                DBCol::FlatState,
-                DBCol::FlatStateChanges,
-                DBCol::FlatStateDeltaMetadata,
-                DBCol::FlatStorageStatus,
-            ])
-        } else {
-            None
-        };
+        let columns_to_keep =
+            if self.flat_state_only { Some(STATE_SNAPSHOT_COLUMNS) } else { None };
         checkpoint_hot_storage_and_cleanup_columns(
             &node_storage.get_hot_store(),
             &self.destination,

@@ -139,6 +139,17 @@ pub struct StateSnapshotConfig {
     pub state_snapshot_subdir: PathBuf,
 }
 
+pub const STATE_SNAPSHOT_COLUMNS: &[DBCol] = &[
+    // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
+    DBCol::DbVersion,
+    DBCol::BlockMisc,
+    // Flat storage columns.
+    DBCol::FlatState,
+    DBCol::FlatStateChanges,
+    DBCol::FlatStateDeltaMetadata,
+    DBCol::FlatStorageStatus,
+];
+
 impl ShardTries {
     pub fn get_state_snapshot(
         &self,
@@ -197,16 +208,7 @@ impl ShardTries {
             ),
             // TODO: Cleanup Changes and DeltaMetadata to avoid extra memory usage.
             // Can't be cleaned up now because these columns are needed to `update_flat_head()`.
-            Some(&[
-                // Keep DbVersion and BlockMisc, otherwise you'll not be able to open the state snapshot as a Store.
-                DBCol::DbVersion,
-                DBCol::BlockMisc,
-                // Flat storage columns.
-                DBCol::FlatState,
-                DBCol::FlatStateChanges,
-                DBCol::FlatStateDeltaMetadata,
-                DBCol::FlatStorageStatus,
-            ]),
+            Some(STATE_SNAPSHOT_COLUMNS),
         )?;
         let store = storage.get_hot_store();
         // It is fine to create a separate FlatStorageManager, because
