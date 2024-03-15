@@ -57,7 +57,7 @@ impl AnalyzeDelayedReceiptCommand {
             store.clone(),
             TrieConfig::default(),
             &shard_uids,
-            FlatStorageManager::new(store.clone()),
+            FlatStorageManager::new(store),
             StateSnapshotConfig::default(),
         );
         // Create an iterator over the blocks that should be analysed
@@ -74,7 +74,7 @@ impl AnalyzeDelayedReceiptCommand {
             Some(iter) => iter,
             None => {
                 println!("No arguments, defaulting to last 100 blocks");
-                Box::new(LastNBlocksIterator::new(100, chain_store.clone()))
+                Box::new(LastNBlocksIterator::new(100, chain_store))
             }
         };
 
