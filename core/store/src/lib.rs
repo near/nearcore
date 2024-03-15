@@ -40,6 +40,7 @@ pub use crate::trie::{
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    STATE_SNAPSHOT_COLUMNS,
 };
 
 pub mod cold_storage;

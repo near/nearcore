@@ -213,7 +213,6 @@ impl TestEnv {
                 home_dir: PathBuf::from(dir.path()),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
