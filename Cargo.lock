@@ -3749,6 +3749,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational",
+ "once_cell",
  "primitive-types",
  "rand",
  "rand_hc",
