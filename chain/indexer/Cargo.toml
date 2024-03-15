@@ -14,7 +14,6 @@ workspace = true
 [dependencies]
 actix.workspace = true
 anyhow.workspace = true
-async-recursion.workspace = true
 futures.workspace = true
 once_cell.workspace = true
 rocksdb.workspace = true
