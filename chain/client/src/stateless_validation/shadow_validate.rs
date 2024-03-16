@@ -231,7 +231,7 @@ fn record_storage_proof_value_size_distribution(witness: &ChunkStateWitnessInner
 }
 
 fn compress_state_witness(shard_id: ShardId, witness_bytes: Vec<u8>) {
-    for level in [2, 3, 5, 10] {
+    for level in [3, 5, 10] {
         let _timer = metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME
             .with_label_values(&[&shard_id.to_string(), &level.to_string()])
             .start_timer();
