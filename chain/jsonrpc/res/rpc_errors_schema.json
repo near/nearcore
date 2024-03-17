@@ -141,6 +141,7 @@
         "other_burnt_amount": "",
         "outgoing_receipts_balance": "",
         "processed_delayed_receipts_balance": "",
+        "processed_yield_timeout_receipts_balance": "",
         "slashed_burnt_amount": "",
         "tx_burnt_amount": ""
       }
