@@ -4,7 +4,7 @@ use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{Receipt, YieldedPromiseQueueEntry};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
@@ -40,6 +40,7 @@ impl ShardTries {
     ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
         let mut delayed_receipts = Vec::new();
+        let mut yield_timeouts = Vec::new();
         for ConsolidatedStateChange { trie_key, value } in changes.changes {
             match &trie_key {
                 TrieKey::DelayedReceiptIndices => {}
@@ -51,12 +52,36 @@ impl ShardTries {
                                 value, err,
                             ))
                         })?;
+                        // The newly inserted delayed receipts are collected so that they can be
+                        // sorted by index and inserted in the correct order to the new shards.
                         delayed_receipts.push((*index, receipt));
                     }
-                    None => {}
+                    None => {
+                        // When a delayed receipt is erased we cannot infer the account information
+                        // from the state change. Instead, the erased receipts are given directly
+                        // to this function in the field `changes.processed_delayed_receipts`.
+                    }
                 },
                 TrieKey::PromiseYieldIndices => {}
-                TrieKey::PromiseYieldTimeout { .. } => todo!(),
+                TrieKey::PromiseYieldTimeout { index } => match value {
+                    Some(value) => {
+                        let yield_queue_entry = YieldedPromiseQueueEntry::try_from_slice(&value)
+                            .map_err(|err| {
+                                StorageError::StorageInconsistentState(format!(
+                                    "invalid yielded promise queue entry {:?}, err: {}",
+                                    value, err,
+                                ))
+                            })?;
+                        // The newly inserted yield timeouts are collected so that they can be
+                        // sorted by index and inserted in the correct order to the new shards.
+                        yield_timeouts.push((*index, yield_queue_entry));
+                    }
+                    None => {
+                        // When a queue entry is erased we cannot infer the account information
+                        // from the state change. Instead, the erased entries are given directly
+                        // to this function in the field `changes.processed_yield_timeouts`.
+                    }
+                },
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }
@@ -85,14 +110,22 @@ impl ShardTries {
         }
 
         delayed_receipts.sort_by_key(|it| it.0);
-
         let delayed_receipts: Vec<_> =
             delayed_receipts.into_iter().map(|(_, receipt)| receipt).collect();
-
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             &delayed_receipts,
             &changes.processed_delayed_receipts,
+            account_id_to_shard_uid,
+        )?;
+
+        yield_timeouts.sort_by_key(|it| it.0);
+        let yield_timeouts: Vec<_> =
+            yield_timeouts.into_iter().map(|(_, timeout)| timeout).collect();
+        apply_yield_timeouts_to_children_states_impl(
+            &mut trie_updates,
+            &yield_timeouts,
+            &changes.processed_yield_timeouts,
             account_id_to_shard_uid,
         )?;
 
@@ -276,6 +309,16 @@ fn apply_delayed_receipts_to_children_states_impl(
         // processing parent shard
         trie_update.commit(StateChangeCause::Resharding);
     }
+    Ok(())
+}
+
+fn apply_yield_timeouts_to_children_states_impl(
+    trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
+    insert_timeouts: &[Receipt],
+    delete_timeouts: &[Receipt],
+    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+) -> Result<(), StorageError> {
+    // todo
     Ok(())
 }
 
