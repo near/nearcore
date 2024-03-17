@@ -155,6 +155,7 @@ pub struct ApplyResult {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
@@ -1347,6 +1348,7 @@ impl Runtime {
                 state_changes,
                 stats,
                 processed_delayed_receipts: vec![],
+                processed_yield_timeouts: vec![],
                 proof,
                 delayed_receipts_count: delayed_receipts_indices.len(),
                 metrics: None,
@@ -1572,6 +1574,7 @@ impl Runtime {
         let initial_promise_yield_indices = promise_yield_indices.clone();
         let mut new_receipt_index: usize = 0;
 
+        let mut processed_yield_timeouts = vec![];
         let mut timeout_receipts = vec![];
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total_compute_usage >= compute_limit
@@ -1638,6 +1641,7 @@ impl Runtime {
                 timeout_receipts.push(resume_receipt);
             }
 
+            processed_yield_timeouts.push(queue_entry);
             state_update.remove(queue_entry_key);
             // Math checked above: first_index is less than next_available_index
             promise_yield_indices.first_index += 1;
@@ -1690,6 +1694,7 @@ impl Runtime {
             state_changes,
             stats,
             processed_delayed_receipts,
+            processed_yield_timeouts,
             proof,
             delayed_receipts_count: delayed_receipts_indices.len(),
             metrics: Some(metrics),
