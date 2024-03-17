@@ -39,7 +39,7 @@ impl ShardTries {
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
-        let mut insert_receipts = Vec::new();
+        let mut delayed_receipts = Vec::new();
         for ConsolidatedStateChange { trie_key, value } in changes.changes {
             match &trie_key {
                 TrieKey::DelayedReceiptIndices => {}
@@ -51,7 +51,7 @@ impl ShardTries {
                                 value, err,
                             ))
                         })?;
-                        insert_receipts.push((*index, receipt));
+                        delayed_receipts.push((*index, receipt));
                     }
                     None => {}
                 },
@@ -84,14 +84,14 @@ impl ShardTries {
             update.commit(StateChangeCause::Resharding);
         }
 
-        insert_receipts.sort_by_key(|it| it.0);
+        delayed_receipts.sort_by_key(|it| it.0);
 
-        let insert_receipts: Vec<_> =
-            insert_receipts.into_iter().map(|(_, receipt)| receipt).collect();
+        let delayed_receipts: Vec<_> =
+            delayed_receipts.into_iter().map(|(_, receipt)| receipt).collect();
 
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
-            &insert_receipts,
+            &delayed_receipts,
             &changes.processed_delayed_receipts,
             account_id_to_shard_uid,
         )?;
