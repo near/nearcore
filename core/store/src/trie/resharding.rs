@@ -57,7 +57,6 @@ impl ShardTries {
                 },
                 TrieKey::PromiseYieldIndices => {}
                 TrieKey::PromiseYieldTimeout { .. } => todo!(),
-                TrieKey::PromiseYieldReceipt { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }
@@ -65,6 +64,7 @@ impl ShardTries {
                 | TrieKey::PostponedReceiptId { receiver_id: account_id, .. }
                 | TrieKey::PendingDataCount { receiver_id: account_id, .. }
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
+                | TrieKey::PromiseYieldReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_uid(account_id);
                     // we can safely unwrap here because the caller of this function guarantees trie_updates
