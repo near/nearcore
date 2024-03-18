@@ -391,9 +391,7 @@ impl NearVM {
                     near_primitives_core::hash::CryptoHash,
                     Result<VMArtifact, CompilationError>,
                 >,
-            > = once_cell::sync::Lazy::new(|| {
-                near_cache::SyncLruCache::new(128)
-            });
+            > = once_cell::sync::Lazy::new(|| near_cache::SyncLruCache::new(128));
             MEM_CACHE.get_or_try_put(key, |_key| compile_or_read_from_cache())
         };
     }

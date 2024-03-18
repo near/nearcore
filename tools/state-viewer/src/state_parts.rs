@@ -107,7 +107,8 @@ impl StatePartsSubCommand {
             store.clone(),
             &near_config,
             epoch_manager.clone(),
-        );
+        )
+        .expect("could not create the transaction runtime");
         let chain_genesis = ChainGenesis::new(&near_config.genesis);
         let mut chain = Chain::new_for_view_client(
             epoch_manager,
