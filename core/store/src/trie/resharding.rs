@@ -148,10 +148,10 @@ impl ShardTries {
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         self.add_values_to_children_states_impl(state_roots, values, &|raw_key| {
-            // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
-            // This is because we cannot migrate delayed receipts part by part. They have to be
-            // reconstructed in the new states after all DelayedReceipts are ready in the original
-            // shard.
+            // Here changes on DelayedReceipt, DelayedReceiptIndices, PromiseYieldTimeout, and
+            // PromiseYieldIndices will be excluded. Both the delayed receipts and the yield
+            // timeouts are organized in queues; they cannot be handled part by part because
+            // they need to be re-indexed contiguously when migrated to the child shards.
             if let Some(account_id) = parse_account_id_from_raw_key(raw_key).map_err(|e| {
                 let err = format!("error parsing account id from trie key {:?}: {:?}", raw_key, e);
                 StorageError::StorageInconsistentState(err)
