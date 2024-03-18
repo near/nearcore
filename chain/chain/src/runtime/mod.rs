@@ -1240,6 +1240,26 @@ impl RuntimeAdapter for NightshadeRuntime {
     fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError> {
         self.tries.load_mem_tries_for_enabled_shards(shard_uids)
     }
+
+    fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<bool, StorageError> {
+        if !self.tries.should_load_mem_trie_on_catchup(shard_uid) {
+            return Ok(false);
+        }
+        self.tries.load_mem_trie(shard_uid, Some(*state_root))?;
+        Ok(true)
+    }
+
+    fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
+        self.tries.retain_mem_tries(shard_uids)
+    }
+
+    fn unload_mem_trie(&self, shard_uid: &ShardUId) {
+        self.tries.unload_mem_trie(shard_uid)
+    }
 }
 
 impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {

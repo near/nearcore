@@ -34,6 +34,8 @@ pub struct TrieConfig {
     /// List of shards we will load into memory.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
     pub load_mem_tries_for_all_shards: bool,
+    /// Whether mem-trie should be loaded for each tracked shard.
+    pub enable_mem_trie_for_tracked_shards: bool,
 }
 
 impl TrieConfig {
@@ -59,6 +61,7 @@ impl TrieConfig {
         }
         this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
         this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
+        this.enable_mem_trie_for_tracked_shards = config.enable_mem_trie_for_tracked_shards;
 
         this
     }

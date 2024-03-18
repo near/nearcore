@@ -2770,6 +2770,20 @@ impl Chain {
             );
             store_update.commit()?;
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            // Flat storage is ready, load memtrie if it is enabled.
+            let memtrie_loaded = self
+                .runtime_adapter
+                .load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
+            // If memtrie is enabled but it was not loaded now, it would mean it was already loaded.
+            // It should never happen during state sync.
+            debug_assert!(
+                memtrie_loaded
+                    || !self
+                        .runtime_adapter
+                        .get_tries()
+                        .trie_config()
+                        .enable_mem_trie_for_tracked_shards
+            );
         }
 
         let mut height = shard_state_header.chunk_height_included();
