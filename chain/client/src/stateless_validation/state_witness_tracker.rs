@@ -1,42 +1,23 @@
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
-use once_cell::sync::Lazy;
 
+use crate::metrics;
 use near_async::time::Clock;
-use near_o11y::metrics::{exponential_buckets, HistogramVec, try_create_histogram_vec};
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessAck};
 
 /// This is currently used for metrics computation, so we do not need to keep all the
-/// witnesses, so make the capacity 10.
-const CHUNK_STATE_WITNESS_MAX_RECORD_COUNT: usize = 5;
-
-static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: Lazy<HistogramVec> = Lazy::new(|| {
-    try_create_histogram_vec(
-        "near_chunk_state_witness_network_roundtrip_time",
-        "Time in seconds between sending state witness through the network to chunk producer \
-               and receiving the corresponding ack message",
-        &["witness_size_bucket"],
-        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
-    )
-        .unwrap()
-});
+/// witnesses, so we set some fixed capacity for the witnesses tracked and discard others.
+const CHUNK_STATE_WITNESS_MAX_RECORD_COUNT: usize = 50;
 
 /// Refers to a state witness sent to a chunk producer. Used to locate incoming acknowledgement
 /// messages back to the timing information of the originating witness.
-#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct ChunkStateWitnessKey {
     /// Hash of the chunk for which the state witness was generated.
     pub chunk_hash: ChunkHash,
 }
-
-impl Hash for ChunkStateWitnessKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.chunk_hash.hash(state);
-    }
-}
-
 
 impl ChunkStateWitnessKey {
     pub fn new(witness: &ChunkStateWitness) -> Self {
@@ -111,7 +92,7 @@ impl ChunkStateWitnessTracker {
     fn update_roundtrip_time_metric(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
         let received_time = clock.now();
         if received_time > record.sent_timestamp {
-            CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
+            metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
                 .with_label_values(&[witness_size_bucket(record.witness_size)])
                 .observe((received_time - record.sent_timestamp).as_seconds_f64());
         }
@@ -132,7 +113,10 @@ static SIZE_IN_BYTES_TO_BUCKET: &'static [(usize, &str)] = &[
     (10_000, "1-10KB"),
     (100_000, "10-100KB"),
     (1_000_000, "100KB-1MB"),
-    (5_000_000, "1-5MB"),
+    (2_000_000, "1-2MB"),
+    (3_000_000, "2-3MB"),
+    (4_000_000, "3-4MB"),
+    (5_000_000, "4-5MB"),
     (10_000_000, "5-10MB"),
     (20_000_000, "10-20MB")
 ];
@@ -144,7 +128,7 @@ fn witness_size_bucket(size_in_bytes: usize) -> &'static str {
             return *label;
         }
     }
-    return ">20MB";
+    ">20MB"
 }
 
 
@@ -199,6 +183,7 @@ mod state_witness_tracker_tests {
         assert_eq!(witness_size_bucket(500), "<1KB");
         assert_eq!(witness_size_bucket(15_000),  "10-100KB");
         assert_eq!(witness_size_bucket(250_000), "100KB-1MB");
+        assert_eq!(witness_size_bucket(2_500), "2-3MB");
         assert_eq!(witness_size_bucket(7_500), "5-10MB");
         assert_eq!(witness_size_bucket(25_000_000), ">20MB");
     }

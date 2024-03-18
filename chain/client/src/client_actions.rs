@@ -1852,11 +1852,8 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
 impl ClientActionHandler<ChunkStateWitnessAckMessage> for ClientActions {
     type Result = ();
 
-    #[perf]
     fn handle(&mut self, msg: ChunkStateWitnessAckMessage) -> Self::Result {
-        if let Err(err) = self.client.process_chunk_state_witness_ack(msg.0) {
-            tracing::error!(target: "client", ?err, "Error processing chunk state witness acknowledgement");
-        }
+        self.client.process_chunk_state_witness_ack(msg.0);
     }
 }
 

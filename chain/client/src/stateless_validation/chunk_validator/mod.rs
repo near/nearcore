@@ -640,6 +640,14 @@ impl Client {
         witness: ChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
+        // Send the acknowledgement for the state witness back to the chunk producer.
+        // This is currently used for network roundtrip time measurement, so we do not need to
+        // wait for validation to finish.
+        if let Err(err) = self.send_state_witness_ack(&witness) {
+            tracing::warn!(target: "stateless_validation", ?err,
+                "Error sending chunk state witness acknowledgement");
+        }
+
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
         let prev_block = match self.chain.get_block(prev_block_hash) {
             Ok(block) => block,
@@ -650,14 +658,6 @@ impl Client {
             }
             Err(err) => return Err(err),
         };
-
-        // Send the acknowledgement for the state witness back to the chunk producer.
-        // This is currently used for network roundtrip time measurement, so we do not need to
-        // wait for validation to finish.
-        if let Err(err) = self.send_state_witness_ack(&witness) {
-            tracing::warn!(target: "stateless_validation", ?err,
-                "Error sending chunk state witness acknowledgement");
-        }
 
         self.process_chunk_state_witness_with_prev_block(
             witness,
