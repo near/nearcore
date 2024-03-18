@@ -87,28 +87,43 @@ impl fmt::Debug for MockCompiledContractCache {
     }
 }
 
-struct FilesystemCompiledContractCacheState {
-    dir: rustix::fd::OwnedFd,
-    test_temp_dir: Option<tempfile::TempDir>,
-}
-
+/// A cache that stores precompiled contract executables in a directory of a filesystem.
+///
+/// This directory can optionally be a temporary directory. If created with [`Self::test`] the
+/// directory will be removed when the last instance of this cache is dropped.
+///
+/// Clones of this type share the same underlying state and information. The cache is thread safe
+/// and atomic.
+///
+/// This cache however does not implement any clean-up policies. While it is possible to truncate
+/// a file that has been written to the cache before (`put` an empty buffer), the file will remain
+/// in place until an operator (or somebody else) removes files at their own discretion.
 #[derive(Clone)]
 pub struct FilesystemCompiledContractCache {
     state: Arc<FilesystemCompiledContractCacheState>,
 }
 
+struct FilesystemCompiledContractCacheState {
+    dir: rustix::fd::OwnedFd,
+    test_temp_dir: Option<tempfile::TempDir>,
+}
+
 impl FilesystemCompiledContractCache {
-    pub fn new<HD: AsRef<std::path::Path> + ?Sized, SP: AsRef<std::path::Path> + ?Sized>(
-        home_dir: &HD,
+    pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
+        home_dir: &std::path::Path,
         store_path: Option<&SP>,
     ) -> std::io::Result<Self> {
-        let path = std::env::var_os("NEAR_COMPILED_CACHE");
-        let path = path.map(PathBuf::from).unwrap_or_else(|| {
-            let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
-            home_dir.as_ref().join(store_path).join("contracts")
-        });
+        let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
+        let path: std::path::PathBuf =
+            [home_dir, store_path, "contracts".as_ref()].into_iter().collect();
         std::fs::create_dir_all(&path)?;
-        let dir = rustix::fs::open(path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
+        let dir =
+            rustix::fs::open(&path, rustix::fs::OFlags::DIRECTORY, rustix::fs::Mode::empty())?;
+        tracing::debug!(
+            target: "vm",
+            path = %path.display(),
+            message = "opened a contract executable cache directory"
+        );
         Ok(Self {
             state: Arc::new(FilesystemCompiledContractCacheState { dir, test_temp_dir: None }),
         })
@@ -122,8 +137,16 @@ impl FilesystemCompiledContractCache {
     }
 }
 
-const ERROR_TAG: u8 = b'\n';
+/// Byte added after a serialized payload representing a compilation failure.
+///
+/// This is ASCII LF.
+const ERROR_TAG: u8 = 0b00001010;
+/// Byte added after a serialized payload representing the contract code.
+///
+/// Value is fairly arbitrarily chosen such that a couple of bit flips do not make this an
+/// [`ERROR_TAG`].
 const CODE_TAG: u8 = 0b10010101;
+
 /// Cache for compiled contracts code in plain filesystem.
 impl CompiledContractCache for FilesystemCompiledContractCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
@@ -186,7 +209,14 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
             // it as if there is no cached file as well. The cached file may eventually be
             // overwritten with a valid copy. And since we can compile a new copy, there doesn't
             // seem to be much reason to possibly crash the node due to this.
-            Some(_) => Ok(None),
+            Some(_) => {
+                tracing::debug!(
+                    target: "vm",
+                    message = "cached contract executable was found to be malformed",
+                    key = %key
+                );
+                Ok(None)
+            }
         }
     }
 }
