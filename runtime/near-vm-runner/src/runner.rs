@@ -1,8 +1,8 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
-use crate::logic::{CompiledContractCache, External, VMContext, VMOutcome};
-use crate::ContractCode;
+use crate::logic::{External, VMContext, VMOutcome};
+use crate::{CompiledContractCache, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 

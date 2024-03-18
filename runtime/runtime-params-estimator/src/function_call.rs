@@ -6,8 +6,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::{ContractCode, FilesystemCompiledContractCache};
+use near_vm_runner::{CompiledContractCache, ContractCode, FilesystemCompiledContractCache};
 use std::fmt::Write;
 
 /// Estimates linear cost curve for a function call execution cost per byte of

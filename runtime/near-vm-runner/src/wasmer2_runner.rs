@@ -5,13 +5,12 @@ use crate::logic::errors::{
 };
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::PromiseResult;
-use crate::logic::{
-    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
-    VMLogic, VMOutcome,
-};
+use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{
+    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;

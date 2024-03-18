@@ -41,7 +41,7 @@ use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
-use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::CompiledContractCache;
 use near_vm_runner::ContractCode;
 use serde_with::base64::Base64;
 use serde_with::serde_as;

@@ -1,34 +1,3 @@
-extern crate core;
-
-use std::fs::File;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{fmt, io};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
-use once_cell::sync::Lazy;
-use strum;
-
-pub use columns::DBCol;
-pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
-};
-use near_crypto::PublicKey;
-use near_fmt::{AbbrBytes, StorageKey};
-use near_primitives::account::{AccessKey, Account};
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, StateRoot};
-use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::ContractCode;
-
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -39,6 +8,30 @@ pub use crate::trie::{
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
     STATE_SNAPSHOT_COLUMNS,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
+pub use columns::DBCol;
+pub use db::{
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
+use near_crypto::PublicKey;
+use near_fmt::{AbbrBytes, StorageKey};
+use near_primitives::account::{AccessKey, Account};
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::types::{AccountId, StateRoot};
+use near_vm_runner::{CompiledContract, CompiledContractCache, ContractCode};
+use once_cell::sync::Lazy;
+use std::fs::File;
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::{fmt, io};
 
 pub mod cold_storage;
 mod columns;
@@ -1055,7 +1048,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
@@ -1125,7 +1118,7 @@ mod tests {
         let file = std::fs::File::options().write(true).open(tmp.path()).unwrap();
         let len = file.metadata().unwrap().len();
         file.set_len(len.saturating_sub(1)).unwrap();
-        core::mem::drop(file);
+        std::mem::drop(file);
         let store = crate::test_utils::create_test_store();
         assert_eq!(
             std::io::ErrorKind::InvalidData,

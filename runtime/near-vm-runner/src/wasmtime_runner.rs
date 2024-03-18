@@ -5,10 +5,8 @@ use crate::logic::errors::{
 };
 use crate::logic::types::PromiseResult;
 use crate::logic::Config;
-use crate::logic::{
-    CompiledContractCache, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome,
-};
-use crate::{imports, prepare, ContractCode};
+use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
+use crate::{imports, prepare, CompiledContractCache, ContractCode};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;

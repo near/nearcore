@@ -5,7 +5,7 @@ use crate::{
     version::ProtocolVersion,
 };
 use near_parameters::RuntimeConfig;
-use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::CompiledContractCache;
 use std::sync::Arc;
 
 #[derive(Debug)]
