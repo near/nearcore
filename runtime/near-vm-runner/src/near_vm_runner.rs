@@ -319,31 +319,27 @@ impl NearVM {
     fn compile_and_cache(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn ContractRuntimeCache>,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(code, &self.config);
-
-        if let Some(cache) = cache {
-            let record = match &executable_or_error {
-                Ok(executable) => {
-                    let code = executable
-                        .serialize()
-                        .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
-                    CompiledContract::Code(code)
-                }
-                Err(err) => CompiledContract::CompileModuleError(err.clone()),
-            };
-            cache.put(&key, record).map_err(CacheError::WriteError)?;
-        }
-
+        let record = match &executable_or_error {
+            Ok(executable) => {
+                let code = executable
+                    .serialize()
+                    .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+                CompiledContract::Code(code)
+            }
+            Err(err) => CompiledContract::CompileModuleError(err.clone()),
+        };
+        cache.put(&key, record).map_err(CacheError::WriteError)?;
         Ok(executable_or_error)
     }
 
     fn compile_and_load(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn ContractRuntimeCache>,
+        cache: &dyn ContractRuntimeCache,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
         // `cache` stores compiled machine code in the database
         //
@@ -354,7 +350,7 @@ impl NearVM {
         let key = get_contract_cache_key(code, &self.config);
         let cache_record = {
             let _span = tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
-            cache.map(|cache| cache.get(&key)).transpose().map_err(CacheError::ReadError)?.flatten()
+            cache.get(&key).map_err(CacheError::ReadError)?
         };
 
         let stored_artifact: Option<VMArtifact> = match cache_record {
@@ -683,6 +679,7 @@ impl crate::runner::VM for NearVM {
             return Ok(VMOutcome::abort(logic, e));
         }
 
+        let cache = cache.unwrap_or(&NoContractRuntimeCache);
         let artifact = self.compile_and_load(code, cache)?;
         let artifact = match artifact {
             Ok(it) => it,
@@ -714,7 +711,7 @@ impl crate::runner::VM for NearVM {
         crate::logic::errors::CacheError,
     > {
         Ok(self
-            .compile_and_cache(code, Some(cache))?
+            .compile_and_cache(code, cache)?
             .map(|_| ContractPrecompilatonResult::ContractCompiled))
     }
 }

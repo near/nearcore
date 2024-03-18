@@ -55,23 +55,6 @@ fn measure_contract(
     end
 }
 
-#[derive(Default, Clone)]
-struct MockContractRuntimeCache;
-
-impl ContractRuntimeCache for MockContractRuntimeCache {
-    fn put(&self, _key: &CryptoHash, _value: CompiledContract) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        Ok(None)
-    }
-
-    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
-        Box::new(self.clone())
-    }
-}
-
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
 /// where `x` is the contract size in bytes. Practically, we compute upper bound
 /// of this approximation, assuming that whole contract consists of code only.
@@ -84,7 +67,7 @@ fn precompilation_cost(
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
     let cache_store1 = FilesystemContractRuntimeCache::test().unwrap();
-    let cache_store2 = MockContractRuntimeCache;
+    let cache_store2 = NoContractRuntimeCache;
     let use_store = true;
     let cache: &dyn ContractRuntimeCache = if use_store { &cache_store1 } else { &cache_store2 };
     let mut xs = vec![];

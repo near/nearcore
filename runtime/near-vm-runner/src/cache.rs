@@ -131,6 +131,23 @@ impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
 }
 
 #[derive(Default, Clone)]
+pub struct NoContractRuntimeCache;
+
+impl ContractRuntimeCache for NoContractRuntimeCache {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        Box::new(self.clone())
+    }
+
+    fn put(&self, _: &CryptoHash, _: CompiledContract) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn get(&self, _: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        Ok(None)
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct MockContractRuntimeCache {
     store: Arc<Mutex<HashMap<CryptoHash, CompiledContract>>>,
 }
@@ -228,10 +245,12 @@ impl FilesystemContractRuntimeCache {
         let state = Arc::into_inner(self.state).expect(
             "with_memory_cache may only be called on unique FilesystemContractRuntimeCaches",
         );
-        Self { state: Arc::new(FilesystemContractRuntimeCacheState {
-            any_cache: AnyCache::new(size),
-            ..state
-        }) }
+        Self {
+            state: Arc::new(FilesystemContractRuntimeCacheState {
+                any_cache: AnyCache::new(size),
+                ..state
+            }),
+        }
     }
 }
 
