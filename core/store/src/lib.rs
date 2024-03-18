@@ -23,8 +23,8 @@ use near_primitives::account::{AccessKey, Account};
 pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData, YieldedPromiseQueueEntry,
-    YieldedPromiseQueueIndices,
+    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceivedData,
 };
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
@@ -756,24 +756,24 @@ pub fn set_delayed_receipt(
         .expect("Next available index for delayed receipt exceeded the integer limit");
 }
 
-pub fn get_yielded_promise_indices(
+pub fn get_promise_yield_indices(
     trie: &dyn TrieAccess,
-) -> Result<YieldedPromiseQueueIndices, StorageError> {
-    Ok(get(trie, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default())
+) -> Result<PromiseYieldIndices, StorageError> {
+    Ok(get(trie, &TrieKey::PromiseYieldIndices)?.unwrap_or_default())
 }
 
-pub fn set_yielded_promise_indices(
+pub fn set_promise_yield_indices(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &YieldedPromiseQueueIndices,
+    promise_yield_indices: &PromiseYieldIndices,
 ) {
     assert!(cfg!(feature = "yield_resume"));
-    set(state_update, TrieKey::YieldedPromiseQueueIndices, yielded_promise_indices);
+    set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
 }
 
-// Enqueues given yielded promise in the yield timeout queue
-pub fn enqueue_yielded_promise_timeout(
+// Enqueues given timeout to the PromiseYield timeout queue
+pub fn enqueue_promise_yield_timeout(
     state_update: &mut TrieUpdate,
-    yielded_promise_indices: &mut YieldedPromiseQueueIndices,
+    promise_yield_indices: &mut PromiseYieldIndices,
     account_id: AccountId,
     data_id: CryptoHash,
     expires_at: BlockHeight,
@@ -781,16 +781,16 @@ pub fn enqueue_yielded_promise_timeout(
     assert!(cfg!(feature = "yield_resume"));
     set(
         state_update,
-        TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.next_available_index },
-        &YieldedPromiseQueueEntry { account_id, data_id, expires_at },
+        TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
+        &PromiseYieldTimeout { account_id, data_id, expires_at },
     );
-    yielded_promise_indices.next_available_index = yielded_promise_indices
+    promise_yield_indices.next_available_index = promise_yield_indices
         .next_available_index
         .checked_add(1)
-        .expect("Next available index for yielded promise exceeded the integer limit");
+        .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
 }
 
-pub fn set_yielded_promise(state_update: &mut TrieUpdate, receipt: &Receipt) {
+pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
     assert!(cfg!(feature = "yield_resume"));
     match &receipt.receipt {
         ReceiptEnum::PromiseYield(ref action_receipt) => {
@@ -805,7 +805,7 @@ pub fn set_yielded_promise(state_update: &mut TrieUpdate, receipt: &Receipt) {
     }
 }
 
-pub fn remove_yielded_promise(
+pub fn remove_promise_yield_receipt(
     state_update: &mut TrieUpdate,
     receiver_id: &AccountId,
     data_id: CryptoHash,
@@ -813,7 +813,7 @@ pub fn remove_yielded_promise(
     state_update.remove(TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id });
 }
 
-pub fn get_yielded_promise(
+pub fn get_promise_yield_receipt(
     trie: &dyn TrieAccess,
     receiver_id: &AccountId,
     data_id: CryptoHash,
@@ -821,7 +821,7 @@ pub fn get_yielded_promise(
     get(trie, &TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id })
 }
 
-pub fn has_yielded_promise(
+pub fn has_promise_yield_receipt(
     trie: &dyn TrieAccess,
     receiver_id: AccountId,
     data_id: CryptoHash,
