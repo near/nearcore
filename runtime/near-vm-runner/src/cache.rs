@@ -156,6 +156,13 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
         Box::new(self.clone())
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "vm",
+        "FilesystemCompiledContractCache::put",
+        skip_all,
+        fields(key = key.to_string(), value.len = value.debug_len()),
+    )]
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();
@@ -187,6 +194,13 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
         Ok(())
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "vm",
+        "FilesystemCompiledContractCache::get",
+        skip_all,
+        fields(key = key.to_string()),
+    )]
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         use rustix::fs::{Mode, OFlags};
         let filename = key.to_string();
