@@ -9,6 +9,7 @@ mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::stateless_validation::ChunkStateWitness;
+use near_primitives::stateless_validation::ChunkStateWitnessAck;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -531,6 +532,7 @@ pub enum RoutedMessageBody {
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     ChunkStateWitness(ChunkStateWitness),
     ChunkEndorsement(ChunkEndorsement),
+    ChunkStateWitnessAck(ChunkStateWitnessAck),
 }
 
 impl RoutedMessageBody {
@@ -598,6 +600,9 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
             RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
             RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
+            // TODO(#10790): Also print the chunk hash.
+            RoutedMessageBody::ChunkStateWitnessAck(ack, ..) =>
+                write!(f, "ChunkStateWitnessAck({})", ack.chunk_hash.0),
         }
     }
 }
