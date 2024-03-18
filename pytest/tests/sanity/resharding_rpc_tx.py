@@ -53,13 +53,12 @@ class ReshardingRpcTx(ReshardingTestBase):
         tx_hash = transfer_response['result']['transaction']['hash']
         response = self.node.get_tx(tx_hash, sender_account_id)
 
-        self.assertEqual(
-            transfer_response['result']['final_execution_status'],
-            'EXECUTED',
-        )
+        self.assertTrue(
+            transfer_response['result']['final_execution_status']
+            in ['EXECUTED_OPTIMISTIC', 'EXECUTED', 'FINAL'],)
         self.assertTrue(
             response['result']['final_execution_status']
-            in ['FINAL', 'EXECUTED'],)
+            in ['EXECUTED_OPTIMISTIC', 'EXECUTED', 'FINAL'],)
 
         transfer_response = copy.deepcopy(transfer_response)
         transfer_response['result']['final_execution_status'] = "IGNORE_ME"

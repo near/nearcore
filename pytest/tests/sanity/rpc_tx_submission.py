@@ -28,8 +28,7 @@ hash1 = nodes[0].get_latest_block().hash_bytes
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, hash1)
 res = nodes[0].send_tx_and_wait(tx, timeout=20)
-if 'error' in res:
-    assert False, res
+assert 'error' not in res, res
 time.sleep(1)
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 101, 2, hash1)
