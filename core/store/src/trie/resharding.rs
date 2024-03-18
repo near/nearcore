@@ -218,6 +218,22 @@ impl ShardTries {
         self.finalize_and_apply_trie_updates(trie_updates)
     }
 
+    pub fn apply_promise_yield_timeouts_to_children_states(
+        &self,
+        state_roots: &HashMap<ShardUId, StateRoot>,
+        timeouts: &[PromiseYieldTimeout],
+        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+        let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
+        apply_promise_yield_timeouts_to_children_states_impl(
+            &mut trie_updates,
+            timeouts,
+            &[],
+            account_id_to_shard_uid,
+        )?;
+        self.finalize_and_apply_trie_updates(trie_updates)
+    }
+
     fn finalize_and_apply_trie_updates(
         &self,
         updates: HashMap<ShardUId, TrieUpdate>,
@@ -429,6 +445,44 @@ pub fn get_delayed_receipts(
         receipts.push(receipt);
     }
     Ok(Some((delayed_receipt_indices.first_index, receipts)))
+}
+
+/// Retrieve PromiseYield timeouts starting with `start_index` until `memory_limit` is hit
+/// return None if there is no delayed receipts with index >= start_index
+pub fn get_promise_yield_timeouts(
+    state_update: &TrieUpdate,
+    start_index: Option<u64>,
+    memory_limit: ByteSize,
+) -> Result<Option<(u64, Vec<PromiseYieldTimeout>)>, StorageError> {
+    let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
+    if let Some(start_index) = start_index {
+        if start_index >= promise_yield_indices.next_available_index {
+            return Ok(None);
+        }
+        promise_yield_indices.first_index = start_index.max(promise_yield_indices.first_index);
+    }
+    let mut used_memory = 0;
+    let mut timeouts = vec![];
+
+    while used_memory < memory_limit.as_u64()
+        && promise_yield_indices.first_index < promise_yield_indices.next_available_index
+    {
+        let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+        let data = state_update.get(&key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "PromiseYield timeout #{} should be in the state",
+                promise_yield_indices.first_index
+            ))
+        })?;
+        used_memory += data.len() as u64;
+        promise_yield_indices.first_index += 1;
+
+        let timeout = PromiseYieldTimeout::try_from_slice(&data).map_err(|_| {
+            StorageError::StorageInconsistentState("Failed to deserialize".to_string())
+        })?;
+        timeouts.push(timeout);
+    }
+    Ok(Some((promise_yield_indices.first_index, timeouts)))
 }
 
 #[cfg(test)]
