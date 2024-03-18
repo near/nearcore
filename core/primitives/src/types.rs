@@ -213,9 +213,9 @@ pub struct ConsolidatedStateChange {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct StateChangesForResharding {
     pub changes: Vec<ConsolidatedStateChange>,
-    // For both TrieKey::DelayedReceipt and TrieKey::PromiseYieldTimeout, account information is
-    // kept in the value rather than in the key itself. When such keys are erased, we need to store
-    // the erased values so that we can infer which child trie to erase the key from.
+    // For DelayedReceipt and for PromiseYieldTimeout, account information is kept in the trie
+    // value rather than in the trie key. When such a key is erased, we need to know the erased
+    // value so that the change can be propagated to the correct child trie.
     pub processed_delayed_receipts: Vec<Receipt>,
     pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
 }
