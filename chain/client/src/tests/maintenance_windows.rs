@@ -24,18 +24,8 @@ fn test_get_maintenance_windows_for_validator() {
             GetMaintenanceWindows { account_id: "test".parse().unwrap() }.with_span_context(),
         );
 
-        // block_height: 0 bp: test         cps: [AccountId("test")]
-        // block_height: 1 bp: validator    cps: [AccountId("validator")]
-        // block_height: 2 bp: test         cps: [AccountId("test")]
-        // block_height: 3 bp: validator    cps: [AccountId("validator")]
-        // block_height: 4 bp: test         cps: [AccountId("test")]
-        // block_height: 5 bp: validator    cps: [AccountId("validator")]
-        // block_height: 6 bp: test         cps: [AccountId("test")]
-        // block_height: 7 bp: validator    cps: [AccountId("validator")]
-        // block_height: 8 bp: test         cps: [AccountId("test")]
-        // block_height: 9 bp: validator    cps: [AccountId("validator")]
         let actor = actor.then(|res| {
-            assert_eq!(res.unwrap().unwrap(), vec![1..2, 3..4, 5..6, 7..8, 9..10]);
+            assert_eq!(res.unwrap().unwrap(), vec![3..4, 5..6]);
             System::current().stop();
             future::ready(())
         });

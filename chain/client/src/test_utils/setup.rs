@@ -11,12 +11,13 @@ use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Duration, Instant, Utc};
 use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
+use near_chain::runtime::NightshadeRuntime;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{
-    ChunkDistributionNetworkConfig, ClientConfig, MutableConfigValue, ReshardingConfig,
+    ChunkDistributionNetworkConfig, ClientConfig, Genesis, MutableConfigValue, ReshardingConfig,
 };
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardsManagerResponse;
@@ -25,7 +26,7 @@ use near_chunks::test_utils::SynchronousShardsManagerAdapter;
 use near_chunks::ShardsManager;
 use near_crypto::{KeyType, PublicKey};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
-use near_epoch_manager::EpochManagerAdapter;
+use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
     BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
@@ -46,6 +47,7 @@ use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, BlockHeightDelta, NumBlocks, NumSeats};
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_telemetry::TelemetryActor;
 use num_rational::Ratio;
@@ -84,21 +86,32 @@ pub fn setup(
 ) -> (Block, ClientActor, Addr<ViewClientActor>, ShardsManagerAdapterForTest) {
     let store = create_test_store();
     let num_validator_seats = vs.all_block_producers().count() as NumSeats;
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
+    let mut genesis = Genesis::test_sharded(
+        clock.clone(),
+        vs.all_block_producers().cloned().collect(),
+        num_validator_seats,
+        vec![num_validator_seats],
+    );
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = transaction_validity_period;
+    genesis.config.genesis_time =
+        near_primitives::utils::from_timestamp(genesis_time.unix_timestamp_nanos() as u64);
+    genesis.config.min_gas_price = 100;
+    genesis.config.max_gas_price = 1_000_000_000;
+    genesis.config.total_supply = 3_000_000_000_000_000_000_000_000_000_000_000;
+    genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
+    genesis.config.protocol_version = PROTOCOL_VERSION;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let chain_genesis = ChainGenesis::new(&genesis.config);
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
     let shard_tracker = ShardTracker::new(TrackedConfig::AllShards, epoch_manager.clone());
-    let runtime = KeyValueRuntime::new_with_no_gc(store.clone(), epoch_manager.as_ref(), archive);
-    let chain_genesis = ChainGenesis {
-        time: genesis_time,
-        height: 0,
-        gas_limit: 1_000_000,
-        min_gas_price: 100,
-        max_gas_price: 1_000_000_000,
-        total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
-        gas_price_adjustment_rate: Ratio::from_integer(0),
-        transaction_validity_period,
-        epoch_length,
-        protocol_version: PROTOCOL_VERSION,
-    };
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        store.clone(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     let doomslug_threshold_mode = if enable_doomslug {
         DoomslugThresholdMode::TwoThirds
     } else {

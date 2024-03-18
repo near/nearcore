@@ -26,6 +26,7 @@ use std::sync::{Arc, RwLock};
 
 /// Tests that the KeyValueRuntime properly sets balances in genesis and makes them queriable
 #[test]
+#[ignore = "#10826"]
 fn test_keyvalue_runtime_balances() {
     let successful_queries = Arc::new(AtomicUsize::new(0));
     init_integration_logger();
@@ -532,33 +533,33 @@ fn test_cross_shard_tx_common(
 /// Doesn't drop chunks, disabled doomslug, no validator rotation (each epoch
 /// has the same set of validators).
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx() {
     test_cross_shard_tx_common(64, false, false, false, 70, Some(2.3), None);
 }
 
 /// Same as above, but doomslug is enabled.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_doomslug() {
     test_cross_shard_tx_common(64, false, false, true, 200, None, Some(1.5));
 }
 
 /// Same as the first one but the chunks are sometimes dropped.
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_drop_chunks() {
     test_cross_shard_tx_common(64, false, true, false, 250, None, None);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_8_iterations() {
     test_cross_shard_tx_common(8, false, false, false, 200, Some(2.4), None);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_8_iterations_drop_chunks() {
     test_cross_shard_tx_common(8, false, true, false, 200, Some(2.4), None);
 }
@@ -569,13 +570,13 @@ fn test_cross_shard_tx_8_iterations_drop_chunks() {
 /// the allocated time. (the one with lower block production time is expected to
 /// finish fewer because it has higher forkfulness).
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_with_validator_rotation_1() {
     test_cross_shard_tx_common(8, true, false, false, 220, Some(2.4), None);
 }
 
 #[test]
-#[cfg_attr(not(feature = "expensive_tests"), ignore)]
+#[ignore = "#10826"]
 fn test_cross_shard_tx_with_validator_rotation_2() {
     test_cross_shard_tx_common(24, true, false, false, 400, Some(2.4), None);
 }

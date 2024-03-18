@@ -7,7 +7,7 @@ use serde_json::json;
 
 use near_actix_test_utils::run_actix;
 use near_async::time::Clock;
-use near_crypto::{KeyType, PublicKey, Signature};
+use near_crypto::{PublicKey, Signature};
 use near_jsonrpc::client::{new_client, ChunkId};
 use near_jsonrpc_primitives::types::query::QueryResponseKind;
 use near_jsonrpc_primitives::types::validator::RpcValidatorsOrderedRequest;
@@ -32,7 +32,7 @@ fn test_block_by_id_height() {
         assert_eq!(block.header.prev_hash.0.as_ref(), &[0; 32]);
         assert_eq!(
             block.header.prev_state_root,
-            CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+            CryptoHash::from_str("7W3rzjEfwJc8CcoyvgPQ8bmqc2ZunUoSXonJdtGABYsi").unwrap()
         );
         assert!(block.header.timestamp > 0);
         assert_eq!(block.header.validator_proposals.len(), 0);
@@ -77,7 +77,7 @@ fn test_block_query() {
             assert_eq!(block.header.prev_hash.as_ref(), &[0; 32]);
             assert_eq!(
                 block.header.prev_state_root,
-                CryptoHash::from_str("7tkzFg8RHBmMw1ncRJZCCZAizgq4rwCftTKYLce8RU8t").unwrap()
+                CryptoHash::from_str("7W3rzjEfwJc8CcoyvgPQ8bmqc2ZunUoSXonJdtGABYsi").unwrap()
             );
             assert!(block.header.timestamp > 0);
             assert_eq!(block.header.validator_proposals.len(), 0);
@@ -95,7 +95,7 @@ fn test_chunk_by_hash() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
+        assert_eq!(chunk.header.gas_limit, 1000000000000000);
         assert_eq!(chunk.header.gas_used, 0);
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
@@ -135,7 +135,7 @@ fn test_query_by_path_account() {
         let status = client.status().await.unwrap();
         let block_hash = status.sync_info.latest_block_hash;
         let query_response =
-            client.query_by_path("account/test".to_string(), "".to_string()).await.unwrap();
+            client.query_by_path("account/test1".to_string(), "".to_string()).await.unwrap();
         assert_eq!(query_response.block_height, 0);
         assert_eq!(query_response.block_hash, block_hash);
         let account_info = if let QueryResponseKind::ViewAccount(account) = query_response.kind {
@@ -143,11 +143,11 @@ fn test_query_by_path_account() {
         } else {
             panic!("queried account, but received something else: {:?}", query_response.kind);
         };
-        assert_eq!(account_info.amount, 0);
+        assert_eq!(account_info.amount, 950000000000000000000000000000000);
         assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
-        assert_eq!(account_info.locked, 0);
+        assert_eq!(account_info.locked, 50000000000000000000000000000000);
         assert_eq!(account_info.storage_paid_at, 0);
-        assert_eq!(account_info.storage_usage, 0);
+        assert_eq!(account_info.storage_usage, 182);
     });
 }
 
@@ -160,21 +160,21 @@ fn test_query_account() {
         let query_response_1 = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccount { account_id: "test1".parse().unwrap() },
             })
             .await
             .unwrap();
         let query_response_2 = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::BlockId(BlockId::Height(0)),
-                request: QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccount { account_id: "test1".parse().unwrap() },
             })
             .await
             .unwrap();
         let query_response_3 = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::BlockId(BlockId::Hash(block_hash)),
-                request: QueryRequest::ViewAccount { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccount { account_id: "test1".parse().unwrap() },
             })
             .await
             .unwrap();
@@ -188,11 +188,11 @@ fn test_query_account() {
             } else {
                 panic!("queried account, but received something else: {:?}", query_response.kind);
             };
-            assert_eq!(account_info.amount, 0);
+            assert_eq!(account_info.amount, 950000000000000000000000000000000);
             assert_eq!(account_info.code_hash.as_ref(), &[0; 32]);
-            assert_eq!(account_info.locked, 0);
+            assert_eq!(account_info.locked, 50000000000000000000000000000000);
             assert_eq!(account_info.storage_paid_at, 0);
-            assert_eq!(account_info.storage_usage, 0);
+            assert_eq!(account_info.storage_usage, 182);
         }
     });
 }
@@ -202,7 +202,7 @@ fn test_query_account() {
 fn test_query_by_path_access_keys() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response =
-            client.query_by_path("access_key/test".to_string(), "".to_string()).await.unwrap();
+            client.query_by_path("access_key/test1".to_string(), "".to_string()).await.unwrap();
         assert_eq!(query_response.block_height, 0);
         let access_keys = if let QueryResponseKind::AccessKeyList(access_keys) = query_response.kind
         {
@@ -212,7 +212,7 @@ fn test_query_by_path_access_keys() {
         };
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-        assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+        assert_eq!(access_keys.keys[0].public_key, PublicKey::from_str("ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF").unwrap());
     });
 }
 
@@ -223,7 +223,7 @@ fn test_query_access_keys() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewAccessKeyList { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewAccessKeyList { account_id: "test1".parse().unwrap() },
             })
             .await
             .unwrap();
@@ -236,7 +236,10 @@ fn test_query_access_keys() {
         };
         assert_eq!(access_keys.keys.len(), 1);
         assert_eq!(access_keys.keys[0].access_key, AccessKey::full_access().into());
-        assert_eq!(access_keys.keys[0].public_key, PublicKey::empty(KeyType::ED25519));
+        assert_eq!(
+            access_keys.keys[0].public_key,
+            PublicKey::from_str("ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF").unwrap()
+        );
     });
 }
 
@@ -246,7 +249,7 @@ fn test_query_by_path_access_key() {
     test_with_client!(test_utils::NodeType::NonValidator, client, async move {
         let query_response = client
             .query_by_path(
-                "access_key/test/ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2".to_string(),
+                "access_key/test1/ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF".to_string(),
                 "".to_string(),
             )
             .await
@@ -270,8 +273,8 @@ fn test_query_access_key() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::ViewAccessKey {
-                    account_id: "test".parse().unwrap(),
-                    public_key: "ed25519:23vYngy8iL7q94jby3gszBnZ9JptpMf5Hgf7KVVa2yQ2"
+                    account_id: "test1".parse().unwrap(),
+                    public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF"
                         .parse()
                         .unwrap(),
                 },
@@ -322,7 +325,7 @@ fn test_query_call_function() {
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
                 request: QueryRequest::CallFunction {
-                    account_id: "test".parse().unwrap(),
+                    account_id: "test1".parse().unwrap(),
                     method_name: "method".to_string(),
                     args: vec![].into(),
                 },
@@ -350,7 +353,7 @@ fn test_query_contract_code() {
         let query_response = client
             .query(near_jsonrpc_primitives::types::query::RpcQueryRequest {
                 block_reference: BlockReference::latest(),
-                request: QueryRequest::ViewCode { account_id: "test".parse().unwrap() },
+                request: QueryRequest::ViewCode { account_id: "test1".parse().unwrap() },
             })
             .await
             .unwrap();
@@ -566,7 +569,7 @@ fn test_get_chunk_with_object_in_params() {
         assert_eq!(chunk.header.chunk_hash.as_ref().len(), 32);
         assert_eq!(chunk.header.encoded_length, 8);
         assert_eq!(chunk.header.encoded_merkle_root.as_ref().len(), 32);
-        assert_eq!(chunk.header.gas_limit, 1000000);
+        assert_eq!(chunk.header.gas_limit, 1000000000000000);
         assert_eq!(chunk.header.gas_used, 0);
         assert_eq!(chunk.header.height_created, 0);
         assert_eq!(chunk.header.height_included, 0);
