@@ -60,8 +60,8 @@ pub const PROTOCOL_UPGRADE_SCHEDULE: Lazy<ProtocolUpgradeVotingSchedule> = Lazy:
     // after the set date. Ideally that should be during working hours.
     // e.g. ProtocolUpgradeVotingSchedule::from_env_or_str("2000-01-01 15:00:00").unwrap());
 
-    // Monday
-    ProtocolUpgradeVotingSchedule::from_env_or_str("2024-03-12 18:00:00").unwrap()
+    // Wednesday
+    ProtocolUpgradeVotingSchedule::from_env_or_str("2024-03-20 14:00:00").unwrap()
 });
 
 /// Gives new clients an option to upgrade without announcing that they support
