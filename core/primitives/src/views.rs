@@ -98,7 +98,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::logic::CompiledContractCache>>,
+    pub cache: Option<Box<dyn near_vm_runner::CompiledContractCache>>,
 }
 
 impl From<&Account> for AccountView {

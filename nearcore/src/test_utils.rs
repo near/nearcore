@@ -5,7 +5,7 @@ use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{Store, TrieConfig};
-use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::CompiledContractCache;
 use std::path::PathBuf;
 use std::sync::Arc;
 

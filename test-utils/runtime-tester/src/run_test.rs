@@ -12,8 +12,7 @@ use near_primitives::types::{AccountId, BlockHeight, BlockHeightDelta, Gas, Nonc
 use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::FilesystemCompiledContractCache;
+use near_vm_runner::{CompiledContractCache, FilesystemCompiledContractCache};
 use nearcore::NightshadeRuntime;
 use std::io;
 use std::path::Path;

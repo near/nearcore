@@ -3,13 +3,13 @@ use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
-use crate::logic::{
-    CompiledContract, CompiledContractCache, External, VMContext, VMLogic, VMLogicError, VMOutcome,
-};
+use crate::logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
 use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{
+    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 use wasmer_runtime::{ImportObject, Module};
