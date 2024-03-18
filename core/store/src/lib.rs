@@ -1129,7 +1129,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
