@@ -186,8 +186,8 @@ mod state_witness_tracker_tests {
         assert_eq!(witness_size_bucket(500), "<1KB");
         assert_eq!(witness_size_bucket(15_000), "10-100KB");
         assert_eq!(witness_size_bucket(250_000), "100KB-1MB");
-        assert_eq!(witness_size_bucket(2_500), "2-3MB");
-        assert_eq!(witness_size_bucket(7_500), "5-10MB");
+        assert_eq!(witness_size_bucket(2_500_000), "2-3MB");
+        assert_eq!(witness_size_bucket(7_500_000), "5-10MB");
         assert_eq!(witness_size_bucket(25_000_000), ">20MB");
     }
 
