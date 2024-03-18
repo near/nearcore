@@ -40,7 +40,7 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ChunkStateWitnessAckMessage, ProcessTxRequest, ProcessTxResponse,
+    ChunkStateWitnessAckMessage, ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse,
     RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;

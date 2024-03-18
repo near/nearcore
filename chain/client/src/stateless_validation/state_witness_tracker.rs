@@ -1,6 +1,6 @@
-use std::hash::Hash;
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
+use std::hash::Hash;
 
 use crate::metrics;
 use near_async::time::Clock;
@@ -21,9 +21,7 @@ pub struct ChunkStateWitnessKey {
 
 impl ChunkStateWitnessKey {
     pub fn new(witness: &ChunkStateWitness) -> Self {
-        Self {
-            chunk_hash: witness.inner.chunk_header.chunk_hash(),
-        }
+        Self { chunk_hash: witness.inner.chunk_header.chunk_hash() }
     }
 }
 
@@ -48,23 +46,27 @@ pub struct ChunkStateWitnessTracker {
 
 impl ChunkStateWitnessTracker {
     pub fn new(clock: Clock) -> Self {
-        Self {
-            witnesses: LruCache::new(CHUNK_STATE_WITNESS_MAX_RECORD_COUNT),
-            clock,
-        }
+        Self { witnesses: LruCache::new(CHUNK_STATE_WITNESS_MAX_RECORD_COUNT), clock }
     }
 
     /// Adds a new witness message to track.
-    pub fn record_witness_sent(&mut self, witness: &ChunkStateWitness, witness_size_in_bytes: usize,
-                               num_validators: usize) -> () {
+    pub fn record_witness_sent(
+        &mut self,
+        witness: &ChunkStateWitness,
+        witness_size_in_bytes: usize,
+        num_validators: usize,
+    ) -> () {
         let key = ChunkStateWitnessKey::new(witness);
         tracing::debug!(target: "state_witness_tracker", "Sent state witness: {:?} of {} bytes",
             witness.inner.chunk_header.chunk_hash(), witness_size_in_bytes);
-        self.witnesses.put(key, ChunkStateWitnessRecord {
-            num_validators,
-            witness_size: witness_size_in_bytes,
-            sent_timestamp: self.clock.now(),
-        });
+        self.witnesses.put(
+            key,
+            ChunkStateWitnessRecord {
+                num_validators,
+                witness_size: witness_size_in_bytes,
+                sent_timestamp: self.clock.now(),
+            },
+        );
     }
 
     /// Handles an ack message for the witness. Calculates the round-trip duration and
@@ -99,12 +101,14 @@ impl ChunkStateWitnessTracker {
     }
 
     #[cfg(test)]
-    fn get_record_for_witness(&mut self, witness: &ChunkStateWitness) -> Option<&ChunkStateWitnessRecord> {
+    fn get_record_for_witness(
+        &mut self,
+        witness: &ChunkStateWitness,
+    ) -> Option<&ChunkStateWitnessRecord> {
         let key = ChunkStateWitnessKey::new(witness);
         return self.witnesses.get(&key);
     }
 }
-
 
 /// Buckets for state-witness size.
 // TODO: Use size::Size to represent sizes.
@@ -118,7 +122,7 @@ static SIZE_IN_BYTES_TO_BUCKET: &'static [(usize, &str)] = &[
     (4_000_000, "3-4MB"),
     (5_000_000, "4-5MB"),
     (10_000_000, "5-10MB"),
-    (20_000_000, "10-20MB")
+    (20_000_000, "10-20MB"),
 ];
 
 /// Returns the string representation of the size buckets for a given witness size in bytes.
@@ -130,7 +134,6 @@ fn witness_size_bucket(size_in_bytes: usize) -> &'static str {
     }
     ">20MB"
 }
-
 
 #[cfg(test)]
 mod state_witness_tracker_tests {
@@ -181,7 +184,7 @@ mod state_witness_tracker_tests {
     #[test]
     fn choose_size_bucket() {
         assert_eq!(witness_size_bucket(500), "<1KB");
-        assert_eq!(witness_size_bucket(15_000),  "10-100KB");
+        assert_eq!(witness_size_bucket(15_000), "10-100KB");
         assert_eq!(witness_size_bucket(250_000), "100KB-1MB");
         assert_eq!(witness_size_bucket(2_500), "2-3MB");
         assert_eq!(witness_size_bucket(7_500), "5-10MB");

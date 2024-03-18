@@ -1,7 +1,7 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ChunkStateWitnessAckMessage,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ChunkStateWitnessMessage,
     ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
     TxStatusRequest, TxStatusResponse,
 };

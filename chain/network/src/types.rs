@@ -19,8 +19,9 @@ use near_primitives::challenge::Challenge;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
-use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness,
-                                            ChunkStateWitnessAck};
+use near_primitives::stateless_validation::{
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck,
+};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
 use std::collections::{HashMap, HashSet};

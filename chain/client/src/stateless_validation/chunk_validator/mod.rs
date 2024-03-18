@@ -670,13 +670,18 @@ impl Client {
         // First find the AccountId for the chunk producer and send the ack to that account.
         let chunk_header = &witness.inner.chunk_header;
         let prev_block_hash = chunk_header.prev_block_hash();
-        let epoch_id =
-            self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
         let chunk_producer = self.epoch_manager.get_chunk_producer(
-            &epoch_id, chunk_header.height_created(), chunk_header.shard_id())?;
+            &epoch_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
+        )?;
 
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitnessAck(chunk_producer, ChunkStateWitnessAck::new(&witness)),
+            NetworkRequests::ChunkStateWitnessAck(
+                chunk_producer,
+                ChunkStateWitnessAck::new(&witness),
+            ),
         ));
 
         Ok(())
