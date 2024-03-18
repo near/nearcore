@@ -336,64 +336,77 @@ impl NearVM {
         Ok(executable_or_error)
     }
 
+    #[tracing::instrument(level = "debug", target = "vm", "NearVM::compile_and_load", skip_all)]
     fn compile_and_load(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
-        // `cache` stores compiled machine code in the database
-        //
-        // Caches also cache _compilation_ errors, so that we don't have to
-        // re-parse invalid code (invalid code, in a sense, is a normal
-        // outcome). And `cache`, being a database, can fail with an `io::Error`.
-        let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, &self.config);
-        let cache_record = {
-            let _span = tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
-            cache.get(&key).map_err(CacheError::ReadError)?
-        };
+        cache.memory_cache().try_with_or(
+            key,
+            || {
+                // `cache` stores compiled machine code in the database
+                //
+                // Caches also cache _compilation_ errors, so that we don't have to
+                // re-parse invalid code (invalid code, in a sense, is a normal
+                // outcome). And `cache`, being a database, can fail with an `io::Error`.
+                let cache_record = {
+                    let _span =
+                        tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
+                    cache.get(&key).map_err(CacheError::ReadError)?
+                };
+                let to_any =
+                    |v: Result<VMArtifact, CompilationError>| -> Box<dyn std::any::Any + Send> {
+                        Box::new(v)
+                    };
 
-        let stored_artifact: Option<VMArtifact> = match cache_record {
-            None => None,
-            Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
-            Some(CompiledContract::Code(serialized_module)) => {
-                let _span =
-                    tracing::debug_span!(target: "vm", "NearVM::deserialize_module_from_cache")
-                        .entered();
-                unsafe {
-                    // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                    // `serialize`.
-                    //
-                    // In practice this is not necessarily true. One could have forgotten to change the
-                    // cache key when upgrading the version of the near_vm library or the database could
-                    // have had its data corrupted while at rest.
-                    //
-                    // There should definitely be some validation in near_vm to ensure we load what we think
-                    // we load.
-                    let executable = UniversalExecutableRef::deserialize(&serialized_module)
-                        .map_err(|_| CacheError::DeserializationError)?;
-                    let artifact = self
-                        .engine
-                        .load_universal_executable_ref(&executable)
-                        .map(Arc::new)
-                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
-                    Some(artifact)
+                match cache_record {
+                    None => {}
+                    Some(CompiledContract::CompileModuleError(e)) => return Ok(to_any(Err(e))),
+                    Some(CompiledContract::Code(serialized_module)) => {
+                        let _span =
+                        tracing::debug_span!(target: "vm", "NearVM::deserialize_module_from_cache")
+                            .entered();
+                        unsafe {
+                            // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
+                            // `serialize`.
+                            //
+                            // In practice this is not necessarily true. One could have forgotten to change the
+                            // cache key when upgrading the version of the near_vm library or the database could
+                            // have had its data corrupted while at rest.
+                            //
+                            // There should definitely be some validation in near_vm to ensure we load what we think
+                            // we load.
+                            let executable =
+                                UniversalExecutableRef::deserialize(&serialized_module)
+                                    .map_err(|_| CacheError::DeserializationError)?;
+                            let artifact = self
+                                .engine
+                                .load_universal_executable_ref(&executable)
+                                .map(Arc::new)
+                                .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?;
+                            return Ok(to_any(Ok(artifact)));
+                        }
+                    }
                 }
-            }
-        };
-
-        Ok(if let Some(it) = stored_artifact {
-            Ok(it)
-        } else {
-            match self.compile_and_cache(code, cache)? {
-                Ok(executable) => Ok(self
-                    .engine
-                    .load_universal_executable(&executable)
-                    .map(Arc::new)
-                    .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
-                Err(err) => Err(err),
-            }
-        })
+                Ok(match self.compile_and_cache(code, cache)? {
+                    Ok(executable) => to_any(Ok(self
+                        .engine
+                        .load_universal_executable(&executable)
+                        .map(Arc::new)
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?)),
+                    Err(err) => to_any(Err(err)),
+                })
+            },
+            |value| {
+                let downcast = value.downcast_ref().expect("downcast should always succeed");
+                match &*downcast {
+                    Ok(artifact) => Ok(VMArtifact::clone(artifact)),
+                    Err(e) => Err(CompilationError::clone(e)),
+                }
+            },
+        )
     }
 
     fn run_method(

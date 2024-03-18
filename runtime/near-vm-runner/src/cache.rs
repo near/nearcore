@@ -10,6 +10,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshSerialize)]
@@ -360,32 +361,44 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
     }
 }
 
+type AnyCacheValue = dyn Any + Send;
+
 /// Cache that can store instances of any type, keyed by a CryptoHash.
 ///
 /// Used primarily for storage of artifacts on a per-VM basis.
 #[derive(Clone)]
 pub struct AnyCache {
-    cache: Arc<Mutex<lru::LruCache<CryptoHash, Arc<dyn Any + Send + Sync>>>>,
+    cache: Option<Arc<Mutex<lru::LruCache<CryptoHash, Box<AnyCacheValue>>>>>,
 }
 
 impl AnyCache {
     fn new(size: usize) -> Self {
-        Self { cache: Arc::new(Mutex::new(lru::LruCache::new(size))) }
+        Self {
+            cache: if let Some(size) = NonZeroUsize::new(size) {
+                Some(Arc::new(Mutex::new(lru::LruCache::new(size))))
+            } else {
+                None
+            },
+        }
     }
 
     /// Lookup the key in the cache. If not found, invokes the closure to construct the element.
-    pub fn lookup_or(
+    pub fn try_with_or<E, R>(
         &self,
         key: CryptoHash,
-        generate: &dyn Fn() -> Arc<dyn Any + Send + Sync>,
-    ) -> Arc<dyn Any + Send + Sync> {
+        generate: impl FnOnce() -> Result<Box<AnyCacheValue>, E>,
+        with: impl FnOnce(&AnyCacheValue) -> R,
+    ) -> Result<R, E> {
+        let Some(cache) = &self.cache else {
+            let v = generate()?;
+            return Ok(with(&v));
+        };
         // SAFETY: We do not store intermediate modifications to the state at any point during the
         // execution of the callback. Thus the state of the cache data structure is always well
         // formed.
-        let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        // get_or_insert only returns None when the cache size is 0, in which case for our uses we
-        // want to generate the value anyway...
-        guard.get_or_insert(key, generate).cloned().unwrap_or_else(generate)
+        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let value = &*guard.try_get_or_insert(key, generate)?;
+        Ok(with(value))
     }
 }
 

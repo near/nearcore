@@ -3,13 +3,11 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
-use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
-    CompiledContract, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
-    NoContractRuntimeCache,
+    ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, NoContractRuntimeCache,
 };
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
