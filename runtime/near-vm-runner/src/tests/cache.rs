@@ -17,6 +17,7 @@ use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use wasmer_compiler::{CpuFeature, Target};
 use wasmer_engine::Executable;
 
@@ -55,7 +56,7 @@ fn test_does_not_cache_io_error() {
 
         let code = near_test_contracts::trivial_contract();
         let prepaid_gas = 10u64.pow(12);
-        let mut cache = FaultingCompiledContractCache::default();
+        let cache = FaultingCompiledContractCache::default();
 
         cache.set_read_fault(true);
         let result =
@@ -243,20 +244,20 @@ fn test_near_vm_artifact_output_stability() {
 
 /// [`CompiledContractCache`] which simulates failures in the underlying
 /// database.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct FaultingCompiledContractCache {
-    read_fault: AtomicBool,
-    write_fault: AtomicBool,
+    read_fault: Arc<AtomicBool>,
+    write_fault: Arc<AtomicBool>,
     inner: MockCompiledContractCache,
 }
 
 impl FaultingCompiledContractCache {
-    fn set_read_fault(&mut self, yes: bool) {
-        *self.read_fault.get_mut() = yes;
+    fn set_read_fault(&self, yes: bool) {
+        self.read_fault.store(yes, Ordering::SeqCst);
     }
 
-    fn set_write_fault(&mut self, yes: bool) {
-        *self.write_fault.get_mut() = yes;
+    fn set_write_fault(&self, yes: bool) {
+        self.write_fault.store(yes, Ordering::SeqCst);
     }
 }
 
@@ -273,5 +274,9 @@ impl CompiledContractCache for FaultingCompiledContractCache {
             return Err(io::ErrorKind::Other.into());
         }
         self.inner.get(key)
+    }
+
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
     }
 }

@@ -46,6 +46,7 @@ impl CompiledContract {
 
 /// Cache for compiled modules
 pub trait CompiledContractCache: Send + Sync {
+    fn handle(&self) -> Box<dyn CompiledContractCache>;
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
@@ -94,4 +95,40 @@ impl TrieNodesCount {
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
+}
+
+impl CompiledContractCache for Box<dyn CompiledContractCache> {
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        <dyn CompiledContractCache>::handle(&**self)
+    }
+
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+        <dyn CompiledContractCache>::put(&**self, key, value)
+    }
+
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        <dyn CompiledContractCache>::get(&**self, key)
+    }
+
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        <dyn CompiledContractCache>::has(&**self, key)
+    }
+}
+
+impl<C: CompiledContractCache> CompiledContractCache for &C {
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        <C as CompiledContractCache>::handle(self)
+    }
+
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+        <C as CompiledContractCache>::put(self, key, value)
+    }
+
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        <C as CompiledContractCache>::get(self, key)
+    }
+
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        <C as CompiledContractCache>::has(self, key)
+    }
 }

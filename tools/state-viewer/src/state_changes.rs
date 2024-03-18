@@ -140,7 +140,8 @@ fn apply_state_changes(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .expect("could not create the transaction runtime");
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
