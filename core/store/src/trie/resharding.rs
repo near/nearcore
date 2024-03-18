@@ -1,5 +1,8 @@
 use crate::flat::FlatStateChanges;
-use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
+use crate::{
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
+    Trie, TrieUpdate,
+};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
@@ -313,12 +316,80 @@ fn apply_delayed_receipts_to_children_states_impl(
 }
 
 fn apply_promise_yield_timeouts_to_children_states_impl(
-    _trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
-    _insert_timeouts: &[PromiseYieldTimeout],
-    _delete_timeouts: &[PromiseYieldTimeout],
-    _account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+    trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
+    insert_timeouts: &[PromiseYieldTimeout],
+    delete_timeouts: &[PromiseYieldTimeout],
+    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
 ) -> Result<(), StorageError> {
-    // todo
+    let mut promise_yield_indices_by_shard = HashMap::new();
+    for (shard_uid, update) in trie_updates.iter() {
+        promise_yield_indices_by_shard.insert(*shard_uid, get_promise_yield_indices(update)?);
+    }
+
+    for timeout in insert_timeouts {
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&timeout.account_id);
+        if !trie_updates.contains_key(&new_shard_uid) {
+            let err = format!(
+                "Account {} is in new shard {:?} but state_roots only contains {:?}",
+                timeout.account_id,
+                new_shard_uid,
+                trie_updates.keys(),
+            );
+            return Err(StorageError::StorageInconsistentState(err));
+        }
+        // we already checked that new_shard_uid is in trie_updates and
+        // promise_yield_indices_by_shard so we can safely unwrap here
+        let promise_yield_indices = promise_yield_indices_by_shard.get_mut(&new_shard_uid).unwrap();
+        set(
+            trie_updates.get_mut(&new_shard_uid).unwrap(),
+            TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
+            timeout,
+        );
+        promise_yield_indices.next_available_index =
+            promise_yield_indices.next_available_index.checked_add(1).ok_or_else(|| {
+                StorageError::StorageInconsistentState(
+                    "Next available index for PromiseYield timeout exceeded the integer limit"
+                        .to_string(),
+                )
+            })?;
+    }
+
+    for timeout in delete_timeouts {
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&timeout.account_id);
+        if !trie_updates.contains_key(&new_shard_uid) {
+            let err = format!(
+                "Account {} is in new shard {:?} but state_roots only contains {:?}",
+                timeout.account_id,
+                new_shard_uid,
+                trie_updates.keys(),
+            );
+            return Err(StorageError::StorageInconsistentState(err));
+        }
+        let promise_yield_indices = promise_yield_indices_by_shard.get_mut(&new_shard_uid).unwrap();
+
+        let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
+        let trie_key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+
+        let stored_timeout = get::<PromiseYieldTimeout>(trie_update, &trie_key)?
+            .expect("removed PromiseYield timeout does not exist in new state");
+        // check that the receipt to remove is at the first of delayed receipt queue
+        assert_eq!(&stored_timeout, timeout);
+        trie_update.remove(trie_key);
+        promise_yield_indices.first_index += 1;
+    }
+
+    // commit the trie_updates and update state_roots
+    for (shard_uid, trie_update) in trie_updates {
+        set(
+            trie_update,
+            TrieKey::PromiseYieldIndices,
+            promise_yield_indices_by_shard.get(shard_uid).unwrap(),
+        );
+        // StateChangeCause should always be Resharding for processing resharding.
+        // We do not want to commit the state_changes from resharding as they are already handled while
+        // processing parent shard
+        trie_update.commit(StateChangeCause::Resharding);
+    }
     Ok(())
 }
 
