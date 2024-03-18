@@ -79,8 +79,8 @@ impl CompiledContract {
 /// Cache for compiled modules
 pub trait ContractRuntimeCache: Send + Sync {
     fn handle(&self) -> Box<dyn ContractRuntimeCache>;
-    fn memory_cache(&self) -> AnyCache {
-        AnyCache::clone(&ZERO_ANY_CACHE)
+    fn memory_cache(&self) -> &AnyCache {
+        &ZERO_ANY_CACHE
     }
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
@@ -220,11 +220,10 @@ impl FilesystemContractRuntimeCache {
             path = %path.display(),
             message = "opened a contract executable cache directory"
         );
-        let any_cache = AnyCache::clone(&ZERO_ANY_CACHE);
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache,
+                any_cache: AnyCache::new(0),
                 test_temp_dir: None,
             }),
         })
@@ -271,8 +270,8 @@ impl ContractRuntimeCache for FilesystemContractRuntimeCache {
         Box::new(self.clone())
     }
 
-    fn memory_cache(&self) -> AnyCache {
-        AnyCache::clone(&self.state.any_cache)
+    fn memory_cache(&self) -> &AnyCache {
+        &self.state.any_cache
     }
 
     #[tracing::instrument(
@@ -366,16 +365,15 @@ type AnyCacheValue = dyn Any + Send;
 /// Cache that can store instances of any type, keyed by a CryptoHash.
 ///
 /// Used primarily for storage of artifacts on a per-VM basis.
-#[derive(Clone)]
 pub struct AnyCache {
-    cache: Option<Arc<Mutex<lru::LruCache<CryptoHash, Box<AnyCacheValue>>>>>,
+    cache: Option<Mutex<lru::LruCache<CryptoHash, Box<AnyCacheValue>>>>,
 }
 
 impl AnyCache {
     fn new(size: usize) -> Self {
         Self {
             cache: if let Some(size) = NonZeroUsize::new(size) {
-                Some(Arc::new(Mutex::new(lru::LruCache::new(size))))
+                Some(Mutex::new(lru::LruCache::new(size)))
             } else {
                 None
             },
@@ -391,14 +389,15 @@ impl AnyCache {
     ) -> Result<R, E> {
         let Some(cache) = &self.cache else {
             let v = generate()?;
-            return Ok(with(&v));
+            // NB: The stars and ampersands here are semantics-affecting. e.g. if the star is
+            // missing, we end up making an object out of `&Box<dyn ...>` which is obviously quite
+            // wrong.
+            return Ok(with(&*v));
         };
-        // SAFETY: We do not store intermediate modifications to the state at any point during the
-        // execution of the callback. Thus the state of the cache data structure is always well
-        // formed.
-        let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-        let value = &*guard.try_get_or_insert(key, generate)?;
-        Ok(with(value))
+        let mut guard = cache.lock().unwrap();
+        let value = guard.try_get_or_insert(key, generate)?;
+        // Same here.
+        Ok(with(&**value))
     }
 }
 

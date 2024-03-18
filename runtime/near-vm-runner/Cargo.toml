@@ -20,7 +20,7 @@ borsh.workspace = true
 ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"], optional = true }
-lru.worspace = "0.12.3"
+lru = "0.12.3"
 memoffset.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true

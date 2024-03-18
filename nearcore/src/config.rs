@@ -637,7 +637,8 @@ impl NightshadeRuntime {
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...
         let contract_cache =
-            FilesystemContractRuntimeCache::new(home_dir, config.config.store.path.as_ref())?;
+            FilesystemContractRuntimeCache::new(home_dir, config.config.store.path.as_ref())?
+                .with_memory_cache(128);
         Ok(NightshadeRuntime::new(
             store,
             ContractRuntimeCache::handle(&contract_cache),

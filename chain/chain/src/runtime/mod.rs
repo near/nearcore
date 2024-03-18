@@ -197,6 +197,7 @@ impl NightshadeRuntime {
             store,
             FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
                 .expect("filesystem contract cache")
+                .with_memory_cache(1)
                 .handle(),
             genesis_config,
             epoch_manager,

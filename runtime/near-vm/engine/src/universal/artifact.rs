@@ -40,11 +40,6 @@ pub struct UniversalArtifact {
     pub(crate) local_globals: Vec<(GlobalType, GlobalInit)>,
 }
 
-/// SAFETY: err... I don't know what to say. We should refactor so this is not a thing, but
-/// hopefully this bound is actually overzealous and we don't operate on a given artifact
-/// synchronously...?
-unsafe impl Sync for UniversalArtifact {}
-
 impl UniversalArtifact {
     /// Return the extents of the specified local function.
     pub fn function_extent(&self, index: LocalFunctionIndex) -> Option<FunctionExtent> {

@@ -342,6 +342,8 @@ impl NearVM {
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
+        type MemoryCacheType = Result<VMArtifact, CompilationError>;
+        let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(code, &self.config);
         cache.memory_cache().try_with_or(
             key,
@@ -356,10 +358,6 @@ impl NearVM {
                         tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
                     cache.get(&key).map_err(CacheError::ReadError)?
                 };
-                let to_any =
-                    |v: Result<VMArtifact, CompilationError>| -> Box<dyn std::any::Any + Send> {
-                        Box::new(v)
-                    };
 
                 match cache_record {
                     None => {}
@@ -369,15 +367,16 @@ impl NearVM {
                         tracing::debug_span!(target: "vm", "NearVM::deserialize_module_from_cache")
                             .entered();
                         unsafe {
-                            // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                            // `serialize`.
+                            // (UN-)SAFETY: the `serialized_module` must have been produced by a
+                            // prior call to `serialize`.
                             //
-                            // In practice this is not necessarily true. One could have forgotten to change the
-                            // cache key when upgrading the version of the near_vm library or the database could
-                            // have had its data corrupted while at rest.
+                            // In practice this is not necessarily true. One could have forgotten
+                            // to change the cache key when upgrading the version of the near_vm
+                            // library or the database could have had its data corrupted while at
+                            // rest.
                             //
-                            // There should definitely be some validation in near_vm to ensure we load what we think
-                            // we load.
+                            // There should definitely be some validation in near_vm to ensure we
+                            // load what we think we load.
                             let executable =
                                 UniversalExecutableRef::deserialize(&serialized_module)
                                     .map_err(|_| CacheError::DeserializationError)?;
@@ -390,17 +389,20 @@ impl NearVM {
                         }
                     }
                 }
-                Ok(match self.compile_and_cache(code, cache)? {
-                    Ok(executable) => to_any(Ok(self
+                let compiled = self.compile_and_cache(code, cache)?;
+                Ok(to_any(match compiled {
+                    Err(err) => Err(err),
+                    Ok(executable) => Ok(self
                         .engine
                         .load_universal_executable(&executable)
                         .map(Arc::new)
-                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?)),
-                    Err(err) => to_any(Err(err)),
-                })
+                        .map_err(|err| VMRunnerError::LoadingError(err.to_string()))?),
+                }))
             },
             |value| {
-                let downcast = value.downcast_ref().expect("downcast should always succeed");
+                let downcast = value
+                    .downcast_ref::<MemoryCacheType>()
+                    .expect("downcast should always succeed");
                 match &*downcast {
                     Ok(artifact) => Ok(VMArtifact::clone(artifact)),
                     Err(e) => Err(CompilationError::clone(e)),
