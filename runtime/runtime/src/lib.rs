@@ -18,8 +18,8 @@ use near_primitives::checked_feature;
 use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, Receipt, ReceiptEnum, ReceivedData,
-    YieldedPromiseQueueEntry, YieldedPromiseQueueIndices,
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
+    Receipt, ReceiptEnum, ReceivedData,
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -41,9 +41,9 @@ use near_primitives::utils::{
 };
 use near_primitives::version::{ProtocolFeature, ProtocolVersion};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_received_data, get_yielded_promise,
-    has_received_data, remove_postponed_receipt, remove_yielded_promise, set, set_account,
-    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise,
+    get, get_account, get_postponed_receipt, get_promise_yield_receipt, get_received_data,
+    has_received_data, remove_postponed_receipt, remove_promise_yield_receipt, set, set_account,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
     PartialStorage, StorageError, Trie, TrieChanges, TrieUpdate,
 };
 use near_store::{set_access_key, set_code};
@@ -1046,17 +1046,17 @@ impl Runtime {
             ReceiptEnum::PromiseYield(_) => {
                 // Received a new PromiseYield receipt. We simply store it and await
                 // the corresponding PromiseResume receipt.
-                set_yielded_promise(state_update, receipt);
+                set_promise_yield_receipt(state_update, receipt);
             }
             ReceiptEnum::PromiseResume(ref data_receipt) => {
                 // Received a new PromiseResume receipt delivering input data for a PromiseYield.
                 // It is guaranteed that the PromiseYield has exactly one input data dependency
                 // and that it arrives first, so we can simply find and execute it.
                 if let Some(yield_receipt) =
-                    get_yielded_promise(state_update, account_id, data_receipt.data_id)?
+                    get_promise_yield_receipt(state_update, account_id, data_receipt.data_id)?
                 {
                     // Remove the receipt from the state
-                    remove_yielded_promise(state_update, account_id, data_receipt.data_id);
+                    remove_promise_yield_receipt(state_update, account_id, data_receipt.data_id);
 
                     // Save the data into the state keyed by the data_id
                     set_received_data(
@@ -1566,14 +1566,14 @@ impl Runtime {
             prefetcher.clear();
         }
 
-        // Resolve timed-out yielded promises
-        let mut yielded_promise_indices: YieldedPromiseQueueIndices =
-            get(&state_update, &TrieKey::YieldedPromiseQueueIndices)?.unwrap_or_default();
-        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+        // Resolve timed-out PromiseYield receipts
+        let mut promise_yield_indices: PromiseYieldIndices =
+            get(&state_update, &TrieKey::PromiseYieldIndices)?.unwrap_or_default();
+        let initial_promise_yield_indices = promise_yield_indices.clone();
         let mut new_receipt_index: usize = 0;
 
         let mut timeout_receipts = vec![];
-        while yielded_promise_indices.first_index < yielded_promise_indices.next_available_index {
+        while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total_compute_usage >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
@@ -1582,13 +1582,13 @@ impl Runtime {
             }
 
             let queue_entry_key =
-                TrieKey::YieldedPromiseQueueEntry { index: yielded_promise_indices.first_index };
+                TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
 
-            let queue_entry = get::<YieldedPromiseQueueEntry>(&state_update, &queue_entry_key)?
+            let queue_entry = get::<PromiseYieldTimeout>(&state_update, &queue_entry_key)?
                 .ok_or_else(|| {
                     StorageError::StorageInconsistentState(format!(
-                        "Yielded promise queue entry #{} should be in the state",
-                        yielded_promise_indices.first_index
+                        "PromiseYield timeout queue entry #{} should be in the state",
+                        promise_yield_indices.first_index
                     ))
                 })?;
 
@@ -1640,7 +1640,7 @@ impl Runtime {
 
             state_update.remove(queue_entry_key);
             // Math checked above: first_index is less than next_available_index
-            yielded_promise_indices.first_index += 1;
+            promise_yield_indices.first_index += 1;
         }
         metrics.yield_timeouts_done(total_gas_burnt, total_compute_usage);
 
@@ -1648,8 +1648,8 @@ impl Runtime {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
 
-        if yielded_promise_indices != initial_yielded_promise_indices {
-            set(&mut state_update, TrieKey::YieldedPromiseQueueIndices, &yielded_promise_indices);
+        if promise_yield_indices != initial_promise_yield_indices {
+            set(&mut state_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
         }
 
         check_balance(
