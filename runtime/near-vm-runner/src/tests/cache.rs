@@ -5,12 +5,12 @@ use super::{create_context, test_vm_config, with_vm_variants};
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::Config;
-use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
-use crate::ContractCode;
-use crate::{prepare, MockCompiledContractCache};
+use crate::{
+    prepare, CompiledContract, CompiledContractCache, ContractCode, MockCompiledContractCache,
+};
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;

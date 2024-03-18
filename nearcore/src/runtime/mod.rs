@@ -44,9 +44,8 @@ use near_store::{
     ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
     WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, FilesystemCompiledContractCache};
+use near_vm_runner::{precompile_contract, CompiledContractCache, FilesystemCompiledContractCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -106,7 +105,7 @@ impl NightshadeRuntime {
             FilesystemCompiledContractCache::new(home_dir, config.config.store.path.as_ref())?;
         Ok(Self::new(
             store,
-            near_vm_runner::logic::CompiledContractCache::handle(&contract_cache),
+            CompiledContractCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
