@@ -118,6 +118,7 @@ fn run_model(
         &model.progress(),
         &model.gas_throughput(),
         &max_queues,
+        &model.user_experience(),
     );
 }
 
