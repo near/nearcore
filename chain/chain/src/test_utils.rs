@@ -16,7 +16,7 @@ use near_async::time::Clock;
 use near_chain_configs::Genesis;
 use near_chain_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
-use near_epoch_manager::EpochManager;
+use near_epoch_manager::{EpochManager, EpochManagerHandle};
 use near_primitives::block::Block;
 use near_primitives::hash::CryptoHash;
 use near_primitives::test_utils::create_test_signer;
@@ -124,36 +124,42 @@ pub fn process_block_sync(
 // TODO(#8190) Improve this testing API.
 pub fn setup(
     clock: Clock,
-) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
-    setup_with_tx_validity_period(clock, 100)
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
+    setup_with_tx_validity_period(clock, 100, 1000)
 }
 
-fn setup_with_tx_validity_period(
+pub fn setup_with_tx_validity_period(
     clock: Clock,
     tx_validity_period: NumBlocks,
-) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Arc<InMemoryValidatorSigner>) {
+    epoch_length: u64,
+) -> (Chain, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, Arc<InMemoryValidatorSigner>) {
     let store = create_test_store();
-    let epoch_length = 1000;
-    let epoch_manager = MockEpochManager::new(store.clone(), epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    let chain = Chain::new(
+    let mut genesis = Genesis::test_sharded(
         clock.clone(),
+        vec!["test".parse::<AccountId>().unwrap()],
+        1,
+        vec![1; 1],
+    );
+    genesis.config.epoch_length = epoch_length;
+    genesis.config.transaction_validity_period = tx_validity_period;
+    genesis.config.gas_limit = 1_000_000;
+    genesis.config.min_gas_price = 100;
+    genesis.config.max_gas_price = 1_000_000_000;
+    genesis.config.total_supply = 1_000_000_000;
+    genesis.config.gas_price_adjustment_rate = Ratio::from_integer(0);
+    genesis.config.protocol_version = PROTOCOL_VERSION;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
+    let runtime =
+        NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
+    let chain = Chain::new(
+        clock,
         epoch_manager.clone(),
         shard_tracker,
         runtime.clone(),
-        &ChainGenesis {
-            time: clock.now_utc(),
-            height: 0,
-            gas_limit: 1_000_000,
-            min_gas_price: 100,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: tx_validity_period,
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-        },
+        &ChainGenesis::new(&genesis.config),
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
@@ -163,82 +169,6 @@ fn setup_with_tx_validity_period(
 
     let signer = Arc::new(create_test_signer("test"));
     (chain, epoch_manager, runtime, signer)
-}
-
-pub fn setup_with_validators(
-    clock: Clock,
-    vs: ValidatorSchedule,
-    epoch_length: u64,
-    tx_validity_period: NumBlocks,
-) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
-    let store = create_test_store();
-    let signers =
-        vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    let chain = Chain::new(
-        clock.clone(),
-        epoch_manager.clone(),
-        shard_tracker,
-        runtime.clone(),
-        &ChainGenesis {
-            time: clock.now_utc(),
-            height: 0,
-            gas_limit: 1_000_000,
-            min_gas_price: 100,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: tx_validity_period,
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-        },
-        DoomslugThresholdMode::NoApprovals,
-        ChainConfig::test(),
-        None,
-        Arc::new(RayonAsyncComputationSpawner),
-    )
-    .unwrap();
-    (chain, epoch_manager, runtime, signers)
-}
-
-pub fn setup_with_validators_and_start_time(
-    clock: Clock,
-    vs: ValidatorSchedule,
-    epoch_length: u64,
-    tx_validity_period: NumBlocks,
-) -> (Chain, Arc<MockEpochManager>, Arc<KeyValueRuntime>, Vec<Arc<InMemoryValidatorSigner>>) {
-    let store = create_test_store();
-    let signers =
-        vs.all_block_producers().map(|x| Arc::new(create_test_signer(x.as_str()))).collect();
-    let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, epoch_length);
-    let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
-    let chain = Chain::new(
-        clock.clone(),
-        epoch_manager.clone(),
-        shard_tracker,
-        runtime.clone(),
-        &ChainGenesis {
-            time: clock.now_utc(),
-            height: 0,
-            gas_limit: 1_000_000,
-            min_gas_price: 100,
-            max_gas_price: 1_000_000_000,
-            total_supply: 1_000_000_000,
-            gas_price_adjustment_rate: Ratio::from_integer(0),
-            transaction_validity_period: tx_validity_period,
-            epoch_length,
-            protocol_version: PROTOCOL_VERSION,
-        },
-        DoomslugThresholdMode::NoApprovals,
-        ChainConfig::test(),
-        None,
-        Arc::new(RayonAsyncComputationSpawner),
-    )
-    .unwrap();
-    (chain, epoch_manager, runtime, signers)
 }
 
 pub fn format_hash(hash: CryptoHash) -> String {

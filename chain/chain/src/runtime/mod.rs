@@ -155,7 +155,6 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         )
     }
@@ -184,7 +183,6 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         )
     }
