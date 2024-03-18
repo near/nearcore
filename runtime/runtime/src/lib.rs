@@ -1787,7 +1787,8 @@ mod tests {
     use near_primitives::types::MerkleHash;
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
-    use near_store::{set_access_key, ShardTries, StoreCompiledContractCache};
+    use near_store::{set_access_key, ShardTries};
+    use near_vm_runner::FilesystemCompiledContractCache;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1885,7 +1886,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
-
+        let contract_cache = FilesystemCompiledContractCache::test().unwrap();
         let apply_state = ApplyState {
             block_height: 1,
             prev_block_hash: Default::default(),
@@ -1898,7 +1899,7 @@ mod tests {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(RuntimeConfig::test()),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&tries.get_store()))),
+            cache: Some(Box::new(contract_cache)),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),

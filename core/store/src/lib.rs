@@ -956,6 +956,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct StoreCompiledContractCache {
     db: Arc<dyn Database>,
 }
@@ -1009,6 +1010,10 @@ impl CompiledContractCache for StoreCompiledContractCache {
 
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
         self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
+    }
+
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
     }
 }
 

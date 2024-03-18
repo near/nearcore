@@ -4,11 +4,10 @@ use crate::vm_estimator::create_context;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
-use near_store::StoreCompiledContractCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::ContractCode;
+use near_vm_runner::{ContractCode, FilesystemCompiledContractCache};
 use std::fmt::Write;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
@@ -64,8 +63,7 @@ fn compute_function_call_cost(
     warmup_repeats: u64,
     contract: &ContractCode,
 ) -> GasCost {
-    let store = near_store::test_utils::create_test_store();
-    let cache_store = StoreCompiledContractCache::new(&store);
+    let cache_store = FilesystemCompiledContractCache::test().unwrap();
     let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);

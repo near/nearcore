@@ -61,6 +61,8 @@ use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::TrieConfig;
+use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::FilesystemCompiledContractCache;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
 use std::path::Path;
@@ -226,9 +228,14 @@ fn test_client_with_multi_test_loop() {
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
         )));
+        let home_dir = Path::new(".");
+        let contract_cache = FilesystemCompiledContractCache::new(home_dir, None::<&str>)
+            .expect("filesystem contract cache")
+            .handle();
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
-            Path::new("."),
+            home_dir,
             store.clone(),
+            contract_cache,
             &genesis.config,
             epoch_manager.clone(),
             TrieConfig { load_mem_tries_for_all_shards: true, ..Default::default() },

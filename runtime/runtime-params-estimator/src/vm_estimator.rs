@@ -5,11 +5,10 @@ use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
 use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_store::StoreCompiledContractCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::ContractCode;
+use near_vm_runner::{ContractCode, FilesystemCompiledContractCache};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -65,6 +64,10 @@ impl CompiledContractCache for MockCompiledContractCache {
     fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         Ok(None)
     }
+
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
+    }
 }
 
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
@@ -78,16 +81,10 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let cache_store1: StoreCompiledContractCache;
+    let cache_store1 = FilesystemCompiledContractCache::test().unwrap();
     let cache_store2 = MockCompiledContractCache;
     let use_store = true;
-    let cache: &dyn CompiledContractCache = if use_store {
-        let store = near_store::test_utils::create_test_store();
-        cache_store1 = StoreCompiledContractCache::new(&store);
-        &cache_store1
-    } else {
-        &cache_store2
-    };
+    let cache: &dyn CompiledContractCache = if use_store { &cache_store1 } else { &cache_store2 };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -151,10 +148,7 @@ pub(crate) fn compile_single_contract_cost(
     contract_bytes: &[u8],
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
-
-    let store = near_store::test_utils::create_test_store();
-    let cache = StoreCompiledContractCache::new(&store);
-
+    let cache = FilesystemCompiledContractCache::test().unwrap();
     measure_contract(vm_kind, metric, &contract, &cache)
 }
 
