@@ -1,9 +1,9 @@
 use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError};
-use crate::logic::{CompiledContract, CompiledContractCache, Config};
+use crate::logic::Config;
 use crate::runner::VMKindExt;
 use crate::ContractCode;
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
 use std::collections::HashMap;
@@ -54,6 +54,76 @@ pub fn get_contract_cache_key(code: &ContractCode, config: &Config) -> CryptoHas
         vm_hash: vm_hash(config.vm_kind),
     };
     CryptoHash::hash_borsh(key)
+}
+
+#[derive(Debug, Clone, PartialEq, BorshDeserialize, BorshSerialize)]
+pub enum CompiledContract {
+    CompileModuleError(crate::logic::errors::CompilationError),
+    Code(Vec<u8>),
+}
+
+impl CompiledContract {
+    /// Return the length of the compiled contract data.
+    ///
+    /// If the `CompiledContract` represents a compilation failure, returns `0`.
+    pub fn debug_len(&self) -> usize {
+        match self {
+            CompiledContract::CompileModuleError(_) => 0,
+            CompiledContract::Code(c) => c.len(),
+        }
+    }
+}
+
+/// Cache for compiled modules
+pub trait CompiledContractCache: Send + Sync {
+    fn handle(&self) -> Box<dyn CompiledContractCache>;
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        self.get(key).map(|entry| entry.is_some())
+    }
+}
+
+impl fmt::Debug for dyn CompiledContractCache {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Compiled contracts cache")
+    }
+}
+
+impl CompiledContractCache for Box<dyn CompiledContractCache> {
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        <dyn CompiledContractCache>::handle(&**self)
+    }
+
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+        <dyn CompiledContractCache>::put(&**self, key, value)
+    }
+
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        <dyn CompiledContractCache>::get(&**self, key)
+    }
+
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        <dyn CompiledContractCache>::has(&**self, key)
+    }
+}
+
+impl<C: CompiledContractCache> CompiledContractCache for &C {
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        <C as CompiledContractCache>::handle(self)
+    }
+
+    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+        <C as CompiledContractCache>::put(self, key, value)
+    }
+
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        <C as CompiledContractCache>::get(self, key)
+    }
+
+    fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
+        <C as CompiledContractCache>::has(self, key)
+    }
 }
 
 #[derive(Default, Clone)]

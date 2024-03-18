@@ -61,7 +61,7 @@ use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::TrieConfig;
-use near_vm_runner::logic::CompiledContractCache;
+use near_vm_runner::CompiledContractCache;
 use near_vm_runner::FilesystemCompiledContractCache;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;

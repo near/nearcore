@@ -1,22 +1,23 @@
 extern crate core;
 
-use std::fs::File;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{fmt, io};
-
+use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
+pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
+pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
+pub use crate::trie::{
+    estimator, resharding, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
+    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
+    StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
+    TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    STATE_SNAPSHOT_COLUMNS,
+};
 use borsh::{BorshDeserialize, BorshSerialize};
-use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
-use once_cell::sync::Lazy;
-use strum;
-
 pub use columns::DBCol;
 pub use db::{
     CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
     GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
     LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
 };
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
 use near_crypto::PublicKey;
 use near_fmt::{AbbrBytes, StorageKey};
 use near_primitives::account::{AccessKey, Account};
@@ -29,19 +30,14 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::ContractCode;
-
-use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
-pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
-pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
-pub use crate::trie::{
-    estimator, resharding, ApplyStatePartResult, KeyForStateChanges, KeyLookupMode, NibbleSlice,
-    PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
-    StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
-    TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
-    STATE_SNAPSHOT_COLUMNS,
-};
+use near_vm_runner::{CompiledContract, CompiledContractCache, ContractCode};
+use once_cell::sync::Lazy;
+use std::fs::File;
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::{fmt, io};
+use strum;
 
 pub mod cold_storage;
 mod columns;
@@ -1133,7 +1129,7 @@ mod tests {
     /// Check StoreCompiledContractCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, CompiledContractCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
