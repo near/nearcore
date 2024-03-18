@@ -6,11 +6,11 @@ use crate::logic::errors::{
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::PromiseResult;
 use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
-use crate::prepare;
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+    get_contract_cache_key, imports, CompiledContract, ContractCode, ContractRuntimeCache,
 };
+use crate::{prepare, NoContractRuntimeCache};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
@@ -319,7 +319,7 @@ impl NearVM {
     fn compile_and_cache(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(code, &self.config);
@@ -343,7 +343,7 @@ impl NearVM {
     fn compile_and_load(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
         // `cache` stores compiled machine code in the database
         //
@@ -664,7 +664,7 @@ impl crate::runner::VM for NearVM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let mut memory = NearVmMemory::new(
             self.config.limit_config.initial_memory_pages,
@@ -708,7 +708,7 @@ impl crate::runner::VM for NearVM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn CompiledContractCache,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,

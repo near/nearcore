@@ -28,8 +28,8 @@ mod wasmtime_runner;
 
 pub use crate::logic::with_ext_cost_counter;
 pub use cache::{
-    get_contract_cache_key, precompile_contract, CompiledContract, CompiledContractCache,
-    FilesystemCompiledContractCache, MockCompiledContractCache,
+    get_contract_cache_key, precompile_contract, CompiledContract, ContractRuntimeCache,
+    FilesystemContractRuntimeCache, MockContractRuntimeCache, NoContractRuntimeCache,
 };
 pub use code::ContractCode;
 pub use profile::ProfileDataV3;

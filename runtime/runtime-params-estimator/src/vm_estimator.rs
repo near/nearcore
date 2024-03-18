@@ -8,7 +8,8 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
 use near_vm_runner::{
-    CompiledContract, CompiledContractCache, ContractCode, FilesystemCompiledContractCache,
+    CompiledContract, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
+    NoContractRuntimeCache,
 };
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
@@ -41,7 +42,7 @@ fn measure_contract(
     vm_kind: VMKind,
     gas_metric: GasMetric,
     contract: &ContractCode,
-    cache: &dyn CompiledContractCache,
+    cache: &dyn ContractRuntimeCache,
 ) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
@@ -55,9 +56,9 @@ fn measure_contract(
 }
 
 #[derive(Default, Clone)]
-struct MockCompiledContractCache;
+struct MockContractRuntimeCache;
 
-impl CompiledContractCache for MockCompiledContractCache {
+impl ContractRuntimeCache for MockContractRuntimeCache {
     fn put(&self, _key: &CryptoHash, _value: CompiledContract) -> std::io::Result<()> {
         Ok(())
     }
@@ -66,7 +67,7 @@ impl CompiledContractCache for MockCompiledContractCache {
         Ok(None)
     }
 
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
 }
@@ -82,10 +83,10 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let cache_store1 = FilesystemCompiledContractCache::test().unwrap();
-    let cache_store2 = MockCompiledContractCache;
+    let cache_store1 = FilesystemContractRuntimeCache::test().unwrap();
+    let cache_store2 = MockContractRuntimeCache;
     let use_store = true;
-    let cache: &dyn CompiledContractCache = if use_store { &cache_store1 } else { &cache_store2 };
+    let cache: &dyn ContractRuntimeCache = if use_store { &cache_store1 } else { &cache_store2 };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -149,7 +150,7 @@ pub(crate) fn compile_single_contract_cost(
     contract_bytes: &[u8],
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
-    let cache = FilesystemCompiledContractCache::test().unwrap();
+    let cache = FilesystemContractRuntimeCache::test().unwrap();
     measure_contract(vm_kind, metric, &contract, &cache)
 }
 

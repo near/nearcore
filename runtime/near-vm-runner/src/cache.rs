@@ -6,6 +6,7 @@ use crate::ContractCode;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_parameters::vm::VMKind;
 use near_primitives_core::hash::CryptoHash;
+use std::any::Any;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
@@ -75,8 +76,11 @@ impl CompiledContract {
 }
 
 /// Cache for compiled modules
-pub trait CompiledContractCache: Send + Sync {
-    fn handle(&self) -> Box<dyn CompiledContractCache>;
+pub trait ContractRuntimeCache: Send + Sync {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache>;
+    fn memory_cache(&self) -> AnyCache {
+        AnyCache::clone(&ZERO_ANY_CACHE)
+    }
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>>;
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
@@ -84,60 +88,60 @@ pub trait CompiledContractCache: Send + Sync {
     }
 }
 
-impl fmt::Debug for dyn CompiledContractCache {
+impl fmt::Debug for dyn ContractRuntimeCache {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Compiled contracts cache")
     }
 }
 
-impl CompiledContractCache for Box<dyn CompiledContractCache> {
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
-        <dyn CompiledContractCache>::handle(&**self)
+impl ContractRuntimeCache for Box<dyn ContractRuntimeCache> {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        <dyn ContractRuntimeCache>::handle(&**self)
     }
 
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
-        <dyn CompiledContractCache>::put(&**self, key, value)
+        <dyn ContractRuntimeCache>::put(&**self, key, value)
     }
 
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        <dyn CompiledContractCache>::get(&**self, key)
+        <dyn ContractRuntimeCache>::get(&**self, key)
     }
 
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        <dyn CompiledContractCache>::has(&**self, key)
+        <dyn ContractRuntimeCache>::has(&**self, key)
     }
 }
 
-impl<C: CompiledContractCache> CompiledContractCache for &C {
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
-        <C as CompiledContractCache>::handle(self)
+impl<C: ContractRuntimeCache> ContractRuntimeCache for &C {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        <C as ContractRuntimeCache>::handle(self)
     }
 
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
-        <C as CompiledContractCache>::put(self, key, value)
+        <C as ContractRuntimeCache>::put(self, key, value)
     }
 
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
-        <C as CompiledContractCache>::get(self, key)
+        <C as ContractRuntimeCache>::get(self, key)
     }
 
     fn has(&self, key: &CryptoHash) -> std::io::Result<bool> {
-        <C as CompiledContractCache>::has(self, key)
+        <C as ContractRuntimeCache>::has(self, key)
     }
 }
 
 #[derive(Default, Clone)]
-pub struct MockCompiledContractCache {
+pub struct MockContractRuntimeCache {
     store: Arc<Mutex<HashMap<CryptoHash, CompiledContract>>>,
 }
 
-impl MockCompiledContractCache {
+impl MockContractRuntimeCache {
     pub fn len(&self) -> usize {
         self.store.lock().unwrap().len()
     }
 }
 
-impl CompiledContractCache for MockCompiledContractCache {
+impl ContractRuntimeCache for MockContractRuntimeCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         self.store.lock().unwrap().insert(*key, value);
         Ok(())
@@ -147,12 +151,12 @@ impl CompiledContractCache for MockCompiledContractCache {
         Ok(self.store.lock().unwrap().get(key).map(Clone::clone))
     }
 
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
 }
 
-impl fmt::Debug for MockCompiledContractCache {
+impl fmt::Debug for MockContractRuntimeCache {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let guard = self.store.lock().unwrap();
         let hm: &HashMap<_, _> = &*guard;
@@ -172,16 +176,17 @@ impl fmt::Debug for MockCompiledContractCache {
 /// a file that has been written to the cache before (`put` an empty buffer), the file will remain
 /// in place until an operator (or somebody else) removes files at their own discretion.
 #[derive(Clone)]
-pub struct FilesystemCompiledContractCache {
-    state: Arc<FilesystemCompiledContractCacheState>,
+pub struct FilesystemContractRuntimeCache {
+    state: Arc<FilesystemContractRuntimeCacheState>,
 }
 
-struct FilesystemCompiledContractCacheState {
+struct FilesystemContractRuntimeCacheState {
     dir: rustix::fd::OwnedFd,
+    any_cache: AnyCache,
     test_temp_dir: Option<tempfile::TempDir>,
 }
 
-impl FilesystemCompiledContractCache {
+impl FilesystemContractRuntimeCache {
     pub fn new<SP: AsRef<std::path::Path> + ?Sized>(
         home_dir: &std::path::Path,
         store_path: Option<&SP>,
@@ -197,8 +202,13 @@ impl FilesystemCompiledContractCache {
             path = %path.display(),
             message = "opened a contract executable cache directory"
         );
+        let any_cache = AnyCache::clone(&ZERO_ANY_CACHE);
         Ok(Self {
-            state: Arc::new(FilesystemCompiledContractCacheState { dir, test_temp_dir: None }),
+            state: Arc::new(FilesystemContractRuntimeCacheState {
+                dir,
+                any_cache,
+                test_temp_dir: None,
+            }),
         })
     }
 
@@ -207,6 +217,21 @@ impl FilesystemCompiledContractCache {
         let mut cache = Self::new(tempdir.path(), None::<&str>)?;
         Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
         Ok(cache)
+    }
+
+    /// Set-up a `size` element in-memory cache.
+    ///
+    /// This cache is usually used to store loaded artifacts, but data stored can really be
+    /// anything and depends on the specific VM kind.
+    pub fn with_memory_cache(self, size: usize) -> Self {
+        // Maybe add a builder?
+        let state = Arc::into_inner(self.state).expect(
+            "with_memory_cache may only be called on unique FilesystemContractRuntimeCaches",
+        );
+        Self { state: Arc::new(FilesystemContractRuntimeCacheState {
+            any_cache: AnyCache::new(size),
+            ..state
+        }) }
     }
 }
 
@@ -221,15 +246,19 @@ const ERROR_TAG: u8 = 0b00001010;
 const CODE_TAG: u8 = 0b10010101;
 
 /// Cache for compiled contracts code in plain filesystem.
-impl CompiledContractCache for FilesystemCompiledContractCache {
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
+impl ContractRuntimeCache for FilesystemContractRuntimeCache {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
+    }
+
+    fn memory_cache(&self) -> AnyCache {
+        AnyCache::clone(&self.state.any_cache)
     }
 
     #[tracing::instrument(
         level = "trace",
         target = "vm",
-        "FilesystemCompiledContractCache::put",
+        "FilesystemContractRuntimeCache::put",
         skip_all,
         fields(key = key.to_string(), value.len = value.debug_len()),
     )]
@@ -267,7 +296,7 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
     #[tracing::instrument(
         level = "trace",
         target = "vm",
-        "FilesystemCompiledContractCache::get",
+        "FilesystemContractRuntimeCache::get",
         skip_all,
         fields(key = key.to_string()),
     )]
@@ -312,13 +341,45 @@ impl CompiledContractCache for FilesystemCompiledContractCache {
     }
 }
 
+/// Cache that can store instances of any type, keyed by a CryptoHash.
+///
+/// Used primarily for storage of artifacts on a per-VM basis.
+#[derive(Clone)]
+pub struct AnyCache {
+    cache: Arc<Mutex<lru::LruCache<CryptoHash, Arc<dyn Any + Send + Sync>>>>,
+}
+
+impl AnyCache {
+    fn new(size: usize) -> Self {
+        Self { cache: Arc::new(Mutex::new(lru::LruCache::new(size))) }
+    }
+
+    /// Lookup the key in the cache. If not found, invokes the closure to construct the element.
+    pub fn lookup_or(
+        &self,
+        key: CryptoHash,
+        generate: &dyn Fn() -> Arc<dyn Any + Send + Sync>,
+    ) -> Arc<dyn Any + Send + Sync> {
+        // SAFETY: We do not store intermediate modifications to the state at any point during the
+        // execution of the callback. Thus the state of the cache data structure is always well
+        // formed.
+        let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        // get_or_insert only returns None when the cache size is 0, in which case for our uses we
+        // want to generate the value anyway...
+        guard.get_or_insert(key, generate).cloned().unwrap_or_else(generate)
+    }
+}
+
+static ZERO_ANY_CACHE: once_cell::sync::Lazy<AnyCache> =
+    once_cell::sync::Lazy::new(|| AnyCache::new(0));
+
 /// Precompiles contract for the current default VM, and stores result to the cache.
 /// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
 /// is already in the cache, or if cache is `None`.
 pub fn precompile_contract(
     code: &ContractCode,
     config: &Config,
-    cache: Option<&dyn CompiledContractCache>,
+    cache: Option<&dyn ContractRuntimeCache>,
 ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError> {
     let _span = tracing::debug_span!(target: "vm", "precompile_contract").entered();
     let vm_kind = config.vm_kind;

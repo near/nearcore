@@ -4520,6 +4520,7 @@ dependencies = [
  "expect-test",
  "finite-wasm",
  "hex",
+ "lru",
  "memoffset 0.8.0",
  "near-crypto",
  "near-parameters",

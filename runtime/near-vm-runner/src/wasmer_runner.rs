@@ -8,7 +8,7 @@ use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+    get_contract_cache_key, imports, CompiledContract, ContractCode, ContractRuntimeCache,
 };
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
@@ -260,7 +260,7 @@ impl Wasmer0VM {
     pub(crate) fn compile_and_cache(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let module_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(code, &self.config);
@@ -285,7 +285,7 @@ impl Wasmer0VM {
     pub(crate) fn compile_and_load(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
 
@@ -348,7 +348,7 @@ impl crate::runner::VM for Wasmer0VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
@@ -413,7 +413,7 @@ impl crate::runner::VM for Wasmer0VM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn CompiledContractCache,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,
