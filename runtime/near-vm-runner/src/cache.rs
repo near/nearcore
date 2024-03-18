@@ -9,7 +9,6 @@ use near_primitives_core::hash::CryptoHash;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, BorshSerialize)]
@@ -76,6 +75,10 @@ impl CompiledContractCache for MockCompiledContractCache {
 
     fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         Ok(self.store.lock().unwrap().get(key).map(Clone::clone))
+    }
+
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
     }
 }
 
@@ -149,6 +152,10 @@ const CODE_TAG: u8 = 0b10010101;
 
 /// Cache for compiled contracts code in plain filesystem.
 impl CompiledContractCache for FilesystemCompiledContractCache {
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
+    }
+
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         use rustix::fs::{Mode, OFlags};
         let final_filename = key.to_string();

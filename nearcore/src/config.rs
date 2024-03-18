@@ -644,7 +644,7 @@ impl NightshadeRuntime {
             FilesystemCompiledContractCache::new(home_dir, config.config.store.path.as_ref())?;
         Ok(NightshadeRuntime::new(
             store,
-            contract_cache,
+            near_vm_runner::logic::CompiledContractCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,

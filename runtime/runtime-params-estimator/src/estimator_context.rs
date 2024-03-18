@@ -96,7 +96,7 @@ impl<'c> EstimatorContext<'c> {
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
-        let cache = FilesystemCompiledContractCache::new(&workdir, None::<&str>)
+        let cache = FilesystemCompiledContractCache::new(workdir.path(), None::<&str>)
             .expect("create contract cache");
 
         Testbed {

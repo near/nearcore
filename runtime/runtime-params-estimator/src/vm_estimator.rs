@@ -64,6 +64,10 @@ impl CompiledContractCache for MockCompiledContractCache {
     fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
         Ok(None)
     }
+
+    fn handle(&self) -> Box<dyn CompiledContractCache> {
+        Box::new(self.clone())
+    }
 }
 
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
