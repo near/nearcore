@@ -98,7 +98,7 @@ impl Client {
     /// It computes the round-trip time between sending the state witness and receiving
     /// the ack message and updates the corresponding metric with it.
     /// Currently we do not raise an error for handling of witness-ack messages,
-    //  as it is used only for tracking some networking metrics only.
+    //  as it is used only for tracking some networking metrics.
     pub fn process_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) -> () {
         self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
