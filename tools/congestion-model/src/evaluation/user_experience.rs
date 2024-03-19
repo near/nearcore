@@ -3,10 +3,10 @@ use crate::{Model, Round, Transaction, TransactionStatus};
 #[derive(Debug, Clone)]
 pub struct UserExperience {
     pub successful_tx_delay_avg: Round,
-    pub successful_tx_delay_mean: Round,
+    pub successful_tx_delay_median: Round,
     pub successful_tx_delay_90th_percentile: Round,
     pub rejected_tx_delay_avg: Round,
-    pub rejected_tx_delay_mean: Round,
+    pub rejected_tx_delay_median: Round,
     pub rejected_tx_delay_90th_percentile: Round,
     pub unresolved_transactions: u64,
 }
@@ -31,10 +31,10 @@ impl Model {
 
         UserExperience {
             successful_tx_delay_avg: avg(&successful_delays),
-            successful_tx_delay_mean: percentile(&successful_delays, 50),
+            successful_tx_delay_median: percentile(&successful_delays, 50),
             successful_tx_delay_90th_percentile: percentile(&successful_delays, 90),
             rejected_tx_delay_avg: avg(&rejected_delays),
-            rejected_tx_delay_mean: percentile(&rejected_delays, 50),
+            rejected_tx_delay_median: percentile(&rejected_delays, 50),
             rejected_tx_delay_90th_percentile: percentile(&rejected_delays, 90),
             unresolved_transactions,
         }

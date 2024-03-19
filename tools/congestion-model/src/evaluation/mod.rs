@@ -75,10 +75,10 @@ impl Model {
         }
 
         stats_writer.write_field("successful_tx_delay_avg").unwrap();
-        stats_writer.write_field("successful_tx_delay_mean").unwrap();
+        stats_writer.write_field("successful_tx_delay_median").unwrap();
         stats_writer.write_field("successful_tx_delay_90th_percentile").unwrap();
         stats_writer.write_field("rejected_tx_delay_avg").unwrap();
-        stats_writer.write_field("rejected_tx_delay_mean").unwrap();
+        stats_writer.write_field("rejected_tx_delay_median").unwrap();
         stats_writer.write_field("rejected_tx_delay_90th_percentile").unwrap();
         stats_writer.write_field("unresolved_transactions").unwrap();
 
@@ -115,10 +115,10 @@ impl Model {
 
         let user_exp = self.user_experience();
         stats_writer.write_field(user_exp.successful_tx_delay_avg.to_string()).unwrap();
-        stats_writer.write_field(user_exp.successful_tx_delay_mean.to_string()).unwrap();
+        stats_writer.write_field(user_exp.successful_tx_delay_median.to_string()).unwrap();
         stats_writer.write_field(user_exp.successful_tx_delay_90th_percentile.to_string()).unwrap();
         stats_writer.write_field(user_exp.rejected_tx_delay_avg.to_string()).unwrap();
-        stats_writer.write_field(user_exp.rejected_tx_delay_mean.to_string()).unwrap();
+        stats_writer.write_field(user_exp.rejected_tx_delay_median.to_string()).unwrap();
         stats_writer.write_field(user_exp.rejected_tx_delay_90th_percentile.to_string()).unwrap();
         stats_writer.write_field(user_exp.unresolved_transactions.to_string()).unwrap();
 
