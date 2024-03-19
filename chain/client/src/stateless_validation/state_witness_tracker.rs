@@ -36,6 +36,7 @@ pub struct ChunkStateWitnessRecord {
 }
 
 /// Tracks a collection of state witnesses sent from chunk producers to validators.
+///
 /// This is currently used to calculate the round-trip time of sending the witness and
 /// getting the ack message back, where the ack message is used as a proxy for the endorsement
 /// message from validators to block producers to make an estimate of network time for sending
