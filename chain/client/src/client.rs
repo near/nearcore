@@ -407,7 +407,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
-            state_witness_tracker: ChunkStateWitnessTracker::new(clock.clone()),
+            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             chunk_distribution_network,
         })
     }
