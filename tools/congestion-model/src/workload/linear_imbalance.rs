@@ -16,8 +16,10 @@ use super::{utils, Producer};
 ///
 /// As an actual formula, it looks like this:
 ///
-///     receipts_per_round(shard_id) =
-///         2 * (shard_id + 1) * (GAS_LIMIT / GAS_PER_RECEIPT) / NUM_SHARDS
+/// ```ignore
+/// receipts_per_round(shard_id) =
+///     2 * (shard_id + 1) * (GAS_LIMIT / GAS_PER_RECEIPT) / NUM_SHARDS
+/// ```
 pub struct LinearImbalanceProducer {
     pub receipt_size: u64,
     pub attached_gas: GGas,
