@@ -204,17 +204,20 @@ impl TrafficLight {
 
         let amber = self.amber_gas_queue_limit;
         let red = self.red_gas_queue_limit;
-        match incoming_gas_queued {
-            gas if gas < amber => TrafficLightStatus::Green,
-            gas if gas < red => TrafficLightStatus::Amber,
-            _else => self.red(ctx.block_height()),
+        if incoming_gas_queued < amber {
+            TrafficLightStatus::Green
+        } else if incoming_gas_queued < red {
+            TrafficLightStatus::Amber
+        } else {
+            self.red(ctx.block_height())
         }
     }
 
     fn red(&self, round: Round) -> TrafficLightStatus {
         // use simple round-robin, it gives good fairness and is stateless
         TrafficLightStatus::Red {
-            allowed_shard: self.all_shards[round as usize % self.all_shards.len()],
+            allowed_shard: self.all_shards
+                [(round as usize + *self.shard_id.unwrap()) % self.all_shards.len()],
         }
     }
 }
