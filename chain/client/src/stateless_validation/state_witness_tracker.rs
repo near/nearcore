@@ -1,11 +1,11 @@
-use borsh::{BorshDeserialize, BorshSerialize};
-use lru::LruCache;
-use std::hash::Hash;
-use bytesize::ByteSize;
 use crate::metrics;
+use borsh::{BorshDeserialize, BorshSerialize};
+use bytesize::ByteSize;
+use lru::LruCache;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessAck};
+use std::hash::Hash;
 
 /// Limit to the number of witnesses tracked.
 ///
@@ -79,16 +79,23 @@ impl ChunkStateWitnessTracker {
         let key = ChunkStateWitnessKey { chunk_hash: ack.chunk_hash };
         tracing::trace!(target: "state_witness_tracker", "Received ack for state witness: {:?}",
             key.chunk_hash);
-        if let Some(mut record) = self.witnesses.pop(&key) {
+        if let Some(record) = self.witnesses.get_mut(&key) {
             debug_assert!(record.num_validators > 0);
 
-            Self::update_roundtrip_time_metric(&record, &self.clock);
+            Self::update_roundtrip_time_metric(record, &self.clock);
 
-            // Cleanup the record if we received the acks from all the validators.
-            if let Some(remaining) = record.num_validators.checked_sub(1) {
-                if remaining > 0 {
-                    record.num_validators = remaining;
-                    self.witnesses.put(key.clone(), record);
+            // Cleanup the record if we received the acks from all the validators, otherwise update
+            // the number of validators from which we are expecting an ack message.
+            match record.num_validators.checked_sub(1) {
+                Some(remaining) => {
+                    if remaining > 0 {
+                        record.num_validators = remaining;
+                    } else {
+                        self.witnesses.pop(&key);
+                    }
+                }
+                None => {
+                    self.witnesses.pop(&key);
                 }
             }
         }
