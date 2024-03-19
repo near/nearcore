@@ -599,7 +599,7 @@ pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: Lazy<HistogramVec>
             "Time in seconds between sending state witness through the network to chunk producer \
                and receiving the corresponding ack message",
             &["witness_size_bucket"],
-            Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
         )
         .unwrap()
     });

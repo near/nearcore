@@ -37,8 +37,9 @@ use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
-    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage,
+    ChunkStateWitnessMessage, ClientSenderForNetwork, ClientSenderForNetworkMessage,
+    ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_loop::SupportsRoutingLookup;
@@ -48,6 +49,7 @@ use near_network::types::{
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
+use near_primitives::stateless_validation::ChunkStateWitnessAck;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, AccountInfo};
@@ -538,6 +540,17 @@ pub fn route_network_messages_to_client<
                                 "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
                                 other_idxes, idx);
                         }
+                    }
+                }
+                NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        drop(
+                            client_senders[other_idx]
+                                .send_async(ChunkStateWitnessAckMessage(witness_ack)),
+                        );
+                    } else {
+                        tracing::warn!("Dropping state-witness-ack message to self");
                     }
                 }
                 // TODO: Support more network message types as we expand the test.

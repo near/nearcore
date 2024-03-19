@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use lru::LruCache;
 use std::hash::Hash;
-
+use bytesize::ByteSize;
 use crate::metrics;
 use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
@@ -12,12 +12,14 @@ use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitness
 /// Other witnesses past this number are discarded (perhaps add a blurb on how.)
 const CHUNK_STATE_WITNESS_MAX_RECORD_COUNT: usize = 50;
 
-/// Refers to a state witness sent to a chunk producer. Used to locate incoming acknowledgement
-/// messages back to the timing information of the originating witness.
+/// Refers to a state witness sent from a chunk producer to a chunk validator.
+///
+/// Used to map the incoming acknowledgement messages back to the timing information of
+/// the originating witness record.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkStateWitnessKey {
+struct ChunkStateWitnessKey {
     /// Hash of the chunk for which the state witness was generated.
-    pub chunk_hash: ChunkHash,
+    chunk_hash: ChunkHash,
 }
 
 impl ChunkStateWitnessKey {
@@ -26,13 +28,13 @@ impl ChunkStateWitnessKey {
     }
 }
 
-pub struct ChunkStateWitnessRecord {
+struct ChunkStateWitnessRecord {
     /// Size of the witness in bytes.
-    pub witness_size: usize,
+    witness_size: usize,
     /// Number of validators that the witness is sent to.
-    pub num_validators: usize,
+    num_validators: usize,
     /// Timestamp of when the chunk producer sends the state witness.
-    pub sent_timestamp: near_async::time::Instant,
+    sent_timestamp: near_async::time::Instant,
 }
 
 /// Tracks a collection of state witnesses sent from chunk producers to validators.
@@ -75,10 +77,10 @@ impl ChunkStateWitnessTracker {
     /// records it in the corresponding metric.
     pub fn on_witness_ack_received(&mut self, ack: ChunkStateWitnessAck) -> () {
         let key = ChunkStateWitnessKey { chunk_hash: ack.chunk_hash };
-        tracing::debug!(target: "state_witness_tracker", "Received ack for state witness: {:?}",
+        tracing::trace!(target: "state_witness_tracker", "Received ack for state witness: {:?}",
             key.chunk_hash);
         if let Some(mut record) = self.witnesses.pop(&key) {
-            assert!(record.num_validators > 0);
+            debug_assert!(record.num_validators > 0);
 
             Self::update_roundtrip_time_metric(&record, &self.clock);
 
@@ -108,29 +110,29 @@ impl ChunkStateWitnessTracker {
         witness: &ChunkStateWitness,
     ) -> Option<&ChunkStateWitnessRecord> {
         let key = ChunkStateWitnessKey::new(witness);
-        return self.witnesses.get(&key);
+        self.witnesses.get(&key)
     }
 }
 
 /// Buckets for state-witness size.
 // TODO: Use size::Size to represent sizes.
-static SIZE_IN_BYTES_TO_BUCKET: &'static [(usize, &str)] = &[
-    (1_000, "<1KB"),
-    (10_000, "1-10KB"),
-    (100_000, "10-100KB"),
-    (1_000_000, "100KB-1MB"),
-    (2_000_000, "1-2MB"),
-    (3_000_000, "2-3MB"),
-    (4_000_000, "3-4MB"),
-    (5_000_000, "4-5MB"),
-    (10_000_000, "5-10MB"),
-    (20_000_000, "10-20MB"),
+static SIZE_IN_BYTES_TO_BUCKET: &'static [(ByteSize, &str)] = &[
+    (ByteSize::kb(1), "<1KB"),
+    (ByteSize::kb(10), "1-10KB"),
+    (ByteSize::kb(100), "10-100KB"),
+    (ByteSize::mb(1), "100KB-1MB"),
+    (ByteSize::mb(2), "1-2MB"),
+    (ByteSize::mb(3), "2-3MB"),
+    (ByteSize::mb(4), "3-4MB"),
+    (ByteSize::mb(5), "4-5MB"),
+    (ByteSize::mb(10), "5-10MB"),
+    (ByteSize::mb(20), "10-20MB"),
 ];
 
 /// Returns the string representation of the size buckets for a given witness size in bytes.
 fn witness_size_bucket(size_in_bytes: usize) -> &'static str {
     for (upper_size, label) in SIZE_IN_BYTES_TO_BUCKET.iter() {
-        if size_in_bytes < *upper_size {
+        if size_in_bytes < upper_size.as_u64() as usize {
             return *label;
         }
     }

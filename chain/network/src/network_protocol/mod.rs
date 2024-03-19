@@ -600,7 +600,6 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
             RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
             RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
-            // TODO(#10790): Also print the chunk hash.
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
                 write!(f, "ChunkStateWitnessAck({})", ack.chunk_hash.0)
             }
