@@ -644,7 +644,7 @@ impl Client {
         // This is currently used for network roundtrip time measurement, so we do not need to
         // wait for validation to finish.
         if let Err(err) = self.send_state_witness_ack(&witness) {
-            tracing::warn!(target: "stateless_validation", ?err,
+            tracing::warn!(target: "stateless_validation", error = &err as &dyn std::error::Error,
                 "Error sending chunk state witness acknowledgement");
         }
 

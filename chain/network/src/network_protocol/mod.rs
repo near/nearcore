@@ -601,7 +601,7 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
             RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
-                f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash);
+                f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()
             }
         }
     }
