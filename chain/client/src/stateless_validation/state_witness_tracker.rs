@@ -61,8 +61,8 @@ impl ChunkStateWitnessTracker {
         num_validators: usize,
     ) -> () {
         let key = ChunkStateWitnessKey::new(witness);
-        tracing::trace!(target: "state_witness_tracker", "Sent state witness: {:?} of {} bytes",
-            witness.inner.chunk_header.chunk_hash(), witness_size_in_bytes);
+        tracing::trace!(target: "state_witness_tracker", witness_key=?key,
+            size=witness_size_in_bytes, "Recording state witness sent.");
         self.witnesses.put(
             key,
             ChunkStateWitnessRecord {
@@ -77,8 +77,8 @@ impl ChunkStateWitnessTracker {
     /// records it in the corresponding metric.
     pub fn on_witness_ack_received(&mut self, ack: ChunkStateWitnessAck) -> () {
         let key = ChunkStateWitnessKey { chunk_hash: ack.chunk_hash };
-        tracing::trace!(target: "state_witness_tracker", "Received ack for state witness: {:?}",
-            key.chunk_hash);
+        tracing::trace!(target: "state_witness_tracker", witness_key=?key,
+            "Received ack for state witness");
         if let Some(record) = self.witnesses.get_mut(&key) {
             debug_assert!(record.num_validators > 0);
 
@@ -105,9 +105,9 @@ impl ChunkStateWitnessTracker {
     fn update_roundtrip_time_metric(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
         let received_time = clock.now();
         if received_time > record.sent_timestamp {
-            metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
+            metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME_MS
                 .with_label_values(&[witness_size_bucket(record.witness_size)])
-                .observe((received_time - record.sent_timestamp).as_seconds_f64());
+                .observe((received_time - record.sent_timestamp).whole_milliseconds() as f64);
         }
     }
 
