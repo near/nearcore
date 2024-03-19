@@ -354,7 +354,11 @@ pub trait ChainStoreAccess {
         let mut shard_id = shard_id;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
-            if block_header.chunk_mask()[shard_id as usize] {
+            if *block_header
+                .chunk_mask()
+                .get(shard_id as usize)
+                .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+            {
                 break Ok(block_header.epoch_id().clone());
             }
             candidate_hash = *block_header.prev_hash();
