@@ -31,7 +31,7 @@ pub trait Instantiatable: Artifact {
 ///
 /// Some other operations such as linking, relocating and similar may also be performed during
 /// constructon of the Artifact, making this type particularly well suited for caching in-memory.
-pub trait Artifact: Send {
+pub trait Artifact: Send + Sync {
     /// The information about offsets into the VM context table.
     fn offsets(&self) -> &crate::VMOffsets;
 

@@ -16,7 +16,8 @@ use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
-    LimitedMemoryPool, Universal, UniversalEngine, UniversalExecutable, UniversalExecutableRef,
+    LimitedMemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
+    UniversalExecutableRef,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
 use near_vm_vm::{
@@ -26,6 +27,8 @@ use std::borrow::Cow;
 use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::{Arc, OnceLock};
+
+type VMArtifact = Arc<UniversalArtifact>;
 
 #[derive(Clone)]
 pub struct NearVmMemory(Arc<LinearMemory>);
@@ -122,7 +125,7 @@ impl MemoryLike for NearVmMemory {
 }
 
 fn get_entrypoint_index(
-    artifact: &near_vm_engine::universal::UniversalArtifact,
+    artifact: &UniversalArtifact,
     method_name: &str,
 ) -> Result<FunctionIndex, FunctionCallError> {
     if method_name.is_empty() {
@@ -224,8 +227,6 @@ const VM_CONFIG: NearVmConfig = NearVmConfig {
 pub(crate) fn near_vm_vm_hash() -> u64 {
     VM_CONFIG.config_hash()
 }
-
-pub(crate) type VMArtifact = Arc<near_vm_engine::universal::UniversalArtifact>;
 
 pub(crate) struct NearVM {
     pub(crate) config: Config,
@@ -337,11 +338,12 @@ impl NearVM {
     }
 
     #[tracing::instrument(level = "debug", target = "vm", "NearVM::compile_and_load", skip_all)]
-    fn compile_and_load(
+    fn with_compiled_and_loaded<R>(
         &self,
         code: &ContractCode,
         cache: &dyn ContractRuntimeCache,
-    ) -> VMResult<Result<VMArtifact, CompilationError>> {
+        closure: impl FnOnce(&VMArtifact) -> R,
+    ) -> VMResult<Result<R, CompilationError>> {
         type MemoryCacheType = Result<VMArtifact, CompilationError>;
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(code, &self.config);
@@ -404,7 +406,7 @@ impl NearVM {
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
                 match &*downcast {
-                    Ok(artifact) => Ok(VMArtifact::clone(artifact)),
+                    Ok(artifact) => Ok(closure(artifact)),
                     Err(e) => Err(CompilationError::clone(e)),
                 }
             },
@@ -688,32 +690,41 @@ impl crate::runner::VM for NearVM {
         let vmmemory = memory.vm();
         let mut logic =
             VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
-
         let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
 
         let cache = cache.unwrap_or(&NoContractRuntimeCache);
-        let artifact = self.compile_and_load(code, cache)?;
-        let artifact = match artifact {
-            Ok(it) => it,
+        enum Outcome<E> {
+            Ok,
+            Abort(E),
+            AbortButNopOutcomeInOldProtocol(E),
+        }
+        let result = self.with_compiled_and_loaded(code, cache, |artifact| {
+            let result = logic.after_loading_executable(code.code().len());
+            if let Err(e) = result {
+                return Ok(Outcome::Abort(e));
+            }
+            let import = imports::near_vm::build(vmmemory, &mut logic, artifact.engine());
+            if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
+                return Ok(Outcome::AbortButNopOutcomeInOldProtocol(e));
+            }
+            match self.run_method(&artifact, import, method_name)? {
+                Ok(()) => Ok(Outcome::Ok),
+                Err(err) => Ok(Outcome::Abort(err)),
+            }
+        })?;
+        match result {
+            Ok(Ok(Outcome::Ok)) => Ok(VMOutcome::ok(logic)),
+            Ok(Ok(Outcome::Abort(e))) => Ok(VMOutcome::abort(logic, e)),
+            Ok(Ok(Outcome::AbortButNopOutcomeInOldProtocol(e))) => {
+                Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e))
+            }
+            Ok(Err(e)) => Err(e),
             Err(err) => {
                 return Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(err)));
             }
-        };
-
-        let result = logic.after_loading_executable(code.code().len());
-        if let Err(e) = result {
-            return Ok(VMOutcome::abort(logic, e));
-        }
-        let import = imports::near_vm::build(vmmemory, &mut logic, artifact.engine());
-        if let Err(e) = get_entrypoint_index(&*artifact, method_name) {
-            return Ok(VMOutcome::abort_but_nop_outcome_in_old_protocol(logic, e));
-        }
-        match self.run_method(&artifact, import, method_name)? {
-            Ok(()) => Ok(VMOutcome::ok(logic)),
-            Err(err) => Ok(VMOutcome::abort(logic, err)),
         }
     }
 
