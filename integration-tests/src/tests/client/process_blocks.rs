@@ -3381,7 +3381,7 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
     use near_store::TrieUpdate;
-    use near_vm_runner::logic::CompiledContractCache;
+    use near_vm_runner::CompiledContractCache;
     use near_vm_runner::{get_contract_cache_key, ContractCode, FilesystemCompiledContractCache};
     use node_runtime::state_viewer::TrieViewer;
 

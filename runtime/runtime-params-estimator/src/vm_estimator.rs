@@ -7,8 +7,9 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
-use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::{ContractCode, FilesystemCompiledContractCache};
+use near_vm_runner::{
+    CompiledContract, CompiledContractCache, ContractCode, FilesystemCompiledContractCache,
+};
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";

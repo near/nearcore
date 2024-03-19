@@ -48,7 +48,7 @@ use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::StateSnapshotType;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
-use near_vm_runner::FilesystemCompiledContractCache;
+use near_vm_runner::{CompiledContractCache, FilesystemCompiledContractCache};
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -640,7 +640,7 @@ impl NightshadeRuntime {
             FilesystemCompiledContractCache::new(home_dir, config.config.store.path.as_ref())?;
         Ok(NightshadeRuntime::new(
             store,
-            near_vm_runner::logic::CompiledContractCache::handle(&contract_cache),
+            CompiledContractCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,

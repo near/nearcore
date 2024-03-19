@@ -48,9 +48,9 @@ use near_store::{
 };
 use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
-use near_vm_runner::logic::CompiledContractCache;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
+use near_vm_runner::CompiledContractCache;
 use near_vm_runner::ContractCode;
 use near_vm_runner::ProfileDataV3;
 use std::cmp::max;

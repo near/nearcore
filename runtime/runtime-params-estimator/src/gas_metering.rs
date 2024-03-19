@@ -5,8 +5,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::{ContractCode, FilesystemCompiledContractCache};
+use near_vm_runner::{CompiledContractCache, ContractCode, FilesystemCompiledContractCache};
 use std::fmt::Write;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
