@@ -19,6 +19,9 @@ class NodeHandle:
     def ip_addr(self):
         return self.node.ip_addr()
 
+    def neard_port(self):
+        return self.node.neard_port()
+
     def stop_neard_runner(self):
         self.node.stop_neard_runner()
 
@@ -79,7 +82,8 @@ class NodeHandle:
         return self.neard_runner_jsonrpc('stop')
 
     def neard_runner_new_test(self):
-        return self.neard_runner_jsonrpc('new_test')
+        params = self.node.new_test_params()
+        return self.neard_runner_jsonrpc('new_test', params)
 
     def neard_runner_network_init(self, validators, boot_nodes, epoch_length,
                                   num_seats, protocol_version):

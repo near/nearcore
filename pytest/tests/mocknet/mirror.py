@@ -13,6 +13,7 @@ import time
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
 from configured_logger import logger
+import local_test_node
 import remote_node
 
 
@@ -266,7 +267,7 @@ def start_traffic_cmd(args, traffic_generator, nodes):
     time.sleep(10)
     traffic_generator.neard_runner_start()
     logger.info(
-        f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:3030/metrics | grep near_mirror"'
+        f'test running. to check the traffic sent, try running "curl --silent http://{traffic_generator.ip_addr()}:{traffic_generator.neard_port()}/metrics | grep near_mirror"'
     )
 
 
@@ -277,9 +278,10 @@ def update_binaries_cmd(args, traffic_generator, nodes):
 
 if __name__ == '__main__':
     parser = ArgumentParser(description='Run a load test')
-    parser.add_argument('--chain-id', type=str, required=True)
-    parser.add_argument('--start-height', type=int, required=True)
-    parser.add_argument('--unique-id', type=str, required=True)
+    parser.add_argument('--chain-id', type=str)
+    parser.add_argument('--start-height', type=int)
+    parser.add_argument('--unique-id', type=str)
+    parser.add_argument('--local-test', action='store_true')
 
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands',
@@ -385,7 +387,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    traffic_generator, nodes = remote_node.get_nodes(args.chain_id,
-                                                     args.start_height,
-                                                     args.unique_id)
+    if args.local_test:
+        if args.chain_id is not None or args.start_height is not None or args.unique_id is not None:
+            sys.exit(
+                f'cannot give --chain-id --start-height or --unique-id along with --local-test'
+            )
+        traffic_generator, nodes = local_test_node.get_nodes()
+    else:
+        if args.chain_id is None or args.start_height is None or args.unique_id is None:
+            sys.exit(
+                f'must give all of --chain-id --start-height and --unique-id')
+        traffic_generator, nodes = remote_node.get_nodes(
+            args.chain_id, args.start_height, args.unique_id)
     args.func(args, traffic_generator, nodes)

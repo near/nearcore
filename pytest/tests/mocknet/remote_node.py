@@ -24,6 +24,9 @@ class RemoteNeardRunner:
     def ip_addr(self):
         return self.node.machine.ip
 
+    def neard_port(self):
+        return 3030
+
     def init(self):
         cmd_utils.init_node(self.node)
 
@@ -73,6 +76,9 @@ class RemoteNeardRunner:
         body = body.replace("'", "'\"'\"'")
         r = cmd_utils.run_cmd(self.node, f'curl localhost:3000 -d \'{body}\'')
         return json.loads(r.stdout)
+
+    def new_test_params(self):
+        return []
 
     def get_validators(self):
         return self.node.get_validators()
