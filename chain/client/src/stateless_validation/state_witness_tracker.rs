@@ -59,7 +59,7 @@ impl ChunkStateWitnessTracker {
         num_validators: usize,
     ) -> () {
         let key = ChunkStateWitnessKey::new(witness);
-        tracing::debug!(target: "state_witness_tracker", "Sent state witness: {:?} of {} bytes",
+        tracing::trace!(target: "state_witness_tracker", "Sent state witness: {:?} of {} bytes",
             witness.inner.chunk_header.chunk_hash(), witness_size_in_bytes);
         self.witnesses.put(
             key,
