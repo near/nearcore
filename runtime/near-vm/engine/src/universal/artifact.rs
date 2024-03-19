@@ -40,7 +40,6 @@ pub struct UniversalArtifact {
     pub(crate) local_globals: Vec<(GlobalType, GlobalInit)>,
 }
 
-
 // FIXME SAFETY: this is probably unsound in principle -- I don't believe UniversalArtifact is
 // `Sync` necessarily. However our saving grace is that this isn't actually a bound that we need in
 // near protocol at least at the time this is implemented. The only reason this property is

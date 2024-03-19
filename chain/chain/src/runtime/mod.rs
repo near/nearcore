@@ -195,9 +195,8 @@ impl NightshadeRuntime {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
-            FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
+            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
                 .expect("filesystem contract cache")
-                .with_memory_cache(1)
                 .handle(),
             genesis_config,
             epoch_manager,

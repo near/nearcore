@@ -209,6 +209,22 @@ impl FilesystemContractRuntimeCache {
         home_dir: &std::path::Path,
         store_path: Option<&SP>,
     ) -> std::io::Result<Self> {
+        Self::with_memory_cache(home_dir, store_path, 0)
+    }
+
+    /// When setting up a cache of compiled contracts, also set-up a `size` element in-memory
+    /// cache.
+    ///
+    /// This additional cache is usually used to store loaded artifacts, but data stored can really
+    /// be anything and depends on the specific VM kind.
+    ///
+    /// Note though, that this memory cache is *not* used to additionally cache files from the
+    /// filesystem – OS page cache already does that for us transparently.
+    pub fn with_memory_cache<SP: AsRef<std::path::Path> + ?Sized>(
+        home_dir: &std::path::Path,
+        store_path: Option<&SP>,
+        memory_cache_size: usize,
+    ) -> std::io::Result<Self> {
         let store_path = store_path.map(AsRef::as_ref).unwrap_or_else(|| "data".as_ref());
         let path: std::path::PathBuf =
             [home_dir, store_path, "contracts".as_ref()].into_iter().collect();
@@ -223,7 +239,7 @@ impl FilesystemContractRuntimeCache {
         Ok(Self {
             state: Arc::new(FilesystemContractRuntimeCacheState {
                 dir,
-                any_cache: AnyCache::new(0),
+                any_cache: AnyCache::new(memory_cache_size),
                 test_temp_dir: None,
             }),
         })
@@ -234,23 +250,6 @@ impl FilesystemContractRuntimeCache {
         let mut cache = Self::new(tempdir.path(), None::<&str>)?;
         Arc::get_mut(&mut cache.state).unwrap().test_temp_dir = Some(tempdir);
         Ok(cache)
-    }
-
-    /// Set-up a `size` element in-memory cache.
-    ///
-    /// This cache is usually used to store loaded artifacts, but data stored can really be
-    /// anything and depends on the specific VM kind.
-    pub fn with_memory_cache(self, size: usize) -> Self {
-        // Maybe add a builder?
-        let state = Arc::into_inner(self.state).expect(
-            "with_memory_cache may only be called on unique FilesystemContractRuntimeCaches",
-        );
-        Self {
-            state: Arc::new(FilesystemContractRuntimeCacheState {
-                any_cache: AnyCache::new(size),
-                ..state
-            }),
-        }
     }
 }
 
