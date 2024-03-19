@@ -130,6 +130,10 @@ def restart_cmd(args, traffic_generator, nodes):
     pmap(lambda node: node.start_neard_runner(), all_nodes)
 
 
+def stop_runner_cmd(args, traffic_generator, nodes):
+    pmap(lambda node: node.stop_neard_runner(), nodes + [traffic_generator])
+
+
 # returns boot nodes and validators we want for the new test network
 def get_network_nodes(new_test_rpc_responses, num_validators):
     validators = []
@@ -317,6 +321,10 @@ if __name__ == '__main__':
         help='''Restarts the neard runner on all nodes.''')
     restart_parser.add_argument('--upload-program', action='store_true')
     restart_parser.set_defaults(func=restart_cmd, upload_program=False)
+
+    stop_runner_parser = subparsers.add_parser(
+        'stop-neard-runner', help='''Stops the neard runner on all nodes.''')
+    stop_runner_parser.set_defaults(func=stop_runner_cmd)
 
     hard_reset_parser = subparsers.add_parser(
         'hard-reset',
