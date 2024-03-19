@@ -80,6 +80,9 @@ impl CompiledContract {
 pub trait ContractRuntimeCache: Send + Sync {
     fn handle(&self) -> Box<dyn ContractRuntimeCache>;
     fn memory_cache(&self) -> &AnyCache {
+        // This method returns a reference, so we need to store an instance somewhere.
+        static ZERO_ANY_CACHE: once_cell::sync::Lazy<AnyCache> =
+            once_cell::sync::Lazy::new(|| AnyCache::new(0));
         &ZERO_ANY_CACHE
     }
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()>;
@@ -379,8 +382,49 @@ impl AnyCache {
         }
     }
 
-    /// Lookup the key in the cache. If not found, invokes the closure to construct the element.
-    pub fn try_with_or<E, R>(
+    /// Lookup the key in the cache, generating a new element if absent.
+    ///
+    /// This function accepts two callbacks as an argument: first is a fallible generation
+    /// function which may generate a new value for the cache if there isn't one at the specified
+    /// key; and the second to act on the value that has been found (or generated and placed in the
+    /// cache.)
+    ///
+    /// If the `generate` fails to generate a value, the failure will not be cached, but rather
+    /// returned to the caller of `try_lookup`. The second callback is not called either, as there
+    /// is no value to call it with.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use near_primitives_core::hash::CryptoHash;
+    /// use near_vm_runner::{ContractRuntimeCache, NoContractRuntimeCache};
+    /// use std::path::Path;
+    ///
+    /// let cache = NoContractRuntimeCache;
+    /// let result = cache.memory_cache().try_lookup(CryptoHash::hash_bytes(b"my_key"), || {
+    ///     // The value is not in the cache, (re-)generate a new one by reading from the file
+    ///     // system.
+    ///     match std::fs::read("/this/path/does/not/exist/") {
+    ///         Err(e) => Err(e),
+    ///         Ok(bytes) => Ok(Box::new(bytes)) // : Result<Box<dyn Any...>, std::io::Error>
+    ///     }
+    ///     // If the function above succeeds (returns `Ok`), `Vec<u8>` will end up being stored in
+    ///     // the cache.
+    /// }, |value| {
+    ///     // The value was found in the cache or been just generated successfully. It may not
+    ///     // necessarily be a `Vec` however, since there could've been another call to the cache
+    ///     // that populated this key with a value of a different type.
+    ///     let value: &Vec<u8> = value.downcast_ref()?;
+    ///     // If it turned out to be a Vec after all, clone and return it.
+    ///     Some(Vec::clone(value))
+    /// });
+    /// // Since we were reading a path that does not exist, most likely outcome is for the
+    /// // generation function to fail...
+    /// assert!(result.is_err());
+    /// // However if it was to succeed, the 2nd time this is called, the value would potentially
+    /// // come from the cache.
+    /// ```
+    pub fn try_lookup<E, R>(
         &self,
         key: CryptoHash,
         generate: impl FnOnce() -> Result<Box<AnyCacheValue>, E>,
@@ -399,9 +443,6 @@ impl AnyCache {
         Ok(with(&**value))
     }
 }
-
-static ZERO_ANY_CACHE: once_cell::sync::Lazy<AnyCache> =
-    once_cell::sync::Lazy::new(|| AnyCache::new(0));
 
 /// Precompiles contract for the current default VM, and stores result to the cache.
 /// Returns `Ok(true)` if compiled code was added to the cache, and `Ok(false)` if element
@@ -438,7 +479,7 @@ mod tests {
         let key = CryptoHash::hash_bytes(b"empty");
         cov_mark::check!(any_cache_empty_generate);
         cov_mark::check!(any_cache_empty_with);
-        let result = empty.try_with_or(
+        let result = empty.try_lookup(
             key,
             || {
                 cov_mark::hit!(any_cache_empty_generate);
@@ -460,7 +501,7 @@ mod tests {
         let key = CryptoHash::hash_bytes(b"sized");
         cov_mark::check!(any_cache_sized_generate);
         cov_mark::check!(any_cache_sized_with);
-        let result = empty.try_with_or(
+        let result = empty.try_lookup(
             key,
             || {
                 cov_mark::hit!(any_cache_sized_generate);
@@ -475,7 +516,7 @@ mod tests {
         assert!(matches!(result, Ok("apple")));
 
         cov_mark::check!(any_cache_sized_with2);
-        let result = empty.try_with_or(
+        let result = empty.try_lookup(
             key,
             || unreachable!(),
             |v| {
@@ -492,7 +533,7 @@ mod tests {
         let empty = AnyCache::new(0);
         let key = CryptoHash::hash_bytes(b"errors");
         cov_mark::check!(any_cache_errors_generate);
-        let result = empty.try_with_or(
+        let result = empty.try_lookup(
             key,
             || {
                 cov_mark::hit!(any_cache_errors_generate);
@@ -503,7 +544,7 @@ mod tests {
         assert!(matches!(result, Err("peach")));
         // Doing it again should not cache the error...
         cov_mark::check!(any_cache_errors_generate_two);
-        let result = empty.try_with_or(
+        let result = empty.try_lookup(
             key,
             || {
                 cov_mark::hit!(any_cache_errors_generate_two);

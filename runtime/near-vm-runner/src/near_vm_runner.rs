@@ -337,7 +337,12 @@ impl NearVM {
         Ok(executable_or_error)
     }
 
-    #[tracing::instrument(level = "debug", target = "vm", "NearVM::compile_and_load", skip_all)]
+    #[tracing::instrument(
+        level = "debug",
+        target = "vm",
+        name = "NearVM::with_compiled_and_loaded",
+        skip_all
+    )]
     fn with_compiled_and_loaded<R>(
         &self,
         code: &ContractCode,
@@ -347,7 +352,7 @@ impl NearVM {
         type MemoryCacheType = Result<VMArtifact, CompilationError>;
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
         let key = get_contract_cache_key(code, &self.config);
-        cache.memory_cache().try_with_or(
+        cache.memory_cache().try_lookup(
             key,
             || {
                 // `cache` stores compiled machine code in the database
