@@ -667,7 +667,7 @@ impl Client {
     }
 
     fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
-        // First find the AccountId for the chunk producer and send the ack to that account.
+        // First find the AccountId for the chunk producer and then send the ack to that account.
         let chunk_header = &witness.inner.chunk_header;
         let prev_block_hash = chunk_header.prev_block_hash();
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
