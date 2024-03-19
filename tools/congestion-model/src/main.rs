@@ -133,6 +133,10 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
             // Transform the tx to a small local receipt which produces 3 large receipts to another shard.
             Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 1_000_000], 3))
         }
+        "Extreme Increasing Size" => {
+            // Produce 50 big receipts instead of 3 as in "Increasing Size"
+            Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 2_000_000], 10))
+        }
         "Shard War" => {
             // Each shard transforms one local tx into 4^3 = 64 receipts of 100kB to another shard
             Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 100, 100, 100_000], 4))
@@ -140,6 +144,7 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
         "All To One" => Box::new(AllForOneProducer::one_hop_only()),
         "Indirect All To One" => Box::<AllForOneProducer>::default(),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
+        "Big Linear Imbalance" => Box::new(LinearImbalanceProducer::big_receipts()),
         _ => panic!("unknown workload: {}", workload_name),
     }
 }
@@ -166,10 +171,12 @@ fn parse_workload_names(workload_name: &str) -> Vec<String> {
     let available: Vec<String> = vec![
         "Balanced".to_string(),
         "Increasing Size".to_string(),
+        "Extreme Increasing Size".to_string(),
         "Shard War".to_string(),
         "All To One".to_string(),
         "Indirect All To One".to_string(),
         "Linear Imbalance".to_string(),
+        "Big Linear Imbalance".to_string(),
     ];
 
     if workload_name == "all" {

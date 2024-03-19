@@ -52,7 +52,7 @@ impl Producer for LinearImbalanceProducer {
                         receiver,
                         size: self.receipt_size,
                         attached_gas: self.attached_gas,
-                        execution_gas: self.attached_gas,
+                        execution_gas: self.execution_gas,
                     };
                     let mut tx = tx_factory(sender_id);
                     let main_receipt_id = tx.add_first_receipt(main_receipt, self.conversion_gas);
@@ -63,6 +63,17 @@ impl Producer for LinearImbalanceProducer {
             }
         }
         all_tx
+    }
+}
+
+impl LinearImbalanceProducer {
+    pub fn big_receipts() -> Self {
+        Self {
+            receipt_size: 2_000_000,
+            attached_gas: 5 * TGAS,
+            execution_gas: 5 * TGAS,
+            ..Self::default()
+        }
     }
 }
 
