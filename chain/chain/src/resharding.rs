@@ -22,7 +22,7 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStorageError, FlatStorageManager, FlatStorageReadyStatus,
     FlatStorageStatus,
 };
-use near_store::resharding::{get_delayed_receipts, get_promise_yield_timeouts};
+use near_store::resharding::get_delayed_receipts;
 use near_store::trie::SnapshotError;
 use near_store::{ShardTries, ShardUId, StorageError, Store, Trie, TrieDBStorage, TrieStorage};
 use std::collections::{HashMap, HashSet};
@@ -30,6 +30,9 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
+
+#[cfg(feature = "yield_resume")]
+use near_store::resharding::get_promise_yield_timeouts;
 
 /// ReshardingRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
@@ -168,6 +171,7 @@ fn apply_delayed_receipts<'a>(
     Ok(new_state_roots)
 }
 
+#[cfg(feature = "yield_resume")]
 fn apply_promise_yield_timeouts<'a>(
     config: &ReshardingConfig,
     tries: &ShardTries,
@@ -451,14 +455,17 @@ impl Chain {
             &checked_account_id_to_shard_uid,
         )?;
 
-        state_roots = apply_promise_yield_timeouts(
-            &config.get(),
-            &tries,
-            shard_uid,
-            state_root,
-            state_roots,
-            &checked_account_id_to_shard_uid,
-        )?;
+        #[cfg(feature = "yield_resume")]
+        {
+            state_roots = apply_promise_yield_timeouts(
+                &config.get(),
+                &tries,
+                shard_uid,
+                state_root,
+                state_roots,
+                &checked_account_id_to_shard_uid,
+            )?;
+        }
 
         tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
         Ok(state_roots)

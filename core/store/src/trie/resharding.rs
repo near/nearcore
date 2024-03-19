@@ -1,8 +1,5 @@
 use crate::flat::FlatStateChanges;
-use crate::{
-    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
-    Trie, TrieUpdate,
-};
+use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
@@ -18,6 +15,9 @@ use near_primitives::types::{
 use std::collections::HashMap;
 
 use super::iterator::TrieItem;
+
+#[cfg(feature = "yield_resume")]
+use crate::get_promise_yield_indices;
 
 impl Trie {
     // TODO(#9446) remove function when shifting to flat storage iteration for resharding
@@ -122,15 +122,23 @@ impl ShardTries {
             account_id_to_shard_uid,
         )?;
 
-        inserted_timeouts.sort_by_key(|it| it.0);
-        let inserted_timeouts: Vec<_> =
-            inserted_timeouts.into_iter().map(|(_, timeout)| timeout).collect();
-        apply_promise_yield_timeouts_to_children_states_impl(
-            &mut trie_updates,
-            &inserted_timeouts,
-            &changes.processed_yield_timeouts,
-            account_id_to_shard_uid,
-        )?;
+        #[cfg(feature = "yield_resume")]
+        {
+            inserted_timeouts.sort_by_key(|it| it.0);
+            let inserted_timeouts: Vec<_> =
+                inserted_timeouts.into_iter().map(|(_, timeout)| timeout).collect();
+            apply_promise_yield_timeouts_to_children_states_impl(
+                &mut trie_updates,
+                &inserted_timeouts,
+                &changes.processed_yield_timeouts,
+                account_id_to_shard_uid,
+            )?;
+        }
+        #[cfg(not(feature = "yield_resume"))]
+        {
+            assert!(inserted_timeouts.is_empty());
+            assert!(changes.processed_yield_timeouts.is_empty());
+        }
 
         Ok(trie_updates)
     }
@@ -218,6 +226,7 @@ impl ShardTries {
         self.finalize_and_apply_trie_updates(trie_updates)
     }
 
+    #[cfg(feature = "yield_resume")]
     pub fn apply_promise_yield_timeouts_to_children_states(
         &self,
         state_roots: &HashMap<ShardUId, StateRoot>,
@@ -225,12 +234,16 @@ impl ShardTries {
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
-        apply_promise_yield_timeouts_to_children_states_impl(
-            &mut trie_updates,
-            timeouts,
-            &[],
-            account_id_to_shard_uid,
-        )?;
+        if cfg!(feature = "yield_resume") {
+            apply_promise_yield_timeouts_to_children_states_impl(
+                &mut trie_updates,
+                timeouts,
+                &[],
+                account_id_to_shard_uid,
+            )?;
+        } else {
+            assert!(timeouts.is_empty());
+        }
         self.finalize_and_apply_trie_updates(trie_updates)
     }
 
@@ -331,6 +344,7 @@ fn apply_delayed_receipts_to_children_states_impl(
     Ok(())
 }
 
+#[cfg(feature = "yield_resume")]
 fn apply_promise_yield_timeouts_to_children_states_impl(
     trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
     insert_timeouts: &[PromiseYieldTimeout],
@@ -449,6 +463,8 @@ pub fn get_delayed_receipts(
 
 /// Retrieve PromiseYield timeouts starting with `start_index` until `memory_limit` is hit
 /// return None if there is no delayed receipts with index >= start_index
+
+#[cfg(feature = "yield_resume")]
 pub fn get_promise_yield_timeouts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,
@@ -487,27 +503,29 @@ pub fn get_promise_yield_timeouts(
 
 #[cfg(test)]
 mod tests {
-    use crate::resharding::{
-        apply_delayed_receipts_to_children_states_impl,
-        apply_promise_yield_timeouts_to_children_states_impl, get_delayed_receipts,
-        get_promise_yield_timeouts,
-    };
+    use crate::resharding::{apply_delayed_receipts_to_children_states_impl, get_delayed_receipts};
     use crate::test_utils::{
-        gen_changes, gen_receipts, gen_timeouts, get_all_delayed_receipts,
-        get_all_promise_yield_timeouts, test_populate_trie, TestTriesBuilder,
+        gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie, TestTriesBuilder,
     };
 
     use crate::{set, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
 
     use near_primitives::hash::hash;
-    use near_primitives::receipt::{
-        DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt,
-    };
+    use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{NumShards, StateChangeCause, StateRoot};
     use rand::Rng;
     use std::collections::HashMap;
+
+    #[cfg(feature = "yield_resume")]
+    use crate::resharding::{
+        apply_promise_yield_timeouts_to_children_states_impl, get_promise_yield_timeouts,
+    };
+    #[cfg(feature = "yield_resume")]
+    use crate::test_utils::{gen_timeouts, get_all_promise_yield_timeouts};
+    #[cfg(feature = "yield_resume")]
+    use near_primitives::receipt::{PromiseYieldIndices, PromiseYieldTimeout};
 
     #[test]
     fn test_add_values_to_children_states() {
@@ -609,6 +627,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "yield_resume")]
     #[test]
     fn test_get_promise_yield_timeouts() {
         let mut rng = rand::thread_rng();
@@ -738,6 +757,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "yield_resume")]
     fn test_apply_promise_yield_timeouts(
         tries: &ShardTries,
         new_timeouts: &[PromiseYieldTimeout],
@@ -777,6 +797,7 @@ mod tests {
         new_state_roots
     }
 
+    #[cfg(feature = "yield_resume")]
     #[test]
     fn test_apply_promise_yield_timeouts_to_new_states() {
         let mut rng = rand::thread_rng();
