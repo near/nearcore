@@ -427,3 +427,90 @@ pub fn precompile_contract(
     }
     runtime.precompile(code, cache)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn any_cache_empty() {
+        struct TestType;
+        let empty = AnyCache::new(0);
+        let key = CryptoHash::hash_bytes(b"empty");
+        cov_mark::check!(any_cache_empty_generate);
+        cov_mark::check!(any_cache_empty_with);
+        let result = empty.try_with_or(
+            key,
+            || {
+                cov_mark::hit!(any_cache_empty_generate);
+                Ok::<_, ()>(Box::new(TestType))
+            },
+            |v| {
+                cov_mark::hit!(any_cache_empty_with);
+                assert!(v.is::<TestType>());
+                "banana"
+            },
+        );
+        assert!(matches!(result, Ok("banana")));
+    }
+
+    #[test]
+    fn any_cache_sized() {
+        struct TestType;
+        let empty = AnyCache::new(1);
+        let key = CryptoHash::hash_bytes(b"sized");
+        cov_mark::check!(any_cache_sized_generate);
+        cov_mark::check!(any_cache_sized_with);
+        let result = empty.try_with_or(
+            key,
+            || {
+                cov_mark::hit!(any_cache_sized_generate);
+                Ok::<_, ()>(Box::new(TestType))
+            },
+            |v| {
+                cov_mark::hit!(any_cache_sized_with);
+                assert!(v.is::<TestType>());
+                "apple" // please no sue
+            },
+        );
+        assert!(matches!(result, Ok("apple")));
+
+        cov_mark::check!(any_cache_sized_with2);
+        let result = empty.try_with_or(
+            key,
+            || unreachable!(),
+            |v| {
+                cov_mark::hit!(any_cache_sized_with2);
+                assert!(v.is::<TestType>());
+                "pistachio" // TIL: is also a fruit.
+            },
+        );
+        assert!(matches!(result, Ok::<_, ()>("pistachio")));
+    }
+
+    #[test]
+    fn any_cache_errors() {
+        let empty = AnyCache::new(0);
+        let key = CryptoHash::hash_bytes(b"errors");
+        cov_mark::check!(any_cache_errors_generate);
+        let result = empty.try_with_or(
+            key,
+            || {
+                cov_mark::hit!(any_cache_errors_generate);
+                Err("peach")
+            },
+            |_| unreachable!(),
+        );
+        assert!(matches!(result, Err("peach")));
+        // Doing it again should not cache the error...
+        cov_mark::check!(any_cache_errors_generate_two);
+        let result = empty.try_with_or(
+            key,
+            || {
+                cov_mark::hit!(any_cache_errors_generate_two);
+                Err("mikan")
+            },
+            |_| unreachable!(),
+        );
+        assert!(matches!(result, Err("mikan")));
+    }
+}
