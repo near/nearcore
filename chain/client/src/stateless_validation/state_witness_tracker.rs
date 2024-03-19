@@ -7,8 +7,9 @@ use near_async::time::Clock;
 use near_primitives::sharding::ChunkHash;
 use near_primitives::stateless_validation::{ChunkStateWitness, ChunkStateWitnessAck};
 
-/// This is currently used for metrics computation, so we do not need to keep all the
-/// witnesses, so we set some fixed capacity for the witnesses tracked and discard others.
+/// Limit to the number of witnesses tracked.
+///
+/// Other witnesses past this number are discarded (perhaps add a blurb on how.)
 const CHUNK_STATE_WITNESS_MAX_RECORD_COUNT: usize = 50;
 
 /// Refers to a state witness sent to a chunk producer. Used to locate incoming acknowledgement
