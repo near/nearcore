@@ -17,7 +17,7 @@ use crate::{GGas, QueueId, Receipt, ShardId, GAS_LIMIT};
 ///
 /// Deadlock prevention
 /// This strategy should never deadlock.
-/// For the sake of argument let's assume there is a deadlock.
+/// For the sake of the argument let's assume there is a deadlock.
 /// * If incoming receipts is not empty those receipts will be processed and
 ///   progress will be made.
 /// Assume incoming receipts is empty
@@ -99,7 +99,7 @@ impl crate::CongestionStrategy for FancyGlobalTransactionStop {
 impl FancyGlobalTransactionStop {
     // Send the outgoing receipts to other shards. If the other shard is under
     // congestion we limit how much attached gas is allowed to be sent by
-    // setting a max_sent limit.
+    // setting a send_limit limit.
     fn process_outgoing_receipts(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
         self.sent_outgoing_receipts_gas.clear();
 
@@ -160,16 +160,14 @@ impl FancyGlobalTransactionStop {
             return;
         }
 
-        // We are only allowed to send up to max_sent attached gas to the shard_id.
+        // We are only allowed to send up to send_limit attached gas to the shard_id.
         let send_limit = self.get_outgoing_gas_limit(ctx, shard_id);
         let sent = self.sent_outgoing_receipts_gas.entry(shard_id).or_default();
         if *sent >= send_limit {
-            // println!("queue receipt sent spent");
             ctx.queue(self.outgoing_receipts[&shard_id]).push_back(receipt);
             return;
         }
 
-        // println!("forward receipt global");
         // We can safely forward the receipt to the receiver.
         *sent += receipt.attached_gas;
         ctx.forward_receipt(receipt);
@@ -180,7 +178,7 @@ impl FancyGlobalTransactionStop {
     // GAS_LIMIT but it can be reduced if the outgoing receipt queues are
     // filling up. Keep in mind that by default incoming receipts are always
     // included first so if the incoming receipts queue is full then no new
-    // transactions won't be included anyway.
+    // transactions will be included anyway.
     fn get_new_tx_gas_limit(&self, ctx: &mut ChunkExecutionContext) -> GGas {
         // Get the max of the outgoing receipts queues across all shards.
         // This is the same as global transaction stop.
