@@ -25,7 +25,7 @@ pub struct ChunkStateWitness {
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
-/// the originator of the witness (chunk producer). 
+/// the originator of the witness (chunk producer).
 ///
 /// This message is currently used for computing
 /// the network round-trip time of sending the state witness to the chunk producer and receiving the
