@@ -208,9 +208,12 @@ mod trie_storage_tests {
     use crate::trie::accounting_cache::TrieAccountingCache;
     use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage};
     use crate::trie::TrieRefcountAddition;
-    use crate::{Store, TrieChanges, TrieConfig};
+    use crate::{DBCol, Store, TrieChanges, TrieConfig};
     use assert_matches::assert_matches;
+    use near_o11y::testonly::init_test_logger;
     use near_primitives::hash::hash;
+    use near_primitives::shard_layout::get_block_shard_uid;
+    use near_primitives::types::chunk_extra::ChunkExtra;
 
     fn create_store_with_values(values: &[Vec<u8>], shard_uid: ShardUId) -> Store {
         let tries = TestTriesBuilder::new().build();
@@ -414,5 +417,82 @@ mod trie_storage_tests {
         assert_eq!(result.unwrap().as_ref(), value);
         assert_eq!(count_delta.db_reads, 0);
         assert_eq!(count_delta.mem_reads, 1);
+    }
+
+    // TODO(#10769): Make this test pass.
+    #[test]
+    #[should_panic]
+    fn test_memtrie_discrepancy() {
+        init_test_logger();
+        let tries = TestTriesBuilder::new().build();
+        let shard_uid = ShardUId::single_shard();
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            shard_uid,
+            vec![
+                (vec![7], Some(vec![1])),
+                (vec![7, 0], Some(vec![2])),
+                (vec![7, 1], Some(vec![3])),
+            ],
+        );
+        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+        let changes = trie
+            .update(vec![
+                (vec![7], Some(vec![10])),
+                (vec![7, 0], None),
+                (vec![7, 6], Some(vec![8])),
+            ])
+            .unwrap();
+        tracing::info!("Changes: {:?}", changes);
+
+        let recorded_normal = trie.recorded_storage();
+
+        let store = create_test_store();
+        // ChunkExtra is needed for in-memory trie loading code to query state roots.
+        let chunk_extra =
+            ChunkExtra::new(&Trie::EMPTY_ROOT, CryptoHash::default(), Vec::new(), 0, 0, 0);
+        let mut update_for_chunk_extra = store.store_update();
+        update_for_chunk_extra
+            .set_ser(
+                DBCol::ChunkExtra,
+                &get_block_shard_uid(&CryptoHash::default(), &shard_uid),
+                &chunk_extra,
+            )
+            .unwrap();
+        update_for_chunk_extra.commit().unwrap();
+
+        let tries = TestTriesBuilder::new()
+            .with_store(store)
+            .with_flat_storage()
+            .with_in_memory_tries()
+            .build();
+        let shard_uid = ShardUId::single_shard();
+
+        let state_root = test_populate_trie(
+            &tries,
+            &Trie::EMPTY_ROOT,
+            shard_uid,
+            vec![
+                (vec![7], Some(vec![1])),
+                (vec![7, 0], Some(vec![2])),
+                (vec![7, 1], Some(vec![3])),
+            ],
+        );
+        let trie = tries.get_trie_for_shard(shard_uid, state_root).recording_reads();
+        let changes = trie
+            .update(vec![
+                (vec![7], Some(vec![10])),
+                (vec![7, 0], None),
+                (vec![7, 6], Some(vec![8])),
+            ])
+            .unwrap();
+
+        tracing::info!("Changes: {:?}", changes);
+
+        let recorded_memtrie = trie.recorded_storage();
+
+        assert_eq!(recorded_normal, recorded_memtrie);
     }
 }

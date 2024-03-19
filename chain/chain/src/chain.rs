@@ -219,7 +219,7 @@ type BlockApplyChunksResult = (CryptoHash, Vec<(ShardId, Result<ShardUpdateResul
 /// Provides current view on the state according to the chain state.
 pub struct Chain {
     pub(crate) clock: Clock,
-    chain_store: ChainStore,
+    pub chain_store: ChainStore,
     pub epoch_manager: Arc<dyn EpochManagerAdapter>,
     pub shard_tracker: ShardTracker,
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,

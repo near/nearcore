@@ -6,6 +6,7 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
+use anyhow::Context;
 use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
@@ -149,7 +150,8 @@ pub(crate) fn apply_block_at_height(
     );
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .context("could not create the transaction runtime")?;
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) = apply_block(
         block_hash,
@@ -182,7 +184,8 @@ pub(crate) fn apply_chunk(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
@@ -223,7 +226,8 @@ pub(crate) fn apply_range(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .expect("could not create the transaction runtime");
     apply_chain_range(
         store,
         &near_config.genesis,
@@ -253,7 +257,8 @@ pub(crate) fn apply_receipt(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     apply_chunk::apply_receipt(
         near_config.genesis.config.genesis_height,
         epoch_manager.as_ref(),
@@ -278,7 +283,8 @@ pub(crate) fn apply_tx(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     apply_chunk::apply_tx(
         near_config.genesis.config.genesis_height,
         epoch_manager.as_ref(),
@@ -972,7 +978,8 @@ fn load_trie_stop_at_height(
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone())
+            .expect("could not create the transaction runtime");
     let head = chain_store.head().unwrap();
     let last_block = match mode {
         LoadTrieMode::LastFinalFromHeight(height) => {

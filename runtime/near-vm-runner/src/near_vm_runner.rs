@@ -5,13 +5,12 @@ use crate::logic::errors::{
 };
 use crate::logic::gas_counter::FastGasCounter;
 use crate::logic::types::PromiseResult;
-use crate::logic::{
-    CompiledContract, CompiledContractCache, Config, External, MemSlice, MemoryLike, VMContext,
-    VMLogic, VMOutcome,
-};
+use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
 use crate::prepare;
 use crate::runner::VMResult;
-use crate::{get_contract_cache_key, imports, ContractCode};
+use crate::{
+    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+};
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
@@ -353,17 +352,18 @@ impl NearVM {
         // outcome). And `cache`, being a database, can fail with an `io::Error`.
         let _span = tracing::debug_span!(target: "vm", "NearVM::compile_and_load").entered();
         let key = get_contract_cache_key(code, &self.config);
-        let cache_record = cache
-            .map(|cache| cache.get(&key))
-            .transpose()
-            .map_err(CacheError::ReadError)?
-            .flatten();
+        let cache_record = {
+            let _span = tracing::debug_span!(target:"vm", "NearVM::read_cache_record").entered();
+            cache.map(|cache| cache.get(&key)).transpose().map_err(CacheError::ReadError)?.flatten()
+        };
 
         let stored_artifact: Option<VMArtifact> = match cache_record {
             None => None,
             Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
             Some(CompiledContract::Code(serialized_module)) => {
-                let _span = tracing::debug_span!(target: "vm", "NearVM::read_from_cache").entered();
+                let _span =
+                    tracing::debug_span!(target: "vm", "NearVM::deserialize_module_from_cache")
+                        .entered();
                 unsafe {
                     // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
                     // `serialize`.

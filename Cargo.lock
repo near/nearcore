@@ -441,17 +441,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 
 [[package]]
-name = "async-recursion"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.32",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1243,6 +1232,7 @@ dependencies = [
 name = "congestion-model"
 version = "0.0.0"
 dependencies = [
+ "bytesize",
  "chrono",
  "clap",
  "csv",
@@ -3617,6 +3607,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
+ "near-vm-runner",
  "num-rational",
  "once_cell",
  "percent-encoding",
@@ -3749,6 +3740,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational",
+ "once_cell",
  "primitive-types",
  "rand",
  "rand_hc",
@@ -3829,8 +3821,8 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
- "async-recursion",
  "futures",
+ "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-crypto",
@@ -4547,12 +4539,14 @@ dependencies = [
  "pwasm-utils",
  "rand",
  "ripemd",
+ "rustix 0.38.24",
  "serde",
  "serde_json",
  "serde_repr",
  "sha2",
  "sha3",
  "strum",
+ "tempfile",
  "thiserror",
  "tracing",
  "wasm-encoder 0.27.0",
@@ -6053,6 +6047,7 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
+ "near-vm-runner",
  "nearcore",
  "serde",
  "serde_json",

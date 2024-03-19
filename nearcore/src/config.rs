@@ -48,6 +48,7 @@ use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::StateSnapshotType;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
+use near_vm_runner::{CompiledContractCache, FilesystemCompiledContractCache};
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -618,16 +619,13 @@ impl NightshadeRuntime {
         store: Store,
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<NightshadeRuntime> {
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // TODO (#9989): directly use the new state snapshot config once the migration is done.
         let mut state_snapshot_type =
             config.config.store.state_snapshot_config.state_snapshot_type.clone();
         if config.config.store.state_snapshot_enabled {
             state_snapshot_type = StateSnapshotType::EveryEpoch;
         }
-        // TODO (#9989): directly use the new state snapshot config once the migration is done.
-        let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
-            || config.config.store.state_snapshot_config.compaction_enabled;
         let state_snapshot_config = StateSnapshotConfig {
             state_snapshot_type,
             home_dir: home_dir.to_path_buf(),
@@ -638,10 +636,15 @@ impl NightshadeRuntime {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("data")),
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            compaction_enabled,
         };
-        NightshadeRuntime::new(
+        // FIXME: this (and other contract runtime resources) should probably get constructed by
+        // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
+        // refactor...
+        let contract_cache =
+            FilesystemCompiledContractCache::new(home_dir, config.config.store.path.as_ref())?;
+        Ok(NightshadeRuntime::new(
             store,
+            CompiledContractCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
@@ -650,7 +653,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-        )
+        ))
     }
 }
 

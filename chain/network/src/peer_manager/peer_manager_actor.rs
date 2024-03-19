@@ -47,7 +47,7 @@ use tracing::Instrument as _;
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How often should we check wheter local edges match the connection pool.
+/// How often should we check whether local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);

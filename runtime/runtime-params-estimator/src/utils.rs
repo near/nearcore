@@ -168,9 +168,9 @@ pub(crate) fn fn_cost_with_setup(
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
+    block_latency: usize,
 ) -> GasCost {
     let (total_cost, measured_count) = {
-        let block_latency = 0;
         let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
@@ -198,7 +198,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks, 0);
+        let measurements = testbed.measure_blocks(blocks, block_latency);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()

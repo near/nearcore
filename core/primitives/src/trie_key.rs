@@ -43,11 +43,11 @@ pub mod col {
     pub const DELAYED_RECEIPT_OR_INDICES: u8 = 7;
     /// This column id is used when storing Key-Value data from a contract on an `account_id`.
     pub const CONTRACT_DATA: u8 = 9;
-    /// This column id is used when storing the indices of the yielded promises queue.
-    pub const YIELDED_PROMISE_QUEUE_INDICES: u8 = 10;
-    /// This column id is used when storing the entries of the yielded promises queue.
-    pub const YIELDED_PROMISE_QUEUE_ENTRY: u8 = 11;
-    /// This column id is used when storing the postponed promise yield receipts
+    /// This column id is used when storing the indices of the PromiseYield timeout queue
+    pub const PROMISE_YIELD_INDICES: u8 = 10;
+    /// This column id is used when storing the PromiseYield timeouts
+    pub const PROMISE_YIELD_TIMEOUT: u8 = 11;
+    /// This column id is used when storing the postponed PromiseYield receipts
     /// (`primitives::receipt::Receipt`).
     pub const PROMISE_YIELD_RECEIPT: u8 = 12;
     /// All columns except those used for the delayed receipts queue and the yielded promises
@@ -100,12 +100,12 @@ pub enum TrieKey {
     /// Used to store a key-value record `Vec<u8>` within a contract deployed on a given `AccountId`
     /// and a given key.
     ContractData { account_id: AccountId, key: Vec<u8> },
-    /// Used to store head and tail indices of the yielded promises queue.
+    /// Used to store head and tail indices of the PromiseYield timeout queue.
     /// NOTE: It is a singleton per shard.
-    YieldedPromiseQueueIndices,
-    /// Used to store the element at given index `u64` in the yielded promises queue.
+    PromiseYieldIndices,
+    /// Used to store the element at given index `u64` in the PromiseYield timeout queue.
     /// The queue is unique per shard.
-    YieldedPromiseQueueEntry { index: u64 },
+    PromiseYieldTimeout { index: u64 },
     /// Used to store the postponed promise yield receipt `primitives::receipt::Receipt`
     /// for a given receiver's `AccountId` and a given `data_id`.
     PromiseYieldReceipt { receiver_id: AccountId, data_id: CryptoHash },
@@ -162,9 +162,9 @@ impl TrieKey {
             TrieKey::DelayedReceipt { .. } => {
                 col::DELAYED_RECEIPT_OR_INDICES.len() + size_of::<u64>()
             }
-            TrieKey::YieldedPromiseQueueIndices => col::YIELDED_PROMISE_QUEUE_INDICES.len(),
-            TrieKey::YieldedPromiseQueueEntry { .. } => {
-                col::YIELDED_PROMISE_QUEUE_ENTRY.len() + size_of::<u64>()
+            TrieKey::PromiseYieldIndices => col::PROMISE_YIELD_INDICES.len(),
+            TrieKey::PromiseYieldTimeout { .. } => {
+                col::PROMISE_YIELD_TIMEOUT.len() + size_of::<u64>()
             }
             TrieKey::PromiseYieldReceipt { receiver_id, data_id } => {
                 col::PROMISE_YIELD_RECEIPT.len()
@@ -237,11 +237,11 @@ impl TrieKey {
                 buf.push(ACCOUNT_DATA_SEPARATOR);
                 buf.extend(key);
             }
-            TrieKey::YieldedPromiseQueueIndices => {
-                buf.push(col::YIELDED_PROMISE_QUEUE_INDICES);
+            TrieKey::PromiseYieldIndices => {
+                buf.push(col::PROMISE_YIELD_INDICES);
             }
-            TrieKey::YieldedPromiseQueueEntry { index } => {
-                buf.push(col::YIELDED_PROMISE_QUEUE_ENTRY);
+            TrieKey::PromiseYieldTimeout { index } => {
+                buf.push(col::PROMISE_YIELD_TIMEOUT);
                 buf.extend(&index.to_le_bytes());
             }
             TrieKey::PromiseYieldReceipt { receiver_id, data_id } => {
@@ -273,8 +273,8 @@ impl TrieKey {
             TrieKey::DelayedReceiptIndices => None,
             TrieKey::DelayedReceipt { .. } => None,
             TrieKey::ContractData { account_id, .. } => Some(account_id.clone()),
-            TrieKey::YieldedPromiseQueueIndices => None,
-            TrieKey::YieldedPromiseQueueEntry { .. } => None,
+            TrieKey::PromiseYieldIndices => None,
+            TrieKey::PromiseYieldTimeout { .. } => None,
             TrieKey::PromiseYieldReceipt { receiver_id, .. } => Some(receiver_id.clone()),
         }
     }
@@ -696,10 +696,10 @@ mod tests {
 
     #[test]
     fn test_key_for_yielded_promise_consistency() {
-        let key = TrieKey::YieldedPromiseQueueIndices;
+        let key = TrieKey::PromiseYieldIndices;
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
-        let key = TrieKey::YieldedPromiseQueueEntry { index: 0 };
+        let key = TrieKey::PromiseYieldTimeout { index: 0 };
         let raw_key = key.to_vec();
         assert!(trie_key_parsers::parse_account_id_from_raw_key(&raw_key).unwrap().is_none());
         for account_id in OK_ACCOUNT_IDS.iter().map(|x| x.parse::<AccountId>().unwrap()) {
@@ -775,10 +775,10 @@ mod tests {
             );
             assert_eq!(TrieKey::DelayedReceiptIndices.get_account_id(), None);
             assert_eq!(
-                TrieKey::YieldedPromiseQueueEntry { index: Default::default() }.get_account_id(),
+                TrieKey::PromiseYieldTimeout { index: Default::default() }.get_account_id(),
                 None
             );
-            assert_eq!(TrieKey::YieldedPromiseQueueIndices.get_account_id(), None);
+            assert_eq!(TrieKey::PromiseYieldIndices.get_account_id(), None);
             assert_eq!(
                 TrieKey::PromiseYieldReceipt {
                     receiver_id: account_id.clone(),

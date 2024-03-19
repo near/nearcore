@@ -628,15 +628,12 @@ impl JsonRpcHandler {
         .map_err(|_| {
             metrics::RPC_TIMEOUT_TOTAL.inc();
             tracing::warn!(
-                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?}",
+                target: "jsonrpc", "Timeout: tx_status_fetch method. tx_info {:?} fetch_receipt {:?} result {:?}",
                 tx_info,
                 fetch_receipt,
+                tx_status_result
             );
-            if let Err(error) = tx_status_result {
-                error
-            } else {
-                near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
-            }
+            near_jsonrpc_primitives::types::transactions::RpcTransactionError::TimeoutError
         })?
     }
 

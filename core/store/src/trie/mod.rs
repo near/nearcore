@@ -15,7 +15,9 @@ use crate::trie::iterator::TrieIterator;
 pub use crate::trie::nibble_slice::NibbleSlice;
 pub use crate::trie::prefetching_trie_storage::{PrefetchApi, PrefetchError};
 pub use crate::trie::shard_tries::{KeyForStateChanges, ShardTries, WrappedTrieChanges};
-pub use crate::trie::state_snapshot::{SnapshotError, StateSnapshot, StateSnapshotConfig};
+pub use crate::trie::state_snapshot::{
+    SnapshotError, StateSnapshot, StateSnapshotConfig, STATE_SNAPSHOT_COLUMNS,
+};
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieDBStorage, TrieStorage};
 use crate::StorageError;
 use borsh::{BorshDeserialize, BorshSerialize};

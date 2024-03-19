@@ -139,7 +139,20 @@ def test_upgrade() -> None:
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
 
-    utils.wait_for_blocks(nodes[0], count=20)
+    metrics_tracker = utils.MetricsTracker(nodes[3])
+
+    count = 0
+    for height, _ in utils.poll_blocks(nodes[0]):
+        votes = metrics_tracker.get_metric_all_values(
+            "near_protocol_version_votes")
+        next = metrics_tracker.get_int_metric_value(
+            "near_protocol_version_next")
+
+        print(f"#{height}: {votes} -> {next}")
+
+        count += 1
+        if count > 20:
+            break
 
     # Restart stable nodes into new version.
     for i in range(3):
@@ -151,7 +164,19 @@ def test_upgrade() -> None:
             extra_env={"NEAR_TESTS_IMMEDIATE_PROTOCOL_UPGRADE": "1"},
         )
 
-    utils.wait_for_blocks(nodes[3], count=60)
+    count = 0
+    for height, _ in utils.poll_blocks(nodes[3]):
+        votes = metrics_tracker.get_metric_all_values(
+            "near_protocol_version_votes")
+        next = metrics_tracker.get_int_metric_value(
+            "near_protocol_version_next")
+
+        print(f"#{height}: {votes} -> {next}")
+
+        count += 1
+        if count > 60:
+            break
+
     status0 = nodes[0].get_status()
     status3 = nodes[3].get_status()
     protocol_version = status0['protocol_version']

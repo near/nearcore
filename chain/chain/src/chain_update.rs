@@ -269,7 +269,7 @@ impl<'a> ChainUpdate<'a> {
                         result.shard_uid,
                         result.trie_changes.state_changes(),
                     )?;
-                    flat_storage_manager.update_flat_storage_for_shard(*shard_uid, block)?;
+                    flat_storage_manager.update_flat_storage_for_shard(result.shard_uid, block)?;
                     self.chain_store_update.merge(store_update);
 
                     self.chain_store_update.save_chunk_extra(
