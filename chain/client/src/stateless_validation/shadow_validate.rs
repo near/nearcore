@@ -3,6 +3,7 @@ use std::time::Instant;
 use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
+use near_primitives::challenge::PartialState;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
 
 use crate::stateless_validation::chunk_validator::{
@@ -80,6 +81,16 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
+        for transition in
+            [&witness.main_state_transition].into_iter().chain(witness.implicit_transitions.iter())
+        {
+            let PartialState::TrieValues(values) = &transition.base_state;
+            for val in values {
+                metrics::CHUNK_STATE_WITNESS_STORAGE_PROOF_VALUE_SIZE
+                    .with_label_values(&[&shard_id.to_string()])
+                    .observe(val.len() as f64);
+            }
+        }
         let witness_size = borsh::to_vec(&witness)?.len();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
