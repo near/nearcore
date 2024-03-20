@@ -78,10 +78,11 @@ fn compute_function_call_cost(
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello0",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
@@ -94,10 +95,11 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello0",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
