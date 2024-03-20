@@ -7,6 +7,7 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
+use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -189,6 +190,8 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
+    pub state_witness_tracker: ChunkStateWitnessTracker,
 
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
@@ -404,6 +407,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
+            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             chunk_distribution_network,
         })
     }

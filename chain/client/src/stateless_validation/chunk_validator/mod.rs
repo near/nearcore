@@ -6,7 +6,7 @@ use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTrac
 use crate::{metrics, Client};
 use itertools::Itertools;
 use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
-use near_async::messaging::Sender;
+use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -27,7 +27,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessInner,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessInner,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -640,6 +640,14 @@ impl Client {
         witness: ChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
+        // Send the acknowledgement for the state witness back to the chunk producer.
+        // This is currently used for network roundtrip time measurement, so we do not need to
+        // wait for validation to finish.
+        if let Err(err) = self.send_state_witness_ack(&witness) {
+            tracing::warn!(target: "stateless_validation", error = &err as &dyn std::error::Error,
+                "Error sending chunk state witness acknowledgement");
+        }
+
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
         let prev_block = match self.chain.get_block(prev_block_hash) {
             Ok(block) => block,
@@ -650,11 +658,33 @@ impl Client {
             }
             Err(err) => return Err(err),
         };
+
         self.process_chunk_state_witness_with_prev_block(
             witness,
             &prev_block,
             processing_done_tracker,
         )
+    }
+
+    fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
+        // First find the AccountId for the chunk producer and then send the ack to that account.
+        let chunk_header = &witness.inner.chunk_header;
+        let prev_block_hash = chunk_header.prev_block_hash();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let chunk_producer = self.epoch_manager.get_chunk_producer(
+            &epoch_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
+        )?;
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkStateWitnessAck(
+                chunk_producer,
+                ChunkStateWitnessAck::new(&witness),
+            ),
+        ));
+
+        Ok(())
     }
 
     pub fn process_chunk_state_witness_with_prev_block(

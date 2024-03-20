@@ -24,6 +24,26 @@ pub struct ChunkStateWitness {
     pub signature: Signature,
 }
 
+/// An acknowledgement sent from the chunk producer upon receiving the state witness to
+/// the originator of the witness (chunk producer).
+///
+/// This message is currently used for computing
+/// the network round-trip time of sending the state witness to the chunk producer and receiving the
+/// endorsement message. Note that the endorsement message is sent to the next block producer,
+/// while this message is sent back to the originator of the state witness, though this allows
+/// us to approximate the time for transmitting the state witness + transmitting the endorsement.
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct ChunkStateWitnessAck {
+    /// Hash of the chunk for which the state witness was generated.
+    pub chunk_hash: ChunkHash,
+}
+
+impl ChunkStateWitnessAck {
+    pub fn new(witness_to_ack: &ChunkStateWitness) -> Self {
+        Self { chunk_hash: witness_to_ack.inner.chunk_header.chunk_hash() }
+    }
+}
+
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
