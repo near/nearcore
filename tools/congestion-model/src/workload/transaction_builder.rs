@@ -87,7 +87,7 @@ impl TransactionBuilder {
     /// receipt using [`TransactionBuilder::new_outgoing_receipt`] and then add
     /// dependencies from the first two receipts to the third.
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// let builder = TransactionBuilder::new(todo!());
     /// let a = builder.add_first_receipt(todo!());
     /// let b = builder.new_outgoing_receipt(a, todo!());

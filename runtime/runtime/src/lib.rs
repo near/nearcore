@@ -50,8 +50,8 @@ use near_store::{set_access_key, set_code};
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::ReturnData;
 pub use near_vm_runner::with_ext_cost_counter;
-use near_vm_runner::CompiledContractCache;
 use near_vm_runner::ContractCode;
+use near_vm_runner::ContractRuntimeCache;
 use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -98,7 +98,7 @@ pub struct ApplyState {
     /// The Runtime config to use for the current transition.
     pub config: Arc<RuntimeConfig>,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
     /// Whether the chunk being applied is new.
     pub is_new_chunk: bool,
     /// Data for migrations that may need to be applied at the start of an epoch when protocol
@@ -1788,7 +1788,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries};
-    use near_vm_runner::FilesystemCompiledContractCache;
+    use near_vm_runner::FilesystemContractRuntimeCache;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1886,7 +1886,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
-        let contract_cache = FilesystemCompiledContractCache::test().unwrap();
+        let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let apply_state = ApplyState {
             block_height: 1,
             prev_block_hash: Default::default(),
