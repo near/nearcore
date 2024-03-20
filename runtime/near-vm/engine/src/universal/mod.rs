@@ -7,7 +7,7 @@ mod link;
 
 pub use self::artifact::UniversalArtifact;
 pub use self::builder::Universal;
-pub use self::code_memory::{CodeMemory, LimitedMemoryPool};
+pub use self::code_memory::{CodeMemory, MemoryPool};
 pub use self::engine::UniversalEngine;
 pub use self::executable::{UniversalExecutable, UniversalExecutableRef};
 pub use self::link::link_module;
