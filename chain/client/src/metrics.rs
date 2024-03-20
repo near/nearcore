@@ -573,12 +573,52 @@ pub(crate) static CHUNK_STATE_WITNESS_VALIDATION_TIME: Lazy<HistogramVec> = Lazy
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_TIME: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compression_time",
+        "State witness compression latency in seconds",
+        &["shard_id"],
+        Some(exponential_buckets(0.01, 2.0, 12).unwrap()),
+    )
+    .unwrap()
+});
+
 pub(crate) static CHUNK_STATE_WITNESS_TOTAL_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_chunk_state_witness_total_size",
         "Stateless validation state witness size in bytes",
         &["shard_id"],
         Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_SIZE_REDUCTION: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compression_size_reduction",
+        "Stateless validation state witness compression saved size in bytes",
+        &["shard_id"],
+        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSED_SIZE: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compressed_size",
+        "Stateless validation compressed state witness size in bytes",
+        &["shard_id"],
+        Some(exponential_buckets(1000.0, 2.0, 20).unwrap()),
+    )
+    .unwrap()
+});
+
+pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_RATIO: Lazy<HistogramVec> = Lazy::new(|| {
+    try_create_histogram_vec(
+        "near_chunk_state_witness_compression_ratio",
+        "Stateless validation state witness compression ration",
+        &["shard_id"],
+        Some(linear_buckets(0.00, 0.05, 20).unwrap()),
     )
     .unwrap()
 });
