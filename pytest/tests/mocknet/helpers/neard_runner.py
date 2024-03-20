@@ -499,7 +499,8 @@ class NeardRunner:
                 else:
                     break
             return path
-        except (requests.exceptions.ConnectionError, KeyError):
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.ReadTimeout, KeyError):
             return self.data['current_neard_path']
 
     def run_neard(self, cmd, out_file=None):
