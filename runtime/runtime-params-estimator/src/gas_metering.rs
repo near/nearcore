@@ -5,7 +5,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{CompiledContractCache, ContractCode, FilesystemCompiledContractCache};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
 
 pub(crate) fn gas_metering_cost(config: &Config) -> (GasCost, GasCost) {
@@ -124,8 +124,8 @@ pub(crate) fn compute_gas_metering_cost(config: &Config, contract: &ContractCode
     let repeats = config.iter_per_block as u64;
     let vm_kind = config.vm_kind;
     let warmup_repeats = config.warmup_iters_per_block;
-    let cache_store = FilesystemCompiledContractCache::test().unwrap();
-    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
+    let cache_store = FilesystemContractRuntimeCache::test().unwrap();
+    let cache: Option<&dyn ContractRuntimeCache> = Some(&cache_store);
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
     let vm_config_gas = runtime_config.wasm_config.clone();

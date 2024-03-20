@@ -9,7 +9,7 @@ use crate::logic::{Config, External, MemSlice, MemoryLike, VMContext, VMLogic, V
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{
-    get_contract_cache_key, imports, CompiledContract, CompiledContractCache, ContractCode,
+    get_contract_cache_key, imports, CompiledContract, ContractCode, ContractRuntimeCache,
 };
 use memoffset::offset_of;
 use near_parameters::vm::VMKind;
@@ -292,7 +292,7 @@ impl Wasmer2VM {
     fn compile_and_cache(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<Result<UniversalExecutable, CompilationError>, CacheError> {
         let executable_or_error = self.compile_uncached(code);
         let key = get_contract_cache_key(code, &self.config);
@@ -316,7 +316,7 @@ impl Wasmer2VM {
     fn compile_and_load(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult<Result<VMArtifact, CompilationError>> {
         // A bit of a tricky logic ahead! We need to deal with two levels of
         // caching:
@@ -566,7 +566,7 @@ impl crate::runner::VM for Wasmer2VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let mut memory = Wasmer2Memory::new(
             self.config.limit_config.initial_memory_pages,
@@ -610,7 +610,7 @@ impl crate::runner::VM for Wasmer2VM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn CompiledContractCache,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,

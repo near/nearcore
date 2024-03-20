@@ -6,7 +6,7 @@ use crate::logic::errors::{
 use crate::logic::types::PromiseResult;
 use crate::logic::Config;
 use crate::logic::{External, MemSlice, MemoryLike, VMContext, VMLogic, VMOutcome};
-use crate::{imports, prepare, CompiledContractCache, ContractCode};
+use crate::{imports, prepare, ContractCode, ContractRuntimeCache};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use std::borrow::Cow;
@@ -158,7 +158,7 @@ impl crate::runner::VM for WasmtimeVM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        _cache: Option<&dyn CompiledContractCache>,
+        _cache: Option<&dyn ContractRuntimeCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
         let mut config = self.default_wasmtime_config();
         let engine = get_engine(&mut config);
@@ -242,7 +242,7 @@ impl crate::runner::VM for WasmtimeVM {
     fn precompile(
         &self,
         _code: &ContractCode,
-        _cache: &dyn CompiledContractCache,
+        _cache: &dyn ContractRuntimeCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,

@@ -41,8 +41,8 @@ use chrono::DateTime;
 use near_crypto::{PublicKey, Signature};
 use near_fmt::{AbbrBytes, Slice};
 use near_parameters::{ActionCosts, ExtCosts};
-use near_vm_runner::CompiledContractCache;
 use near_vm_runner::ContractCode;
+use near_vm_runner::ContractRuntimeCache;
 use serde_with::base64::Base64;
 use serde_with::serde_as;
 use std::collections::HashMap;
@@ -94,7 +94,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn CompiledContractCache>>,
+    pub cache: Option<Box<dyn ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {
