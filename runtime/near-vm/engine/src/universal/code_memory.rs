@@ -236,13 +236,15 @@ impl Drop for CodeMemory {
 unsafe impl Send for CodeMemory {}
 
 /// The pool of memory maps for storing the code.
+///
+/// The memories and the size of the pool may grow towards a high watermark.
 #[derive(Clone)]
 pub struct MemoryPool {
     pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
 }
 
 impl MemoryPool {
-    /// Create a new pool with `count` mappings initialized to `default_memory_size` each.
+    /// Create a new pool with `preallocate_count` mappings initialized to `initial_map_size` each.
     pub fn new(preallocate_count: usize, initial_map_size: usize) -> rustix::io::Result<Self> {
         let mut pool = Vec::with_capacity(preallocate_count);
         for _ in 0..preallocate_count {
