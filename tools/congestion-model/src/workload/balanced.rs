@@ -74,7 +74,7 @@ impl BalancedProducer {
         let attached_gas = 300 * TGAS;
         let execution_gas = 100 * TGAS;
         let conversion_gas = 5 * TGAS;
-        let num_tx_per_shard_pair = 2;
+        let num_tx_per_shard_pair = 4;
         Self::new(
             attached_gas,
             execution_gas,
@@ -96,7 +96,10 @@ impl BalancedProducer {
         assert!(!receipt_sizes.is_empty(), "must have at least one receipt size");
         assert!(execution_gas <= attached_gas, "must attach more gas than is needed for execution");
         let depth = receipt_sizes.len();
-        let num_receipts = fan_out.pow(depth as u32 - 1);
+        let mut num_receipts = 1;
+        for d in 1..depth {
+            num_receipts += fan_out.pow(d as u32);
+        }
         let execution_gas_per_receipt = execution_gas / num_receipts as u64;
 
         let mut attached_gas_per_depth = vec![attached_gas];
