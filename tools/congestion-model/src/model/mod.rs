@@ -143,3 +143,11 @@ impl std::fmt::Display for ShardId {
         write!(f, "{}", self.0)
     }
 }
+
+impl std::ops::Deref for ShardId {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
