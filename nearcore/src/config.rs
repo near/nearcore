@@ -368,7 +368,7 @@ impl Default for Config {
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
-            max_loaded_contracts: 128,
+            max_loaded_contracts: 256,
         }
     }
 }
