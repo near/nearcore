@@ -299,8 +299,7 @@ pub struct Config {
 
     /// The number of the contracts kept loaded up for execution.
     ///
-    /// Each loaded contract will increase the baseline memory use of the node appreciably. This
-    /// number must not exceed the excess parallelism available in the contract runtime.
+    /// Each loaded contract will increase the baseline memory use of the node appreciably.
     pub max_loaded_contracts: usize,
 }
 
