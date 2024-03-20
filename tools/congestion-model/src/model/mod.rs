@@ -112,7 +112,8 @@ impl Model {
         // model to control how these are created and registered.
         // Hence, we inject a factory as a dependency and collect the created
         // builders as the output.
-        let mut tx_factory = |shard_id| self.transactions.new_transaction_builder(shard_id);
+        let mut tx_factory =
+            |shard_id| self.transactions.new_transaction_builder(shard_id, self.round);
         let tx_builders =
             self.producer.produce_transactions(self.round, &self.shard_ids, &mut tx_factory);
 

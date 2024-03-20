@@ -1,21 +1,20 @@
-//! Tests that `CompiledContractCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
+//! Tests that `ContractRuntimeCache` is working correctly. Currently testing only wasmer code, so disabled outside of x86_64
 #![cfg(target_arch = "x86_64")]
 
 use super::{create_context, test_vm_config, with_vm_variants};
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::Config;
-use crate::logic::{CompiledContract, CompiledContractCache};
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
-use crate::ContractCode;
-use crate::MockCompiledContractCache;
+use crate::{CompiledContract, ContractCode, ContractRuntimeCache, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use near_primitives_core::hash::CryptoHash;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[test]
 fn test_caches_compilation_error() {
@@ -25,7 +24,7 @@ fn test_caches_compilation_error() {
             VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
             VMKind::Wasmtime => return,
         }
-        let cache = MockCompiledContractCache::default();
+        let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
@@ -52,7 +51,7 @@ fn test_does_not_cache_io_error() {
 
         let code = near_test_contracts::trivial_contract();
         let prepaid_gas = 10u64.pow(12);
-        let mut cache = FaultingCompiledContractCache::default();
+        let cache = FaultingContractRuntimeCache::default();
 
         cache.set_read_fault(true);
         let result =
@@ -74,7 +73,7 @@ fn test_does_not_cache_io_error() {
 
 fn make_cached_contract_call_vm(
     config: &Config,
-    cache: &dyn CompiledContractCache,
+    cache: &dyn ContractRuntimeCache,
     code: &[u8],
     method_name: &str,
     prepaid_gas: u64,
@@ -245,26 +244,26 @@ fn test_near_vm_artifact_output_stability() {
     // can be adjusted.
 }
 
-/// [`CompiledContractCache`] which simulates failures in the underlying
+/// [`ContractRuntimeCache`] which simulates failures in the underlying
 /// database.
-#[derive(Default)]
-struct FaultingCompiledContractCache {
-    read_fault: AtomicBool,
-    write_fault: AtomicBool,
-    inner: MockCompiledContractCache,
+#[derive(Default, Clone)]
+struct FaultingContractRuntimeCache {
+    read_fault: Arc<AtomicBool>,
+    write_fault: Arc<AtomicBool>,
+    inner: MockContractRuntimeCache,
 }
 
-impl FaultingCompiledContractCache {
-    fn set_read_fault(&mut self, yes: bool) {
-        *self.read_fault.get_mut() = yes;
+impl FaultingContractRuntimeCache {
+    fn set_read_fault(&self, yes: bool) {
+        self.read_fault.store(yes, Ordering::SeqCst);
     }
 
-    fn set_write_fault(&mut self, yes: bool) {
-        *self.write_fault.get_mut() = yes;
+    fn set_write_fault(&self, yes: bool) {
+        self.write_fault.store(yes, Ordering::SeqCst);
     }
 }
 
-impl CompiledContractCache for FaultingCompiledContractCache {
+impl ContractRuntimeCache for FaultingContractRuntimeCache {
     fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
         if self.write_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
@@ -277,5 +276,9 @@ impl CompiledContractCache for FaultingCompiledContractCache {
             return Err(io::ErrorKind::Other.into());
         }
         self.inner.get(key)
+    }
+
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        Box::new(self.clone())
     }
 }

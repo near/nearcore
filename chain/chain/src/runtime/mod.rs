@@ -39,12 +39,11 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
+    TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -69,6 +68,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
+    compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -80,6 +80,7 @@ pub struct NightshadeRuntime {
 impl NightshadeRuntime {
     pub fn new(
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
@@ -117,6 +118,7 @@ impl NightshadeRuntime {
         let migration_data = Arc::new(migrations::load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
+            compiled_contract_cache,
             runtime_config_store,
             store,
             tries,
@@ -131,6 +133,7 @@ impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
@@ -138,6 +141,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         Self::new(
             store,
+            compiled_contract_cache,
             genesis_config,
             epoch_manager,
             None,
@@ -157,6 +161,7 @@ impl NightshadeRuntime {
     pub fn test_with_trie_config(
         home_dir: &Path,
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_config: TrieConfig,
@@ -164,6 +169,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         Self::new(
             store,
+            compiled_contract_cache,
             genesis_config,
             epoch_manager,
             None,
@@ -189,6 +195,9 @@ impl NightshadeRuntime {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
+            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
+                .expect("filesystem contract cache")
+                .handle(),
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
@@ -356,7 +365,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
+            cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -454,8 +463,8 @@ impl NightshadeRuntime {
         .entered();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
-            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
+        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
+            Some(Box::new(self.compiled_contract_cache.handle()));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -1273,7 +1282,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
+            cache: Some(Box::new(self.compiled_contract_cache.handle())),
         };
         self.trie_viewer.call_function(
             state_update,

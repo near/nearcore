@@ -13,7 +13,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_yielded_promise, TrieAccess, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_promise_yield_receipt, TrieAccess, TrieUpdate,
 };
 use std::collections::HashSet;
 
@@ -109,7 +109,7 @@ fn total_postponed_receipts_cost(
                 }
             }
             PostponedReceiptType::PromiseYield => {
-                match get_yielded_promise(state, account_id, *lookup_id)? {
+                match get_promise_yield_receipt(state, account_id, *lookup_id)? {
                     None => return Ok(total),
                     Some(receipt) => receipt_cost(config, &receipt)?,
                 }

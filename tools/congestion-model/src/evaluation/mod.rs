@@ -1,12 +1,14 @@
 use chrono::{Duration, Utc};
 pub use queue_lengths::{QueueStats, ShardQueueLengths};
 pub use transaction_progress::TransactionStatus;
+pub use user_experience::UserExperience;
 
 use crate::{GGas, Model};
 
 mod queue_lengths;
 pub mod summary_table;
 mod transaction_progress;
+mod user_experience;
 
 #[derive(Debug, Clone)]
 pub struct GasThroughput {
@@ -71,6 +73,15 @@ impl Model {
                 stats_writer.write_field(format!("{field_name}_gas")).unwrap();
             }
         }
+
+        stats_writer.write_field("successful_tx_delay_avg").unwrap();
+        stats_writer.write_field("successful_tx_delay_median").unwrap();
+        stats_writer.write_field("successful_tx_delay_90th_percentile").unwrap();
+        stats_writer.write_field("rejected_tx_delay_avg").unwrap();
+        stats_writer.write_field("rejected_tx_delay_median").unwrap();
+        stats_writer.write_field("rejected_tx_delay_90th_percentile").unwrap();
+        stats_writer.write_field("unresolved_transactions").unwrap();
+
         stats_writer.write_record(None::<&[u8]>).unwrap();
     }
 
@@ -101,6 +112,15 @@ impl Model {
                 stats_writer.write_field(format!("{}", queue.attached_gas())).unwrap();
             }
         }
+
+        let user_exp = self.user_experience();
+        stats_writer.write_field(user_exp.successful_tx_delay_avg.to_string()).unwrap();
+        stats_writer.write_field(user_exp.successful_tx_delay_median.to_string()).unwrap();
+        stats_writer.write_field(user_exp.successful_tx_delay_90th_percentile.to_string()).unwrap();
+        stats_writer.write_field(user_exp.rejected_tx_delay_avg.to_string()).unwrap();
+        stats_writer.write_field(user_exp.rejected_tx_delay_median.to_string()).unwrap();
+        stats_writer.write_field(user_exp.rejected_tx_delay_90th_percentile.to_string()).unwrap();
+        stats_writer.write_field(user_exp.unresolved_transactions.to_string()).unwrap();
 
         stats_writer.write_record(None::<&[u8]>).unwrap();
     }

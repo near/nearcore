@@ -48,6 +48,7 @@ use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::StateSnapshotType;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
+use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -266,6 +267,7 @@ pub struct Config {
     pub state_sync: Option<StateSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
+    ///
     /// New transactions that bring the size of the pool over this limit will be rejected. This
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
@@ -277,12 +279,14 @@ pub struct Config {
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
     /// Limit the time of adding transactions to a chunk.
+    ///
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
     /// Optional config for the Chunk Distribution Network feature.
+    ///
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
     /// Nodes not participating will still function fine, but possibly with higher
     /// latency due to the need of requesting chunks over the peer-to-peer network.
@@ -292,6 +296,12 @@ pub struct Config {
     /// because the previous block isn't available. The witnesses wait in the pool untl the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
+
+    /// The number of the contracts kept loaded up for execution.
+    ///
+    /// Each loaded contract will increase the baseline memory use of the node appreciably. This
+    /// number must not exceed the excess parallelism available in the contract runtime.
+    pub max_loaded_contracts: usize,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -338,6 +348,7 @@ impl Default for Config {
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
+            max_loaded_contracts: 128,
         }
     }
 }
@@ -614,7 +625,7 @@ impl NightshadeRuntime {
         store: Store,
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<NightshadeRuntime> {
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // TODO (#9989): directly use the new state snapshot config once the migration is done.
         let mut state_snapshot_type =
             config.config.store.state_snapshot_config.state_snapshot_type.clone();
@@ -632,8 +643,17 @@ impl NightshadeRuntime {
                 .unwrap_or_else(|| PathBuf::from("data")),
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
         };
-        NightshadeRuntime::new(
+        // FIXME: this (and other contract runtime resources) should probably get constructed by
+        // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
+        // refactor...
+        let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
+            home_dir,
+            config.config.store.path.as_ref(),
+            config.config.max_loaded_contracts,
+        )?;
+        Ok(NightshadeRuntime::new(
             store,
+            ContractRuntimeCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
@@ -642,7 +662,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-        )
+        ))
     }
 }
 
