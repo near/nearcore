@@ -151,7 +151,7 @@ pub fn load_trie_from_flat_state_and_delta(
             let old_state_root = get_state_root(store, prev_hash, shard_uid)?;
             let new_state_root = get_state_root(store, hash, shard_uid)?;
 
-            let mut trie_update = mem_tries.update(old_state_root, false)?;
+            let mut trie_update = mem_tries.update(old_state_root, false, None)?;
             for (key, value) in changes.0 {
                 match value {
                     Some(value) => {

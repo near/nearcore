@@ -2,6 +2,7 @@ use self::arena::Arena;
 use self::metrics::MEM_TRIE_NUM_ROOTS;
 use self::node::{MemTrieNodeId, MemTrieNodePtr};
 use self::updating::MemTrieUpdate;
+use crate::trie::trie_recording::TrieRecorder;
 use near_primitives::errors::StorageError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardUId;
@@ -140,11 +141,12 @@ impl MemTries {
         self.heights.iter().map(|(_, v)| v.len()).sum()
     }
 
-    pub fn update(
-        &self,
+    pub fn update<'a, 'b>(
+        &'a self,
         root: CryptoHash,
         track_disk_changes: bool,
-    ) -> Result<MemTrieUpdate, StorageError> {
+        recorder: Option<&'b mut TrieRecorder>,
+    ) -> Result<MemTrieUpdate<'a, 'b>, StorageError> {
         let root_id = if root == CryptoHash::default() {
             None
         } else {
@@ -164,6 +166,7 @@ impl MemTries {
             &self.arena.memory(),
             self.shard_uid.to_string(),
             track_disk_changes,
+            recorder,
         ))
     }
 }

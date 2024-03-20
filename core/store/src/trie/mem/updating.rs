@@ -3,6 +3,7 @@ use super::flexible_data::children::ChildrenView;
 use super::metrics::MEM_TRIE_NUM_NODES_CREATED_FROM_UPDATES;
 use super::node::{InputMemTrieNode, MemTrieNodeId, MemTrieNodeView};
 use super::MemTries;
+use crate::trie::trie_recording::TrieRecorder;
 use crate::trie::{Children, MemTrieChanges, TrieRefcountDeltaMap, TRIE_COSTS};
 use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::hash::{hash, CryptoHash};
@@ -44,7 +45,7 @@ pub enum UpdatedMemTrieNode {
 }
 
 /// Structure to build an update to the in-memory trie.
-pub struct MemTrieUpdate<'a> {
+pub struct MemTrieUpdate<'a, 'b> {
     /// The original root before updates. It is None iff the original trie had no keys.
     root: Option<MemTrieNodeId>,
     arena: &'a ArenaMemory,
@@ -55,6 +56,8 @@ pub struct MemTrieUpdate<'a> {
     pub updated_nodes: Vec<Option<UpdatedMemTrieNode>>,
     /// Refcount changes to on-disk trie nodes.
     pub trie_refcount_changes: Option<TrieRefcountDeltaMap>,
+    /// Additional nodes that may need to be recorded during the update process.
+    recorder: Option<&'b mut TrieRecorder>,
 }
 
 impl UpdatedMemTrieNode {
@@ -92,12 +95,13 @@ impl UpdatedMemTrieNode {
     }
 }
 
-impl<'a> MemTrieUpdate<'a> {
+impl<'a, 'b> MemTrieUpdate<'a, 'b> {
     pub fn new(
         root: Option<MemTrieNodeId>,
         arena: &'a ArenaMemory,
         shard_uid: String,
         track_disk_changes: bool,
+        recorder: Option<&'b mut TrieRecorder>,
     ) -> Self {
         let mut trie_update = Self {
             root,
@@ -109,6 +113,7 @@ impl<'a> MemTrieUpdate<'a> {
             } else {
                 None
             },
+            recorder,
         };
         assert_eq!(trie_update.convert_existing_to_updated(root), 0usize);
         trie_update
@@ -148,9 +153,16 @@ impl<'a> MemTrieUpdate<'a> {
                 if let Some(trie_refcount_changes) = self.trie_refcount_changes.as_mut() {
                     trie_refcount_changes.subtract(node.as_ptr(self.arena).view().node_hash(), 1);
                 }
-                self.new_updated_node(UpdatedMemTrieNode::from_existing_node_view(
-                    node.as_ptr(self.arena).view(),
-                ))
+                let view = node.as_ptr(self.arena).view();
+                if let Some(recorder) = self.recorder.as_deref_mut() {
+                    if !recorder.contains(&view.node_hash()) {
+                        // optimization
+                        let raw_node_serialized =
+                            borsh::to_vec(&view.to_raw_trie_node_with_size()).unwrap();
+                        recorder.record(&view.node_hash(), raw_node_serialized.into());
+                    }
+                }
+                self.new_updated_node(UpdatedMemTrieNode::from_existing_node_view(view))
             }
         }
     }
@@ -780,7 +792,7 @@ impl<'a> MemTrieUpdate<'a> {
 
     /// Converts the updates to trie changes as well as memtrie changes.
     pub fn to_trie_changes(self) -> TrieChanges {
-        let Self { root, arena, shard_uid, trie_refcount_changes, updated_nodes } = self;
+        let Self { root, arena, shard_uid, trie_refcount_changes, updated_nodes, .. } = self;
         let mut trie_refcount_changes =
             trie_refcount_changes.expect("Cannot to_trie_changes for memtrie changes only");
         let (mem_trie_changes, hashes_and_serialized) =
@@ -907,7 +919,7 @@ mod tests {
         }
 
         fn make_all_changes(&mut self, changes: Vec<(Vec<u8>, Option<Vec<u8>>)>) -> TrieChanges {
-            let mut update = self.mem.update(self.state_root, true).unwrap_or_else(|_| {
+            let mut update = self.mem.update(self.state_root, true, None).unwrap_or_else(|_| {
                 panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
             });
             for (key, value) in changes {
@@ -924,7 +936,7 @@ mod tests {
             &mut self,
             changes: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         ) -> MemTrieChanges {
-            let mut update = self.mem.update(self.state_root, false).unwrap_or_else(|_| {
+            let mut update = self.mem.update(self.state_root, false, None).unwrap_or_else(|_| {
                 panic!("Trying to update root {:?} but it's not in memtries", self.state_root)
             });
 
