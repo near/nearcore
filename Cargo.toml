@@ -411,6 +411,7 @@ stdx = { package = "near-stdx", path = "utils/stdx" }
 [patch.crates-io]
 protobuf = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
 protobuf-support = { git = "https://github.com/near/rust-protobuf.git", branch = "3.0.2-patch" }
+tracing-opentelemetry = { path = "./tracing-opentelemetry-0.17.4" }
 
 # Note that "bench" profile inherits from "release" profile and
 # "test" profile inherits from "dev" profile.

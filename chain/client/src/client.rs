@@ -59,6 +59,7 @@ use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
 use near_o11y::log_assert;
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
@@ -651,6 +652,12 @@ impl Client {
             new_chunks=?new_chunks.values().collect_vec(),
             "Producing block",
         );
+
+        for chunk in new_chunks.values() {
+            let _ = root_span_for_chunk(chunk.0).entered();
+            let _ =
+                tracing::info_span!("Producing block with chunk", chunk_hash = ?*chunk).entered();
+        }
 
         // If we are producing empty blocks and there are no transactions.
         if !self.config.produce_empty_blocks && new_chunks.is_empty() {

@@ -6,6 +6,7 @@ use crate::types::{
 use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::Receipt;
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -160,6 +161,7 @@ pub fn apply_new_chunk(
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<NewChunkResult, Error> {
+    let _ = root_span_for_chunk(data.chunk_header.chunk_hash().0).entered();
     let NewChunkData {
         chunk_header,
         transactions,
@@ -172,7 +174,6 @@ pub fn apply_new_chunk(
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
-        parent: parent_span,
         "new_chunk",
         shard_id)
     .entered();
@@ -235,7 +236,6 @@ pub fn apply_old_chunk(
     let shard_id = shard_context.shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
-        parent: parent_span,
         "existing_chunk",
         shard_id)
     .entered();
@@ -294,7 +294,6 @@ fn apply_resharding(
     let shard_id = shard_uid.shard_id();
     let _span = tracing::debug_span!(
         target: "chain",
-        parent: parent_span,
         "resharding",
         shard_id,
         ?shard_uid)

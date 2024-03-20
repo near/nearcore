@@ -47,6 +47,7 @@ use near_network::types::ReasonForBan;
 use near_network::types::{
     NetworkInfo, NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest,
 };
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_o11y::WithSpanContextExt;
 use near_performance_metrics;
 use near_performance_metrics_macros::perf;
@@ -1854,6 +1855,7 @@ impl ClientActionHandler<ChunkEndorsementMessage> for ClientActions {
 
     #[perf]
     fn handle(&mut self, msg: ChunkEndorsementMessage) -> Self::Result {
+        let _ = root_span_for_chunk(msg.0.chunk_hash().0).entered();
         if let Err(err) = self.client.process_chunk_endorsement(msg.0) {
             tracing::error!(target: "client", ?err, "Error processing chunk endorsement");
         }

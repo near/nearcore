@@ -4,6 +4,7 @@ use near_amend_genesis::AmendGenesisCommand;
 use near_chain_configs::GenesisValidationMode;
 use near_client::ConfigUpdater;
 use near_cold_store_tool::ColdStoreCommand;
+use near_crypto::{KeyType, PublicKey};
 use near_database_tool::commands::DatabaseCommand;
 use near_dyn_configs::{UpdateableConfigLoader, UpdateableConfigLoaderError, UpdateableConfigs};
 #[cfg(feature = "new_epoch_sync")]
@@ -13,10 +14,11 @@ use near_fork_network::cli::ForkNetworkCommand;
 use near_jsonrpc_primitives::types::light_client::RpcLightClientExecutionProofResponse;
 use near_mirror::MirrorCommand;
 use near_network::tcp;
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder,
+    EnvFilterBuilder, OpenTelemetryLevel, Options,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -150,6 +152,9 @@ impl NeardCmd {
             NeardSubCommand::EpochSync(cmd) => {
                 cmd.run(&home_dir)?;
             }
+            NeardSubCommand::TraceTest(cmd) => {
+                cmd.run()?;
+            }
         };
         Ok(())
     }
@@ -282,6 +287,8 @@ pub(super) enum NeardSubCommand {
     #[cfg(feature = "new_epoch_sync")]
     /// Testing tool for epoch sync
     EpochSync(EpochSyncCommand),
+
+    TraceTest(TraceTestCommand),
 }
 
 #[derive(clap::Parser)]
@@ -841,6 +848,50 @@ pub(super) struct ValidateConfigCommand {}
 impl ValidateConfigCommand {
     pub(super) fn run(&self, home_dir: &Path) -> anyhow::Result<()> {
         nearcore::config::load_config(home_dir, GenesisValidationMode::Full)?;
+        Ok(())
+    }
+}
+
+#[derive(clap::Parser)]
+pub struct TraceTestCommand {}
+
+impl TraceTestCommand {
+    fn run(&self) -> anyhow::Result<()> {
+        let sys = actix::System::new();
+
+        sys.block_on(async move {
+            // Initialize the subscriber that takes care of both logging and tracing.
+            let _subscriber_guard = default_subscriber_with_opentelemetry(
+                make_env_filter(None).unwrap(),
+                &Options {
+                    opentelemetry: OpenTelemetryLevel::TRACE,
+                    log_span_events: true,
+                    color: Default::default(),
+                    record_io_trace: None,
+                },
+                "test".to_string(),
+                PublicKey::empty(KeyType::ED25519),
+                None,
+            )
+            .await
+            .global();
+
+            {
+                // QUESTION: Why do these trace spans not seem to do anything at all?
+                // It doesn't even print out on stderr. Even without this first line.
+                let _ = root_span_for_chunk(CryptoHash::hash_bytes(b"test")).entered();
+                let _ = tracing::info_span!("test1").entered();
+                let _ = tracing::info_span!("test2").entered();
+                let _ = tracing::info_span!("test3").entered();
+                let _ = tracing::info_span!("test4").entered();
+                let _ = tracing::info_span!("test5").entered();
+                tracing::info!("test info log");
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+            // Wait for something to upload the traces?
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+
         Ok(())
     }
 }

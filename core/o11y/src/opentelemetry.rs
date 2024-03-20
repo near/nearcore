@@ -1,11 +1,16 @@
 use crate::reload::TracingLayer;
 use near_crypto::PublicKey;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::AccountId;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler};
 use opentelemetry::sdk::Resource;
+use opentelemetry::trace::TraceId;
 use opentelemetry::KeyValue;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing::level_filters::LevelFilter;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::filter::targets::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
@@ -54,7 +59,9 @@ where
 
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
+        .with_exporter(
+            opentelemetry_otlp::new_exporter().tonic().with_endpoint("http://34.32.208.68:5433"),
+        )
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
@@ -74,4 +81,15 @@ pub(crate) fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) 
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
     })
+}
+
+pub fn root_span_for_chunk(chunk_hash: CryptoHash) -> Span {
+    let mut chunk_hash_first_16_bytes = [0u8; 16];
+    chunk_hash_first_16_bytes.copy_from_slice(&chunk_hash.0[..16]);
+    let trace_id = TraceId::from_bytes(chunk_hash_first_16_bytes);
+
+    let span =
+        tracing::info_span!( target: "chunk_tracing", parent: None, "chunk_tracing", ?chunk_hash);
+    span.set_trace_id(trace_id);
+    span
 }

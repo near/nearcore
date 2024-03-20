@@ -37,21 +37,21 @@ pub struct DefaultSubscriberGuard<S> {
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
-    #[clap(long, value_enum, default_value = "off")]
-    opentelemetry: OpenTelemetryLevel,
+    #[clap(long, value_enum, default_value = "trace")]
+    pub opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
     #[clap(long, value_enum, default_value = "auto")]
-    color: ColorOutput,
+    pub color: ColorOutput,
 
     /// Enable logging of spans. For instance, this prints timestamps of entering and exiting a span,
     /// together with the span duration and used/idle CPU time.
     #[clap(long)]
-    log_span_events: bool,
+    pub log_span_events: bool,
 
     /// Enable JSON output of IO events, written to a file.
     #[clap(long)]
-    record_io_trace: Option<PathBuf>,
+    pub record_io_trace: Option<PathBuf>,
 }
 
 impl<S: tracing::Subscriber + Send + Sync> DefaultSubscriberGuard<S> {
