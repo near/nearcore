@@ -2,12 +2,13 @@
 #![cfg(target_arch = "x86_64")]
 
 use super::{create_context, test_vm_config, with_vm_variants};
+use crate::cache::{CompiledContractInfo, ContractRuntimeCache};
 use crate::logic::errors::VMRunnerError;
 use crate::logic::mocks::mock_external::MockedExternal;
 use crate::logic::Config;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
-use crate::{CompiledContract, ContractCode, ContractRuntimeCache, MockContractRuntimeCache};
+use crate::{ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
@@ -20,22 +21,39 @@ use std::sync::Arc;
 fn test_caches_compilation_error() {
     let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
+        // The cache is currently properly implemented only for NearVM
         match vm_kind {
-            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::NearVm => {}
-            VMKind::Wasmtime => return,
+            VMKind::NearVm => {}
+            VMKind::Wasmer0 | VMKind::Wasmer2 | VMKind::Wasmtime => return,
         }
         let cache = MockContractRuntimeCache::default();
         let code = [42; 1000];
+        let code = ContractCode::new(code.to_vec(), None);
+        let code_hash = *code.hash();
         let terragas = 1000000000000u64;
         assert_eq!(cache.len(), 0);
-        let outcome1 =
-            make_cached_contract_call_vm(&config, &cache, &code, "method_name1", terragas, vm_kind)
-                .expect("bad failure");
+        let outcome1 = make_cached_contract_call_vm(
+            &config,
+            &cache,
+            code_hash,
+            Some(&code),
+            "method_name1",
+            terragas,
+            vm_kind,
+        )
+        .expect("bad failure");
         println!("{:?}", cache);
         assert_eq!(cache.len(), 1);
-        let outcome2 =
-            make_cached_contract_call_vm(&config, &cache, &code, "method_name2", terragas, vm_kind)
-                .expect("bad failure");
+        let outcome2 = make_cached_contract_call_vm(
+            &config,
+            &cache,
+            code_hash,
+            None,
+            "method_name2",
+            terragas,
+            vm_kind,
+        )
+        .expect("bad failure");
         assert_eq!(outcome1.aborted.as_ref(), outcome2.aborted.as_ref());
     })
 }
@@ -50,31 +68,50 @@ fn test_does_not_cache_io_error() {
         }
 
         let code = near_test_contracts::trivial_contract();
+        let code = ContractCode::new(code.to_vec(), None);
+        let code_hash = *code.hash();
         let prepaid_gas = 10u64.pow(12);
         let cache = FaultingContractRuntimeCache::default();
 
         cache.set_read_fault(true);
-        let result =
-            make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
+        let result = make_cached_contract_call_vm(
+            &config,
+            &cache,
+            code_hash,
+            None,
+            "main",
+            prepaid_gas,
+            vm_kind,
+        );
         assert_matches!(
             result.err(),
             Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::ReadError(_)))
         );
+        cache.set_read_fault(false);
 
         cache.set_write_fault(true);
-        let result =
-            make_cached_contract_call_vm(&config, &cache, &code, "main", prepaid_gas, vm_kind);
+        let result = make_cached_contract_call_vm(
+            &config,
+            &cache,
+            code_hash,
+            Some(&code),
+            "main",
+            prepaid_gas,
+            vm_kind,
+        );
         assert_matches!(
             result.err(),
             Some(VMRunnerError::CacheError(crate::logic::errors::CacheError::WriteError(_)))
         );
+        cache.set_write_fault(false);
     })
 }
 
 fn make_cached_contract_call_vm(
     config: &Config,
     cache: &dyn ContractRuntimeCache,
-    code: &[u8],
+    code_hash: CryptoHash,
+    code: Option<&ContractCode>,
     method_name: &str,
     prepaid_gas: u64,
     vm_kind: VMKind,
@@ -84,13 +121,13 @@ fn make_cached_contract_call_vm(
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
     context.prepaid_gas = prepaid_gas;
-    let code = ContractCode::new(code.to_vec(), None);
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
     runtime.run(
-        &code,
+        code_hash,
+        code,
         method_name,
         &mut fake_external,
-        context,
+        &context,
         &fees,
         &promise_results,
         Some(cache),
@@ -264,14 +301,14 @@ impl FaultingContractRuntimeCache {
 }
 
 impl ContractRuntimeCache for FaultingContractRuntimeCache {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> std::io::Result<()> {
+    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> std::io::Result<()> {
         if self.write_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
         self.inner.put(key, value)
     }
 
-    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+    fn get(&self, key: &CryptoHash) -> std::io::Result<Option<CompiledContractInfo>> {
         if self.read_fault.swap(false, Ordering::Relaxed) {
             return Err(io::ErrorKind::Other.into());
         }
