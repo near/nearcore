@@ -21,6 +21,7 @@ use near_chain::{Block, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_pool::TransactionGroupIteratorWrapper;
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::merkle::merklize;
@@ -129,6 +130,7 @@ impl ChunkValidator {
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
+            let _ = root_span_for_chunk(state_witness_inner.chunk_header.chunk_hash().0).entered();
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
 

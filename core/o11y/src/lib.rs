@@ -19,7 +19,7 @@ pub mod log_config;
 mod log_counter;
 pub mod macros;
 pub mod metrics;
-mod opentelemetry;
+pub mod opentelemetry;
 mod reload;
 mod subscriber;
 pub mod testonly;
