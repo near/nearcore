@@ -21,6 +21,7 @@ ed25519-dalek.workspace = true
 enum-map.workspace = true
 finite-wasm = { workspace = true, features = ["instrument"] }
 loupe.workspace = true
+lru = "0.12.3"
 memoffset.workspace = true
 num-rational.workspace = true
 once_cell.workspace = true
@@ -70,6 +71,7 @@ near-vm-vm = { workspace = true, optional = true }
 arbitrary.workspace = true
 assert_matches.workspace = true
 bolero.workspace = true
+cov-mark.workspace = true
 expect-test.workspace = true
 hex.workspace = true
 near-test-contracts.workspace = true

@@ -1530,7 +1530,7 @@ mod tests {
     use near_primitives::version::PROTOCOL_VERSION;
     use near_store::test_utils::TestTriesBuilder;
     use near_store::{set_access_key, ShardTries};
-    use near_vm_runner::FilesystemCompiledContractCache;
+    use near_vm_runner::FilesystemContractRuntimeCache;
     use testlib::runtime_utils::{alice_account, bob_account};
 
     use super::*;
@@ -1628,7 +1628,7 @@ mod tests {
         let mut store_update = tries.store_update();
         let root = tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
         store_update.commit().unwrap();
-        let contract_cache = FilesystemCompiledContractCache::test().unwrap();
+        let contract_cache = FilesystemContractRuntimeCache::test().unwrap();
         let apply_state = ApplyState {
             block_height: 1,
             prev_block_hash: Default::default(),

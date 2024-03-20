@@ -301,6 +301,7 @@ pub struct Config {
     pub state_sync: Option<StateSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
+    ///
     /// New transactions that bring the size of the pool over this limit will be rejected. This
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
@@ -312,10 +313,17 @@ pub struct Config {
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
     /// Limit the time of adding transactions to a chunk.
+    ///
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
+
+    /// The number of the contracts kept loaded up for execution.
+    ///
+    /// Each loaded contract will increase the baseline memory use of the node appreciably. This
+    /// number must not exceed the excess parallelism available in the contract runtime.
+    pub max_loaded_contracts: usize,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -360,6 +368,7 @@ impl Default for Config {
             tx_routing_height_horizon: default_tx_routing_height_horizon(),
             produce_chunk_add_transactions_time_limit:
                 default_produce_chunk_add_transactions_time_limit(),
+            max_loaded_contracts: 128,
         }
     }
 }

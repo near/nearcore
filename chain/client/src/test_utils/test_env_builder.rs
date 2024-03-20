@@ -19,7 +19,7 @@ use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
-use near_vm_runner::{CompiledContractCache, FilesystemCompiledContractCache};
+use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,7 +46,7 @@ pub struct TestEnvBuilder {
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
-    contract_caches: Option<Vec<Box<dyn CompiledContractCache>>>,
+    contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
     runtimes: Option<Vec<Arc<dyn RuntimeAdapter>>>,
@@ -160,7 +160,7 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn contract_caches<C: CompiledContractCache>(
+    pub fn contract_caches<C: ContractRuntimeCache>(
         mut self,
         caches: impl IntoIterator<Item = C>,
     ) -> Self {
@@ -231,7 +231,7 @@ impl TestEnvBuilder {
             return self;
         }
         let count = self.clients.len();
-        self.contract_caches((0..count).map(|_| FilesystemCompiledContractCache::test().unwrap()))
+        self.contract_caches((0..count).map(|_| FilesystemContractRuntimeCache::test().unwrap()))
     }
 
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
@@ -322,7 +322,7 @@ impl TestEnvBuilder {
         nightshade_runtime_creator: impl Fn(
             PathBuf,
             Store,
-            Box<dyn CompiledContractCache>,
+            Box<dyn ContractRuntimeCache>,
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
             TrieConfig,

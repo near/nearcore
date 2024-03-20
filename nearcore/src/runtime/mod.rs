@@ -45,7 +45,7 @@ use near_store::{
     WrappedTrieChanges, COLD_HEAD_KEY,
 };
 use near_vm_runner::ContractCode;
-use near_vm_runner::{precompile_contract, CompiledContractCache, FilesystemCompiledContractCache};
+use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -70,7 +70,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
-    compiled_contract_cache: Box<dyn CompiledContractCache>,
+    compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -101,11 +101,14 @@ impl NightshadeRuntime {
         // FIXME: this (and other contract runtime resources) should probably get constructed by
         // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
         // refactor...
-        let contract_cache =
-            FilesystemCompiledContractCache::new(home_dir, config.config.store.path.as_ref())?;
+        let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
+            home_dir,
+            config.config.store.path.as_ref(),
+            config.config.max_loaded_contracts,
+        )?;
         Ok(Self::new(
             store,
-            CompiledContractCache::handle(&contract_cache),
+            ContractRuntimeCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
@@ -119,7 +122,7 @@ impl NightshadeRuntime {
 
     fn new(
         store: Store,
-        compiled_contract_cache: Box<dyn CompiledContractCache>,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
@@ -172,7 +175,7 @@ impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Store,
-        compiled_contract_cache: Box<dyn CompiledContractCache>,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
@@ -200,7 +203,7 @@ impl NightshadeRuntime {
     pub fn test_with_trie_config(
         home_dir: &Path,
         store: Store,
-        compiled_contract_cache: Box<dyn CompiledContractCache>,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_config: TrieConfig,
@@ -234,7 +237,7 @@ impl NightshadeRuntime {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
-            FilesystemCompiledContractCache::new(home_dir, None::<&str>)
+            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
                 .expect("filesystem contract cache")
                 .handle(),
             genesis_config,
@@ -501,7 +504,7 @@ impl NightshadeRuntime {
         .entered();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
+        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
             Some(Box::new(self.compiled_contract_cache.handle()));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
