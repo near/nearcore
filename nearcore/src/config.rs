@@ -348,7 +348,7 @@ impl Default for Config {
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
-            max_loaded_contracts: 128,
+            max_loaded_contracts: 256,
         }
     }
 }
