@@ -38,6 +38,7 @@ use lru::LruCache;
 use near_async::messaging::SendAsync;
 use near_async::time;
 use near_crypto::Signature;
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_o11y::{handler_debug_span, log_assert, WithSpanContext};
 use near_performance_metrics_macros::perf;
 use near_primitives::hash::CryptoHash;
@@ -418,6 +419,17 @@ impl PeerActor {
             PeerMessage::SyncSnapshotHosts(_) => {
                 metrics::SYNC_SNAPSHOT_HOSTS.with_label_values(&["sent"]).inc()
             }
+            PeerMessage::Routed(routed) => match &routed.msg.body {
+                RoutedMessageBody::ChunkStateWitness(msg) => {
+                    let _span = root_span_for_chunk(msg.chunk_hash.0).entered();
+                    let _ = tracing::info_span!("Sending chunk state witness to peer", source=?routed.msg.author, target=?routed.msg.target).entered();
+                }
+                RoutedMessageBody::ChunkEndorsement(msg) => {
+                    let _span = root_span_for_chunk(msg.chunk_hash().0).entered();
+                    let _ = tracing::info_span!("Sending chunk endorsement to peer", source=?routed.msg.author, target=?routed.msg.target).entered();
+                }
+                _ => (),
+            },
             _ => (),
         };
 
@@ -1388,6 +1400,17 @@ impl PeerActor {
                 }));
             }
             PeerMessage::Routed(mut msg) => {
+                match &msg.msg.body {
+                    RoutedMessageBody::ChunkStateWitness(inner) => {
+                        let _span = root_span_for_chunk(inner.chunk_hash.0).entered();
+                        let _ = tracing::info_span!("Received chunk state witness from peer", source=?msg.msg.author, target=?msg.msg.target).entered();
+                    }
+                    RoutedMessageBody::ChunkEndorsement(inner) => {
+                        let _span = root_span_for_chunk(inner.chunk_hash().0).entered();
+                        let _ = tracing::info_span!("Received chunk endorsement from peer", source=?msg.msg.author, target=?msg.msg.target).entered();
+                    }
+                    _ => {}
+                }
                 tracing::trace!(
                     target: "network",
                     "Received routed message from {} to {:?}.",

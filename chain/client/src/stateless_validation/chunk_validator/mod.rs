@@ -117,7 +117,7 @@ impl ChunkValidator {
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
         self.validation_spawner.spawn("stateless_validation", move || {
-            let _ = root_span_for_chunk(state_witness.chunk_header.chunk_hash().0).entered();
+            let _span = root_span_for_chunk(state_witness.chunk_header.chunk_hash().0).entered();
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
 

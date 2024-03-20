@@ -879,13 +879,13 @@ impl TraceTestCommand {
             {
                 // QUESTION: Why do these trace spans not seem to do anything at all?
                 // It doesn't even print out on stderr. Even without this first line.
-                let _ = root_span_for_chunk(CryptoHash::hash_bytes(b"test")).entered();
-                let _ = tracing::info_span!("test1").entered();
-                let _ = tracing::info_span!("test2").entered();
-                let _ = tracing::info_span!("test3").entered();
-                let _ = tracing::info_span!("test4").entered();
-                let _ = tracing::info_span!("test5").entered();
-                tracing::info!("test info log");
+                // let _ = root_span_for_chunk(CryptoHash::hash_bytes(b"test")).entered();
+                let _ = tracing::error_span!("test1").entered();
+                let _ = tracing::error_span!("test2").entered();
+                let _ = tracing::error_span!("test3").entered();
+                let _ = tracing::error_span!("test4").entered();
+                let _ = tracing::error_span!("test5").entered();
+                tracing::error!("test info log");
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
             // Wait for something to upload the traces?

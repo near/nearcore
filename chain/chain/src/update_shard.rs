@@ -161,7 +161,7 @@ pub fn apply_new_chunk(
     runtime: &dyn RuntimeAdapter,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Result<NewChunkResult, Error> {
-    let _ = root_span_for_chunk(data.chunk_header.chunk_hash().0).entered();
+    let _span = root_span_for_chunk(data.chunk_header.chunk_hash().0).entered();
     let NewChunkData {
         chunk_header,
         transactions,

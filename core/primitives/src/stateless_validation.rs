@@ -44,6 +44,7 @@ impl EncodedChunkStateWitness {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SignedEncodedChunkStateWitness {
+    pub chunk_hash: ChunkHash,
     /// The content of the witness. It is convenient have it as bytes in order
     /// to perform signature verification along with decoding.
     pub witness_bytes: EncodedChunkStateWitness,
@@ -55,7 +56,7 @@ impl SignedEncodedChunkStateWitness {
     pub fn new(witness: &ChunkStateWitness, signer: &dyn ValidatorSigner) -> Self {
         let witness_bytes = EncodedChunkStateWitness::encode(witness);
         let signature = signer.sign_chunk_state_witness(&witness_bytes);
-        Self { witness_bytes, signature }
+        Self { chunk_hash: witness.chunk_header.chunk_hash(), witness_bytes, signature }
     }
 }
 

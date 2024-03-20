@@ -654,7 +654,7 @@ impl Client {
         );
 
         for chunk in new_chunks.values() {
-            let _ = root_span_for_chunk(chunk.0).entered();
+            let _span = root_span_for_chunk(chunk.0).entered();
             let _ =
                 tracing::info_span!("Producing block with chunk", chunk_hash = ?*chunk).entered();
         }
