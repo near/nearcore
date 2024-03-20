@@ -1204,12 +1204,12 @@ impl Chain {
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
             {
                 let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
-                let merkle_paths = merkle_paths
+                let merkle_proof = merkle_paths
                     .get(shard_id)
                     .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?;
                 let chunk_proof = ChunkProofs {
                     block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
-                    merkle_proof: merkle_paths.clone(),
+                    merkle_proof: merkle_proof.clone(),
                     chunk: Box::new(MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
                     ))),
