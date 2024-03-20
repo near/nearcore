@@ -30,7 +30,7 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::{CompiledContract, CompiledContractCache, ContractCode};
+use near_vm_runner::{CompiledContract, ContractCode, ContractRuntimeCache};
 use once_cell::sync::Lazy;
 use std::fs::File;
 use std::path::Path;
@@ -953,11 +953,11 @@ where
 }
 
 #[derive(Clone)]
-pub struct StoreCompiledContractCache {
+pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
 }
 
-impl StoreCompiledContractCache {
+impl StoreContractRuntimeCache {
     pub fn new(store: &Store) -> Self {
         Self { db: store.storage.clone() }
     }
@@ -967,11 +967,11 @@ impl StoreCompiledContractCache {
 /// We store contracts in VM-specific format in DBCol::CachedContractCode.
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
-impl CompiledContractCache for StoreCompiledContractCache {
+impl ContractRuntimeCache for StoreContractRuntimeCache {
     #[tracing::instrument(
         level = "trace",
         target = "store",
-        "StoreCompiledContractCache::put",
+        "StoreContractRuntimeCache::put",
         skip_all,
         fields(key = key.to_string(), value.len = value.debug_len()),
     )]
@@ -992,7 +992,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
     #[tracing::instrument(
         level = "trace",
         target = "store",
-        "StoreCompiledContractCache::get",
+        "StoreContractRuntimeCache::get",
         skip_all,
         fields(key = key.to_string()),
     )]
@@ -1008,7 +1008,7 @@ impl CompiledContractCache for StoreCompiledContractCache {
         self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
     }
 
-    fn handle(&self) -> Box<dyn CompiledContractCache> {
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
         Box::new(self.clone())
     }
 }
@@ -1126,14 +1126,14 @@ mod tests {
         test_iter_order_impl(crate::test_utils::create_test_store());
     }
 
-    /// Check StoreCompiledContractCache implementation.
+    /// Check StoreContractRuntimeCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, ContractRuntimeCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
-        let cache = super::StoreCompiledContractCache::new(&store);
+        let cache = super::StoreContractRuntimeCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
 
         assert_eq!(None, cache.get(&key).unwrap());

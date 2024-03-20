@@ -2,7 +2,7 @@ use crate::errors::ContractPrecompilatonResult;
 use crate::logic::errors::{CacheError, CompilationError, VMRunnerError};
 use crate::logic::types::PromiseResult;
 use crate::logic::{External, VMContext, VMOutcome};
-use crate::{CompiledContractCache, ContractCode};
+use crate::{ContractCode, ContractRuntimeCache};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
 
@@ -47,7 +47,7 @@ pub fn run(
     wasm_config: &Config,
     fees_config: &RuntimeFeesConfig,
     promise_results: &[PromiseResult],
-    cache: Option<&dyn CompiledContractCache>,
+    cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
     let vm_kind = wasm_config.vm_kind;
     let span = tracing::debug_span!(
@@ -94,7 +94,7 @@ pub trait VM {
         context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn CompiledContractCache>,
+        cache: Option<&dyn ContractRuntimeCache>,
     ) -> VMResult;
 
     /// Precompile a WASM contract to a VM specific format and store the result
@@ -106,7 +106,7 @@ pub trait VM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn CompiledContractCache,
+        cache: &dyn ContractRuntimeCache,
     ) -> Result<Result<ContractPrecompilatonResult, CompilationError>, CacheError>;
 }
 

@@ -137,6 +137,7 @@ borsh = { version = "1.0.0", features = ["derive", "rc"] }
 bs58 = "0.4"
 bytes = "1"
 bytesize = { version = "1.1", features = ["serde"] }
+cov-mark = "2.0.0-pre.1"
 cargo_metadata = "0.14.1"
 cc = "1.0"
 cfg-if = "1.0"

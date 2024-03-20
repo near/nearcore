@@ -110,7 +110,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
-use near_vm_runner::MockCompiledContractCache;
+use near_vm_runner::MockContractRuntimeCache;
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
@@ -886,7 +886,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
-    let cache = MockCompiledContractCache::default();
+    let cache = MockContractRuntimeCache::default();
 
     let mut run = || {
         let context = create_context(vec![]);

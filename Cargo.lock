@@ -1291,6 +1291,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
+name = "cov-mark"
+version = "2.0.0-pre.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d48d8f76bd9331f19fe2aaf3821a9f9fb32c3963e1e3d6ce82a8c09cef7444a"
+
+[[package]]
 name = "cpp_demangle"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3108,11 +3114,20 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.7.5"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32613e41de4c47ab04970c348ca7ae7382cf116625755af070b008a15516a889"
+checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
 dependencies = [
- "hashbrown 0.11.2",
+ "hashbrown 0.12.3",
+]
+
+[[package]]
+name = "lru"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
+dependencies = [
+ "hashbrown 0.14.2",
 ]
 
 [[package]]
@@ -3440,7 +3455,7 @@ name = "near-cache"
 version = "0.0.0"
 dependencies = [
  "bencher",
- "lru",
+ "lru 0.7.8",
  "rand",
 ]
 
@@ -3459,7 +3474,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru",
+ "lru 0.7.8",
  "near-async",
  "near-cache",
  "near-chain-configs",
@@ -3540,7 +3555,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru",
+ "lru 0.7.8",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -3586,7 +3601,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru",
+ "lru 0.7.8",
  "near-actix-test-utils",
  "near-async",
  "near-cache",
@@ -4037,7 +4052,7 @@ dependencies = [
  "futures-util",
  "im",
  "itertools",
- "lru",
+ "lru 0.7.8",
  "near-async",
  "near-crypto",
  "near-fmt",
@@ -4361,7 +4376,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru",
+ "lru 0.7.8",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4515,11 +4530,13 @@ dependencies = [
  "base64 0.21.0",
  "bolero",
  "borsh 1.0.0",
+ "cov-mark",
  "ed25519-dalek",
  "enum-map",
  "expect-test",
  "finite-wasm",
  "hex",
+ "lru 0.12.3",
  "memoffset 0.8.0",
  "near-crypto",
  "near-parameters",
