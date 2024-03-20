@@ -402,7 +402,7 @@ def local_test_setup_cmd(args):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Run a load test')
+    parser = ArgumentParser(description='Set up a local instance of mocknet')
     subparsers = parser.add_subparsers(title='subcommands',
                                        description='valid subcommands')
 

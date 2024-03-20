@@ -281,7 +281,7 @@ def update_binaries_cmd(args, traffic_generator, nodes):
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Run a load test')
+    parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--chain-id', type=str)
     parser.add_argument('--start-height', type=int)
     parser.add_argument('--unique-id', type=str)
