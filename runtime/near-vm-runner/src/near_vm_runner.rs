@@ -16,7 +16,7 @@ use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
 use near_vm_compiler_singlepass::Singlepass;
 use near_vm_engine::universal::{
-    LimitedMemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
+    MemoryPool, Universal, UniversalArtifact, UniversalEngine, UniversalExecutable,
     UniversalExecutableRef,
 };
 use near_vm_types::{FunctionIndex, InstanceConfig, MemoryType, Pages, WASM_PAGE_SIZE};
@@ -242,23 +242,20 @@ impl NearVM {
         // We only support universal engine at the moment.
         assert_eq!(VM_CONFIG.engine, NearVmEngine::Universal);
 
-        static CODE_MEMORY_POOL_CELL: OnceLock<LimitedMemoryPool> = OnceLock::new();
+        static CODE_MEMORY_POOL_CELL: OnceLock<MemoryPool> = OnceLock::new();
         let code_memory_pool = CODE_MEMORY_POOL_CELL
             .get_or_init(|| {
-                // FIXME: should have as many code memories as there are possible parallel
-                // invocations of the runtime… How do we determine that? Should we make it
-                // configurable for the node operators, perhaps, so that they can make an informed
-                // choice based on the amount of memory they have and shards they track? Should we
-                // actually use some sort of semaphore to enforce a parallelism limit?
-                //
-                // NB: 64MiB is a best guess as to what the maximum size a loaded artifact can
+                // NOTE: 8MiB is a best guess as to what the maximum size a loaded artifact can
                 // plausibly be. This is not necessarily true – there may be WebAssembly
                 // instructions that expand by more than 4 times in terms of instruction size after
                 // a conversion to x86_64, In that case a re-allocation will occur and executing
                 // that particular function call will be slower. Not to mention there isn't a
                 // strong guarantee on the upper bound of the memory that the contract runtime may
                 // require.
-                LimitedMemoryPool::new(256, 1 * 1024 * 1024).unwrap_or_else(|e| {
+                // NOTE: 128 is not the upper limit on the number of maps that may be allocated at
+                // once. This number may grow depending on the size of the in-memory VMArtifact
+                // cache, which is configurable by the operator.
+                MemoryPool::new(128, 8 * 1024 * 1024).unwrap_or_else(|e| {
                     panic!("could not pre-allocate resources for the runtime: {e}");
                 })
             })
