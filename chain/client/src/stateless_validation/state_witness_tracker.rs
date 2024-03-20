@@ -86,17 +86,11 @@ impl ChunkStateWitnessTracker {
 
             // Cleanup the record if we received the acks from all the validators, otherwise update
             // the number of validators from which we are expecting an ack message.
-            match record.num_validators.checked_sub(1) {
-                Some(remaining) => {
-                    if remaining > 0 {
-                        record.num_validators = remaining;
-                    } else {
-                        self.witnesses.pop(&key);
-                    }
-                }
-                None => {
-                    self.witnesses.pop(&key);
-                }
+            let remaining = record.num_validators.saturating_sub(1);
+            if remaining > 0 {
+                record.num_validators = remaining;
+            } else {
+                self.witnesses.pop(&key);
             }
         }
     }
@@ -105,9 +99,9 @@ impl ChunkStateWitnessTracker {
     fn update_roundtrip_time_metric(record: &ChunkStateWitnessRecord, clock: &Clock) -> () {
         let received_time = clock.now();
         if received_time > record.sent_timestamp {
-            metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME_MS
+            metrics::CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME
                 .with_label_values(&[witness_size_bucket(record.witness_size)])
-                .observe((received_time - record.sent_timestamp).whole_milliseconds() as f64);
+                .observe((received_time - record.sent_timestamp).as_seconds_f64());
         }
     }
 
@@ -122,7 +116,6 @@ impl ChunkStateWitnessTracker {
 }
 
 /// Buckets for state-witness size.
-// TODO: Use size::Size to represent sizes.
 static SIZE_IN_BYTES_TO_BUCKET: &'static [(ByteSize, &str)] = &[
     (ByteSize::kb(1), "<1KB"),
     (ByteSize::kb(10), "1-10KB"),
