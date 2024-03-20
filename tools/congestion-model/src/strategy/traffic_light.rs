@@ -121,19 +121,18 @@ impl CongestionStrategy for TrafficLight {
         }
 
         while ctx.gas_burnt() < tx_gas {
-            if let Some(tx) = ctx.incoming_transactions().pop_front() {
-                let receiver = ctx.tx_receiver(tx);
-                if status(ctx, receiver) != TrafficLightStatus::Green {
-                    // dropping transaction, the receiver is already too busy
-                    // (dropping simply means not accepting it, it's already
-                    // removed from the incoming queue)
-                } else {
-                    let receipt = ctx.accept_transaction(tx);
-                    self.forward_or_buffer(receipt, ctx);
-                }
-            } else {
+            let Some(tx) = ctx.incoming_transactions().pop_front() else {
                 // no more transaction incoming
                 break;
+            };
+            let receiver = ctx.tx_receiver(tx);
+            if status(ctx, receiver) != TrafficLightStatus::Green {
+                // dropping transaction, the receiver is already too busy
+                // (dropping simply means not accepting it, it's already
+                // removed from the incoming queue)
+            } else {
+                let receipt = ctx.accept_transaction(tx);
+                self.forward_or_buffer(receipt, ctx);
             }
         }
 
