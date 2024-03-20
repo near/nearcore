@@ -8,7 +8,7 @@ use std::{any::Any, collections::BTreeMap, sync::Arc};
 /// [`Artifact`]s that can be instantiated.
 pub trait Instantiatable: Artifact {
     /// The errors that can occur when instantiating.
-    type Error: std::error::Error + Send + Sync;
+    type Error: std::error::Error + Send;
 
     /// Crate an `Instance` from this `Artifact`.
     ///
@@ -31,7 +31,7 @@ pub trait Instantiatable: Artifact {
 ///
 /// Some other operations such as linking, relocating and similar may also be performed during
 /// constructon of the Artifact, making this type particularly well suited for caching in-memory.
-pub trait Artifact: Send + Sync {
+pub trait Artifact: Send {
     /// The information about offsets into the VM context table.
     fn offsets(&self) -> &crate::VMOffsets;
 
