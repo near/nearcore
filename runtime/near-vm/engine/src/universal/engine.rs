@@ -40,7 +40,7 @@ impl UniversalEngine {
         compiler: Box<dyn Compiler>,
         target: Target,
         features: Features,
-        memory_allocator: super::LimitedMemoryPool,
+        memory_allocator: super::MemoryPool,
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
@@ -68,7 +68,7 @@ impl UniversalEngine {
     ///
     /// Headless engines can't compile or validate any modules,
     /// they just take already processed Modules (via `Module::serialize`).
-    pub fn headless(memory_allocator: super::LimitedMemoryPool) -> Self {
+    pub fn headless(memory_allocator: super::MemoryPool) -> Self {
         Self {
             inner: Arc::new(Mutex::new(UniversalEngineInner {
                 compiler: None,
@@ -486,7 +486,7 @@ pub struct UniversalEngineInner {
     /// The compiler
     compiler: Option<Box<dyn Compiler>>,
     /// Pool from which code memory can be allocated.
-    code_memory_pool: super::LimitedMemoryPool,
+    code_memory_pool: super::MemoryPool,
     /// The features to compile the Wasm module with
     features: Features,
     /// The signature registry is used mainly to operate with trampolines
