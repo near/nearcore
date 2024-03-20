@@ -419,10 +419,12 @@ mod trie_storage_tests {
         assert_eq!(count_delta.mem_reads, 1);
     }
 
-    // TODO(#10769): Make this test pass.
+    // Checks that for keys only touched on writes recorded storage for
+    // memtrie matches recorded storage for disk.
+    // Required because recording on read and write happen on different code
+    // paths for memtrie.
     #[test]
-    #[should_panic]
-    fn test_memtrie_discrepancy() {
+    fn test_memtrie_recorded_writes() {
         init_test_logger();
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
