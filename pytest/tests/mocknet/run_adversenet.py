@@ -83,13 +83,39 @@ def check_slow_blocks(initial_metrics, final_metrics):
 
 def override_config(node, config):
     # Add config here depending on the specific node build.
-    pass
-    """
-    if "bad" in node.instance_name:
-        config["adversarial"] = {
-            "produce_duplicate_blocks": True
+
+    # Enable the following if you want to increase the block time
+    # from the default 0.6s to 1s.
+    if False:
+        config["consensus"]["min_block_production_delay"] = {
+            "secs": 1,
+            "nanos": 0,
         }
-    """
+
+    # Enable the following if testing single-shard tracking.
+    if False:
+        config["state_sync"] = {
+            "dump": {
+                "location": {
+                    "GCS": {
+                        "bucket": "near-mocknet-snet2-state"
+                    }
+                },
+                "iteration_delay": {
+                    "secs": 1,
+                    "nanos": 0
+                },
+            }
+        }
+        config["store"]["state_snapshot_enabled"] = True
+        config["consensus"]["state_sync_timeout"] = {
+            "secs": 5,
+            "nanos": 0
+        }
+        if 'rpc' in node.instance_name:
+            config["tracked_shards"] = [666]
+        else:
+            config["tracked_shards"] = []
 
 
 class Role(Enum):
@@ -141,6 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--binary-url',
                         required=False,
                         help="url to download neard binary")
+    parser.add_argument('--service-account', required=False, help="service account JSON file")
 
     args = parser.parse_args()
 
@@ -181,6 +208,8 @@ if __name__ == '__main__':
     rpc_nodes = [n for n in all_nodes if get_role(n) == Role.Rpc]
     if args.binary_url:
         mocknet.redownload_neard(all_nodes, args.binary_url)
+    if args.service_account:
+        mocknet.upload_service_account(all_nodes, args.service_account)
     if args.mode == "new":
         logger.info(f'Configuring nodes from scratch')
         mocknet.clear_data(all_nodes)
@@ -197,5 +226,8 @@ if __name__ == '__main__':
             all_nodes, chain_id, override_config)
     else:
         mocknet.update_existing_config_files(all_nodes, override_config)
-    mocknet.start_nodes(all_nodes)
+    env = {}
+    if args.service_account:
+        env['SERVICE_ACCOUNT'] = '/home/ubuntu/service_account.json'
+    mocknet.start_nodes(all_nodes, env=env)
     mocknet.wait_all_nodes_up(all_nodes)
