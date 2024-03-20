@@ -741,8 +741,14 @@ impl Client {
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
-            chunk_headers[shard_id as usize] = chunk_header;
-            chunk_endorsements[shard_id as usize] = chunk_endorsement;
+            *chunk_headers
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_header;
+            *chunk_endorsements
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
