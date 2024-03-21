@@ -1414,7 +1414,7 @@ impl Client {
         if let Err(err) = persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store()) {
             error!(target: "client", error=?err, chunk_hash=?chunk_header.chunk_hash(),
                 "Failed to persist completed chunk.");
-            if cfg!(debug) {
+            if cfg!(debug_assertions) {
                 panic!("Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
                        chunk_header.chunk_hash(), err);
             }
