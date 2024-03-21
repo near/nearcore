@@ -287,7 +287,6 @@ pub fn default_view_client_throttle_period() -> Duration {
     Duration::seconds(30)
 }
 
-/// Returns the default value for maximum size of state witnesses in the OrphanStateWitnessPool.
 pub fn default_trie_viewer_state_size_limit() -> Option<u64> {
     Some(50_000)
 }
@@ -308,11 +307,15 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::milliseconds(200))
 }
 
+/// Returns the default size of the OrphanStateWitnessPool, ie. the maximum number of
+/// state-witnesses that can be accommodated in OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_pool_size() -> usize {
     // With 5 shards, a capacity of 25 witnesses allows to store 5 orphan witnesses per shard.
     25
 }
 
+/// Returns the default value for maximum data-size (bytes) for a state witness to be included in
+/// the OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_max_size() -> ByteSize {
     ByteSize::mb(40)
 }
@@ -460,7 +463,7 @@ pub struct ClientConfig {
     /// latency due to the need of requesting chunks over the peer-to-peer network.
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
     /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
-    /// because the previous block isn't available. The witnesses wait in the pool untl the
+    /// because the previous block isn't available. The witnesses wait in the pool until the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
     /// Maximum size of state witnesses in the OrphanStateWitnessPool.

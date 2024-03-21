@@ -298,15 +298,16 @@ pub struct Config {
     /// because the previous block isn't available. The witnesses wait in the pool untl the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
-    /// The number of the contracts kept loaded up for execution.
-    ///
-    /// Each loaded contract will increase the baseline memory use of the node appreciably.
-    pub max_loaded_contracts: usize,
     /// Maximum size (number of bytes) of state witnesses in the OrphanStateWitnessPool.
     ///
     /// We keep only orphan witnesses which are smaller than this size.
     /// This limits the maximum memory usage of OrphanStateWitnessPool.
-    pub orphan_state_witness_max_size: u64,
+    /// TODO(#10259) - consider merging this limit with the non-orphan witness size limit.
+    pub orphan_state_witness_max_size: ByteSize,
+    /// The number of the contracts kept loaded up for execution.
+    ///
+    /// Each loaded contract will increase the baseline memory use of the node appreciably.
+    pub max_loaded_contracts: usize,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -572,7 +573,7 @@ impl NearConfig {
                 ),
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
-                orphan_state_witness_max_size: ByteSize::b(config.orphan_state_witness_max_size),
+                orphan_state_witness_max_size: config.orphan_state_witness_max_size,
             },
             network_config: NetworkConfig::new(
                 config.network,
