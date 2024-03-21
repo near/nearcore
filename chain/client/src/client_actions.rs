@@ -1804,7 +1804,7 @@ impl ClientActionHandler<ShardsManagerResponse> for ClientActions {
                 );
                 if let Err(err) = result {
                     tracing::error!(target: "client", error=?err,
-                        chunk_hash=partial_chunk.chunk_hash(), "Error processing completed chunk.");
+                        chunk_hash=?partial_chunk.chunk_hash(), "Error processing completed chunk.");
                 };
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
