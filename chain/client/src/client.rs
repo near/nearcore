@@ -1415,8 +1415,11 @@ impl Client {
             error!(target: "client", error=?err, chunk_hash=?chunk_header.chunk_hash(),
                 "Failed to persist completed chunk.");
             #[test]
-            panic!("Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
-                   chunk_header.chunk_hash(), err);
+            {
+                panic!("Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
+                       chunk_header.chunk_hash(), err);
+            }
+            return;
         }
 
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
