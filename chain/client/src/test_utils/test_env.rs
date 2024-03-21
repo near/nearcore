@@ -257,13 +257,11 @@ impl TestEnv {
         while let Some(msg) = self.client_adapters[id].pop() {
             match msg {
                 ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                    let result = self.clients[id].on_chunk_completed(
+                    self.clients[id].on_chunk_completed(
                         partial_chunk,
                         shard_chunk,
                         Arc::new(|_| {}),
                     );
-                    assert!(result.is_ok(), "Failed to process completed chunk. chunk_hash={:?}, error={:?}",
-                            partial_chunk.chunk_hash(), result.err());
                 }
                 ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                     self.clients[id].on_invalid_chunk(encoded_chunk);

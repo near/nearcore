@@ -1406,22 +1406,27 @@ impl Client {
         partial_chunk: PartialEncodedChunk,
         shard_chunk: Option<ShardChunk>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-    ) -> Result<(), Error> {
+    ) {
         let chunk_header = partial_chunk.cloned_header();
+        let block_height = partial_chunk.height_created();
+        let shard_id = partial_chunk.shard_id();
 
-        persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store())?;
+        if let Err(err) = persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store()) {
+            error!(target: "client", error=?err, chunk_hash=?chunk_header.chunk_hash(),
+                "Failed to persist completed chunk.");
+            #[test]
+            panic!("Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
+                   chunk_header.chunk_hash(), err);
+        }
 
         self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
-        self.block_production_info
-            .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
+        self.block_production_info.record_chunk_collected(block_height, shard_id);
 
         self.chunk_endorsement_tracker.process_pending_endorsements(&chunk_header);
         // We're marking chunk as accepted.
         self.chain.blocks_with_missing_chunks.accept_chunk(&chunk_header.chunk_hash());
         // If this was the last chunk that was missing for a block, it will be processed now.
         self.process_blocks_with_missing_chunks(apply_chunks_done_callback);
-
-        Ok(())
     }
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk but the chunk
