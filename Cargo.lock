@@ -4694,6 +4694,7 @@ dependencies = [
  "awc",
  "bencher",
  "borsh 1.0.0",
+ "bytesize",
  "chrono",
  "cloud-storage",
  "dirs",
