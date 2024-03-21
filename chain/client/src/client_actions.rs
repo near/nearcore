@@ -1797,11 +1797,15 @@ impl ClientActionHandler<ShardsManagerResponse> for ClientActions {
     fn handle(&mut self, msg: ShardsManagerResponse) -> Self::Result {
         match msg {
             ShardsManagerResponse::ChunkCompleted { partial_chunk, shard_chunk } => {
-                self.client.on_chunk_completed(
+                let result = self.client.on_chunk_completed(
                     partial_chunk,
                     shard_chunk,
                     self.get_apply_chunks_done_callback(),
                 );
+                if let Err(err) = result {
+                    tracing::error!(target: "client", error=?err,
+                        chunk_hash=partial_chunk.chunk_hash(), "Error processing completed chunk.");
+                };
             }
             ShardsManagerResponse::InvalidChunk(encoded_chunk) => {
                 self.client.on_invalid_chunk(encoded_chunk);
