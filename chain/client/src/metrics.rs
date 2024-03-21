@@ -595,7 +595,7 @@ pub(crate) static CHUNK_STATE_WITNESS_COMPRESSION_TIME: Lazy<HistogramVec> = Laz
     try_create_histogram_vec(
         "near_chunk_state_witness_compression_time",
         "State witness compression latency in seconds",
-        &["shard_id", "level"],
+        &["shard_id", "strategy"],
         Some(linear_buckets(0.025, 0.025, 40).unwrap()),
     )
     .unwrap()

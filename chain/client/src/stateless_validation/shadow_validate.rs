@@ -103,6 +103,12 @@ impl Client {
                 compress_state_witness(shard_id, witness_bytes);
             });
         }
+        {
+            let witness = witness.clone();
+            rayon::spawn(move || {
+                compress_large_storage_proof_values(witness);
+            });
+        }
 
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
@@ -231,14 +237,47 @@ fn record_storage_proof_value_size_distribution(witness: &ChunkStateWitnessInner
 }
 
 fn compress_state_witness(shard_id: ShardId, witness_bytes: Vec<u8>) {
-    for level in [3, 5, 10] {
+    for level in [3] {
+        let strategy = format!("compress_witness_level_{level}");
         let _timer = metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME
-            .with_label_values(&[&shard_id.to_string(), &level.to_string()])
+            .with_label_values(&[&shard_id.to_string(), strategy.as_str()])
             .start_timer();
         let compressed_bytes = encode_all(witness_bytes.as_slice(), level).unwrap();
         metrics::CHUNK_STATE_WITNESS_REDUCED_SIZE
-            .with_label_values(&[&shard_id.to_string(), &format!("compress-{level}")])
+            .with_label_values(&[&shard_id.to_string(), strategy.as_str()])
             .observe(compressed_bytes.len() as f64);
         decode_all(compressed_bytes.as_slice()).unwrap();
+    }
+}
+
+fn compress_large_storage_proof_values(mut witness: ChunkStateWitnessInner) {
+    let strategy = "compress_storage_proof_values";
+    let shard_id = witness.chunk_header.shard_id();
+    {
+        let _timer = metrics::CHUNK_STATE_WITNESS_COMPRESSION_TIME
+            .with_label_values(&[&shard_id.to_string(), strategy])
+            .start_timer();
+        apply_transition_storage_proof_compression(&mut witness.main_state_transition);
+        for transition in witness.implicit_transitions.iter_mut() {
+            apply_transition_storage_proof_compression(transition);
+        }
+    }
+    let witness_bytes = borsh::to_vec(&witness).unwrap();
+    metrics::CHUNK_STATE_WITNESS_REDUCED_SIZE
+        .with_label_values(&[&shard_id.to_string(), strategy])
+        .observe(witness_bytes.len() as f64);
+}
+
+fn apply_transition_storage_proof_compression(
+    transition: &mut ChunkStateTransition,
+) {
+    const CUT_OFF_VALUE_SIZE: usize = 128000;
+    let PartialState::TrieValues(values) = &mut transition.base_state;
+    for val in values {
+        if val.len() >= CUT_OFF_VALUE_SIZE {
+            let compressed = encode_all(val.as_ref(), 0).unwrap();
+            decode_all(compressed.as_slice()).unwrap();
+            *val = compressed.into();
+        }
     }
 }
