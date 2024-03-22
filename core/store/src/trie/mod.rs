@@ -1507,7 +1507,7 @@ impl Trie {
                     for t in trie_changes.deletions.iter() {
                         let hash = t.trie_node_or_value_hash;
                         assert!(
-                            trie_accesses.values.contains(&hash)
+                            trie_accesses.values.contains_key(&hash)
                                 || trie_accesses.nodes.contains_key(&hash),
                             "Hash {} is not present in trie accesses",
                             hash
@@ -1522,8 +1522,13 @@ impl Trie {
                     for (node_hash, serialized_node) in trie_accesses.nodes {
                         recorder.borrow_mut().record(&node_hash, serialized_node);
                     }
-                    for value_hash in trie_accesses.values {
-                        let value = self.storage.retrieve_raw_bytes(&value_hash)?;
+                    for (value_hash, value) in trie_accesses.values {
+                        let value = match value {
+                            FlatStateValue::Ref(_) => {
+                                self.storage.retrieve_raw_bytes(&value_hash)?
+                            }
+                            FlatStateValue::Inlined(value) => value.into(),
+                        };
                         recorder.borrow_mut().record(&value_hash, value);
                     }
                 }

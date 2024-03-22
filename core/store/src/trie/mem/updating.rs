@@ -8,7 +8,7 @@ use crate::{NibbleSlice, RawTrieNode, RawTrieNodeWithSize, TrieChanges};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::BlockHeight;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// An old node means a node in the current in-memory trie. An updated node means a
@@ -50,7 +50,7 @@ pub(crate) struct TrieAccesses {
     pub nodes: HashMap<CryptoHash, Arc<[u8]>>,
     /// Hashes of accessed values - because values themselves are not
     /// necessarily present in memtrie.
-    pub values: HashSet<CryptoHash>,
+    pub values: HashMap<CryptoHash, FlatStateValue>,
 }
 
 /// Tracks intermediate trie changes, final version of which is to be committed
@@ -131,7 +131,7 @@ impl<'a> MemTrieUpdate<'a> {
             tracked_trie_changes: if track_trie_changes {
                 Some(TrieChangesTracker {
                     refcount_changes: TrieRefcountDeltaMap::new(),
-                    accesses: TrieAccesses { nodes: HashMap::new(), values: HashSet::new() },
+                    accesses: TrieAccesses { nodes: HashMap::new(), values: HashMap::new() },
                 })
             } else {
                 None
@@ -204,9 +204,10 @@ impl<'a> MemTrieUpdate<'a> {
         }
     }
 
-    fn subtract_refcount_for_value(&mut self, hash: CryptoHash) {
+    fn subtract_refcount_for_value(&mut self, value: FlatStateValue) {
         if let Some(tracked_node_changes) = self.tracked_trie_changes.as_mut() {
-            tracked_node_changes.accesses.values.insert(hash);
+            let hash = value.to_value_ref().hash;
+            tracked_node_changes.accesses.values.insert(hash, value);
             tracked_node_changes.refcount_changes.subtract(hash, 1);
         }
     }
@@ -255,7 +256,7 @@ impl<'a> MemTrieUpdate<'a> {
                     if partial.is_empty() {
                         // This branch node is exactly where the value should be added.
                         if let Some(value) = old_value {
-                            self.subtract_refcount_for_value(value.to_value_ref().hash);
+                            self.subtract_refcount_for_value(value);
                         }
                         self.place_node(
                             node_id,
@@ -286,7 +287,7 @@ impl<'a> MemTrieUpdate<'a> {
                     let common_prefix = partial.common_prefix(&existing_key);
                     if common_prefix == existing_key.len() && common_prefix == partial.len() {
                         // We're at the exact leaf. Rewrite the value at this leaf.
-                        self.subtract_refcount_for_value(old_value.to_value_ref().hash);
+                        self.subtract_refcount_for_value(old_value);
                         self.place_node(
                             node_id,
                             UpdatedMemTrieNode::Leaf { extension, value: flat_value },
@@ -425,7 +426,7 @@ impl<'a> MemTrieUpdate<'a> {
                 }
                 UpdatedMemTrieNode::Leaf { extension, value } => {
                     if NibbleSlice::from_encoded(&extension).0 == partial {
-                        self.subtract_refcount_for_value(value.to_value_ref().hash);
+                        self.subtract_refcount_for_value(value);
                         self.place_node(node_id, UpdatedMemTrieNode::Empty);
                         break;
                     } else {
@@ -444,7 +445,7 @@ impl<'a> MemTrieUpdate<'a> {
                             );
                             return;
                         };
-                        self.subtract_refcount_for_value(value.unwrap().to_value_ref().hash);
+                        self.subtract_refcount_for_value(value.unwrap());
                         self.place_node(
                             node_id,
                             UpdatedMemTrieNode::Branch { children: old_children, value: None },
