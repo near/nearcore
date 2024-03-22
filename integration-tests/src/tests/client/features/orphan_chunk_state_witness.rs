@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
 use near_chain::{Block, Provenance};
+use near_chain_configs::default_orphan_state_witness_max_size;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
+use near_client::HandleOrphanWitnessOutcome;
 use near_client::{Client, ProcessingDoneTracker, ProcessingDoneWaiter};
-use near_client::{HandleOrphanWitnessOutcome, MAX_ORPHAN_WITNESS_SIZE};
 use near_crypto::Signature;
 use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::testonly::init_integration_logger;
@@ -313,7 +314,8 @@ fn test_orphan_witness_too_large() {
     // Modify the witness to be larger than the allowed limit
     let dummy_merkle_path_item =
         MerklePathItem { hash: CryptoHash::default(), direction: Direction::Left };
-    let max_size_usize: usize = MAX_ORPHAN_WITNESS_SIZE.as_u64().try_into().unwrap();
+    let max_size_usize: usize =
+        default_orphan_state_witness_max_size().as_u64().try_into().unwrap();
     let items_count = max_size_usize / std::mem::size_of::<MerklePathItem>() + 1;
     let big_path = vec![dummy_merkle_path_item; items_count];
     let big_receipt_proof =

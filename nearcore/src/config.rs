@@ -1,6 +1,7 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use bytesize::ByteSize;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::test_utils::{
@@ -11,17 +12,18 @@ use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_sync,
-    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
-    default_sync_height_threshold, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
-    ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
-    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig, StateSyncConfig,
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
+    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
+    ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
+    MutableConfigValue, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };
@@ -296,7 +298,12 @@ pub struct Config {
     /// because the previous block isn't available. The witnesses wait in the pool untl the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
-
+    /// Maximum size (number of bytes) of state witnesses in the OrphanStateWitnessPool.
+    ///
+    /// We keep only orphan witnesses which are smaller than this size.
+    /// This limits the maximum memory usage of OrphanStateWitnessPool.
+    /// TODO(#10259) - consider merging this limit with the non-orphan witness size limit.
+    pub orphan_state_witness_max_size: ByteSize,
     /// The number of the contracts kept loaded up for execution.
     ///
     /// Each loaded contract will increase the baseline memory use of the node appreciably.
@@ -347,6 +354,7 @@ impl Default for Config {
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
+            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
             max_loaded_contracts: 256,
         }
     }
@@ -565,6 +573,7 @@ impl NearConfig {
                 ),
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
+                orphan_state_witness_max_size: config.orphan_state_witness_max_size,
             },
             network_config: NetworkConfig::new(
                 config.network,
