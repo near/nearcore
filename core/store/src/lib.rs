@@ -1139,7 +1139,10 @@ mod tests {
         assert_eq!(None, cache.get(&key).unwrap());
         assert_eq!(false, cache.has(&key).unwrap());
 
-        let record = CompiledContract::Code(b"foo".to_vec());
+        let record = CompiledContractInfo {
+            wasm_bytes: 3,
+            compiled: CompiledContract::Code(b"foo".to_vec()),
+        };
         cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());

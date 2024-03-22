@@ -32,7 +32,7 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMOutcome {
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let res = vm_kind.runtime(wasm_config).unwrap().run(
-        code.hash(),
+        *code.hash(),
         Some(&code),
         &method_name,
         &mut fake_external,
