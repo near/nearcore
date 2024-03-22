@@ -11,14 +11,17 @@ use near_primitives::sharding::PartialEncodedChunk;
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
+#[allow(dead_code)]
 pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
+#[allow(dead_code)]
 pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
+#[allow(dead_code)]
 pub(crate) struct RecvPartialEncodedChunkResponse(
     pub PartialEncodedChunkResponseMsg,
     pub std::time::Instant,
@@ -26,6 +29,7 @@ pub(crate) struct RecvPartialEncodedChunkResponse(
 
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
+#[allow(dead_code)]
 pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestMsg, pub CryptoHash);
 
 pub fn client_sender_for_network(
