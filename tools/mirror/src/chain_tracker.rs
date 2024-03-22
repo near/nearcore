@@ -1006,7 +1006,7 @@ impl TxTracker {
 
     // among the last 10 blocks, what's the second longest time between their timestamps?
     // probably there's a better heuristic to use than that but this will do for now.
-    // TODO: it's possible these tiimestamps are just increasing by one nanosecond each time
+    // TODO: it's possible these timestamps are just increasing by one nanosecond each time
     // if block producers' clocks are off. should handle that case
     fn second_longest_recent_block_delay(&self) -> Option<Duration> {
         if self.recent_block_timestamps.len() < 5 {
