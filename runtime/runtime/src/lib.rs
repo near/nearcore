@@ -2456,8 +2456,10 @@ mod tests {
         store_update.commit().unwrap();
 
         let contract_code = near_vm_runner::ContractCode::new(wasm_code, None);
-        let key =
-            near_vm_runner::get_contract_cache_key(&contract_code, &apply_state.config.wasm_config);
+        let key = near_vm_runner::get_contract_cache_key(
+            *contract_code.hash(),
+            &apply_state.config.wasm_config,
+        );
         apply_state
             .cache
             .unwrap()
