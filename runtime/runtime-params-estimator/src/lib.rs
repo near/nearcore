@@ -894,10 +894,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             .runtime(config.clone())
             .unwrap()
             .run(
-                &code,
+                *code.hash(),
+                Some(&code),
                 "cpu_ram_soak_test",
                 &mut fake_external,
-                context,
+                &context,
                 &fees,
                 &promise_results,
                 Some(&cache),
