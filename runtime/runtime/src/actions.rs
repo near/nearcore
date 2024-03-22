@@ -133,6 +133,9 @@ pub(crate) fn execute_function_call(
         Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
             if err.kind() == std::io::ErrorKind::NotFound =>
         {
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+            }
             let code = match get_contract_code(
                 &runtime_ext,
                 account,
@@ -150,6 +153,9 @@ pub(crate) fn execute_function_call(
                     return Err(RuntimeError::StorageError(e));
                 }
             };
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+            }
             near_vm_runner::run(
                 account,
                 Some(&code),
