@@ -3452,7 +3452,7 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(&contract_code, &runtime_config.wasm_config);
+        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3557,11 +3557,11 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
-            &ContractCode::new(tiny_wasm_code.clone(), None),
+            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
-            &ContractCode::new(wasm_code.clone(), None),
+            *ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 
@@ -3635,7 +3635,7 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
-            &ContractCode::new(wasm_code.clone(), None),
+            *ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 
