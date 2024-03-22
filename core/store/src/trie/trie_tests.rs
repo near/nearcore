@@ -419,12 +419,14 @@ mod trie_storage_tests {
         assert_eq!(count_delta.mem_reads, 1);
     }
 
-    // Checks that for keys only touched on writes recorded storage for
-    // memtrie matches recorded storage for disk.
-    // Required because recording on read and write happen on different code
-    // paths for memtrie.
+    // Checks that when branch restructuring is triggered on updating trie,
+    // impacted child is still recorded.
+    //
+    // Needed when branch has two children, one of which is removed, branch
+    // could be converted to extension, so reading of the only remaining child
+    // is also required.
     #[test]
-    fn test_memtrie_recorded_writes() {
+    fn test_memtrie_recorded_branch_restructuring() {
         init_test_logger();
         let tries = TestTriesBuilder::new().build();
         let shard_uid = ShardUId::single_shard();
