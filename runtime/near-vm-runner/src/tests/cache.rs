@@ -9,9 +9,7 @@ use crate::logic::Config;
 use crate::runner::VMKindExt;
 use crate::runner::VMResult;
 use crate::wasmer2_runner::Wasmer2VM;
-use crate::{
-    prepare, ContractCode, MockContractRuntimeCache,
-};
+use crate::{prepare, ContractCode, MockContractRuntimeCache};
 use assert_matches::assert_matches;
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeFeesConfig;
