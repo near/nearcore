@@ -56,7 +56,7 @@ pub fn run(
     let span = tracing::debug_span!(
         target: "vm",
         "run",
-        "code_hash" = %account.code_hash(),
+        "code.hash" = %account.code_hash(),
         %method_name,
         ?vm_kind,
         burnt_gas = tracing::field::Empty,
