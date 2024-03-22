@@ -13,6 +13,7 @@
   - [Transactions And Receipts](./architecture/how/tx_receipts.md)
   - [Cross shard transactions - deep dive](./architecture/how/cross-shard.md)
   - [Gas](./architecture/how/gas.md)
+  - [Receipt Congestion](./architecture/how/receipt-congestion.md)
   - [Meta transactions](./architecture/how/meta-tx.md)
   - [Serialization: Borsh, Json, ProtoBuf](./architecture/how/serialization.md)
   - [Proofs](./architecture/how/proofs.md)
