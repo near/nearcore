@@ -1515,9 +1515,12 @@ impl Trie {
                     }
                 }
 
-                // Retroactively record all accessed trie items to account for
-                // key-value pairs which were only written but never read, thus
-                // not recorded before.
+                // Retroactively record all accessed trie items which are
+                // required to process trie update but were not recorded at
+                // processing lookups.
+                // The main case is a branch with two children, one of which
+                // got removed, so we need to read another one and squash it
+                // together with parent.
                 if let Some(recorder) = &self.recorder {
                     for (node_hash, serialized_node) in trie_accesses.nodes {
                         recorder.borrow_mut().record(&node_hash, serialized_node);
