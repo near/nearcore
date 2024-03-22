@@ -138,7 +138,7 @@ pub struct ProductionAtHeight {
     pub chunk_production: HashMap<u64, ChunkProduction>,
 }
 
-// Infromation about the approvals that we received.
+// Information about the approvals that we received.
 #[derive(serde::Serialize, Debug, Default, Clone)]
 pub struct ApprovalAtHeightStatus {
     // Map from validator id to the type of approval that they sent and timestamp.
