@@ -39,7 +39,7 @@ pub fn decode_value_with_rc(bytes: &[u8]) -> (Option<&[u8]>, i64) {
         None => {
             debug_assert!(bytes.is_empty());
             return (None, 0);
-        },
+        }
         Some((head, tail)) => {
             let rc = i64::from_le_bytes(*tail);
             if rc <= 0 {
