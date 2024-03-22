@@ -25,28 +25,24 @@ jobs:
         include:
           - name: Linux
             id: linux
-            cache_id: linux
             os: ubuntu-22.04-16core
             type: stable
             runs_integ_tests: true
             upload_profraws: true
           - name: Linux StatelessNet
             id: linux-statelessnet
-            cache_id: linux
             os: ubuntu-22.04-16core
             type: statelessnet
             runs_integ_tests: true
             upload_profraws: true
           - name: Linux Nightly
             id: linux-nightly
-            cache_id: linux
             os: ubuntu-22.04-16core
             type: nightly
             runs_integ_tests: true
             upload_profraws: true
           - name: MacOS
             id: macos
-            cache_id: macos
             os: macos-latest-xlarge
             type: stable
             runs_integ_tests: false
@@ -295,6 +291,16 @@ jobs:
         with:
           tool: just
       - run: just check-cargo-clippy
+
+  doctests:
+    name: "Rust Doctests"
+    runs-on: ubuntu-22.04-8core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@91af8c38814c3998cb755869e5cbeffd3ab0e462
+        with:
+          tool: just
+      - run: just doctests
 
   check_cargo_deny:
     name: "Cargo Deny"

@@ -19,7 +19,7 @@ use near_store::flat::{
 use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
-use near_vm_runner::FilesystemCompiledContractCache;
+use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -46,6 +46,9 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
+    pub(crate) function_call_base: Option<GasCost>,
+    #[cfg(feature = "nightly")]
+    pub(crate) yield_create_base: Option<GasCost>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -96,7 +99,7 @@ impl<'c> EstimatorContext<'c> {
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
-        let cache = FilesystemCompiledContractCache::new(workdir.path(), None::<&str>)
+        let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
             .expect("create contract cache");
 
         Testbed {
@@ -116,7 +119,7 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    fn make_apply_state(cache: FilesystemCompiledContractCache) -> ApplyState {
+    fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
         runtime_config.wasm_config.enable_all_features();
