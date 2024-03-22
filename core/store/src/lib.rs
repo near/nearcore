@@ -1016,6 +1016,7 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
+    use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
 
