@@ -261,6 +261,7 @@ pub fn get_num_state_parts(memory_usage: u64) -> u64 {
 pub enum StateSyncDumpProgress {
     /// Represents two cases:
     /// * An epoch dump is complete
+    /// * An epoch dump is skipped in the epoch where shard layout changes
     /// * The node is running its first epoch and there is nothing to dump.
     AllDumped {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.
