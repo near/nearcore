@@ -1083,7 +1083,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        storage: RuntimeStorageConfig,
+        _storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1094,11 +1094,9 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions {
-            transactions: res,
-            limited_by: None,
-            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
-        })
+        let storage_proof =
+            if cfg!(feature = "statelessnet_protocol") { Some(Default::default()) } else { None };
+        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
     fn apply_chunk(
@@ -1242,7 +1240,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-
+        let storage_proof =
+            if cfg!(feature = "statelessnet_protocol") { Some(Default::default()) } else { None };
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -1258,7 +1257,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
+            proof: storage_proof,
             processed_delayed_receipts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })

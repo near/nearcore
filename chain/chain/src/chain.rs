@@ -3323,12 +3323,8 @@ impl Chain {
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
 
-            let storage_context = StorageContext {
-                storage_data_source: StorageDataSource::Db,
-                state_patch,
-                record_storage: self
-                    .should_produce_state_witness_for_this_or_next_epoch(me, block.header())?,
-            };
+            let storage_context =
+                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
             let stateful_job = self.get_update_shard_job(
                 me,
                 block,

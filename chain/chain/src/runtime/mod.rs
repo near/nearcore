@@ -704,7 +704,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if cfg!(feature = "statelessnet_protocol") {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
@@ -865,7 +865,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if cfg!(feature = "statelessnet_protocol") {
             trie = trie.recording_reads();
         }
 

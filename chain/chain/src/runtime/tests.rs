@@ -1609,7 +1609,6 @@ fn test_prepare_transactions_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1630,7 +1629,6 @@ fn test_prepare_transactions_storage_proof() {
             nodes: proposed_transactions.storage_proof.unwrap(),
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validated_transactions = prepare_transactions(
@@ -1655,7 +1653,6 @@ fn test_prepare_transactions_empty_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1676,7 +1673,6 @@ fn test_prepare_transactions_empty_storage_proof() {
             nodes: PartialState::default(), // We use empty storage proof here.
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validation_result = prepare_transactions(
