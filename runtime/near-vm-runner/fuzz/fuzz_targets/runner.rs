@@ -35,7 +35,7 @@ fn run_fuzz(code: &ContractCode, config: Arc<RuntimeConfig>) -> VMOutcome {
             Some(&code),
             &method_name,
             &mut fake_external,
-            context,
+            &context,
             fees,
             &promise_results,
             None,
