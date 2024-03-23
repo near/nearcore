@@ -1,36 +1,8 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::IntoSender;
 use near_network::client::ClientSenderForNetwork;
-use near_network::types::{
-    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
-};
-use near_primitives::hash::CryptoHash;
-use near_primitives::sharding::PartialEncodedChunk;
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-#[allow(dead_code)]
-pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-#[allow(dead_code)]
-pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-#[allow(dead_code)]
-pub(crate) struct RecvPartialEncodedChunkResponse(
-    pub PartialEncodedChunkResponseMsg,
-    pub std::time::Instant,
-);
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-#[allow(dead_code)]
-pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestMsg, pub CryptoHash);
+use near_async::messaging::IntoSender;
 
 pub fn client_sender_for_network(
     client_addr: actix::Addr<ClientActor>,
