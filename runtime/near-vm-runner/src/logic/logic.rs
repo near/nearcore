@@ -33,7 +33,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext,
+    context: &'a VMContext,
     /// All gas and economic parameters required during contract execution.
     pub(crate) config: &'a Config,
     /// Fees for creating (async) actions on runtime.
@@ -128,7 +128,7 @@ impl PublicKeyBuffer {
 impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
-        context: VMContext,
+        context: &'a VMContext,
         config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
@@ -3000,7 +3000,7 @@ impl<'a> VMLogic<'a> {
     pub fn before_loading_executable(
         &mut self,
         method_name: &str,
-        wasm_code_bytes: usize,
+        wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if method_name.is_empty() {
             let error = super::errors::FunctionCallError::MethodResolveError(
@@ -3009,7 +3009,7 @@ impl<'a> VMLogic<'a> {
             return Err(error);
         }
         if self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
                 let error =
                     super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
                 return Err(error);
@@ -3021,10 +3021,10 @@ impl<'a> VMLogic<'a> {
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
     pub fn after_loading_executable(
         &mut self,
-        wasm_code_bytes: usize,
+        wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if !self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
                 return Err(super::errors::FunctionCallError::HostError(
                     super::HostError::GasExceeded,
                 ));

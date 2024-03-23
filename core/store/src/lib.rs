@@ -30,7 +30,7 @@ use near_primitives::receipt::{
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
 use near_primitives::types::{AccountId, BlockHeight, StateRoot};
-use near_vm_runner::{CompiledContract, ContractCode, ContractRuntimeCache};
+use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
 use once_cell::sync::Lazy;
 use std::fs::File;
 use std::path::Path;
@@ -973,9 +973,9 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
         target = "store",
         "StoreContractRuntimeCache::put",
         skip_all,
-        fields(key = key.to_string(), value.len = value.debug_len()),
+        fields(key = key.to_string(), value.len = value.compiled.debug_len()),
     )]
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
+    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
@@ -996,9 +996,9 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
         skip_all,
         fields(key = key.to_string()),
     )]
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContractInfo>> {
         match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
-            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(Some(bytes)) => Ok(Some(CompiledContractInfo::try_from_slice(&bytes)?)),
             Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
@@ -1016,6 +1016,7 @@ impl ContractRuntimeCache for StoreContractRuntimeCache {
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
+    use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
 
@@ -1139,7 +1140,10 @@ mod tests {
         assert_eq!(None, cache.get(&key).unwrap());
         assert_eq!(false, cache.has(&key).unwrap());
 
-        let record = CompiledContract::Code(b"foo".to_vec());
+        let record = CompiledContractInfo {
+            wasm_bytes: 3,
+            compiled: CompiledContract::Code(b"foo".to_vec()),
+        };
         cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());
