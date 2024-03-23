@@ -1,8 +1,8 @@
 use crate::client_actor::ClientActor;
 use crate::view_client::ViewClientActor;
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_network::client::ClientSenderForNetwork;
 use near_async::messaging::IntoSender;
+use near_network::client::ClientSenderForNetwork;
 
 pub fn client_sender_for_network(
     client_addr: actix::Addr<ClientActor>,
