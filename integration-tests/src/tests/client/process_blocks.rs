@@ -366,6 +366,7 @@ fn produce_block_with_approvals() {
     let validators: Vec<_> =
         (1..=10).map(|i| AccountId::try_from(format!("test{}", i)).unwrap()).collect();
     run_actix(async {
+        let produced_block_height = 15; // the height at which "test1" is producing
         let actor_handles = setup_mock(
             Clock::real(),
             validators.clone(),
@@ -375,12 +376,12 @@ fn produce_block_with_approvals() {
             Box::new(move |msg, _ctx, _| {
                 if let NetworkRequests::Block { block } = msg.as_network_requests_ref() {
                     // Below we send approvals from all the block producers except for test1 and test2
-                    // test1 will only create their approval for height 10 after their doomslug timer
-                    // runs 10 iterations, which is way further in the future than them producing the
+                    // test1 will only create their approval for height 15 after their doomslug timer
+                    // runs 15 iterations, which is way further in the future than them producing the
                     // block
                     if block.header().num_approvals() == validators.len() as u64 - 2 {
                         System::current().stop();
-                    } else if block.header().height() == 10 {
+                    } else if block.header().height() == produced_block_height {
                         println!("{}", block.header().height());
                         println!(
                             "{} != {} -2 (height: {})",
@@ -402,7 +403,7 @@ fn produce_block_with_approvals() {
             let (last_block, block_merkle_tree) = res.unwrap().unwrap();
             let mut block_merkle_tree = PartialMerkleTree::clone(&block_merkle_tree);
             block_merkle_tree.insert(last_block.header.hash);
-            let signer1 = create_test_signer("test2");
+            let test3_signer = create_test_signer("test3");
             let next_block_ordinal = last_block.header.block_ordinal.unwrap() + 1;
 
             let chunks = last_block.chunks.into_iter().map(Into::into).collect_vec();
@@ -429,7 +430,7 @@ fn produce_block_with_approvals() {
                 Some(0),
                 vec![],
                 vec![],
-                &signer1,
+                &test3_signer,
                 last_block.header.next_bp_hash,
                 block_merkle_tree.root(),
                 Clock::real().now_utc(),
@@ -454,7 +455,7 @@ fn produce_block_with_approvals() {
                 let approval = Approval::new(
                     *block.hash(),
                     block.header().height(),
-                    10, // the height at which "test1" is producing
+                    produced_block_height,
                     &signer,
                 );
                 actor_handles
@@ -790,8 +791,8 @@ fn ban_peer_for_invalid_block_common(mode: InvalidBlockMode) {
                     match msg.as_network_requests_ref() {
                         NetworkRequests::Block { block } => {
                             if block.header().height() >= 4 && !sent_bad_blocks {
-                                let block_producer_idx =
-                                    block.header().height() as usize % validators.len();
+                                assert_eq!(block.header().height(), 4);
+                                let block_producer_idx = 1; // test2 is expected to be a block producer for height 4
                                 let block_producer = &validators[block_producer_idx];
                                 let validator_signer1 = create_test_signer(block_producer.as_str());
                                 sent_bad_blocks = true;
