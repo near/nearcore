@@ -64,9 +64,9 @@ action_deploy_contract_per_byte: {
   execution: 6_812_999,
 }
 action_function_call: {
-  send_sir: 2_319_861_500_000,
-  send_not_sir: 2_319_861_500_000,
-  execution: 2_319_861_500_000,
+  send_sir: 375_809_638_400,
+  send_not_sir: 375_809_638_400,
+  execution: 375_809_638_400,
 }
 action_function_call_per_byte: {
   send_sir: 2_235_934,
@@ -114,7 +114,7 @@ wasm_regular_op_cost: 3_856_371
 wasm_grow_mem_cost: 1
 wasm_base: 264_768_111
 wasm_contract_loading_base: 35_445_963
-wasm_contract_loading_bytes: 216_750
+wasm_contract_loading_bytes: 819_200
 wasm_read_memory_base: 2_609_863_200
 wasm_read_memory_byte: 3_801_333
 wasm_write_memory_base: 2_803_794_861
