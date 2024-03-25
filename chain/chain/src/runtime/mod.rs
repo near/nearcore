@@ -1245,12 +1245,14 @@ impl RuntimeAdapter for NightshadeRuntime {
         &self,
         shard_uid: &ShardUId,
         state_root: &StateRoot,
-    ) -> Result<bool, StorageError> {
-        if !self.tries.should_load_mem_trie_on_catchup(shard_uid) {
-            return Ok(false);
+    ) -> Result<(), StorageError> {
+        if !self.get_tries().trie_config().load_mem_trie_for_tracked_shards {
+            return Ok(());
         }
-        self.tries.load_mem_trie(shard_uid, Some(*state_root))?;
-        Ok(true)
+        // It should not happen that memtrie is already loaded for a shard
+        // for which we just did state sync.
+        debug_assert!(!self.tries.is_mem_trie_loaded(shard_uid));
+        self.tries.load_mem_trie(shard_uid, Some(*state_root))
     }
 
     fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {

@@ -2367,9 +2367,9 @@ impl Client {
                 state_sync_info.shards.iter().map(|tuple| tuple.0).collect();
             // Notify each shard to sync.
             if notify_state_sync {
-                for shard_uid in
-                    self.epoch_manager.shard_ids_to_uids(&tracking_shards, &epoch_id).unwrap()
-                {
+                for shard_id in &tracking_shards {
+                    let shard_uid =
+                        self.epoch_manager.shard_id_to_uid(*shard_id, &epoch_id).unwrap();
                     // Explicitly unload mem-trie for shard that we start state sync, even if the shard was tracked in the same epoch.
                     self.runtime_adapter.unload_mem_trie(&shard_uid);
                     match self.state_sync_adapter.clone().read() {

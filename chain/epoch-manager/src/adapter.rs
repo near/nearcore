@@ -71,13 +71,6 @@ pub trait EpochManagerAdapter: Send + Sync {
         epoch_id: &EpochId,
     ) -> Result<ShardUId, EpochError>;
 
-    /// Converts list of `ShardId` to a list of `ShardUId`.`
-    fn shard_ids_to_uids(
-        &self,
-        shard_ids: &[ShardId],
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ShardUId>, EpochError>;
-
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError>;
 
     fn get_epoch_config(&self, epoch_id: &EpochId) -> Result<EpochConfig, EpochError>;
@@ -528,19 +521,6 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let epoch_manager = self.read();
         let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
         Ok(ShardUId::from_shard_id_and_layout(shard_id, &shard_layout))
-    }
-
-    fn shard_ids_to_uids(
-        &self,
-        shard_ids: &[ShardId],
-        epoch_id: &EpochId,
-    ) -> Result<Vec<ShardUId>, EpochError> {
-        let epoch_manager = self.read();
-        let shard_layout = epoch_manager.get_shard_layout(epoch_id)?;
-        Ok(shard_ids
-            .iter()
-            .map(|id| ShardUId::from_shard_id_and_layout(*id, &shard_layout))
-            .collect())
     }
 
     fn get_block_info(&self, hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {

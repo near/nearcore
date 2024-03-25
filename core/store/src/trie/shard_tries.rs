@@ -404,12 +404,9 @@ impl ShardTries {
         Ok(())
     }
 
-    /// Should be called on upon catchup to decide whether to load mem-trie for the shard.
-    pub fn should_load_mem_trie_on_catchup(&self, shard_uid: &ShardUId) -> bool {
-        if !self.0.trie_config.enable_mem_trie_for_tracked_shards {
-            return false;
-        }
-        !self.0.mem_tries.read().unwrap().contains_key(shard_uid)
+    /// Returns whether mem-trie is loaded for the given shard.
+    pub fn is_mem_trie_loaded(&self, shard_uid: &ShardUId) -> bool {
+        self.0.mem_tries.read().unwrap().contains_key(shard_uid)
     }
 
     /// Should be called upon startup to load in-memory tries for enabled shards.
@@ -728,7 +725,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
             load_mem_tries_for_all_shards: false,
-            enable_mem_trie_for_tracked_shards: false,
+            load_mem_trie_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
@@ -849,7 +846,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
             load_mem_tries_for_all_shards: false,
-            enable_mem_trie_for_tracked_shards: false,
+            load_mem_trie_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
         let shard_uid = *shard_uids.first().unwrap();

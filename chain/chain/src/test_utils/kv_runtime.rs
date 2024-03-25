@@ -462,14 +462,6 @@ impl EpochManagerAdapter for MockEpochManager {
         Ok(ShardUId { version: 0, shard_id: shard_id as u32 })
     }
 
-    fn shard_ids_to_uids(
-        &self,
-        shard_ids: &[ShardId],
-        _epoch_id: &EpochId,
-    ) -> Result<Vec<ShardUId>, EpochError> {
-        Ok(shard_ids.iter().map(|id| ShardUId { version: 0, shard_id: *id as u32 }).collect())
-    }
-
     fn get_block_info(&self, _hash: &CryptoHash) -> Result<Arc<BlockInfo>, EpochError> {
         Ok(Default::default())
     }
@@ -1478,8 +1470,8 @@ impl RuntimeAdapter for KeyValueRuntime {
         &self,
         _shard_uid: &ShardUId,
         _state_root: &StateRoot,
-    ) -> Result<bool, StorageError> {
-        Ok(false)
+    ) -> Result<(), StorageError> {
+        Ok(())
     }
 
     fn retain_mem_tries(&self, _shard_uids: &[ShardUId]) {}

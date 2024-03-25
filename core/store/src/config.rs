@@ -66,7 +66,7 @@ pub struct StoreConfig {
     /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
     pub load_mem_tries_for_all_shards: bool,
     /// If true, load mem trie for each shard being tracked.
-    pub enable_mem_trie_for_tracked_shards: bool,
+    pub load_mem_trie_for_tracked_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -261,7 +261,7 @@ impl Default for StoreConfig {
             // requires more RAM and takes several minutes on startup.
             load_mem_tries_for_shards: Default::default(),
             load_mem_tries_for_all_shards: false,
-            enable_mem_trie_for_tracked_shards: false,
+            load_mem_trie_for_tracked_shards: false,
 
             migration_snapshot: Default::default(),
 

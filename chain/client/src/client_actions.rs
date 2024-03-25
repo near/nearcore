@@ -33,7 +33,7 @@ use near_chain::{
 use near_chain_configs::{ClientConfig, LogSummaryStyle};
 use near_chain_primitives::error::EpochErrorResultToChainError;
 use near_chunks::client::ShardsManagerResponse;
-use near_chunks::logic::get_shards_cares_about_this_or_next_epoch;
+use near_chunks::logic::cares_about_shard_this_or_next_epoch;
 use near_client_primitives::types::{
     Error, GetClientConfig, GetClientConfigError, GetNetworkInfo, NetworkInfoResponse,
     StateSyncStatus, Status, StatusError, StatusSyncInfo, SyncStatus,
@@ -1543,20 +1543,30 @@ impl ClientActions {
                         unwrap_and_report!(self.client.chain.get_block_header(&sync_hash));
                     let prev_hash = *block_header.prev_hash();
                     let epoch_id = block_header.epoch_id().clone();
-                    let shards_to_sync = get_shards_cares_about_this_or_next_epoch(
-                        me.as_ref(),
-                        true,
-                        &block_header,
-                        &self.client.shard_tracker,
-                        self.client.epoch_manager.as_ref(),
-                    );
-                    let shard_uids = self
+                    let shards_to_sync: Vec<_> = self
                         .client
                         .epoch_manager
-                        .shard_ids_to_uids(shards_to_sync.as_slice(), &epoch_id)
-                        .unwrap();
+                        .shard_ids(&epoch_id)
+                        .unwrap()
+                        .into_iter()
+                        .filter(|&shard_id| {
+                            cares_about_shard_this_or_next_epoch(
+                                me.as_ref(),
+                                &prev_hash,
+                                shard_id,
+                                true,
+                                &self.client.shard_tracker,
+                            )
+                        })
+                        .collect();
+                    let shard_uids: Vec<_> = shards_to_sync
+                        .iter()
+                        .map(|id| {
+                            self.client.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap()
+                        })
+                        .collect();
                     // Make sure mem-tries can be loaded only for shards we care about this or next epoch.
-                    self.client.runtime_adapter.retain_mem_tries(shard_uids.as_slice());
+                    self.client.runtime_adapter.retain_mem_tries(&shard_uids);
 
                     let use_colour =
                         matches!(self.client.config.log_summary_style, LogSummaryStyle::Colored);
