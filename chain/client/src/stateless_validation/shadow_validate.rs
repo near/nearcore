@@ -4,6 +4,7 @@ use near_chain::types::{RuntimeStorageConfig, StorageDataSource};
 use near_chain::{Block, BlockHeader};
 use near_chain_primitives::Error;
 use near_primitives::sharding::{ShardChunk, ShardChunkHeader};
+use near_primitives::stateless_validation::EncodedChunkStateWitness;
 
 use crate::stateless_validation::chunk_validator::{
     pre_validate_chunk_state_witness, validate_chunk_state_witness, validate_prepared_transactions,
@@ -73,13 +74,15 @@ impl Client {
             ));
         };
 
-        let witness = self.create_state_witness_inner(
+        let witness = self.create_state_witness(
+            // Setting arbitrary chunk producer is OK for shadow validation
+            "alice.near".parse().unwrap(),
             prev_block_header,
             prev_chunk_header,
             chunk,
             validated_transactions.storage_proof,
         )?;
-        let witness_size = borsh::to_vec(&witness)?.len();
+        let witness_size = EncodedChunkStateWitness::encode(&witness).size_bytes();
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&shard_id.to_string()])
             .observe(witness_size as f64);
