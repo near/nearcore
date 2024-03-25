@@ -18,7 +18,7 @@ use near_o11y::opentelemetry::root_span_for_chunk;
 use near_o11y::tracing_subscriber::EnvFilter;
 use near_o11y::{
     default_subscriber, default_subscriber_with_opentelemetry, BuildEnvFilterError,
-    EnvFilterBuilder, OpenTelemetryLevel, Options,
+    EnvFilterBuilder, OpenTelemetryLevel, OpenTelemetrySpanExt, Options,
 };
 use near_ping::PingCommand;
 use near_primitives::hash::CryptoHash;
@@ -30,6 +30,7 @@ use near_state_viewer::StateViewerSubCommand;
 use near_store::db::RocksDB;
 use near_store::Mode;
 use near_undo_block::cli::UndoBlockCommand;
+use opentelemetry::trace::TraceContextExt;
 use serde_json::Value;
 use std::fs::File;
 use std::io::BufReader;
@@ -880,14 +881,30 @@ impl TraceTestCommand {
                 // QUESTION: Why do these trace spans not seem to do anything at all?
                 // It doesn't even print out on stderr. Even without this first line.
                 // let _ = root_span_for_chunk(CryptoHash::hash_bytes(b"test")).entered();
-                let _ = tracing::error_span!("test1").entered();
-                let _ = tracing::error_span!("test2").entered();
-                let _ = tracing::error_span!("test3").entered();
-                let _ = tracing::error_span!("test4").entered();
-                let _ = tracing::error_span!("test5").entered();
-                tracing::error!("test info log");
-                std::thread::sleep(std::time::Duration::from_secs(1));
+                // let _ = tracing::error_span!("test1").entered();
+                // let _ = tracing::error_span!("test2").entered();
+                // let _ = tracing::error_span!("test3").entered();
+                // let _ = tracing::error_span!("test4").entered();
+                // let _ = tracing::error_span!("test5").entered();
+                // tracing::error!("test info log");
+                // std::thread::sleep(std::time::Duration::from_secs(1));
+
+                std::thread::spawn(|| {
+                    let root1 = tracing::info_span!("root1").entered();
+                    let span1 = tracing::info_span!("span1");
+                    let _ = span1.enter();
+                    drop(root1);
+
+                    let root2 = tracing::info_span!("root2").entered();
+                    let span2 = tracing::info_span!("span2");
+                    span2.add_link(span1.context().span().span_context().clone());
+                    let _ = span2.entered();
+                    drop(root2);
+                })
+                .join()
+                .unwrap();
             }
+
             // Wait for something to upload the traces?
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         });
