@@ -97,15 +97,6 @@ impl Client {
             .with_label_values(&[&shard_id.to_string(), "baseline"])
             .observe(witness_size as f64);
         self.apply_witness_state_cache(witness.clone());
-        {
-            let witness = witness.clone();
-            let witness_bytes = witness_bytes.clone();
-            rayon::spawn(move || {
-                compress_state_witness(shard_id, witness_bytes);
-                compress_large_storage_proof_values(witness);
-            });
-        }
-
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
             &witness,
@@ -126,7 +117,7 @@ impl Client {
         rayon::spawn(move || {
             let validation_start = Instant::now();
             match validate_chunk_state_witness(
-                witness,
+                witness.clone(),
                 pre_validation_result,
                 epoch_manager.as_ref(),
                 runtime_adapter.as_ref(),
@@ -151,6 +142,8 @@ impl Client {
                     );
                 }
             }
+            compress_state_witness(shard_id, borsh::to_vec(&witness).unwrap());
+            compress_large_storage_proof_values(witness);
         });
         Ok(())
     }
