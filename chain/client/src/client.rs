@@ -17,6 +17,7 @@ use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
 use itertools::Itertools;
+use lru::LruCache;
 use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
@@ -195,6 +196,8 @@ pub struct Client {
 
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
+
+    pub state_cache: HashMap<ShardId, LruCache<CryptoHash, ()>>,
 }
 
 impl Client {
@@ -409,6 +412,7 @@ impl Client {
             chunk_endorsement_tracker,
             state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             chunk_distribution_network,
+            state_cache: HashMap::new(),
         })
     }
 
