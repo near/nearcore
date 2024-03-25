@@ -37,7 +37,7 @@
 <title>Source1&#45;&gt;Shard1</title>
 <path fill="none" stroke="red" stroke-width="3" d="M85.73,-133.41C137.5,-135.16 225.89,-138.14 283.68,-140.09"/>
 <polygon fill="red" stroke="red" stroke-width="3" points="283.63,-143.59 293.74,-140.43 283.87,-136.6 283.63,-143.59"/>
-<text text-anchor="middle" x="189.79" y="-142.8" font-family="Times,serif" font-size="14.00">blockd tx to shard 1+2</text>
+<text text-anchor="middle" x="189.79" y="-142.8" font-family="Times,serif" font-size="14.00">blocked tx to shard 1+2</text>
 </g>
 <!-- Source2 -->
 <g id="node7" class="node">

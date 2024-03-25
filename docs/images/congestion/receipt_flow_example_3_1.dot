@@ -44,7 +44,7 @@ digraph G {
 
    
     // Edges
-    Source1 -> Shard1 [label="blockd tx to shard 1+2" color="red" penwidth=3];
+    Source1 -> Shard1 [label="blocked tx to shard 1+2" color="red" penwidth=3];
     Source2 -> Shard2 [label="blocked tx to shard 1+2" color="red" penwidth=3];
 
     Shard1 -> Sink1 [label="0 Tgas / 1000 Tgas (deadlock)"];

@@ -119,7 +119,7 @@ indirectly requires bandwidth on the congested shard.
 
 Crucially, when accepting a transaction, we don't know ahead of time which
 shards will be affected by the full directed graph of receipts in a transaction.
-We only know the first step For multi-jop transactions, there is no easy way out.
+We only know the first step. For multi-jop transactions, there is no easy way out.
 
 But it is worth mentioning, that in practice the single-hop function call is the
 most common case. And this case can be handled nicely by rejecting incoming
@@ -127,7 +127,7 @@ transactions to congested shards.
 
 ## Idea 3: Apply backpressure to stop all flows to a congested shard
 
-On top op stopping transactions to congested shards, we can also stop receipts if they have a congested shard as the receiver.
+On top of stopping transactions to congested shards, we can also stop receipts if they have a congested shard as the receiver.
 We simply put them in a buffer of the sending shard and keep them there until
 the congested shard has space again for the receipts.
 
@@ -159,6 +159,18 @@ consumption. And utilization is best measured in gas. If we have a queue of
 transaction, we still have 1000 Tgas of useful work we can contribute to the
 total flow. Thus under the assumption that at least 10% of gas is being burnt, 
 we have 100% utilization.
+
+A limit in bytes would be better to argue how much memory we need exactly. But
+in some sense, the wo are equivalent, as producing large receipts should cost a
+linear amount of gas. What exactly the conversion rate is, is rather complicated
+and warrants its own investigation with potential protocol changes to lower the
+ratio in the most extreme cases. And this is important regardless of how
+congestion is handled, given that network bandwidth is becoming more and more
+important as we add more shards. Issue
+[#8214](https://github.com/near/nearcore/issues/8214) tracks our effort on
+estimating what that cost should be and
+[#9378](https://github.com/near/nearcore/issues/9378) tracks our best progress
+on calculating what it is today.
 
 Of course, we can increase the queue to have even better utility guarantees. But
 it comes at the cost of longer delays for every transaction or receipt that goes
