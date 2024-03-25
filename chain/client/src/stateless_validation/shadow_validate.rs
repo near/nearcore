@@ -98,14 +98,10 @@ impl Client {
             .observe(witness_size as f64);
         self.apply_witness_state_cache(witness.clone());
         {
+            let witness = witness.clone();
             let witness_bytes = witness_bytes.clone();
             rayon::spawn(move || {
                 compress_state_witness(shard_id, witness_bytes);
-            });
-        }
-        {
-            let witness = witness.clone();
-            rayon::spawn(move || {
                 compress_large_storage_proof_values(witness);
             });
         }
