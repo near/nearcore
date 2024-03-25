@@ -705,7 +705,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
@@ -866,7 +868,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
 
