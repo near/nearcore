@@ -38,13 +38,10 @@ mod tests {
     use near_primitives_core::hash::CryptoHash;
     use std::str::FromStr;
 
-    const WALLET_CONTRACT_HASH: &'static str = "5wJJ2YaCq75kVSfx8zoZpevg1uLAn4h7nqUd2njKUEXe";
-    const MAGIC_BYTES_HASH: &'static str = "31PSU4diHE4cpWju91fb2zTqn5JSDRZ6xNGM2ub8Lgdg";
+    const WALLET_CONTRACT_HASH: &'static str = "7Za8zoriBqGNFf9AUK8Fbng5KSGw8Q9BLM4oSoLbJ6wq";
+    const MAGIC_BYTES_HASH: &'static str = "HfA46qim8mtcybTYEwGxWc1AN6a52g6t3XT6SRKzdpDx";
 
     #[test]
-    #[ignore]
-    // TODO(eth-implicit) Do not ignore when Wallet Contract build becomes reproducible,
-    // see https://github.com/near/nearcore/pull/10269#discussion_r1430139987.
     fn check_wallet_contract() {
         assert!(!wallet_contract().code().is_empty());
         let expected_hash =
@@ -53,9 +50,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    // TODO(eth-implicit) Do not ignore when Wallet Contract build becomes reproducible,
-    // see https://github.com/near/nearcore/pull/10269#discussion_r1430139987.
     fn check_wallet_contract_magic_bytes() {
         assert!(!wallet_contract_magic_bytes().code().is_empty());
         let expected_hash =
