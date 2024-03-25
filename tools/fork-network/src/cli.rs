@@ -806,6 +806,9 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            shuffle_shard_assignment_for_chunk_producers: epoch_config
+                .validator_selection_config
+                .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: epoch_info.protocol_version(),
             validators: new_validator_accounts,

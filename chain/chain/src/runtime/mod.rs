@@ -1219,6 +1219,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_config.validator_selection_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio =
             epoch_config.validator_selection_config.minimum_stake_ratio;
+        genesis_config.shuffle_shard_assignment_for_chunk_producers =
+            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
