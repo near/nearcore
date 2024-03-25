@@ -514,6 +514,9 @@ impl RunCmd {
             near_config.client_config.archive = true;
         }
         if self.validator_minimal_store {
+            if self.archive {
+                panic!("Cannot use '--archive' and '--validator-minimal-store' simultaneously.");
+            }
             near_config.client_config.validator_minimal_store = true;
         }
         if self.max_gas_burnt_view.is_some() {
