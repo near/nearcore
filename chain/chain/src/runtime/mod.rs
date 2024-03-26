@@ -53,7 +53,7 @@ use node_runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
@@ -241,6 +241,7 @@ impl NightshadeRuntime {
     }
 
     /// Processes state update.
+    #[instrument(target = "runtime", level = "debug", "process_state_update", skip_all)]
     fn process_state_update(
         &self,
         trie: Trie,
@@ -250,7 +251,6 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
-        let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let ApplyChunkBlockContext {
             height: block_height,
             block_hash,
@@ -272,8 +272,7 @@ impl NightshadeRuntime {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
-                   "is next_block_epoch_start {}",
-                   epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+                   next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
             let mut slashing_info: HashMap<_, _> = challenges_result
@@ -351,7 +350,13 @@ impl NightshadeRuntime {
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
-        debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
+        debug!(
+            target: "runtime",
+            epoch_height,
+            ?epoch_id,
+            current_protocol_version,
+            is_first_block_of_version
+        );
 
         let apply_state = ApplyState {
             block_height,
@@ -840,6 +845,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,

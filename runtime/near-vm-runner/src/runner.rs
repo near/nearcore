@@ -78,7 +78,7 @@ pub fn run(
         cache,
     )?;
 
-    span.record("burnt_gas", &outcome.burnt_gas);
+    span.record("burnt_gas", outcome.burnt_gas);
     Ok(outcome)
 }
 
