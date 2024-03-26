@@ -9,8 +9,10 @@ use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
+use near_primitives::checked_feature;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
@@ -1601,6 +1603,11 @@ fn prepare_transactions(
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1609,7 +1616,6 @@ fn test_prepare_transactions_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1630,7 +1636,6 @@ fn test_prepare_transactions_storage_proof() {
             nodes: proposed_transactions.storage_proof.unwrap(),
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validated_transactions = prepare_transactions(
@@ -1647,6 +1652,11 @@ fn test_prepare_transactions_storage_proof() {
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1655,7 +1665,6 @@ fn test_prepare_transactions_empty_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1676,7 +1685,6 @@ fn test_prepare_transactions_empty_storage_proof() {
             nodes: PartialState::default(), // We use empty storage proof here.
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validation_result = prepare_transactions(
