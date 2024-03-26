@@ -181,10 +181,10 @@ pub(crate) fn check_balance(
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
         total_receipts_cost(config, receipts)
     };
-    let incoming_receipts_balance =
-        receipts_cost(incoming_receipts)? + receipts_cost(yield_timeout_receipts)?;
+    let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
+    let processed_yield_timeout_receipts_balance = receipts_cost(yield_timeout_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
 
     // Postponed actions receipts. The receipts can be postponed and stored with the receiver's
@@ -242,6 +242,7 @@ pub(crate) fn check_balance(
         initial_accounts_balance,
         incoming_receipts_balance,
         processed_delayed_receipts_balance,
+        processed_yield_timeout_receipts_balance,
         initial_postponed_receipts_balance
     );
     let final_balance = safe_add_balance_apply!(
@@ -260,6 +261,7 @@ pub(crate) fn check_balance(
             initial_accounts_balance,
             incoming_receipts_balance,
             processed_delayed_receipts_balance,
+            processed_yield_timeout_receipts_balance,
             initial_postponed_receipts_balance,
             // Outputs
             final_accounts_balance,
