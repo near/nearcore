@@ -360,7 +360,7 @@ impl NearVM {
         // (wasm code size, compilation result)
         type MemoryCacheType = (u64, Result<VMArtifact, CompilationError>);
         let to_any = |v: MemoryCacheType| -> Box<dyn std::any::Any + Send> { Box::new(v) };
-        cache.memory_cache().try_lookup(
+        let (wasm_bytes, artifact_result) = cache.memory_cache().try_lookup(
             code_hash,
             || match code {
                 None => {
@@ -388,15 +388,16 @@ impl NearVM {
                                 tracing::debug_span!(target: "vm", "NearVM::load_from_fs_cache")
                                     .entered();
                             unsafe {
-                                // (UN-)SAFETY: the `serialized_module` must have been produced by a prior call to
-                                // `serialize`.
+                                // (UN-)SAFETY: the `serialized_module` must have been produced by
+                                // a prior call to `serialize`.
                                 //
-                                // In practice this is not necessarily true. One could have forgotten to change the
-                                // cache key when upgrading the version of the near_vm library or the database could
-                                // have had its data corrupted while at rest.
+                                // In practice this is not necessarily true. One could have
+                                // forgotten to change the cache key when upgrading the version of
+                                // the near_vm library or the database could have had its data
+                                // corrupted while at rest.
                                 //
-                                // There should definitely be some validation in near_vm to ensure we load what we think
-                                // we load.
+                                // There should definitely be some validation in near_vm to ensure
+                                // we load what we think we load.
                                 let executable =
                                     UniversalExecutableRef::deserialize(&serialized_module)
                                         .map_err(|_| CacheError::DeserializationError)?;
@@ -433,43 +434,35 @@ impl NearVM {
                     .downcast_ref::<MemoryCacheType>()
                     .expect("downcast should always succeed");
 
-                let mut memory = NearVmMemory::new(
-                    self.config.limit_config.initial_memory_pages,
-                    self.config.limit_config.max_memory_pages,
-                )
-                .expect("Cannot create memory for a contract call");
+                (wasm_bytes, downcast.clone())
+            },
+        )?;
 
-                // FIXME: this mostly duplicates the `run_module` method.
-                // Note that we don't clone the actual backing memory, just increase the RC.
-                let vmmemory = memory.vm();
-                let mut logic = VMLogic::new(
-                    ext,
-                    context,
-                    &self.config,
-                    fees_config,
-                    promise_results,
-                    &mut memory,
-                );
+        let mut memory = NearVmMemory::new(
+            self.config.limit_config.initial_memory_pages,
+            self.config.limit_config.max_memory_pages,
+        )
+        .expect("Cannot create memory for a contract call");
+        // FIXME: this mostly duplicates the `run_module` method.
+        // Note that we don't clone the actual backing memory, just increase the RC.
+        let vmmemory = memory.vm();
+        let mut logic =
+            VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-                let result = logic.before_loading_executable(method_name, wasm_bytes);
+        let result = logic.before_loading_executable(method_name, wasm_bytes);
+        if let Err(e) = result {
+            return Ok(VMOutcome::abort(logic, e));
+        }
+        match artifact_result {
+            Ok(artifact) => {
+                let result = logic.after_loading_executable(wasm_bytes);
                 if let Err(e) = result {
                     return Ok(VMOutcome::abort(logic, e));
                 }
-
-                match &*downcast {
-                    Ok(artifact) => {
-                        let result = logic.after_loading_executable(wasm_bytes);
-                        if let Err(e) = result {
-                            return Ok(VMOutcome::abort(logic, e));
-                        }
-                        closure(vmmemory, logic, artifact)
-                    }
-                    Err(e) => {
-                        Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(e.clone())))
-                    }
-                }
-            },
-        )?
+                closure(vmmemory, logic, &artifact)
+            }
+            Err(e) => Ok(VMOutcome::abort(logic, FunctionCallError::CompilationError(e))),
+        }
     }
 
     fn run_method(
