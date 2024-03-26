@@ -385,12 +385,17 @@ impl ShardTries {
 
     /// Remove trie from memory for shards not included in the given list.
     pub fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
+        info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
+            self.0.mem_tries.read().unwrap().keys(), shard_uids);
         self.0.mem_tries.write().unwrap().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+        info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
     }
 
     /// Remove trie from memory for given shard.
     pub fn unload_mem_trie(&self, shard_uid: &ShardUId) {
+        info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
         self.0.mem_tries.write().unwrap().remove(shard_uid);
+        info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
     }
 
     /// Loads in-memory-trie for given shard and state root (if given).
@@ -399,8 +404,10 @@ impl ShardTries {
         shard_uid: &ShardUId,
         state_root: Option<StateRoot>,
     ) -> Result<(), StorageError> {
+        info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
         let mem_tries = load_trie_from_flat_state_and_delta(&self.0.store, *shard_uid, state_root)?;
         self.0.mem_tries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
+        info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
         Ok(())
     }
 
@@ -725,7 +732,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
             load_mem_tries_for_all_shards: false,
-            load_mem_trie_for_tracked_shards: false,
+            load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
@@ -846,7 +853,7 @@ mod test {
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
             load_mem_tries_for_all_shards: false,
-            load_mem_trie_for_tracked_shards: false,
+            load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
         let shard_uid = *shard_uids.first().unwrap();

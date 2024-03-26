@@ -1246,7 +1246,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         shard_uid: &ShardUId,
         state_root: &StateRoot,
     ) -> Result<(), StorageError> {
-        if !self.get_tries().trie_config().load_mem_trie_for_tracked_shards {
+        if !self.get_tries().trie_config().load_mem_tries_for_tracked_shards {
             return Ok(());
         }
         // It should not happen that memtrie is already loaded for a shard
