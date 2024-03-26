@@ -272,7 +272,7 @@ mod test {
         // Check expected value.  Use cargo-insta to update the expected value:
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
-        insta::assert_display_snapshot!(result.join("\n"), @r###"
+        insta::assert_snapshot!(result.join("\n"), @r###"
         State `ShardUId || 11111111111111111111111111111111`
             [cold] get_raw_bytes        → FooBar; rc: 1
             [cold] get_with_rc_stripped → FooBar
@@ -318,7 +318,7 @@ mod test {
         // Check expected value.  Use cargo-insta to update the expected value:
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
-        insta::assert_display_snapshot!(result.join("\n"), @r###"
+        insta::assert_snapshot!(result.join("\n"), @r###"
         State
         [cold] (`ShardUId || 11111111111111111111111111111111`, FooBar)
         [raw ] (`ShardUId || 11111111111111111111111111111111`, FooBar)
