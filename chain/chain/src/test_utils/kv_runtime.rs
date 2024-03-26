@@ -1260,6 +1260,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_balance_burnt: 0,
             proof: if storage_config.record_storage { Some(Default::default()) } else { None },
             processed_delayed_receipts: vec![],
+            processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
     }

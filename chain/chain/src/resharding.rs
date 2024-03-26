@@ -31,6 +31,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 
+#[cfg(feature = "yield_resume")]
+use near_store::resharding::get_promise_yield_timeouts;
+
 /// ReshardingRequest has all the information needed to start a resharding job. This message is sent
 /// from ClientActor to SyncJobsActor. We do not want to stall the ClientActor with a long running
 /// resharding job. The SyncJobsActor is helpful for handling such long running jobs.
@@ -165,6 +168,39 @@ fn apply_delayed_receipts<'a>(
     }
 
     tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied delayed receipts");
+    Ok(new_state_roots)
+}
+
+#[cfg(feature = "yield_resume")]
+fn apply_promise_yield_timeouts<'a>(
+    config: &ReshardingConfig,
+    tries: &ShardTries,
+    orig_shard_uid: ShardUId,
+    orig_state_root: StateRoot,
+    state_roots: HashMap<ShardUId, StateRoot>,
+    account_id_to_shard_uid: &(dyn Fn(&AccountId) -> ShardUId + 'a),
+) -> Result<HashMap<ShardUId, StateRoot>, Error> {
+    let mut total_count = 0;
+    let orig_trie_update = tries.new_trie_update_view(orig_shard_uid, orig_state_root);
+
+    let mut start_index = None;
+    let mut new_state_roots = state_roots;
+    while let Some((next_index, timeouts)) =
+        get_promise_yield_timeouts(&orig_trie_update, start_index, config.batch_size)?
+    {
+        total_count += timeouts.len() as u64;
+        let (store_update, updated_state_roots) = tries
+            .apply_promise_yield_timeouts_to_children_states(
+                &new_state_roots,
+                &timeouts,
+                account_id_to_shard_uid,
+            )?;
+        new_state_roots = updated_state_roots;
+        start_index = Some(next_index);
+        store_update.commit()?;
+    }
+
+    tracing::debug!(target: "resharding", ?orig_shard_uid, ?total_count, "Applied PromiseYield timeouts");
     Ok(new_state_roots)
 }
 
@@ -418,6 +454,18 @@ impl Chain {
             state_roots,
             &checked_account_id_to_shard_uid,
         )?;
+
+        #[cfg(feature = "yield_resume")]
+        {
+            state_roots = apply_promise_yield_timeouts(
+                &config.get(),
+                &tries,
+                shard_uid,
+                state_root,
+                state_roots,
+                &checked_account_id_to_shard_uid,
+            )?;
+        }
 
         tracing::debug!(target: "resharding", ?shard_uid, "build_state_for_split_shards_impl finished");
         Ok(state_roots)

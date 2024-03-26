@@ -2,7 +2,7 @@ use crate::account::{AccessKey, Account};
 use crate::challenge::ChallengesResult;
 use crate::errors::EpochError;
 use crate::hash::CryptoHash;
-use crate::receipt::Receipt;
+use crate::receipt::{PromiseYieldTimeout, Receipt};
 use crate::serialize::dec_format;
 use crate::trie_key::TrieKey;
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -213,16 +213,18 @@ pub struct ConsolidatedStateChange {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct StateChangesForResharding {
     pub changes: Vec<ConsolidatedStateChange>,
-    // we need to store deleted receipts here because StateChanges will only include
-    // trie keys for removed values and account information can not be inferred from
-    // trie key for delayed receipts
+    // For DelayedReceipt and for PromiseYieldTimeout, account information is kept in the trie
+    // value rather than in the trie key. When such a key is erased, we need to know the erased
+    // value so that the change can be propagated to the correct child trie.
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
 }
 
 impl StateChangesForResharding {
     pub fn from_raw_state_changes(
         changes: &[RawStateChangesWithTrieKey],
         processed_delayed_receipts: Vec<Receipt>,
+        processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     ) -> Self {
         let changes = changes
             .iter()
@@ -231,7 +233,7 @@ impl StateChangesForResharding {
                 ConsolidatedStateChange { trie_key: trie_key.clone(), value }
             })
             .collect();
-        Self { changes, processed_delayed_receipts }
+        Self { changes, processed_delayed_receipts, processed_yield_timeouts }
     }
 }
 
