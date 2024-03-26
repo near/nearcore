@@ -11,6 +11,7 @@ from rc import pmap
 import re
 import sys
 import time
+import cmd_utils
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[2] / 'lib'))
 
@@ -347,6 +348,13 @@ def update_binaries_cmd(args, traffic_generator, nodes):
          nodes + [traffic_generator])
 
 
+def run_remote_cmd(args, traffic_generator, nodes):
+    if args.all or args.traffic:
+        cmd_utils.run_cmd(traffic_generator.node.node, args.cmd)
+    if args.all or args.nodes:
+        pmap(lambda node: cmd_utils.run_cmd(node.node.node, args.cmd), nodes)
+
+
 if __name__ == '__main__':
     parser = ArgumentParser(description='Control a mocknet instance')
     parser.add_argument('--chain-id', type=str)
@@ -478,6 +486,20 @@ if __name__ == '__main__':
         'Update the neard binaries by re-downloading them. The same urls are used.'
     )
     update_binaries_parser.set_defaults(func=update_binaries_cmd)
+
+    run_cmd_parser = subparsers.add_parser('run-cmd',
+                                           help='''Run the cmd on the hosts.''')
+    run_cmd_parser.add_argument('--cmd', type=str)
+    run_cmd_parser.add_argument('--all',
+                                action='store_true',
+                                help='Run on all hosts')
+    run_cmd_parser.add_argument('--nodes',
+                                action='store_true',
+                                help='Run on nodes')
+    run_cmd_parser.add_argument('--traffic',
+                                action='store_true',
+                                help='Run on traffic host')
+    run_cmd_parser.set_defaults(func=run_remote_cmd)
 
     args = parser.parse_args()
 
