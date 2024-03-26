@@ -57,8 +57,8 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::log_assert;
 use near_o11y::WithSpanContextExt;
+use near_o11y::{log_assert, log_assert_fail};
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
 use near_primitives::block_header::ApprovalType;
@@ -1400,7 +1400,7 @@ impl Client {
 
     /// Called asynchronously when the ShardsManager finishes processing a chunk.
     ///
-    /// Returns an error if the persisting of the completed chunk fails.
+    /// It panics in the non-debug mode if the persisting of the completed chunk fails.
     pub fn on_chunk_completed(
         &mut self,
         partial_chunk: PartialEncodedChunk,
@@ -1412,15 +1412,11 @@ impl Client {
         let shard_id = partial_chunk.shard_id();
 
         if let Err(err) = persist_chunk(partial_chunk, shard_chunk, self.chain.mut_chain_store()) {
-            error!(target: "client", error=?err, chunk_hash=?chunk_header.chunk_hash(),
-                "Failed to persist completed chunk.");
-            if cfg!(debug_assertions) {
-                panic!(
-                    "Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
-                    chunk_header.chunk_hash(),
-                    err
-                );
-            }
+            log_assert_fail!(
+                "Failed to persist completed chunk. chunk_hash={:?}, error={:?}",
+                chunk_header.chunk_hash(),
+                err
+            );
             return;
         }
 
