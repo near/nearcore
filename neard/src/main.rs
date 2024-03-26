@@ -58,11 +58,25 @@ fn main() -> anyhow::Result<()> {
     // to prevent the inner logic from trying to bump it further:
     // FD limit is a global variable, so it shouldn't be modified in an
     // uncoordinated way.
-    const FD_LIMIT: u64 = 65535;
+    //const FD_LIMIT: u64 = 65535;
+    //let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
+    //rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
+    //    "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
+    //))?;
+
+    // Retrieve FD_LIMIT from an environment variable with a default value of 65535.
+    let fd_limit_default = 65535; // Default value
+    let fd_limit_str = env::var("FD_LIMIT").unwrap_or_else(|_| fd_limit_default.to_string());
+    let fd_limit = fd_limit_str.parse::<u64>().context("Failed to parse FD_LIMIT from environment variable")?;
+
+    // Retrieve the current hard limit
     let (_, hard) = rlimit::Resource::NOFILE.get().context("rlimit::Resource::NOFILE::get()")?;
-    rlimit::Resource::NOFILE.set(FD_LIMIT, FD_LIMIT).context(format!(
-        "couldn't set the file descriptor limit to {FD_LIMIT}, hard limit = {hard}"
+    // Attempt to set both the soft and hard limits to fd_limit
+    rlimit::Resource::NOFILE.set(fd_limit, fd_limit).context(format!(
+        "couldn't set the file descriptor limit to {}, hard limit = {}",
+        fd_limit, hard
     ))?;
+
 
     NeardCmd::parse_and_run()
 }
