@@ -2,7 +2,7 @@
 
 This crate cotains functions to handle chunks. In NEAR - the block consists of multiple chunks - at most one per shard.
 
-When a chunk is created, the creator encodes its contents using Reed Solomon encoding (ErasureCoding) and adds cross-shard receipts - creating PartialEncodedChunks that are later sent to all the validators (each validator gets a subset of them). This is done for data availability reasons (so that we need only a part of the validators to reconstruct the whole chunk). You can read more about it in [the Nightshade paper](https://near.org/files/nightshade.pdf).
+When a chunk is created, the creator encodes its contents using Reed Solomon encoding (ErasureCoding) and adds cross-shard receipts - creating PartialEncodedChunks that are later sent to all the validators (each validator gets a subset of them). This is done for data availability reasons (so that we need only a part of the validators to reconstruct the whole chunk). You can read more about it in [the Nightshade paper](https://near.org/papers/nightshade).
 
 
 A honest validator will only approve a block if it receives its assigned parts for all chunks in the block - which means that for each chunk, it has `has_all_parts()` returning true.

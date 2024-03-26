@@ -142,6 +142,9 @@ pub enum ProtocolFeature {
     SingleShardTracking,
     // Stateless validation: state witness size limits.
     StateWitnessSizeLimit,
+    // Stateless validation: in statelessnet, shuffle shard assignments for chunk producers every
+    // epoch.
+    StatelessnetShuffleShardAssignmentsForChunkProducers,
     // Disable gas price refunds and require some amount of gas for refunds.
     #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
     GasPriceRefundAdjustment,
@@ -191,6 +194,9 @@ impl ProtocolFeature {
             ProtocolFeature::RestrictTla
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
+            // The SimpleNightshadeV3 should not be enabled in statelessnet.
+            // TODO(resharding) clean up after stake wars is over.
+            #[cfg(not(feature = "statelessnet_protocol"))]
             ProtocolFeature::SimpleNightshadeV3 => 65,
 
             // StatelessNet features
@@ -198,6 +204,7 @@ impl ProtocolFeature {
             ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
+            ProtocolFeature::StatelessnetShuffleShardAssignmentsForChunkProducers => 84,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
@@ -209,8 +216,10 @@ impl ProtocolFeature {
             ProtocolFeature::EthImplicitAccounts => 138,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
             ProtocolFeature::NonRefundableBalance => 140,
+            #[cfg(feature = "statelessnet_protocol")]
+            ProtocolFeature::SimpleNightshadeV3 => 141,
             #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
-            ProtocolFeature::GasPriceRefundAdjustment => 141,
+            ProtocolFeature::GasPriceRefundAdjustment => 142,
         }
     }
 }
@@ -223,10 +232,10 @@ const STABLE_PROTOCOL_VERSION: ProtocolVersion = 65;
 /// Largest protocol version supported by the current binary.
 pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_protocol") {
     // Current StatelessNet protocol version.
-    83
+    84
 } else if cfg!(feature = "nightly_protocol") {
     // On nightly, pick big enough version to support all features.
-    141
+    142
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION

@@ -67,6 +67,7 @@
     1,
     6250
   ],
+  "shuffle_shard_assignment_for_chunk_producers": false,
   "use_production_config": false,
   "records": []
 }

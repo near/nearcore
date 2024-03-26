@@ -592,6 +592,18 @@ pub(crate) static ORPHAN_CHUNK_STATE_WITNESSES_TOTAL_COUNT: Lazy<IntCounterVec> 
     .unwrap()
 });
 
+pub(crate) static CHUNK_STATE_WITNESS_NETWORK_ROUNDTRIP_TIME: Lazy<HistogramVec> = Lazy::new(
+    || {
+        try_create_histogram_vec(
+            "near_chunk_state_witness_network_roundtrip_time",
+            "Time in seconds between sending state witness through the network to chunk producer and receiving the corresponding ack message",
+            &["witness_size_bucket"],
+            Some(exponential_buckets(0.001, 2.0, 20).unwrap()),
+        )
+        .unwrap()
+    },
+);
+
 pub(crate) static ORPHAN_CHUNK_STATE_WITNESS_POOL_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
     try_create_int_gauge_vec(
         "near_orphan_chunk_state_witness_pool_size",

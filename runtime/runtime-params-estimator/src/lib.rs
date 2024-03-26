@@ -110,7 +110,7 @@ use near_primitives::version::PROTOCOL_VERSION;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
 use near_vm_runner::ContractCode;
-use near_vm_runner::MockCompiledContractCache;
+use near_vm_runner::MockContractRuntimeCache;
 use serde_json::json;
 use std::convert::TryFrom;
 use std::iter;
@@ -254,10 +254,14 @@ static ALL_COSTS: &[(Cost, fn(&mut EstimatorContext) -> GasCost)] = &[
     (Cost::GasMeteringOp, gas_metering_op),
     (Cost::RocksDbInsertValueByte, rocks_db_insert_value_byte),
     (Cost::RocksDbReadValueByte, rocks_db_read_value_byte),
-    #[cfg(feature = "yield_create")]
+    #[cfg(feature = "nightly")]
     (Cost::YieldCreateBase, yield_create_base),
-    #[cfg(feature = "yield_create")]
+    #[cfg(feature = "nightly")]
     (Cost::YieldCreateByte, yield_create_byte),
+    #[cfg(feature = "nightly")]
+    (Cost::YieldResumeBase, yield_resume_base),
+    #[cfg(feature = "nightly")]
+    (Cost::YieldResumeByte, yield_resume_byte),
     (Cost::CpuBenchmarkSha256, cpu_benchmark_sha256),
     (Cost::OneCPUInstruction, one_cpu_instruction),
     (Cost::OneNanosecond, one_nanosecond),
@@ -726,6 +730,9 @@ fn pure_deploy_bytes(ctx: &mut EstimatorContext) -> GasCost {
 
 /// Base cost for a fn call action, without receipt creation or contract loading.
 fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
+    if let Some(cost) = &ctx.cached.function_call_base {
+        return cost.clone();
+    }
     let config_store = RuntimeConfigStore::new(None);
     let vm_config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let n_actions = 100;
@@ -734,7 +741,8 @@ fn action_function_call_base(ctx: &mut EstimatorContext) -> GasCost {
     let base_cost = fn_cost_in_contract(ctx, "main", &code, n_actions);
     // Executable loading is a separately charged step, so it must be subtracted on the action cost.
     let executable_loading_cost = contract_loading_base(ctx);
-    base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE)
+    let cost = base_cost.saturating_sub(&executable_loading_cost, &NonNegativeTolerance::PER_MILLE);
+    ctx.cached.function_call_base.insert(cost).clone()
 }
 
 fn action_function_call_per_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -878,7 +886,7 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
     let config = config_store.get_config(PROTOCOL_VERSION).wasm_config.clone();
     let fees = RuntimeFeesConfig::test();
     let promise_results = vec![];
-    let cache = MockCompiledContractCache::default();
+    let cache = MockContractRuntimeCache::default();
 
     let mut run = || {
         let context = create_context(vec![]);
@@ -886,10 +894,11 @@ fn wasm_instruction(ctx: &mut EstimatorContext) -> GasCost {
             .runtime(config.clone())
             .unwrap()
             .run(
-                &code,
+                *code.hash(),
+                Some(&code),
                 "cpu_ram_soak_test",
                 &mut fake_external,
-                context,
+                &context,
                 &fees,
                 &promise_results,
                 Some(&cache),
@@ -1016,11 +1025,11 @@ fn ecrecover_base(ctx: &mut EstimatorContext) -> GasCost {
 }
 
 fn ed25519_verify_base(ctx: &mut EstimatorContext) -> GasCost {
-    if ctx.cached.ed25519_verify_base.is_none() {
-        let cost = fn_cost(ctx, "ed25519_verify_32b_500", ExtCosts::ed25519_verify_base, 500);
-        ctx.cached.ed25519_verify_base = Some(cost);
+    if let Some(cost) = &ctx.cached.ed25519_verify_base {
+        return cost.clone();
     }
-    ctx.cached.ed25519_verify_base.clone().unwrap()
+    let cost = fn_cost(ctx, "ed25519_verify_32b_500", ExtCosts::ed25519_verify_base, 500);
+    ctx.cached.ed25519_verify_base.insert(cost).clone()
 }
 
 fn ed25519_verify_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1068,6 +1077,7 @@ fn storage_has_key_base(ctx: &mut EstimatorContext) -> GasCost {
         "storage_has_key_10b_key_10b_value_1k",
         ExtCosts::storage_has_key_base,
         1000,
+        0,
     )
 }
 fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1077,24 +1087,23 @@ fn storage_has_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_has_key_10kib_key_10b_value_1k",
         ExtCosts::storage_has_key_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 
 fn storage_read_base(ctx: &mut EstimatorContext) -> GasCost {
-    if let Some(cost) = ctx.cached.storage_read_base.clone() {
-        return cost;
+    if let Some(cost) = &ctx.cached.storage_read_base {
+        return cost.clone();
     }
-
     let cost = fn_cost_with_setup(
         ctx,
         "storage_write_10b_key_10b_value_1k",
         "storage_read_10b_key_10b_value_1k",
         ExtCosts::storage_read_base,
         1000,
+        0,
     );
-
-    ctx.cached.storage_read_base = Some(cost.clone());
-    cost
+    ctx.cached.storage_read_base.insert(cost).clone()
 }
 fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
     fn_cost_with_setup(
@@ -1103,6 +1112,7 @@ fn storage_read_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_read_10kib_key_10b_value_1k",
         ExtCosts::storage_read_key_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1112,6 +1122,7 @@ fn storage_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_read_10b_key_10kib_value_1k",
         ExtCosts::storage_read_value_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 
@@ -1141,6 +1152,7 @@ fn storage_write_evicted_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_write_10b_key_10kib_value_1k",
         ExtCosts::storage_write_evicted_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 
@@ -1151,6 +1163,7 @@ fn storage_remove_base(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10b_key_10b_value_1k",
         ExtCosts::storage_remove_base,
         1000,
+        0,
     )
 }
 fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1160,6 +1173,7 @@ fn storage_remove_key_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10kib_key_10b_value_1k",
         ExtCosts::storage_remove_key_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
@@ -1169,6 +1183,7 @@ fn storage_remove_ret_value_byte(ctx: &mut EstimatorContext) -> GasCost {
         "storage_remove_10b_key_10kib_value_1k",
         ExtCosts::storage_remove_ret_value_byte,
         10 * 1024 * 1000,
+        0,
     )
 }
 
@@ -1261,18 +1276,71 @@ fn rocks_db_read_value_byte(ctx: &mut EstimatorContext) -> GasCost {
     rocks_db_read_cost(&ctx.config) / total_bytes
 }
 
-#[cfg(feature = "yield_create")]
+#[cfg(feature = "nightly")]
 fn yield_create_base(ctx: &mut EstimatorContext) -> GasCost {
-    let result = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
-    dbg!(result).0
+    let base_cost = noop_function_call_cost(ctx);
+    let result = if let Some(cost) = &ctx.cached.yield_create_base {
+        cost.clone()
+    } else {
+        let (result, count) =
+            fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
+        assert_eq!(count, 1000);
+        let result = result / count;
+        ctx.cached.yield_create_base.insert(result).clone()
+    };
+    result.saturating_sub(&(base_cost / 1000), &NonNegativeTolerance::PER_MILLE)
 }
 
-#[cfg(feature = "yield_create")]
+#[cfg(feature = "nightly")]
 fn yield_create_byte(ctx: &mut EstimatorContext) -> GasCost {
-    let base_cost = fn_cost_count(ctx, "yield_create_base", ExtCosts::yield_create_base, 1);
-    let total_cost =
+    let noop_function_call = noop_function_call_cost(ctx);
+    let base_cost = yield_create_base(ctx);
+    let method_cost =
         fn_cost_count(ctx, "yield_create_byte_100b_method_length", ExtCosts::yield_create_base, 1);
-    total_cost.0.saturating_sub(&base_cost.0, &NonNegativeTolerance::PER_MILLE)
+    let argument_cost = fn_cost_count(
+        ctx,
+        "yield_create_byte_1000b_argument_length",
+        ExtCosts::yield_create_base,
+        1,
+    );
+    let compute = |(cost, count): (GasCost, u64), bytes: u64| -> GasCost {
+        let it = cost.saturating_sub(&noop_function_call, &NonNegativeTolerance::PER_MILLE) / count;
+        it.saturating_sub(&base_cost, &NonNegativeTolerance::PER_MILLE) / bytes
+    };
+    std::cmp::max(compute(method_cost, 100), compute(argument_cost, 1001))
+}
+
+#[cfg(feature = "nightly")]
+fn yield_resume_base(ctx: &mut EstimatorContext) -> GasCost {
+    fn_cost_with_setup(
+        ctx,
+        "yield_resume_base_prepare",
+        "yield_resume_base",
+        ExtCosts::yield_resume_base,
+        255,
+        1,
+    )
+}
+
+#[cfg(feature = "nightly")]
+fn yield_resume_byte(ctx: &mut EstimatorContext) -> GasCost {
+    let baseline = fn_cost_with_setup(
+        ctx,
+        "yield_resume_base_prepare",
+        "yield_resume_base",
+        ExtCosts::yield_resume_base,
+        255,
+        1,
+    );
+    let with_payload = fn_cost_with_setup(
+        ctx,
+        "yield_resume_base_prepare",
+        "yield_resume_payload",
+        ExtCosts::yield_resume_base,
+        255,
+        1,
+    );
+    with_payload.saturating_sub(&baseline, &NonNegativeTolerance::PER_MILLE) / 1000
 }
 
 fn gas_metering(ctx: &mut EstimatorContext) -> (GasCost, GasCost) {

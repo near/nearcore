@@ -40,8 +40,8 @@ use near_client_primitives::types::{
 };
 use near_network::client::{
     BlockApproval, BlockHeadersResponse, BlockResponse, ChunkEndorsementMessage,
-    ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse, RecvChallenge, SetNetworkInfo,
-    StateResponse,
+    ChunkStateWitnessAckMessage, ChunkStateWitnessMessage, ProcessTxRequest, ProcessTxResponse,
+    RecvChallenge, SetNetworkInfo, StateResponse,
 };
 use near_network::types::ReasonForBan;
 use near_network::types::{
@@ -1846,6 +1846,14 @@ impl ClientActionHandler<ChunkStateWitnessMessage> for ClientActions {
         if let Err(err) = self.client.process_chunk_state_witness(msg.0, None) {
             tracing::error!(target: "client", ?err, "Error processing chunk state witness");
         }
+    }
+}
+
+impl ClientActionHandler<ChunkStateWitnessAckMessage> for ClientActions {
+    type Result = ();
+
+    fn handle(&mut self, msg: ChunkStateWitnessAckMessage) -> Self::Result {
+        self.client.process_chunk_state_witness_ack(msg.0);
     }
 }
 

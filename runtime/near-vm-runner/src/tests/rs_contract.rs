@@ -60,10 +60,11 @@ pub fn test_read_write() {
         let promise_results = vec![];
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
-            &code,
+            *code.hash(),
+            Some(&code),
             "write_key_value",
             &mut fake_external,
-            context,
+            &context,
             &fees,
             &promise_results,
             None,
@@ -72,10 +73,11 @@ pub fn test_read_write() {
 
         let context = create_context(encode(&[10u64]));
         let result = runtime.run(
-            &code,
+            *code.hash(),
+            Some(&code),
             "read_value",
             &mut fake_external,
-            context,
+            &context,
             &fees,
             &promise_results,
             None,
@@ -131,7 +133,7 @@ fn run_test_ext(
     let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
 
     let outcome = runtime
-        .run(&code, method, &mut fake_external, context, &fees, &[], None)
+        .run(*code.hash(), Some(&code), method, &mut fake_external, &context, &fees, &[], None)
         .unwrap_or_else(|err| panic!("Failed execution: {:?}", err));
 
     assert_eq!(outcome.profile.action_gas(), 0);
@@ -238,7 +240,16 @@ pub fn test_out_of_memory() {
 
         let promise_results = vec![];
         let result = runtime
-            .run(&code, "out_of_memory", &mut fake_external, context, &fees, &promise_results, None)
+            .run(
+                *code.hash(),
+                Some(&code),
+                "out_of_memory",
+                &mut fake_external,
+                &context,
+                &fees,
+                &promise_results,
+                None,
+            )
             .expect("execution failed");
         assert_eq!(
             result.aborted,
@@ -271,10 +282,11 @@ fn attach_unspent_gas_but_use_all_gas() {
 
         let outcome = runtime
             .run(
-                &code,
+                *code.hash(),
+                Some(&code),
                 "attach_unspent_gas_but_use_all_gas",
                 &mut external,
-                context.clone(),
+                &context,
                 &fees,
                 &[],
                 None,
