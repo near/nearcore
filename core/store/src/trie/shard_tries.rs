@@ -419,15 +419,18 @@ impl ShardTries {
     /// Should be called upon startup to load in-memory tries for enabled shards.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
-        shard_uids: &[ShardUId],
+        all_shards: &[ShardUId],
+        tracked_shards: &[ShardUId],
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
-        let shard_uids_to_load = shard_uids
+        let shard_uids_to_load = all_shards
             .iter()
             .copied()
             .filter(|shard_uid| {
                 trie_config.load_mem_tries_for_all_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
+                    || (trie_config.load_mem_tries_for_tracked_shards
+                        && tracked_shards.contains(shard_uid))
             })
             .collect::<Vec<_>>();
 

@@ -1551,6 +1551,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
 

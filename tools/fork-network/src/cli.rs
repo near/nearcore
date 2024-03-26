@@ -320,7 +320,7 @@ impl ForkNetworkCommand {
         let runtime =
             NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
                 .context("could not create the transaction runtime")?;
-        runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
+        runtime.load_mem_tries_on_startup(&all_shard_uids, Default::default()).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
             Arc::new(move |prev_state_root| {

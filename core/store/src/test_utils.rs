@@ -147,7 +147,7 @@ impl TestTriesBuilder {
             }
         }
         if self.enable_in_memory_tries {
-            tries.load_mem_tries_for_enabled_shards(&shard_uids).unwrap();
+            tries.load_mem_tries_for_enabled_shards(&shard_uids, Default::default()).unwrap();
         }
         tries
     }

@@ -1462,7 +1462,11 @@ impl RuntimeAdapter for KeyValueRuntime {
         Ok(vec![])
     }
 
-    fn load_mem_tries_on_startup(&self, _shard_uids: &[ShardUId]) -> Result<(), StorageError> {
+    fn load_mem_tries_on_startup(
+        &self,
+        _all_shards: &[ShardUId],
+        _tracked_shards: &[ShardUId],
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 
