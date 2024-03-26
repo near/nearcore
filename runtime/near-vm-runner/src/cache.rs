@@ -449,14 +449,24 @@ impl AnyCache {
         let Some(cache) = &self.cache else {
             let v = generate()?;
             // NB: The stars and ampersands here are semantics-affecting. e.g. if the star is
-            // missing, we end up making an object out of `&Box<dyn ...>` which is obviously quite
-            // wrong.
+            // missing, we end up making an object out of `Box<dyn ...>` rather than using `dyn
+            // Any` within the box which is obviously quite wrong.
             return Ok(with(&*v));
         };
-        let mut guard = cache.lock().unwrap();
-        let value = guard.try_get_or_insert(key, generate)?;
-        // Same here.
-        Ok(with(&**value))
+        {
+            let mut guard = cache.lock().unwrap();
+            if let Some(cached_value) = guard.get(&key) {
+                // Same here.
+                return Ok(with(&**cached_value));
+            }
+        }
+        let generated = generate()?;
+        let result = with(&*generated);
+        {
+            let mut guard = cache.lock().unwrap();
+            guard.put(key, generated);
+        }
+        Ok(result)
     }
 }
 
