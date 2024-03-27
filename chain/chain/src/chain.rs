@@ -521,7 +521,7 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.load_mem_tries_on_startup(&shard_uids, &tracked_shards)?;
+        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,

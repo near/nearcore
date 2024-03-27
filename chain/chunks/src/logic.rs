@@ -55,16 +55,14 @@ pub fn get_shards_cares_about_this_or_next_epoch(
     shard_tracker: &ShardTracker,
     epoch_manager: &dyn EpochManagerAdapter,
 ) -> Vec<ShardId> {
-    let parent_hash = *block_header.prev_hash();
-    let epoch_id = block_header.epoch_id().clone();
     epoch_manager
-        .shard_ids(&epoch_id)
+        .shard_ids(&block_header.epoch_id())
         .unwrap()
         .into_iter()
         .filter(|&shard_id| {
             cares_about_shard_this_or_next_epoch(
                 account_id,
-                &parent_hash,
+                block_header.prev_hash(),
                 shard_id,
                 is_me,
                 shard_tracker,

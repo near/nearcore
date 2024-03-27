@@ -1237,12 +1237,8 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
-    fn load_mem_tries_on_startup(
-        &self,
-        all_shards: &[ShardUId],
-        tracked_shards: &[ShardUId],
-    ) -> Result<(), StorageError> {
-        self.tries.load_mem_tries_for_enabled_shards(all_shards, tracked_shards)
+    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError> {
+        self.tries.load_mem_tries_for_enabled_shards(tracked_shards)
     }
 
     fn load_mem_trie_on_catchup(

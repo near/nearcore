@@ -419,18 +419,15 @@ impl ShardTries {
     /// Should be called upon startup to load in-memory tries for enabled shards.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
-        all_shards: &[ShardUId],
         tracked_shards: &[ShardUId],
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
-        let shard_uids_to_load = all_shards
+        let shard_uids_to_load = tracked_shards
             .iter()
             .copied()
             .filter(|shard_uid| {
-                trie_config.load_mem_tries_for_all_shards
+                trie_config.load_mem_tries_for_tracked_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
-                    || (trie_config.load_mem_tries_for_tracked_shards
-                        && tracked_shards.contains(shard_uid))
             })
             .collect::<Vec<_>>();
 
@@ -734,7 +731,6 @@ mod test {
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_all_shards: false,
             load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
@@ -855,7 +851,6 @@ mod test {
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_all_shards: false,
             load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);

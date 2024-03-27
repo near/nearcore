@@ -239,7 +239,7 @@ fn test_client_with_multi_test_loop() {
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
-            TrieConfig { load_mem_tries_for_all_shards: true, ..Default::default() },
+            TrieConfig { load_mem_tries_for_tracked_shards: true, ..Default::default() },
             StateSnapshotType::ForReshardingOnly,
         );
 
