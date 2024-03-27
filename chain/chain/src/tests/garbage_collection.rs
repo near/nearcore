@@ -601,7 +601,7 @@ fn test_fork_far_away_from_epoch_end() {
     let max_changes = 1;
     let fork_clean_step = 100;
     let epoch_length = fork_clean_step + 10;
-    let simple_chains = vec![
+    let simple_chains = [
         SimpleChain { from: 0, length: 5, is_removed: false },
         SimpleChain { from: 5, length: 2, is_removed: true },
         // We want the chain to end up exactly at the new epoch start.

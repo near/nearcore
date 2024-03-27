@@ -24,7 +24,6 @@ use near_primitives::epoch_manager::ValidatorSelectionConfig;
 use near_primitives::errors::{EpochError, InvalidTxError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
-use near_primitives::shard_layout;
 use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
@@ -45,6 +44,7 @@ use near_primitives::views::{
     AccessKeyInfoView, AccessKeyList, CallResult, ContractCodeView, EpochValidatorInfo,
     QueryRequest, QueryResponse, QueryResponseKind, ViewStateResult,
 };
+use near_primitives::{checked_feature, shard_layout};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
     set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
@@ -1083,7 +1083,7 @@ impl RuntimeAdapter for KeyValueRuntime {
 
     fn prepare_transactions(
         &self,
-        storage: RuntimeStorageConfig,
+        _storage: RuntimeStorageConfig,
         _chunk: PrepareTransactionsChunkContext,
         _prev_block: PrepareTransactionsBlockContext,
         transaction_groups: &mut dyn TransactionGroupIterator,
@@ -1094,11 +1094,14 @@ impl RuntimeAdapter for KeyValueRuntime {
         while let Some(iter) = transaction_groups.next() {
             res.push(iter.next().unwrap());
         }
-        Ok(PreparedTransactions {
-            transactions: res,
-            limited_by: None,
-            storage_proof: if storage.record_storage { Some(Default::default()) } else { None },
-        })
+        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
+            Some(Default::default())
+        } else {
+            None
+        };
+        Ok(PreparedTransactions { transactions: res, limited_by: None, storage_proof })
     }
 
     fn apply_chunk(
@@ -1242,7 +1245,13 @@ impl RuntimeAdapter for KeyValueRuntime {
         let state_root = hash(&data);
         self.state.write().unwrap().insert(state_root, state);
         self.state_size.write().unwrap().insert(state_root, state_size);
-
+        let storage_proof = if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
+            Some(Default::default())
+        } else {
+            None
+        };
         Ok(ApplyChunkResult {
             trie_changes: WrappedTrieChanges::new(
                 self.get_tries(),
@@ -1258,7 +1267,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             validator_proposals: vec![],
             total_gas_burnt: 0,
             total_balance_burnt: 0,
-            proof: if storage_config.record_storage { Some(Default::default()) } else { None },
+            proof: storage_proof,
             processed_delayed_receipts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })

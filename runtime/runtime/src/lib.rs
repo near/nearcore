@@ -15,7 +15,9 @@ use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
 use near_primitives::checked_feature;
-use near_primitives::errors::{ActionError, ActionErrorKind, RuntimeError, TxExecutionError};
+use near_primitives::errors::{
+    ActionError, ActionErrorKind, IntegerOverflowError, RuntimeError, TxExecutionError,
+};
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
     ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
@@ -56,7 +58,7 @@ use near_vm_runner::ProfileDataV3;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 mod actions;
 pub mod adapter;
@@ -253,6 +255,11 @@ impl Runtime {
     /// `ExecutionOutcomeWithId` for the transaction.
     /// In case of an error, returns either `InvalidTxError` if the transaction verification failed
     /// or a `StorageError` wrapped into `RuntimeError`.
+    #[instrument(target = "runtime", level = "debug", "process_transaction", skip_all, fields(
+        tx_hash = %signed_transaction.get_hash(),
+        gas_burnt = tracing::field::Empty,
+        compute_usage = tracing::field::Empty,
+    ))]
     fn process_transaction(
         &self,
         state_update: &mut TrieUpdate,
@@ -260,7 +267,7 @@ impl Runtime {
         signed_transaction: &SignedTransaction,
         stats: &mut ApplyStats,
     ) -> Result<(Receipt, ExecutionOutcomeWithId), RuntimeError> {
-        let _span = tracing::debug_span!(target: "runtime", "process_transaction", tx_hash = %signed_transaction.get_hash()).entered();
+        let span = tracing::Span::current();
         metrics::TRANSACTION_PROCESSED_TOTAL.inc();
 
         match verify_and_charge_transaction(
@@ -299,15 +306,17 @@ impl Runtime {
                 };
                 stats.tx_burnt_amount =
                     safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
+                let gas_burnt = verification_result.gas_burnt;
+                let compute_usage = verification_result.gas_burnt;
                 let outcome = ExecutionOutcomeWithId {
                     id: signed_transaction.get_hash(),
                     outcome: ExecutionOutcome {
                         status: ExecutionStatus::SuccessReceiptId(receipt.receipt_id),
                         logs: vec![],
                         receipt_ids: vec![receipt.receipt_id],
-                        gas_burnt: verification_result.gas_burnt,
+                        gas_burnt,
                         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
-                        compute_usage: Some(verification_result.gas_burnt),
+                        compute_usage: Some(compute_usage),
                         tokens_burnt: verification_result.burnt_amount,
                         executor_id: transaction.signer_id.clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
@@ -315,6 +324,8 @@ impl Runtime {
                         metadata: ExecutionMetadata::V1,
                     },
                 };
+                span.record("gas_burnt", gas_burnt);
+                span.record("compute_usage", compute_usage);
                 Ok((receipt, outcome))
             }
             Err(e) => {
@@ -1271,6 +1282,12 @@ impl Runtime {
     /// new outgoing receipts, execution outcomes for
     /// all transactions, local action receipts (generated from transactions with signer ==
     /// receivers) and incoming action receipts.
+    #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
+        protocol_version = apply_state.current_protocol_version,
+        num_transactions = transactions.len(),
+        gas_burnt = tracing::field::Empty,
+        compute_usage = tracing::field::Empty,
+    ))]
     pub fn apply(
         &self,
         trie: Trie,
@@ -1286,17 +1303,17 @@ impl Runtime {
         // the check is not necessary.  It’s defence in depth to make sure any
         // future refactoring won’t break the condition.
         assert!(cfg!(feature = "sandbox") || state_patch.is_empty());
-
         let protocol_version = apply_state.current_protocol_version;
-        let _span = tracing::debug_span!(
-            target: "runtime",
-            "apply",
-            protocol_version,
-            num_transactions = transactions.len())
-        .entered();
-
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
+        let mut total = TotalResourceGuard {
+            span: tracing::Span::current(),
+            // This contains the gas "burnt" for refund receipts. Even though we don't actually
+            // charge any gas for refund receipts, we still count the gas use towards the block gas
+            // limit
+            gas: 0,
+            compute: 0,
+        };
 
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
@@ -1358,12 +1375,8 @@ impl Runtime {
         let mut local_receipts = vec![];
         let mut outcomes = vec![];
         let mut processed_delayed_receipts = vec![];
-        // This contains the gas "burnt" for refund receipts. Even though we don't actually
-        // charge any gas for refund receipts, we still count the gas use towards the block gas
-        // limit
-        let mut total_gas_burnt = gas_used_for_migrations;
-        let mut total_compute_usage = total_gas_burnt;
         let mut metrics = metrics::ApplyMetrics::default();
+        total.add(gas_used_for_migrations, gas_used_for_migrations)?;
 
         for signed_transaction in transactions {
             let (receipt, outcome_with_id) = self.process_transaction(
@@ -1378,38 +1391,34 @@ impl Runtime {
                 outgoing_receipts.push(receipt);
             }
 
-            total_gas_burnt = safe_add_gas(total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-            total_compute_usage = safe_add_compute(
-                total_compute_usage,
+            total.add(
+                outcome_with_id.outcome.gas_burnt,
                 outcome_with_id
                     .outcome
                     .compute_usage
                     .expect("`process_transaction` must populate compute usage"),
             )?;
-
             if !checked_feature!("stable", ComputeCosts, protocol_version) {
-                assert_eq!(
-                    total_compute_usage, total_gas_burnt,
-                    "Compute usage must match burnt gas"
-                );
+                assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
             }
 
             outcomes.push(outcome_with_id);
         }
-        metrics.tx_processing_done(total_gas_burnt, total_compute_usage);
+        metrics.tx_processing_done(total.gas, total.compute);
 
         let mut process_receipt = |receipt: &Receipt,
                                    state_update: &mut TrieUpdate,
-                                   total_gas_burnt: &mut Gas,
-                                   total_compute_usage: &mut Compute|
+                                   total: &mut TotalResourceGuard|
          -> Result<_, RuntimeError> {
-            let _span = tracing::debug_span!(
+            let span = tracing::debug_span!(
                 target: "runtime",
                 "process_receipt",
                 receipt_id = %receipt.receipt_id,
                 predecessor = %receipt.predecessor_id,
                 receiver = %receipt.receiver_id,
                 id = %receipt.receipt_id,
+                gas_burnt = tracing::field::Empty,
+                compute_usage = tracing::field::Empty,
             )
             .entered();
             let node_counter_before = state_update.trie().get_trie_nodes_count();
@@ -1426,21 +1435,17 @@ impl Runtime {
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
             if let Some(outcome_with_id) = result? {
-                *total_gas_burnt =
-                    safe_add_gas(*total_gas_burnt, outcome_with_id.outcome.gas_burnt)?;
-                *total_compute_usage = safe_add_compute(
-                    *total_compute_usage,
-                    outcome_with_id
-                        .outcome
-                        .compute_usage
-                        .expect("`process_receipt` must populate compute usage"),
-                )?;
+                let gas_burnt = outcome_with_id.outcome.gas_burnt;
+                let compute_usage = outcome_with_id
+                    .outcome
+                    .compute_usage
+                    .expect("`process_receipt` must populate compute usage");
+                total.add(gas_burnt, compute_usage)?;
+                span.record("gas_burnt", gas_burnt);
+                span.record("compute_usage", compute_usage);
 
                 if !checked_feature!("stable", ComputeCosts, protocol_version) {
-                    assert_eq!(
-                        total_compute_usage, total_gas_burnt,
-                        "Compute usage must match burnt gas"
-                    );
+                    assert_eq!(total.compute, total.gas, "Compute usage must match burnt gas");
                 }
                 outcomes.push(outcome_with_id);
             }
@@ -1464,7 +1469,7 @@ impl Runtime {
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
         for receipt in local_receipts.iter() {
-            if total_compute_usage >= compute_limit
+            if total.compute >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
@@ -1472,19 +1477,14 @@ impl Runtime {
             } else {
                 // NOTE: We don't need to validate the local receipt, because it's just validated in
                 // the `verify_and_charge_transaction`.
-                process_receipt(
-                    receipt,
-                    &mut state_update,
-                    &mut total_gas_burnt,
-                    &mut total_compute_usage,
-                )?;
+                process_receipt(receipt, &mut state_update, &mut total)?;
             }
         }
-        metrics.local_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.local_receipts_done(total.gas, total.compute);
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
-            if total_compute_usage >= compute_limit
+            if total.compute >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
@@ -1520,15 +1520,10 @@ impl Runtime {
             state_update.remove(key);
             // Math checked above: first_index is less than next_available_index
             delayed_receipts_indices.first_index += 1;
-            process_receipt(
-                &receipt,
-                &mut state_update,
-                &mut total_gas_burnt,
-                &mut total_compute_usage,
-            )?;
+            process_receipt(&receipt, &mut state_update, &mut total)?;
             processed_delayed_receipts.push(receipt);
         }
-        metrics.delayed_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.delayed_receipts_done(total.gas, total.compute);
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
@@ -1545,21 +1540,16 @@ impl Runtime {
                 protocol_version,
             )
             .map_err(RuntimeError::ReceiptValidationError)?;
-            if total_compute_usage >= compute_limit
+            if total.compute >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             } else {
-                process_receipt(
-                    receipt,
-                    &mut state_update,
-                    &mut total_gas_burnt,
-                    &mut total_compute_usage,
-                )?;
+                process_receipt(receipt, &mut state_update, &mut total)?;
             }
         }
-        metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.incoming_receipts_done(total.gas, total.compute);
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
@@ -1574,7 +1564,7 @@ impl Runtime {
 
         let mut timeout_receipts = vec![];
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
-            if total_compute_usage >= compute_limit
+            if total.compute >= compute_limit
                 || proof_size_limit
                     .is_some_and(|limit| state_update.trie.recorded_storage_size() > limit)
             {
@@ -1628,13 +1618,7 @@ impl Runtime {
                 //
                 // Note that we don't invoke the prefetcher as it doesn't do anything
                 // for data receipts.
-                process_receipt(
-                    &resume_receipt,
-                    &mut state_update,
-                    &mut total_gas_burnt,
-                    &mut total_compute_usage,
-                )?;
-
+                process_receipt(&resume_receipt, &mut state_update, &mut total)?;
                 timeout_receipts.push(resume_receipt);
             }
 
@@ -1642,8 +1626,9 @@ impl Runtime {
             // Math checked above: first_index is less than next_available_index
             promise_yield_indices.first_index += 1;
         }
-        metrics.yield_timeouts_done(total_gas_burnt, total_compute_usage);
+        metrics.yield_timeouts_done(total.gas, total.compute);
 
+        let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         if delayed_receipts_indices != initial_delayed_receipt_indices {
             set(&mut state_update, TrieKey::DelayedReceiptIndices, &delayed_receipts_indices);
         }
@@ -1770,6 +1755,27 @@ fn action_transfer_or_implicit_account_creation(
             nonrefundable,
         );
     })
+}
+
+struct TotalResourceGuard {
+    gas: u64,
+    compute: u64,
+    span: tracing::Span,
+}
+
+impl Drop for TotalResourceGuard {
+    fn drop(&mut self) {
+        self.span.record("gas_burnt", self.gas);
+        self.span.record("compute_usage", self.compute);
+    }
+}
+
+impl TotalResourceGuard {
+    fn add(&mut self, gas: u64, compute: u64) -> Result<(), IntegerOverflowError> {
+        self.gas = safe_add_gas(self.gas, gas)?;
+        self.compute = safe_add_compute(self.compute, compute)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -114,6 +114,7 @@ pub struct DumpConfig {
     /// How often to check if a new epoch has started.
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
