@@ -18,7 +18,6 @@ actix.workspace = true
 anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
-bytesize.workspace = true
 chrono.workspace = true
 cloud-storage.workspace = true
 dirs.workspace = true

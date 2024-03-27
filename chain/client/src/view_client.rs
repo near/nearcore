@@ -46,7 +46,6 @@ use near_primitives::sharding::ShardChunk;
 use near_primitives::state_sync::{
     ShardStateSyncResponse, ShardStateSyncResponseHeader, ShardStateSyncResponseV3,
 };
-use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockId, BlockReference, EpochReference, Finality, MaybeBlockId,
     ShardId, SyncCheckpoint, TransactionOrReceiptId, ValidatorInfoIdentifier,
@@ -54,10 +53,9 @@ use near_primitives::types::{
 use near_primitives::views::validator_stake_view::ValidatorStakeView;
 use near_primitives::views::{
     BlockView, ChunkView, EpochValidatorInfo, ExecutionOutcomeWithIdView, ExecutionStatusView,
-    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, FinalExecutionStatus, GasPriceView,
-    LightClientBlockView, MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView,
-    SignedTransactionView, SplitStorageInfoView, StateChangesKindsView, StateChangesView,
-    TxExecutionStatus, TxStatusView,
+    FinalExecutionOutcomeView, FinalExecutionOutcomeViewEnum, GasPriceView, LightClientBlockView,
+    MaintenanceWindowsView, QueryRequest, QueryResponse, ReceiptView, SplitStorageInfoView,
+    StateChangesKindsView, StateChangesView, TxExecutionStatus, TxStatusView,
 };
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
@@ -522,29 +520,11 @@ impl ViewClientActor {
                     Ok(TxStatusView { execution_outcome: Some(res), status })
                 }
                 Err(near_chain::Error::DBNotFoundErr(_)) => {
-                    if let Ok(Some(transaction)) = self.chain.chain_store.get_transaction(&tx_hash)
-                    {
-                        let transaction: SignedTransactionView =
-                            SignedTransaction::clone(&transaction).into();
-                        if let Ok(tx_outcome) = self.chain.get_execution_outcome(&tx_hash) {
-                            let outcome = FinalExecutionOutcomeViewEnum::FinalExecutionOutcome(
-                                FinalExecutionOutcomeView {
-                                    status: FinalExecutionStatus::Started,
-                                    transaction,
-                                    transaction_outcome: tx_outcome.into(),
-                                    receipts_outcome: vec![],
-                                },
-                            );
-                            Ok(TxStatusView {
-                                execution_outcome: Some(outcome),
-                                status: TxExecutionStatus::Included,
-                            })
-                        } else {
-                            Ok(TxStatusView {
-                                execution_outcome: None,
-                                status: TxExecutionStatus::Included,
-                            })
-                        }
+                    if self.chain.get_execution_outcome(&tx_hash).is_ok() {
+                        Ok(TxStatusView {
+                            execution_outcome: None,
+                            status: TxExecutionStatus::None,
+                        })
                     } else {
                         Err(TxStatusError::MissingTransaction(tx_hash))
                     }

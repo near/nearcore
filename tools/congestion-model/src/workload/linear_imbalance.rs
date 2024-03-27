@@ -16,10 +16,8 @@ use super::{utils, Producer};
 ///
 /// As an actual formula, it looks like this:
 ///
-/// ```ignore
-/// receipts_per_round(shard_id) =
-///     2 * (shard_id + 1) * (GAS_LIMIT / GAS_PER_RECEIPT) / NUM_SHARDS
-/// ```
+///     receipts_per_round(shard_id) =
+///         2 * (shard_id + 1) * (GAS_LIMIT / GAS_PER_RECEIPT) / NUM_SHARDS
 pub struct LinearImbalanceProducer {
     pub receipt_size: u64,
     pub attached_gas: GGas,
@@ -54,7 +52,7 @@ impl Producer for LinearImbalanceProducer {
                         receiver,
                         size: self.receipt_size,
                         attached_gas: self.attached_gas,
-                        execution_gas: self.execution_gas,
+                        execution_gas: self.attached_gas,
                     };
                     let mut tx = tx_factory(sender_id);
                     let main_receipt_id = tx.add_first_receipt(main_receipt, self.conversion_gas);
@@ -65,17 +63,6 @@ impl Producer for LinearImbalanceProducer {
             }
         }
         all_tx
-    }
-}
-
-impl LinearImbalanceProducer {
-    pub fn big_receipts() -> Self {
-        Self {
-            receipt_size: 2_000_000,
-            attached_gas: 5 * TGAS,
-            execution_gas: 5 * TGAS,
-            ..Self::default()
-        }
     }
 }
 

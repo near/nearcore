@@ -13,7 +13,7 @@ use near_primitives::transaction::SignedTransaction;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{AccountId, Balance};
 use near_store::{
-    get, get_account, get_postponed_receipt, get_promise_yield_receipt, TrieAccess, TrieUpdate,
+    get, get_account, get_postponed_receipt, get_yielded_promise, TrieAccess, TrieUpdate,
 };
 use std::collections::HashSet;
 
@@ -109,7 +109,7 @@ fn total_postponed_receipts_cost(
                 }
             }
             PostponedReceiptType::PromiseYield => {
-                match get_promise_yield_receipt(state, account_id, *lookup_id)? {
+                match get_yielded_promise(state, account_id, *lookup_id)? {
                     None => return Ok(total),
                     Some(receipt) => receipt_cost(config, &receipt)?,
                 }
@@ -120,18 +120,11 @@ fn total_postponed_receipts_cost(
     })
 }
 
-#[tracing::instrument(target = "runtime", level = "debug", "check_balance", skip_all, fields(
-    transactions.len = transactions.len(),
-    incoming_receipts.len = incoming_receipts.len(),
-    yield_timeout_receipts.len = yield_timeout_receipts.len(),
-    outgoing_receipts.len = outgoing_receipts.len()
-))]
 pub(crate) fn check_balance(
     config: &RuntimeConfig,
     final_state: &TrieUpdate,
     validator_accounts_update: &Option<ValidatorAccountsUpdate>,
     incoming_receipts: &[Receipt],
-    yield_timeout_receipts: &[Receipt],
     transactions: &[SignedTransaction],
     outgoing_receipts: &[Receipt],
     stats: &ApplyStats,
@@ -161,7 +154,6 @@ pub(crate) fn check_balance(
         .iter()
         .map(|tx| tx.transaction.signer_id.clone())
         .chain(incoming_receipts.iter().map(|r| r.receiver_id.clone()))
-        .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id.clone()))
         .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id.clone()))
         .collect();
     let incoming_validator_rewards =
@@ -187,8 +179,7 @@ pub(crate) fn check_balance(
     let receipts_cost = |receipts: &[Receipt]| -> Result<Balance, IntegerOverflowError> {
         total_receipts_cost(config, receipts)
     };
-    let incoming_receipts_balance =
-        receipts_cost(incoming_receipts)? + receipts_cost(yield_timeout_receipts)?;
+    let incoming_receipts_balance = receipts_cost(incoming_receipts)?;
     let outgoing_receipts_balance = receipts_cost(outgoing_receipts)?;
     let processed_delayed_receipts_balance = receipts_cost(&processed_delayed_receipts)?;
     let new_delayed_receipts_balance = receipts_cost(&new_delayed_receipts)?;
@@ -200,7 +191,6 @@ pub(crate) fn check_balance(
     let all_potential_postponed_receipt_ids = incoming_receipts
         .iter()
         .chain(processed_delayed_receipts.iter())
-        .chain(yield_timeout_receipts.iter())
         .filter_map(|receipt| {
             let account_id = &receipt.receiver_id;
             match &receipt.receipt {
@@ -317,7 +307,6 @@ mod tests {
             &[],
             &[],
             &[],
-            &[],
             &ApplyStats::default(),
         )
         .unwrap();
@@ -333,7 +322,6 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&alice_account(), 1000)],
-            &[],
             &[],
             &[],
             &ApplyStats::default(),
@@ -393,7 +381,6 @@ mod tests {
             &final_state,
             &None,
             &[Receipt::new_balance_refund(&account_id, refund_balance)],
-            &[],
             &[],
             &[],
             &ApplyStats::default(),
@@ -462,7 +449,6 @@ mod tests {
             &final_state,
             &None,
             &[],
-            &[],
             &[tx],
             &[receipt],
             &ApplyStats {
@@ -522,7 +508,6 @@ mod tests {
                 &initial_state,
                 &None,
                 &[receipt],
-                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),
@@ -581,7 +566,6 @@ mod tests {
                 &initial_state,
                 &None,
                 &[receipt],
-                &[],
                 &[tx],
                 &[],
                 &ApplyStats::default(),

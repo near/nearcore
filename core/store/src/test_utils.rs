@@ -113,7 +113,7 @@ impl TestTriesBuilder {
         let tries = ShardTries::new(
             store,
             TrieConfig {
-                load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
+                load_mem_tries_for_all_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
             &shard_uids,
@@ -162,7 +162,6 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid, *root);
     let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let mut store_update = tries.store_update();
-    tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);

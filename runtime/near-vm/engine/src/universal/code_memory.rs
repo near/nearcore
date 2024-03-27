@@ -235,20 +235,23 @@ impl Drop for CodeMemory {
 
 unsafe impl Send for CodeMemory {}
 
-/// The pool of memory maps for storing the code.
+/// The pool of preallocated memory maps for storing the code.
 ///
-/// The memories and the size of the pool may grow towards a high watermark.
+/// This pool cannot grow and will only allow up to a number of code mappings that were specified
+/// at construction time.
+///
+/// However it is possible for the mappings inside to grow to accomodate larger code.
 #[derive(Clone)]
-pub struct MemoryPool {
+pub struct LimitedMemoryPool {
     pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
 }
 
-impl MemoryPool {
-    /// Create a new pool with `preallocate_count` mappings initialized to `initial_map_size` each.
-    pub fn new(preallocate_count: usize, initial_map_size: usize) -> rustix::io::Result<Self> {
-        let mut pool = Vec::with_capacity(preallocate_count);
-        for _ in 0..preallocate_count {
-            pool.push(CodeMemory::create(initial_map_size)?);
+impl LimitedMemoryPool {
+    /// Create a new pool with `count` mappings initialized to `default_memory_size` each.
+    pub fn new(count: usize, default_memory_size: usize) -> rustix::io::Result<Self> {
+        let mut pool = Vec::with_capacity(count);
+        for _ in 0..count {
+            pool.push(CodeMemory::create(default_memory_size)?);
         }
         let pool = Arc::new(std::sync::Mutex::new(pool));
         Ok(Self { pool })
@@ -257,11 +260,7 @@ impl MemoryPool {
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
         let mut guard = self.pool.lock().expect("unreachable due to panic=abort");
-        let mut memory = match guard.pop() {
-            Some(m) => m,
-            // This memory will later return to this pool via the drop of `CodeMemory`.
-            None => CodeMemory::create(std::cmp::max(size, 1))?,
-        };
+        let mut memory = guard.pop().ok_or(rustix::io::Errno::NOMEM)?;
         memory.source_pool = Some(Arc::clone(&self.pool));
         if memory.size < size {
             Ok(memory.resize(size)?)

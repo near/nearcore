@@ -55,8 +55,8 @@ impl ShardTries {
                     }
                     None => {}
                 },
-                TrieKey::PromiseYieldIndices => {}
-                TrieKey::PromiseYieldTimeout { .. } => todo!(),
+                TrieKey::YieldedPromiseQueueIndices => {}
+                TrieKey::YieldedPromiseQueueEntry { .. } => todo!(),
                 TrieKey::PromiseYieldReceipt { .. } => todo!(),
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }

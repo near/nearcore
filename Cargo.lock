@@ -441,6 +441,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
 
 [[package]]
+name = "async-recursion"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.32",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1232,7 +1243,6 @@ dependencies = [
 name = "congestion-model"
 version = "0.0.0"
 dependencies = [
- "bytesize",
  "chrono",
  "clap",
  "csv",
@@ -1289,12 +1299,6 @@ name = "core-foundation-sys"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
-
-[[package]]
-name = "cov-mark"
-version = "2.0.0-pre.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d48d8f76bd9331f19fe2aaf3821a9f9fb32c3963e1e3d6ce82a8c09cef7444a"
 
 [[package]]
 name = "cpp_demangle"
@@ -2767,9 +2771,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.37.0"
+version = "1.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1718b3f2b85bb5054baf8ce406e36401f27c3169205f4175504c4b1d98252d3f"
+checksum = "5d64600be34b2fcfc267740a243fa7744441bb4947a619ac4e5bb6507f35fbfc"
 dependencies = [
  "console",
  "lazy_static",
@@ -2778,6 +2782,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "similar",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -3113,20 +3118,11 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.7.8"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
+checksum = "32613e41de4c47ab04970c348ca7ae7382cf116625755af070b008a15516a889"
 dependencies = [
- "hashbrown 0.12.3",
-]
-
-[[package]]
-name = "lru"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
-dependencies = [
- "hashbrown 0.14.2",
+ "hashbrown 0.11.2",
 ]
 
 [[package]]
@@ -3454,7 +3450,7 @@ name = "near-cache"
 version = "0.0.0"
 dependencies = [
  "bencher",
- "lru 0.7.8",
+ "lru",
  "rand",
 ]
 
@@ -3473,7 +3469,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru 0.7.8",
+ "lru",
  "near-async",
  "near-cache",
  "near-chain-configs",
@@ -3554,7 +3550,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru 0.7.8",
+ "lru",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -3600,7 +3596,7 @@ dependencies = [
  "derive_more",
  "futures",
  "itertools",
- "lru 0.7.8",
+ "lru",
  "near-actix-test-utils",
  "near-async",
  "near-cache",
@@ -3621,7 +3617,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-telemetry",
- "near-vm-runner",
  "num-rational",
  "once_cell",
  "percent-encoding",
@@ -3754,7 +3749,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "num-rational",
- "once_cell",
  "primitive-types",
  "rand",
  "rand_hc",
@@ -3835,8 +3829,8 @@ version = "0.0.0"
 dependencies = [
  "actix",
  "anyhow",
+ "async-recursion",
  "futures",
- "lazy_static",
  "near-chain-configs",
  "near-client",
  "near-crypto",
@@ -4051,7 +4045,7 @@ dependencies = [
  "futures-util",
  "im",
  "itertools",
- "lru 0.7.8",
+ "lru",
  "near-async",
  "near-crypto",
  "near-fmt",
@@ -4375,7 +4369,7 @@ dependencies = [
  "insta",
  "itertools",
  "itoa",
- "lru 0.7.8",
+ "lru",
  "near-async",
  "near-chain",
  "near-chain-configs",
@@ -4529,13 +4523,11 @@ dependencies = [
  "base64 0.21.0",
  "bolero",
  "borsh 1.0.0",
- "cov-mark",
  "ed25519-dalek",
  "enum-map",
  "expect-test",
  "finite-wasm",
  "hex",
- "lru 0.12.3",
  "memoffset 0.8.0",
  "near-crypto",
  "near-parameters",
@@ -4555,14 +4547,12 @@ dependencies = [
  "pwasm-utils",
  "rand",
  "ripemd",
- "rustix 0.38.24",
  "serde",
  "serde_json",
  "serde_repr",
  "sha2",
  "sha3",
  "strum",
- "tempfile",
  "thiserror",
  "tracing",
  "wasm-encoder 0.27.0",
@@ -4693,7 +4683,6 @@ dependencies = [
  "awc",
  "bencher",
  "borsh 1.0.0",
- "bytesize",
  "chrono",
  "cloud-storage",
  "dirs",
@@ -6064,7 +6053,6 @@ dependencies = [
  "near-primitives",
  "near-store",
  "near-test-contracts",
- "near-vm-runner",
  "nearcore",
  "serde",
  "serde_json",
@@ -8518,6 +8506,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c179869f34fc7c01830d3ce7ea2086bc3a07e0d35289b667d0a8bf910258926c"
 dependencies = [
  "lzma-sys",
+]
+
+[[package]]
+name = "yaml-rust"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
+dependencies = [
+ "linked-hash-map",
 ]
 
 [[package]]

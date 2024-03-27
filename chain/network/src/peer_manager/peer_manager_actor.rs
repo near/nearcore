@@ -976,14 +976,6 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
-            NetworkRequests::ChunkStateWitnessAck(target, ack) => {
-                self.state.send_message_to_account(
-                    &self.clock,
-                    &target,
-                    RoutedMessageBody::ChunkStateWitnessAck(ack),
-                );
-                NetworkResponses::NoResponse
-            }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {
                 self.state.send_message_to_account(
                     &self.clock,

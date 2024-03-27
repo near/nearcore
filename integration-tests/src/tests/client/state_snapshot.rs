@@ -44,7 +44,7 @@ impl StateSnaptshotTestEnv {
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_tracked_shards: false,
+            load_mem_tries_for_all_shards: false,
         };
         let flat_storage_manager = FlatStorageManager::new(store.clone());
         let shard_uids = [ShardUId::single_shard()];
@@ -53,6 +53,7 @@ impl StateSnaptshotTestEnv {
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
+            compaction_enabled: true,
         };
         let shard_tries = ShardTries::new(
             store.clone(),

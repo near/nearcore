@@ -3380,10 +3380,9 @@ mod contract_precompilation_tests {
     use super::*;
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
-    use near_store::TrieUpdate;
-    use near_vm_runner::{
-        get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
-    };
+    use near_store::{StoreCompiledContractCache, TrieUpdate};
+    use near_vm_runner::logic::CompiledContractCache;
+    use near_vm_runner::{get_contract_cache_key, ContractCode};
     use node_runtime::state_viewer::TrieViewer;
 
     const EPOCH_LENGTH: u64 = 25;
@@ -3417,12 +3416,10 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let mut caches: Vec<FilesystemContractRuntimeCache> =
-            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
+
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
-            .contract_caches(&caches)
             .real_stores()
             .nightshade_runtimes(&genesis)
             .build();
@@ -3443,6 +3440,11 @@ mod contract_precompilation_tests {
         state_sync_on_height(&mut env, height - 1);
 
         // Check existence of contract in both caches.
+        let mut caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
+            .collect();
         let contract_code = ContractCode::new(wasm_code.clone(), None);
         let epoch_id = env.clients[0]
             .chain
@@ -3452,7 +3454,7 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
+        let key = get_contract_cache_key(&contract_code, &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3510,12 +3512,9 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let caches: Vec<FilesystemContractRuntimeCache> =
-            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
-            .contract_caches(&caches)
             .real_stores()
             .nightshade_runtimes(&genesis)
             .build();
@@ -3548,6 +3547,11 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client on the last produced height.
         state_sync_on_height(&mut env, height - 1);
 
+        let caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
+            .collect();
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3557,11 +3561,11 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
-            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
+            &ContractCode::new(tiny_wasm_code.clone(), None),
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
+            &ContractCode::new(wasm_code.clone(), None),
             &runtime_config.wasm_config,
         );
 
@@ -3584,12 +3588,10 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let caches: Vec<FilesystemContractRuntimeCache> =
-            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
+
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
-            .contract_caches(&caches)
             .real_stores()
             .nightshade_runtimes(&genesis)
             .build();
@@ -3626,6 +3628,12 @@ mod contract_precompilation_tests {
         // Perform state sync for the second client.
         state_sync_on_height(&mut env, height - 1);
 
+        let caches: Vec<StoreCompiledContractCache> = env
+            .clients
+            .iter()
+            .map(|client| StoreCompiledContractCache::new(client.chain.chain_store().store()))
+            .collect();
+
         let epoch_id = env.clients[0]
             .chain
             .get_block_by_height(height - 1)
@@ -3635,7 +3643,7 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
-            *ContractCode::new(wasm_code.clone(), None).hash(),
+            &ContractCode::new(wasm_code.clone(), None),
             &runtime_config.wasm_config,
         );
 

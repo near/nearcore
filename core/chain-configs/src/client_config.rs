@@ -1,7 +1,6 @@
 //! Chain Client Configuration
 use crate::ExternalStorageLocation::GCS;
 use crate::MutableConfigValue;
-use bytesize::ByteSize;
 use near_primitives::types::{
     AccountId, BlockHeight, BlockHeightDelta, Gas, NumBlocks, NumSeats, ShardId,
 };
@@ -114,7 +113,6 @@ pub struct DumpConfig {
     /// How often to check if a new epoch has started.
     /// Feel free to set to `None`, defaults are sensible.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub iteration_delay: Option<Duration>,
     /// Location of a json file with credentials allowing write access to the bucket.
@@ -182,7 +180,7 @@ pub struct ReshardingConfig {
     /// The soft limit on the size of a single batch. The batch size can be
     /// decreased if resharding is consuming too many resources and interfering
     /// with regular node operation.
-    pub batch_size: ByteSize,
+    pub batch_size: bytesize::ByteSize,
 
     /// The delay between writing batches to the db. The batch delay can be
     /// increased if resharding is consuming too many resources and interfering
@@ -212,7 +210,7 @@ impl Default for ReshardingConfig {
         // Conservative default for a slower resharding that puts as little
         // extra load on the node as possible.
         Self {
-            batch_size: ByteSize::kb(500),
+            batch_size: bytesize::ByteSize::kb(500),
             batch_delay: Duration::milliseconds(100),
             retry_delay: Duration::seconds(10),
             initial_delay: Duration::seconds(0),
@@ -308,17 +306,9 @@ pub fn default_produce_chunk_add_transactions_time_limit() -> Option<Duration> {
     Some(Duration::milliseconds(200))
 }
 
-/// Returns the default size of the OrphanStateWitnessPool, ie. the maximum number of
-/// state-witnesses that can be accommodated in OrphanStateWitnessPool.
 pub fn default_orphan_state_witness_pool_size() -> usize {
     // With 5 shards, a capacity of 25 witnesses allows to store 5 orphan witnesses per shard.
     25
-}
-
-/// Returns the default value for maximum data-size (bytes) for a state witness to be included in
-/// the OrphanStateWitnessPool.
-pub fn default_orphan_state_witness_max_size() -> ByteSize {
-    ByteSize::mb(40)
 }
 
 /// Config for the Chunk Distribution Network feature.
@@ -464,14 +454,9 @@ pub struct ClientConfig {
     /// latency due to the need of requesting chunks over the peer-to-peer network.
     pub chunk_distribution_network: Option<ChunkDistributionNetworkConfig>,
     /// OrphanStateWitnessPool keeps instances of ChunkStateWitness which can't be processed
-    /// because the previous block isn't available. The witnesses wait in the pool until the
+    /// because the previous block isn't available. The witnesses wait in the pool untl the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
-    /// Maximum size of state witnesses in the OrphanStateWitnessPool.
-    ///
-    /// We keep only orphan witnesses which are smaller than this size.
-    /// This limits the maximum memory usage of OrphanStateWitnessPool.
-    pub orphan_state_witness_max_size: ByteSize,
 }
 
 impl ClientConfig {
@@ -557,7 +542,6 @@ impl ClientConfig {
             ),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
-            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
         }
     }
 }

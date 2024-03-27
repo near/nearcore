@@ -1,9 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ChunkStateWitnessMessage,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
-    TxStatusRequest, TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
+    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -1016,10 +1016,6 @@ impl PeerActor {
                 network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                 None
             }
-            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
-                network_state.client.send_async(ChunkStateWitnessAckMessage(ack)).await.ok();
-                None
-            }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
                 network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
@@ -1795,7 +1791,6 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
 
 #[derive(Debug)]
-#[allow(dead_code)]
 enum ConnectingStatus {
     Inbound(InboundHandshakePermit),
     Outbound { _permit: connection::OutboundHandshakePermit, handshake_spec: HandshakeSpec },
@@ -1814,7 +1809,6 @@ enum ConnectingStatus {
 /// For the exact process of establishing a connection between peers,
 /// see PoolSnapshot in chain/network/src/peer_manager/connection.rs.
 #[derive(Debug)]
-#[allow(dead_code)]
 enum PeerStatus {
     /// Handshake in progress.
     Connecting(HandshakeSignalSender, ConnectingStatus),

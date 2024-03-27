@@ -121,7 +121,6 @@ pub fn setup(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -260,7 +259,6 @@ pub fn setup_only_view(
         },
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
     )
     .unwrap();
 
@@ -859,9 +857,6 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkStateWitness(_, _) => {
                             // TODO(#10265): Implement for integration tests.
                         },
-                        NetworkRequests::ChunkStateWitnessAck(_, _) => {
-                            // TODO(#10790): Implement for integration tests.
-                        },
                         NetworkRequests::ChunkEndorsement(_, _) => {
                             // TODO(#10265): Implement for integration tests.
                         },
@@ -1032,7 +1027,6 @@ pub fn setup_synchronous_shards_manager(
         }, // irrelevant
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
     )
     .unwrap();
     let chain_head = chain.head().unwrap();

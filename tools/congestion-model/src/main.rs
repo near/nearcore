@@ -1,16 +1,13 @@
 use chrono::Utc;
-use clap::Parser;
-use congestion_model::strategy::{
-    FancyGlobalTransactionStop, GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure,
-    TrafficLight,
-};
+use std::time::Duration;
+
+use congestion_model::strategy::{GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure};
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
 };
-use congestion_model::{
-    summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS,
-};
-use std::time::Duration;
+use congestion_model::{summary_table, CongestionStrategy, Model, StatsWriter, PGAS};
+
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -99,7 +96,6 @@ fn run_model(
     let strategy = strategy(strategy_name, num_shards);
     let workload = workload(workload_name);
     let mut model = Model::new(strategy, workload);
-    let mut max_queues = ShardQueueLengths::default();
 
     // Set the start time to an half hour ago to make it visible by default in
     // grafana. Each round is 1 virtual second so hald an hour is good for
@@ -112,16 +108,8 @@ fn run_model(
     for round in 0..num_rounds {
         model.write_stats_values(&mut stats_writer, start_time, round);
         model.step();
-        max_queues = max_queues.max_component_wise(&model.max_queue_length());
     }
-    summary_table::print_summary_row(
-        workload_name,
-        strategy_name,
-        &model.progress(),
-        &model.gas_throughput(),
-        &max_queues,
-        &model.user_experience(),
-    );
+    summary_table::print_summary_row(&model, workload_name, strategy_name);
 }
 
 fn normalize_cmdline_arg(value: &str) -> String {
@@ -132,22 +120,9 @@ fn normalize_cmdline_arg(value: &str) -> String {
 fn workload(workload_name: &str) -> Box<dyn Producer> {
     match workload_name {
         "Balanced" => Box::<BalancedProducer>::default(),
-        "Increasing Size" => {
-            // Transform the tx to a small local receipt which produces 3 large receipts to another shard.
-            Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 1_000_000], 3))
-        }
-        "Extreme Increasing Size" => {
-            // Produce 50 big receipts instead of 3 as in "Increasing Size"
-            Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 2_000_000], 10))
-        }
-        "Shard War" => {
-            // Each shard transforms one local tx into 4^3 = 64 receipts of 100kB to another shard
-            Box::new(BalancedProducer::with_sizes_and_fan_out(vec![100, 100, 100, 100_000], 4))
-        }
         "All To One" => Box::new(AllForOneProducer::one_hop_only()),
         "Indirect All To One" => Box::<AllForOneProducer>::default(),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
-        "Big Linear Imbalance" => Box::new(LinearImbalanceProducer::big_receipts()),
         _ => panic!("unknown workload: {}", workload_name),
     }
 }
@@ -161,9 +136,7 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "No queues" => Box::new(NoQueueShard {}) as Box<dyn CongestionStrategy>,
             "Global TX stop" => Box::<GlobalTxStopShard>::default(),
             "Simple backpressure" => Box::<SimpleBackpressure>::default(),
-            "Fancy Global Transaction Stop" => Box::<FancyGlobalTransactionStop>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
-            "Traffic Light" => Box::<TrafficLight>::default(),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -175,13 +148,9 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
 fn parse_workload_names(workload_name: &str) -> Vec<String> {
     let available: Vec<String> = vec![
         "Balanced".to_string(),
-        "Increasing Size".to_string(),
-        "Extreme Increasing Size".to_string(),
-        "Shard War".to_string(),
         "All To One".to_string(),
         "Indirect All To One".to_string(),
         "Linear Imbalance".to_string(),
-        "Big Linear Imbalance".to_string(),
     ];
 
     if workload_name == "all" {
@@ -201,9 +170,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "No queues".to_string(),
         "Global TX stop".to_string(),
         "Simple backpressure".to_string(),
-        "Fancy Global Transaction Stop".to_string(),
         "New TX last".to_string(),
-        "Traffic Light".to_string(),
     ];
 
     if strategy_name == "all" {
@@ -232,7 +199,7 @@ fn print_report(model: &Model) {
     println!("{:>6} transactions failed", progress.failed_transactions);
     for shard_id in model.shard_ids() {
         println!("SHARD {shard_id}");
-        println!("    {:>6} receipts incoming", queues[shard_id].incoming_receipts.num);
-        println!("    {:>6} receipts queued", queues[shard_id].queued_receipts.num);
+        println!("    {:>6} receipts incoming", queues[shard_id].incoming_receipts);
+        println!("    {:>6} receipts queued", queues[shard_id].queued_receipts);
     }
 }

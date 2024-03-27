@@ -243,13 +243,7 @@ impl InfoHelper {
             for shard_id in shard_ids {
                 let mut stake_per_cp = HashMap::<ValidatorId, Balance>::new();
                 stake_sum = 0;
-                let chunk_producers_settlement = &epoch_info.chunk_producers_settlement();
-                let chunk_producers = chunk_producers_settlement.get(shard_id as usize);
-                let Some(chunk_producers) = chunk_producers else {
-                    tracing::warn!(target: "stats", ?shard_id, ?chunk_producers_settlement, "invalid shard id, not found in the shard settlement");
-                    continue;
-                };
-                for &id in chunk_producers {
+                for &id in &epoch_info.chunk_producers_settlement()[shard_id as usize] {
                     let stake = epoch_info.validator_stake(id);
                     stake_per_cp.insert(id, stake);
                     stake_sum += stake;
@@ -869,14 +863,13 @@ mod tests {
     use near_async::messaging::{noop, IntoSender};
     use near_async::time::Clock;
     use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
-    use near_chain::runtime::NightshadeRuntime;
+    use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
     use near_chain::types::ChainConfig;
     use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
-    use near_chain_configs::Genesis;
     use near_epoch_manager::shard_tracker::ShardTracker;
-    use near_epoch_manager::EpochManager;
     use near_network::test_utils::peer_id_from_seed;
-    use near_store::genesis::initialize_genesis_state;
+    use near_primitives::version::PROTOCOL_VERSION;
+    use num_rational::Ratio;
 
     #[test]
     fn test_pretty_number() {
@@ -904,15 +897,23 @@ mod tests {
         let info_helper = InfoHelper::new(Clock::real(), noop().into_sender(), &config, None);
 
         let store = near_store::test_utils::create_test_store();
-        let mut genesis = Genesis::test(vec!["test".parse::<AccountId>().unwrap()], 1);
-        genesis.config.epoch_length = 123;
-        let tempdir = tempfile::tempdir().unwrap();
-        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
-        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
+        let vs =
+            ValidatorSchedule::new().block_producers_per_epoch(vec![vec!["test".parse().unwrap()]]);
+        let epoch_manager = MockEpochManager::new_with_validators(store.clone(), vs, 123);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime =
-            NightshadeRuntime::test(tempdir.path(), store, &genesis.config, epoch_manager.clone());
-        let chain_genesis = ChainGenesis::new(&genesis.config);
+        let runtime = KeyValueRuntime::new(store, epoch_manager.as_ref());
+        let chain_genesis = ChainGenesis {
+            time: Clock::real().now_utc(),
+            height: 0,
+            gas_limit: 1_000_000,
+            min_gas_price: 100,
+            max_gas_price: 1_000_000_000,
+            total_supply: 3_000_000_000_000_000_000_000_000_000_000_000,
+            gas_price_adjustment_rate: Ratio::from_integer(0),
+            transaction_validity_period: 123123,
+            epoch_length: 123,
+            protocol_version: PROTOCOL_VERSION,
+        };
         let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
         let chain = Chain::new(
             Clock::real(),
@@ -924,7 +925,6 @@ mod tests {
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
-            None,
         )
         .unwrap();
 

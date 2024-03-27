@@ -88,8 +88,7 @@ impl GenesisBuilder {
             store.clone(),
             &config,
             epoch_manager.clone(),
-        )
-        .expect("could not create the transaction runtime");
+        );
         Self {
             home_dir: home_dir.to_path_buf(),
             tmpdir,

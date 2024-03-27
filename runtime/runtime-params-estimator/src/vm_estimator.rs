@@ -3,12 +3,13 @@ use crate::gas_cost::{GasCost, LeastSquaresTolerance};
 use crate::{utils::read_resource, REAL_CONTRACTS_SAMPLE};
 use near_parameters::vm::VMKind;
 use near_parameters::RuntimeConfigStore;
+use near_primitives::hash::CryptoHash;
 use near_primitives::version::PROTOCOL_VERSION;
+use near_store::StoreCompiledContractCache;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::VMContext;
-use near_vm_runner::{
-    ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache, NoContractRuntimeCache,
-};
+use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+use near_vm_runner::ContractCode;
 
 const CURRENT_ACCOUNT_ID: &str = "alice";
 const SIGNER_ACCOUNT_ID: &str = "bob";
@@ -40,7 +41,7 @@ fn measure_contract(
     vm_kind: VMKind,
     gas_metric: GasMetric,
     contract: &ContractCode,
-    cache: &dyn ContractRuntimeCache,
+    cache: &dyn CompiledContractCache,
 ) -> GasCost {
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(PROTOCOL_VERSION).as_ref();
@@ -51,6 +52,19 @@ fn measure_contract(
     let end = start.elapsed();
     result.unwrap_or_else(|err| panic!("compilation failed, {err}"));
     end
+}
+
+#[derive(Default, Clone)]
+struct MockCompiledContractCache;
+
+impl CompiledContractCache for MockCompiledContractCache {
+    fn put(&self, _key: &CryptoHash, _value: CompiledContract) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn get(&self, _key: &CryptoHash) -> std::io::Result<Option<CompiledContract>> {
+        Ok(None)
+    }
 }
 
 /// Returns `(a, b)` - approximation coefficients for formula `a + b * x`
@@ -64,10 +78,16 @@ fn precompilation_cost(
     if cfg!(debug_assertions) {
         eprintln!("WARNING: did you pass --release flag, results do not make sense otherwise")
     }
-    let cache_store1 = FilesystemContractRuntimeCache::test().unwrap();
-    let cache_store2 = NoContractRuntimeCache;
+    let cache_store1: StoreCompiledContractCache;
+    let cache_store2 = MockCompiledContractCache;
     let use_store = true;
-    let cache: &dyn ContractRuntimeCache = if use_store { &cache_store1 } else { &cache_store2 };
+    let cache: &dyn CompiledContractCache = if use_store {
+        let store = near_store::test_utils::create_test_store();
+        cache_store1 = StoreCompiledContractCache::new(&store);
+        &cache_store1
+    } else {
+        &cache_store2
+    };
     let mut xs = vec![];
     let mut ys = vec![];
 
@@ -131,7 +151,10 @@ pub(crate) fn compile_single_contract_cost(
     contract_bytes: &[u8],
 ) -> GasCost {
     let contract = ContractCode::new(contract_bytes.to_vec(), None);
-    let cache = FilesystemContractRuntimeCache::test().unwrap();
+
+    let store = near_store::test_utils::create_test_store();
+    let cache = StoreCompiledContractCache::new(&store);
+
     measure_contract(vm_kind, metric, &contract, &cache)
 }
 

@@ -235,7 +235,7 @@ pub enum DBCol {
     /// - *Rows*: receipt (CryptoHash)
     /// - *Column type*: Receipt
     Receipts,
-    /// Precompiled machine code of the contract, used by StoreContractRuntimeCache.
+    /// Precompiled machine code of the contract, used by StoreCompiledContractCache.
     /// - *Rows*: ContractCacheKey or code hash (not sure)
     /// - *Column type*: near-vm-runner CacheRecord
     CachedContractCode,

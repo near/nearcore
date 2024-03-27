@@ -1,17 +1,17 @@
-use crate::cache::{CompiledContract, CompiledContractInfo, ContractRuntimeCache};
 use crate::errors::{ContractPrecompilatonResult, IntoVMError};
 use crate::logic::errors::{
     CacheError, CompilationError, FunctionCallError, MethodResolveError, VMRunnerError, WasmTrap,
 };
 use crate::logic::types::PromiseResult;
-use crate::logic::{External, VMContext, VMLogic, VMLogicError, VMOutcome};
+use crate::logic::{
+    CompiledContract, CompiledContractCache, External, VMContext, VMLogic, VMLogicError, VMOutcome,
+};
 use crate::memory::WasmerMemory;
 use crate::prepare;
 use crate::runner::VMResult;
 use crate::{get_contract_cache_key, imports, ContractCode};
 use near_parameters::vm::{Config, VMKind};
 use near_parameters::RuntimeFeesConfig;
-use near_primitives_core::hash::CryptoHash;
 use wasmer_runtime::{ImportObject, Module};
 
 fn check_method(module: &Module, method_name: &str) -> Result<(), FunctionCallError> {
@@ -260,24 +260,21 @@ impl Wasmer0VM {
     pub(crate) fn compile_and_cache(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn ContractRuntimeCache>,
+        cache: Option<&dyn CompiledContractCache>,
     ) -> Result<Result<wasmer_runtime::Module, CompilationError>, CacheError> {
         let module_or_error = self.compile_uncached(code);
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         if let Some(cache) = cache {
-            let record = CompiledContractInfo {
-                wasm_bytes: code.code().len() as u64,
-                compiled: match &module_or_error {
-                    Ok(module) => {
-                        let code = module
-                            .cache()
-                            .and_then(|it| it.serialize())
-                            .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
-                        CompiledContract::Code(code)
-                    }
-                    Err(err) => CompiledContract::CompileModuleError(err.clone()),
-                },
+            let record = match &module_or_error {
+                Ok(module) => {
+                    let code = module
+                        .cache()
+                        .and_then(|it| it.serialize())
+                        .map_err(|_e| CacheError::SerializationError { hash: key.0 })?;
+                    CompiledContract::Code(code)
+                }
+                Err(err) => CompiledContract::CompileModuleError(err.clone()),
             };
             cache.put(&key, record).map_err(CacheError::WriteError)?;
         }
@@ -288,11 +285,11 @@ impl Wasmer0VM {
     pub(crate) fn compile_and_load(
         &self,
         code: &ContractCode,
-        cache: Option<&dyn ContractRuntimeCache>,
+        cache: Option<&dyn CompiledContractCache>,
     ) -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
         let _span = tracing::debug_span!(target: "vm", "Wasmer0VM::compile_and_load").entered();
 
-        let key = get_contract_cache_key(*code.hash(), &self.config);
+        let key = get_contract_cache_key(code, &self.config);
 
         let compile_or_read_from_cache =
             || -> VMResult<Result<wasmer_runtime::Module, CompilationError>> {
@@ -308,14 +305,8 @@ impl Wasmer0VM {
 
                 let stored_module: Option<wasmer_runtime::Module> = match cache_record {
                     None => None,
-                    Some(CompiledContractInfo {
-                        compiled: CompiledContract::CompileModuleError(err),
-                        ..
-                    }) => return Ok(Err(err)),
-                    Some(CompiledContractInfo {
-                        compiled: CompiledContract::Code(serialized_module),
-                        ..
-                    }) => {
+                    Some(CompiledContract::CompileModuleError(err)) => return Ok(Err(err)),
+                    Some(CompiledContract::Code(serialized_module)) => {
                         let _span =
                             tracing::debug_span!(target: "vm", "Wasmer0VM::read_from_cache")
                                 .entered();
@@ -351,20 +342,14 @@ impl Wasmer0VM {
 impl crate::runner::VM for Wasmer0VM {
     fn run(
         &self,
-        _code_hash: CryptoHash,
-        code: Option<&ContractCode>,
+        code: &ContractCode,
         method_name: &str,
         ext: &mut dyn External,
-        context: &VMContext,
+        context: VMContext,
         fees_config: &RuntimeFeesConfig,
         promise_results: &[PromiseResult],
-        cache: Option<&dyn ContractRuntimeCache>,
+        cache: Option<&dyn CompiledContractCache>,
     ) -> Result<VMOutcome, VMRunnerError> {
-        let Some(code) = code else {
-            return Err(VMRunnerError::CacheError(CacheError::ReadError(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            ))));
-        };
         if !cfg!(target_arch = "x86") && !cfg!(target_arch = "x86_64") {
             // TODO(#1940): Remove once NaN is standardized by the VM.
             panic!(
@@ -387,7 +372,7 @@ impl crate::runner::VM for Wasmer0VM {
         let mut logic =
             VMLogic::new(ext, context, &self.config, fees_config, promise_results, &mut memory);
 
-        let result = logic.before_loading_executable(method_name, code.code().len() as u64);
+        let result = logic.before_loading_executable(method_name, code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -408,7 +393,7 @@ impl crate::runner::VM for Wasmer0VM {
             }
         };
 
-        let result = logic.after_loading_executable(code.code().len() as u64);
+        let result = logic.after_loading_executable(code.code().len());
         if let Err(e) = result {
             return Ok(VMOutcome::abort(logic, e));
         }
@@ -428,7 +413,7 @@ impl crate::runner::VM for Wasmer0VM {
     fn precompile(
         &self,
         code: &ContractCode,
-        cache: &dyn ContractRuntimeCache,
+        cache: &dyn CompiledContractCache,
     ) -> Result<
         Result<ContractPrecompilatonResult, CompilationError>,
         crate::logic::errors::CacheError,

@@ -1,6 +1,5 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
-use anyhow::Context;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
@@ -303,7 +302,7 @@ impl ForkNetworkCommand {
         home_dir: &Path,
     ) -> anyhow::Result<Vec<StateRoot>> {
         // Open storage with migration
-        near_config.config.store.load_mem_tries_for_tracked_shards = true;
+        near_config.config.store.load_mem_tries_for_all_shards = true;
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
@@ -318,8 +317,7 @@ impl ForkNetworkCommand {
             .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
             .collect();
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
-                .context("could not create the transaction runtime")?;
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
         runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
@@ -361,8 +359,7 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
-                .context("could not create the transaction runtime")?;
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
@@ -806,9 +803,6 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
-            shuffle_shard_assignment_for_chunk_producers: epoch_config
-                .validator_selection_config
-                .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: epoch_info.protocol_version(),
             validators: new_validator_accounts,

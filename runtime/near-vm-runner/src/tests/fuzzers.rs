@@ -121,11 +121,10 @@ fn run_fuzz(code: &ContractCode, vm_kind: VMKind) -> VMResult {
 
     let method_name = find_entry_point(code).unwrap_or_else(|| "main".to_string());
     let mut res = vm_kind.runtime(config).unwrap().run(
-        *code.hash(),
-        Some(code),
+        code,
         &method_name,
         &mut fake_external,
-        &context,
+        context,
         &fees,
         &promise_results,
         None,

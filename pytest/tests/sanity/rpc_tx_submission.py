@@ -28,7 +28,8 @@ hash1 = nodes[0].get_latest_block().hash_bytes
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 1, hash1)
 res = nodes[0].send_tx_and_wait(tx, timeout=20)
-assert 'error' not in res, res
+if 'error' in res:
+    assert False, res
 time.sleep(1)
 
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 101, 2, hash1)
@@ -62,9 +63,5 @@ assert 'error' not in res, res
 tx = sign_payment_tx(nodes[0].signer_key, 'test1', 100, 10,
                      base58.b58decode(hash_.encode('utf8')))
 # check a transaction that doesn't exist yet
-params = {
-    "signed_tx_base64": base64.b64encode(tx).decode('utf8'),
-    "wait_until": "NONE"
-}
-res = nodes[0].json_rpc('tx', params, timeout=10)
+res = nodes[0].json_rpc('tx', [base64.b64encode(tx).decode('utf8')], timeout=10)
 assert "doesn't exist" in res['error']['data'], res

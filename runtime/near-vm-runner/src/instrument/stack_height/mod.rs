@@ -90,7 +90,6 @@ mod thunk;
 ///
 /// This means that the module is invalid.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct Error(String);
 
 pub(crate) struct Context {

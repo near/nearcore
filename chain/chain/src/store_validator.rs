@@ -418,7 +418,6 @@ mod tests {
             ChainConfig::test(),
             None,
             Arc::new(RayonAsyncComputationSpawner),
-            None,
         )
         .unwrap();
         (

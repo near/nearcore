@@ -20,7 +20,6 @@ use near_primitives::types::{AccountId, NumShards};
 use near_store::config::StateSnapshotType;
 use near_store::test_utils::create_test_store;
 use near_store::{NodeStorage, ShardUId, Store, StoreConfig, TrieConfig};
-use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,7 +47,6 @@ pub struct TestEnvBuilder {
     validators: Vec<AccountId>,
     home_dirs: Option<Vec<PathBuf>>,
     stores: Option<Vec<Store>>,
-    contract_caches: Option<Vec<Box<dyn ContractRuntimeCache>>>,
     epoch_managers: Option<Vec<EpochManagerKind>>,
     shard_trackers: Option<Vec<ShardTracker>>,
     runtimes: Option<Vec<Arc<dyn RuntimeAdapter>>>,
@@ -79,7 +77,6 @@ impl TestEnvBuilder {
             validators,
             home_dirs: None,
             stores: None,
-            contract_caches: None,
             epoch_managers: None,
             shard_trackers: None,
             runtimes: None,
@@ -169,16 +166,6 @@ impl TestEnvBuilder {
         self
     }
 
-    pub fn contract_caches<C: ContractRuntimeCache>(
-        mut self,
-        caches: impl IntoIterator<Item = C>,
-    ) -> Self {
-        assert!(self.contract_caches.is_none(), "Cannot override twice");
-        self.contract_caches = Some(caches.into_iter().map(|c| c.handle()).collect());
-        assert_eq!(self.contract_caches.as_ref().unwrap().len(), self.clients.len());
-        self
-    }
-
     pub fn real_stores(self) -> Self {
         let ret = self.ensure_home_dirs();
         let stores = ret
@@ -210,14 +197,6 @@ impl TestEnvBuilder {
             let num_clients = self.clients.len();
             self.stores((0..num_clients).map(|_| create_test_store()).collect())
         }
-    }
-
-    fn ensure_contract_caches(self) -> Self {
-        if self.contract_caches.is_some() {
-            return self;
-        }
-        let count = self.clients.len();
-        self.contract_caches((0..count).map(|_| FilesystemContractRuntimeCache::test().unwrap()))
     }
 
     /// Specifies custom EpochManagerHandle for each client.  This allows us to
@@ -310,50 +289,27 @@ impl TestEnvBuilder {
         nightshade_runtime_creator: impl Fn(
             PathBuf,
             Store,
-            Box<dyn ContractRuntimeCache>,
             Arc<EpochManagerHandle>,
             RuntimeConfigStore,
             TrieConfig,
         ) -> Arc<dyn RuntimeAdapter>,
     ) -> Self {
-        let builder = self
-            .ensure_home_dirs()
-            .ensure_epoch_managers()
-            .ensure_stores()
-            .ensure_contract_caches();
-        let home_dirs = builder.home_dirs.clone().unwrap();
-        let stores = builder.stores.clone().unwrap();
-        let contract_caches = builder
-            .contract_caches
-            .as_ref()
-            .unwrap()
-            .iter()
-            .map(|c| c.handle())
-            .collect::<Vec<_>>();
-        let epoch_managers = builder.epoch_managers.clone().unwrap();
+        let builder = self.ensure_home_dirs().ensure_epoch_managers().ensure_stores();
         let runtimes = multizip((
-            home_dirs,
-            stores,
-            contract_caches,
-            epoch_managers,
+            builder.home_dirs.clone().unwrap(),
+            builder.stores.clone().unwrap(),
+            builder.epoch_managers.clone().unwrap(),
             runtime_configs,
             trie_configs,
         ))
-        .map(|(home_dir, store, contract_cache, epoch_manager, runtime_config, trie_config)| {
+        .map(|(home_dir, store, epoch_manager, runtime_config, trie_config)| {
             let epoch_manager = match epoch_manager {
                 EpochManagerKind::Mock(_) => {
                     panic!("NightshadeRuntime can only be instantiated with EpochManagerHandle")
                 }
                 EpochManagerKind::Handle(handle) => handle,
             };
-            nightshade_runtime_creator(
-                home_dir,
-                store,
-                contract_cache,
-                epoch_manager,
-                runtime_config,
-                trie_config,
-            )
+            nightshade_runtime_creator(home_dir, store, epoch_manager, runtime_config, trie_config)
         })
         .collect();
         builder.runtimes(runtimes)

@@ -128,11 +128,7 @@ impl Database for TestDB {
         self.stats.read().unwrap().clone()
     }
 
-    fn create_checkpoint(
-        &self,
-        _path: &std::path::Path,
-        _columns_to_keep: Option<&[DBCol]>,
-    ) -> anyhow::Result<()> {
+    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
         Ok(())
     }
 }

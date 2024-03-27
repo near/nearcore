@@ -3,6 +3,30 @@ use crate::view_client::ViewClientActor;
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::IntoSender;
 use near_network::client::ClientSenderForNetwork;
+use near_network::types::{
+    PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
+};
+use near_primitives::hash::CryptoHash;
+use near_primitives::sharding::PartialEncodedChunk;
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkForward(pub PartialEncodedChunkForwardMsg);
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunk(pub PartialEncodedChunk);
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkResponse(
+    pub PartialEncodedChunkResponseMsg,
+    pub std::time::Instant,
+);
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub(crate) struct RecvPartialEncodedChunkRequest(pub PartialEncodedChunkRequestMsg, pub CryptoHash);
 
 pub fn client_sender_for_network(
     client_addr: actix::Addr<ClientActor>,
@@ -26,7 +50,6 @@ pub fn client_sender_for_network(
         tx_status_response: view_client_addr.clone().into_sender(),
         announce_account: view_client_addr.into_sender(),
         chunk_state_witness: client_addr.clone().into_sender(),
-        chunk_state_witness_ack: client_addr.clone().into_sender(),
         chunk_endorsement: client_addr.into_sender(),
     }
 }

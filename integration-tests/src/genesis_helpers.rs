@@ -38,7 +38,6 @@ pub fn genesis_header(genesis: &Genesis) -> BlockHeader {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
     )
     .unwrap();
     chain.genesis().clone()
@@ -64,7 +63,6 @@ pub fn genesis_block(genesis: &Genesis) -> Block {
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
-        None,
     )
     .unwrap();
     chain.get_block(&chain.genesis().hash().clone()).unwrap()
