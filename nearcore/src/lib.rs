@@ -271,7 +271,8 @@ pub fn start_with_config_and_synchronization(
         storage.get_hot_store(),
         &config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
@@ -289,7 +290,8 @@ pub fn start_with_config_and_synchronization(
                 split_store.clone(),
                 &config,
                 view_epoch_manager.clone(),
-            );
+            )
+            .context("could not create the transaction runtime")?;
             (view_epoch_manager, view_shard_tracker, view_runtime)
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())

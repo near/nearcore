@@ -5,6 +5,7 @@ use near_epoch_manager::EpochManagerHandle;
 use near_parameters::RuntimeConfigStore;
 use near_store::genesis::initialize_genesis_state;
 use near_store::{Store, TrieConfig};
+use near_vm_runner::ContractRuntimeCache;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         let state_snapshot_type = self.state_snapshot_type();
         let nightshade_runtime_creator = |home_dir: PathBuf,
                                           store: Store,
+                                          contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
                                           runtime_config: RuntimeConfigStore,
                                           _|
@@ -50,6 +52,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             NightshadeRuntime::test_with_runtime_config_store(
                 home_dir,
                 store,
+                contract_cache,
                 &genesis.config,
                 epoch_manager,
                 runtime_config,
@@ -72,6 +75,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
         let state_snapshot_type = self.state_snapshot_type();
         let nightshade_runtime_creator = |home_dir: PathBuf,
                                           store: Store,
+                                          contract_cache: Box<dyn ContractRuntimeCache>,
                                           epoch_manager: Arc<EpochManagerHandle>,
                                           _,
                                           trie_config: TrieConfig|
@@ -84,6 +88,7 @@ impl TestEnvNightshadeSetupExt for TestEnvBuilder {
             NightshadeRuntime::test_with_trie_config(
                 home_dir,
                 store,
+                contract_cache,
                 &genesis.config,
                 epoch_manager,
                 trie_config,

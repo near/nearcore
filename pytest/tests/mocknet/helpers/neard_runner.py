@@ -499,7 +499,8 @@ class NeardRunner:
                 else:
                     break
             return path
-        except (requests.exceptions.ConnectionError, KeyError):
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.ReadTimeout, KeyError):
             return self.data['current_neard_path']
 
     def run_neard(self, cmd, out_file=None):
@@ -749,6 +750,11 @@ class NeardRunner:
                     genesis_config = json.load(f)
                 with open(genesis_path, 'w') as f:
                     genesis_config['use_production_config'] = True
+                    # with the normal min_gas_price (10x higher than this one)
+                    # many mirrored mainnet transactions fail with too little balance
+                    # One way to fix that would be to increase everybody's balances in
+                    # the amend-genesis command. But we can also just make this change here.
+                    genesis_config['min_gas_price'] = 10000000
                     # protocol_versions in range [56, 63] need to have these
                     # genesis parameters, otherwise nodes get stuck because at
                     # some point it produces an incompatible EpochInfo.

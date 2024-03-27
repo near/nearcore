@@ -231,24 +231,24 @@ impl DelayedReceiptIndices {
     }
 }
 
-/// Stores indices for a persistent queue for yielded promises.
+/// Stores indices for a persistent queue for PromiseYield timeouts.
 #[derive(Default, BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
-pub struct YieldedPromiseQueueIndices {
+pub struct PromiseYieldIndices {
     // First inclusive index in the queue.
     pub first_index: u64,
     // Exclusive end index of the queue
     pub next_available_index: u64,
 }
 
-impl YieldedPromiseQueueIndices {
+impl PromiseYieldIndices {
     pub fn len(&self) -> u64 {
         self.next_available_index - self.first_index
     }
 }
 
-/// Entries in the queue of yielded promises.
+/// Entries in the queue of PromiseYield timeouts.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Debug)]
-pub struct YieldedPromiseQueueEntry {
+pub struct PromiseYieldTimeout {
     /// The account on which the yielded promise was created
     pub account_id: AccountId,
     /// The `data_id` used to identify the awaited input data
