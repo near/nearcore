@@ -120,6 +120,12 @@ fn total_postponed_receipts_cost(
     })
 }
 
+#[tracing::instrument(target = "runtime", level = "debug", "check_balance", skip_all, fields(
+    transactions.len = transactions.len(),
+    incoming_receipts.len = incoming_receipts.len(),
+    yield_timeout_receipts.len = yield_timeout_receipts.len(),
+    outgoing_receipts.len = outgoing_receipts.len()
+))]
 pub(crate) fn check_balance(
     config: &RuntimeConfig,
     final_state: &TrieUpdate,

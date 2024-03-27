@@ -1306,24 +1306,6 @@ impl Runtime {
         let protocol_version = apply_state.current_protocol_version;
         let mut prefetcher = TriePrefetcher::new_if_enabled(&trie);
         let mut state_update = TrieUpdate::new(trie);
-        struct TotalResourceGuard {
-            gas: u64,
-            compute: u64,
-            span: tracing::Span,
-        }
-        impl Drop for TotalResourceGuard {
-            fn drop(&mut self) {
-                self.span.record("gas_burnt", self.gas);
-                self.span.record("compute_usage", self.compute);
-            }
-        }
-        impl TotalResourceGuard {
-            fn add(&mut self, gas: u64, compute: u64) -> Result<(), IntegerOverflowError> {
-                self.gas = safe_add_gas(self.gas, gas)?;
-                self.compute = safe_add_compute(self.compute, compute)?;
-                Ok(())
-            }
-        }
         let mut total = TotalResourceGuard {
             span: tracing::Span::current(),
             // This contains the gas "burnt" for refund receipts. Even though we don't actually
@@ -1772,6 +1754,27 @@ fn action_transfer_or_implicit_account_creation(
             nonrefundable,
         );
     })
+}
+
+struct TotalResourceGuard {
+    gas: u64,
+    compute: u64,
+    span: tracing::Span,
+}
+
+impl Drop for TotalResourceGuard {
+    fn drop(&mut self) {
+        self.span.record("gas_burnt", self.gas);
+        self.span.record("compute_usage", self.compute);
+    }
+}
+
+impl TotalResourceGuard {
+    fn add(&mut self, gas: u64, compute: u64) -> Result<(), IntegerOverflowError> {
+        self.gas = safe_add_gas(self.gas, gas)?;
+        self.compute = safe_add_compute(self.compute, compute)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
