@@ -121,7 +121,7 @@ pub struct TestLoop<Data: 'static, Event: Debug + Send + 'static> {
 /// An event waiting to be executed, ordered by the due time and then by ID.
 struct EventInHeap<Event> {
     event: Event,
-    due: time::Duration,
+    due: Duration,
     id: usize,
 }
 
@@ -293,7 +293,6 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Helper to push events we have just received into the heap.
     fn queue_received_events(&mut self) {
         for event in self.pending_events.lock().unwrap().events.drain(..) {
-            info!("Queuing new event at index {}: {:?}", self.next_event_index, event.event);
             self.events.push(EventInHeap {
                 due: self.current_time + event.delay,
                 event: event.event,
@@ -303,29 +302,52 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         }
     }
 
-    /// Runs the test loop for the given duration. This function may be called
-    /// multiple times, but further test handlers may not be registered after
-    /// the first call.
-    pub fn run_for(&mut self, duration: time::Duration) {
+    fn advance_till_next_event(
+        &mut self,
+        decider: &impl Fn(Option<Duration>, &mut Data) -> AdvanceDecision,
+    ) -> Option<EventInHeap<Event>> {
         self.maybe_initialize_handlers();
-        // Push events we have received outside the test or during handler init into the heap.
-        self.queue_received_events();
-        let deadline = self.current_time + duration;
+
         loop {
-            // Don't execute any more events after the deadline.
-            match self.events.peek() {
-                Some(event) => {
-                    if event.due > deadline {
-                        break;
-                    }
-                }
-                None => break,
+            self.queue_received_events();
+
+            let next_timestamp = {
+                let next_event_timestamp = self.events.peek().map(|event| event.due);
+                let next_future_waiter_timestamp = self
+                    .clock
+                    .next_waiter()
+                    .map(|time| time - (self.clock.now() - self.current_time));
+                next_event_timestamp
+                    .map(|t1| next_future_waiter_timestamp.map(|t2| t2.min(t1)).unwrap_or(t1))
+                    .or(next_future_waiter_timestamp)
+            };
+            if next_timestamp == Some(self.current_time) {
+                let event = self.events.pop().expect("Programming error in TestLoop");
+                assert_eq!(event.due, self.current_time);
+                return Some(event);
             }
-            // Process the event.
-            let event = self.events.pop().unwrap();
-            self.process_event(event);
+            let decision = decider(next_timestamp, &mut self.data);
+            match decision {
+                AdvanceDecision::AdvanceToNextEvent => {
+                    let next_timestamp = next_timestamp.unwrap();
+                    self.clock.advance(next_timestamp - self.current_time);
+                    self.current_time = next_timestamp;
+                    // Run the loop again, because if the reason why we advance the clock to this
+                    // time is due to a possible future waiting on the clock, we may or may not get
+                    // another future queued into the TestLoop, so we just check the whole thing
+                    // again.
+                    continue;
+                }
+                AdvanceDecision::AdvanceToAndStop(target) => {
+                    self.clock.advance(target - self.current_time);
+                    self.current_time = target;
+                    return None;
+                }
+                AdvanceDecision::Stop => {
+                    return None;
+                }
+            }
         }
-        self.current_time = deadline;
     }
 
     /// Processes the given event, by logging a line first and then finding a handler to run it.
@@ -338,8 +360,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         })
         .unwrap();
         info!(target: "test_loop", "TEST_LOOP_EVENT_START {}", start_json);
-        self.clock.advance(event.due - self.current_time);
-        self.current_time = event.due;
+        assert_eq!(self.current_time, event.due);
 
         for handler in &mut self.handlers {
             if let Err(e) = handler.handle(event.event, &mut self.data) {
@@ -359,33 +380,42 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         panic!("Unhandled event: {:?}", event.event);
     }
 
+    /// Runs the test loop for the given duration. This function may be called
+    /// multiple times, but further test handlers may not be registered after
+    /// the first call.
+    pub fn run_for(&mut self, duration: Duration) {
+        let deadline = self.current_time + duration;
+        while let Some(event) = self.advance_till_next_event(&|next_time, _| {
+            if let Some(next_time) = next_time {
+                if next_time <= deadline {
+                    return AdvanceDecision::AdvanceToNextEvent;
+                }
+            }
+            AdvanceDecision::AdvanceToAndStop(deadline)
+        }) {
+            self.process_event(event);
+        }
+    }
+
     /// Run until the given condition is true, asserting that it happens before the maximum duration
     /// is reached.
     ///
     /// To maximize logical consistency, the condition is only checked before the clock would
     /// advance. If it returns true, execution stops before advancing the clock.
     pub fn run_until(&mut self, condition: impl Fn(&mut Data) -> bool, maximum_duration: Duration) {
-        self.maybe_initialize_handlers();
-        // Push events we have received outside the test or during handler init into the heap.
-        self.queue_received_events();
         let deadline = self.current_time + maximum_duration;
-        loop {
-            // Don't execute any more events after the deadline.
-            match self.events.peek() {
-                Some(event) => {
-                    if event.due > deadline {
-                        panic!("run_until did not fulfill the condition within the given deadline");
-                    }
-                    if event.due > self.current_time {
-                        if condition(&mut self.data) {
-                            return;
-                        }
-                    }
-                }
-                None => break,
+        let decider = |next_time, data: &mut Data| {
+            if condition(data) {
+                return AdvanceDecision::Stop;
             }
-            // Process the event.
-            let event = self.events.pop().unwrap();
+            if let Some(next_time) = next_time {
+                if next_time <= deadline {
+                    return AdvanceDecision::AdvanceToNextEvent;
+                }
+            }
+            panic!("run_until did not fulfill the condition within the given deadline");
+        };
+        while let Some(event) = self.advance_till_next_event(&decider) {
             self.process_event(event);
         }
     }
@@ -398,26 +428,21 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Note that events that are droppable are dropped and not handled. It would not be consistent
     /// to continue using the TestLoop, and therefore it is consumed by this function.
     pub fn finish_remaining_events(mut self, maximum_duration: Duration) {
-        self.maybe_initialize_handlers();
-        // Push events we have received outside the test or during handler init into the heap.
-        self.queue_received_events();
-        let max_time = self.current_time + maximum_duration;
-        'outer: loop {
-            // Don't execute any more events after the deadline.
-            match self.events.peek() {
-                Some(event) => {
-                    if event.due > max_time {
-                        panic!(
-                            "finish_remaining_events could not finish all events; \
-                            event still remaining: {:?}",
-                            event.event
-                        );
-                    }
-                }
-                None => break,
+        let deadline = self.current_time + maximum_duration;
+        'outer: while let Some(mut event) = self.advance_till_next_event(&|time, _| {
+            if time.is_some() {
+                AdvanceDecision::AdvanceToNextEvent
+            } else {
+                AdvanceDecision::Stop
             }
-            // Only execute the event if we can't drop it.
-            let mut event = self.events.pop().unwrap();
+        }) {
+            if self.current_time > deadline {
+                panic!(
+                    "finish_remaining_events could not finish all events; \
+                     event still remaining: {:?}",
+                    event.event
+                );
+            }
             for handler in &self.handlers {
                 if let Err(e) = handler.try_drop(event.event) {
                     event.event = e;
@@ -425,7 +450,6 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
                     continue 'outer;
                 }
             }
-            // Process the event.
             self.process_event(event);
         }
     }
@@ -460,5 +484,70 @@ impl<Data: 'static, Event: Debug + Send + 'static> Drop for TestLoop<Data, Event
                 event.due, to_handle
             );
         }
+    }
+}
+
+enum AdvanceDecision {
+    AdvanceToNextEvent,
+    AdvanceToAndStop(Duration),
+    Stop,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::futures::FutureSpawnerExt;
+    use crate::test_loop::futures::{drive_futures, TestLoopTask};
+    use crate::test_loop::TestLoopBuilder;
+    use derive_enum_from_into::{EnumFrom, EnumTryInto};
+    use derive_more::AsMut;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use time::Duration;
+
+    #[derive(Debug, EnumFrom, EnumTryInto)]
+    enum TestEvent {
+        Task(Arc<TestLoopTask>),
+    }
+
+    #[derive(AsMut)]
+    struct TestData {
+        dummy: (),
+    }
+
+    #[test]
+    fn test_futures() {
+        let builder = TestLoopBuilder::<TestEvent>::new();
+        let clock = builder.clock();
+        let mut test = builder.build::<TestData>(TestData { dummy: () });
+        test.register_handler(drive_futures().widen());
+        let start_time = clock.now();
+
+        let finished = Arc::new(AtomicUsize::new(0));
+
+        let clock1 = clock.clone();
+        let finished1 = finished.clone();
+        test.sender().into_future_spawner().spawn("test1", async move {
+            assert_eq!(clock1.now(), start_time);
+            clock1.sleep(Duration::seconds(10)).await;
+            assert_eq!(clock1.now(), start_time + Duration::seconds(10));
+            clock1.sleep(Duration::seconds(5)).await;
+            assert_eq!(clock1.now(), start_time + Duration::seconds(15));
+            finished1.fetch_add(1, Ordering::Relaxed);
+        });
+
+        test.run_for(Duration::seconds(2));
+
+        let clock2 = clock;
+        let finished2 = finished.clone();
+        test.sender().into_future_spawner().spawn("test2", async move {
+            assert_eq!(clock2.now(), start_time + Duration::seconds(2));
+            clock2.sleep(Duration::seconds(3)).await;
+            assert_eq!(clock2.now(), start_time + Duration::seconds(5));
+            clock2.sleep(Duration::seconds(20)).await;
+            assert_eq!(clock2.now(), start_time + Duration::seconds(25));
+            finished2.fetch_add(1, Ordering::Relaxed);
+        });
+        test.run_for(Duration::seconds(30));
+        assert_eq!(finished.load(Ordering::Relaxed), 2);
     }
 }

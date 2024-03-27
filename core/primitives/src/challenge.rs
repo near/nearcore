@@ -5,11 +5,12 @@ use crate::types::AccountId;
 use crate::validator_signer::ValidatorSigner;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::Signature;
+use std::fmt::{Debug, Formatter};
 
 /// Serialized TrieNodeWithSize or state value.
 pub type TrieValue = std::sync::Arc<[u8]>;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialEq)]
 /// TODO (#8984): consider supporting format containing trie values only for
 /// state part boundaries and storing state items for state part range.
 pub enum PartialState {
@@ -20,6 +21,18 @@ pub enum PartialState {
 impl Default for PartialState {
     fn default() -> Self {
         PartialState::TrieValues(vec![])
+    }
+}
+
+// When debug-printing, don't dump the entire partial state; that is very unlikely to be useful,
+// and wastes a lot of screen space.
+impl Debug for PartialState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PartialState::TrieValues(values) => {
+                f.write_str(&format!("{} trie values", values.len()))
+            }
+        }
     }
 }
 

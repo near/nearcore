@@ -83,8 +83,11 @@ fn setup_network_node(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
-    let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
+    let state_sync_adapter = Arc::new(RwLock::new(SyncAdapter::new(
+        noop().into_sender(),
+        noop().into_sender(),
+        SyncAdapter::actix_actor_maker(),
+    )));
     let client_actor = start_client(
         Clock::real(),
         client_config.clone(),

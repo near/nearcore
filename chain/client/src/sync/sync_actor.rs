@@ -40,7 +40,7 @@ impl SyncActor {
         }
     }
 
-    fn handle_client_sync_message(&mut self, msg: ClientSyncMessage) {
+    pub fn handle_client_sync_message(&mut self, msg: ClientSyncMessage) {
         match msg {
             ClientSyncMessage::StartSync(SyncShardInfo { sync_hash, shard_uid }) => {
                 assert_eq!(shard_uid, self.shard_uid, "Message is not for this shard SyncActor");
@@ -59,7 +59,7 @@ impl SyncActor {
         }
     }
 
-    fn handle_network_sync_message(&mut self, msg: StateSyncResponse) {
+    pub fn handle_network_sync_message(&mut self, msg: StateSyncResponse) {
         match msg {
             StateSyncResponse::HeaderResponse => {
                 debug!(target: "sync", shard_id = ?self.shard_uid.shard_id, "Got header response");

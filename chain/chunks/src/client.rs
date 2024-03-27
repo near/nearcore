@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use actix::Message;
+use itertools::Itertools;
 
 use near_pool::types::TransactionGroupIterator;
 use near_pool::{InsertTransactionResult, PoolIteratorWrapper, TransactionPool};
@@ -87,6 +88,14 @@ impl ShardedTransactionPool {
                 &shard_uid.to_string(),
             )
         })
+    }
+
+    pub fn debug_status(&self) -> String {
+        self.tx_pools
+            .iter()
+            .filter(|(_, pool)| pool.len() > 0)
+            .map(|(shard_uid, pool)| format!("Shard {} has {} txs", shard_uid, pool.len()))
+            .join("; ")
     }
 
     /// Reintroduces transactions back during the chain reorg. Returns the number of transactions
