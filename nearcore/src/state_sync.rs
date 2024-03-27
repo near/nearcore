@@ -202,10 +202,9 @@ fn select_random_part_id_with_index(parts_to_be_dumped: &Vec<u64>) -> (u64, usiz
     (selected_element, selected_idx)
 }
 
-struct StateDumpShardInfo {
-    epoch_id: EpochId,
-    epoch_height: EpochHeight,
-    sync_hash: CryptoHash,
+enum StateDumpAction {
+    Wait,
+    Dump { epoch_id: EpochId, epoch_height: EpochHeight, sync_hash: CryptoHash },
 }
 
 fn get_current_state(
@@ -214,56 +213,48 @@ fn get_current_state(
     shard_tracker: &ShardTracker,
     account_id: &Option<AccountId>,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
-) -> Result<Option<StateDumpShardInfo>, Error> {
+) -> Result<StateDumpAction, Error> {
     let was_last_epoch_done = match chain.chain_store().get_state_sync_dump_progress(*shard_id) {
         Ok(StateSyncDumpProgress::AllDumped { epoch_id, .. }) => Some(epoch_id),
         Ok(StateSyncDumpProgress::Skipped { epoch_id, .. }) => Some(epoch_id),
         _ => None,
     };
 
-    match get_latest_epoch(shard_id, &chain, epoch_manager.clone()) {
-        Err(err) => {
-            tracing::debug!(target: "state_sync_dump", shard_id, ?err, "check_latest_epoch failed. Will retry.");
-            Err(err)
-        }
-        Ok(LatestEpochInfo {
-            prev_epoch_id,
+    let latest_epoch_info = get_latest_epoch(shard_id, &chain, epoch_manager.clone());
+    let LatestEpochInfo {
+        prev_epoch_id,
+        epoch_id: new_epoch_id,
+        epoch_height: new_epoch_height,
+        sync_hash: new_sync_hash,
+    } = latest_epoch_info.map_err(|err| {
+        tracing::error!(target: "state_sync_dump", shard_id, ?err, "Failed to get the latest epoch");
+        err
+    })?;
+
+    if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
+        Ok(StateDumpAction::Wait)
+    } else if epoch_manager.get_shard_layout(&prev_epoch_id)
+        != epoch_manager.get_shard_layout(&new_epoch_id)
+    {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
+        chain.chain_store().set_state_sync_dump_progress(
+            *shard_id,
+            Some(StateSyncDumpProgress::Skipped {
+                epoch_id: new_epoch_id,
+                epoch_height: new_epoch_height,
+            }),
+        )?;
+        Ok(StateDumpAction::Wait)
+    } else if cares_about_shard(chain, shard_id, &new_sync_hash, &shard_tracker, &account_id)? {
+        Ok(StateDumpAction::Dump {
             epoch_id: new_epoch_id,
             epoch_height: new_epoch_height,
             sync_hash: new_sync_hash,
-        }) => {
-            if Some(&new_epoch_id) == was_last_epoch_done.as_ref() {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "latest epoch is done. No new epoch to dump. Idle");
-                Ok(None)
-            } else if epoch_manager.get_shard_layout(&prev_epoch_id)
-                != epoch_manager.get_shard_layout(&new_epoch_id)
-            {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?was_last_epoch_done, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Shard layout change detected, will skip dumping for this epoch. Idle");
-                chain.chain_store().set_state_sync_dump_progress(
-                    *shard_id,
-                    Some(StateSyncDumpProgress::Skipped {
-                        epoch_id: new_epoch_id,
-                        epoch_height: new_epoch_height,
-                    }),
-                )?;
-                Ok(None)
-            } else if cares_about_shard(
-                chain,
-                shard_id,
-                &new_sync_hash,
-                &shard_tracker,
-                &account_id,
-            )? {
-                Ok(Some(StateDumpShardInfo {
-                    epoch_id: new_epoch_id,
-                    epoch_height: new_epoch_height,
-                    sync_hash: new_sync_hash,
-                }))
-            } else {
-                tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
-                Ok(None)
-            }
-        }
+        })
+    } else {
+        tracing::debug!(target: "state_sync_dump", shard_id, ?new_epoch_id, new_epoch_height, ?new_sync_hash, "Doesn't care about the shard in the current epoch. Idle");
+        Ok(StateDumpAction::Wait)
     }
 }
 
@@ -338,8 +329,8 @@ async fn state_sync_dump(
                 tracing::error!(target: "state_sync_dump", ?err, ?shard_id, "Failed to get the current state");
                 None
             }
-            Ok(None) => None,
-            Ok(Some(StateDumpShardInfo { epoch_id, epoch_height, sync_hash })) => {
+            Ok(StateDumpAction::Wait) => None,
+            Ok(StateDumpAction::Dump { epoch_id, epoch_height, sync_hash }) => {
                 let in_progress_data = get_in_progress_data(shard_id, sync_hash, &chain);
                 match in_progress_data {
                     Err(err) => {
