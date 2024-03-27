@@ -390,6 +390,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        validator_account_id: Option<&AccountId>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -508,7 +509,19 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_uids: Vec<_> =
             epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
-        runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
+        let tracked_shards: Vec<_> = shard_uids
+            .iter()
+            .filter(|shard_uid| {
+                shard_tracker.care_about_shard(
+                    validator_account_id,
+                    &tip.prev_block_hash,
+                    shard_uid.shard_id(),
+                    true,
+                )
+            })
+            .cloned()
+            .collect();
+        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -2770,6 +2783,8 @@ impl Chain {
             );
             store_update.commit()?;
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            // Flat storage is ready, load memtrie if it is enabled.
+            self.runtime_adapter.load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
         }
 
         let mut height = shard_state_header.chunk_height_included();

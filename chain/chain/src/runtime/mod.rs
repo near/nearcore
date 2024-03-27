@@ -1243,8 +1243,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
-    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError> {
-        self.tries.load_mem_tries_for_enabled_shards(shard_uids)
+    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError> {
+        self.tries.load_mem_tries_for_enabled_shards(tracked_shards)
+    }
+
+    fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<(), StorageError> {
+        if !self.get_tries().trie_config().load_mem_tries_for_tracked_shards {
+            return Ok(());
+        }
+        // It should not happen that memtrie is already loaded for a shard
+        // for which we just did state sync.
+        debug_assert!(!self.tries.is_mem_trie_loaded(shard_uid));
+        self.tries.load_mem_trie(shard_uid, Some(*state_root))
+    }
+
+    fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
+        self.tries.retain_mem_tries(shard_uids)
+    }
+
+    fn unload_mem_trie(&self, shard_uid: &ShardUId) {
+        self.tries.unload_mem_trie(shard_uid)
     }
 }
 

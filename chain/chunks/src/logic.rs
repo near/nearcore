@@ -1,4 +1,6 @@
-use near_chain::{types::EpochManagerAdapter, validate::validate_chunk_proofs, Chain, ChainStore};
+use near_chain::{
+    types::EpochManagerAdapter, validate::validate_chunk_proofs, BlockHeader, Chain, ChainStore,
+};
 use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_primitives::{
@@ -44,6 +46,29 @@ pub fn cares_about_shard_this_or_next_epoch(
     // TODO(robin-near): I think we only need the shard_tracker if is_me is false.
     shard_tracker.care_about_shard(account_id, parent_hash, shard_id, is_me)
         || shard_tracker.will_care_about_shard(account_id, parent_hash, shard_id, is_me)
+}
+
+pub fn get_shards_cares_about_this_or_next_epoch(
+    account_id: Option<&AccountId>,
+    is_me: bool,
+    block_header: &BlockHeader,
+    shard_tracker: &ShardTracker,
+    epoch_manager: &dyn EpochManagerAdapter,
+) -> Vec<ShardId> {
+    epoch_manager
+        .shard_ids(&block_header.epoch_id())
+        .unwrap()
+        .into_iter()
+        .filter(|&shard_id| {
+            cares_about_shard_this_or_next_epoch(
+                account_id,
+                block_header.prev_hash(),
+                shard_id,
+                is_me,
+                shard_tracker,
+            )
+        })
+        .collect()
 }
 
 pub fn chunk_needs_to_be_fetched_from_archival(

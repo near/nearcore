@@ -512,7 +512,22 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
     /// but which exact shards to load depends on configuration. This may only be called when flat
     /// storage is ready.
-    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError>;
+    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError>;
+
+    /// Loads in-memory trie upon catchup, if it is enabled.
+    /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
+    fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<(), StorageError>;
+
+    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
+    /// in the given list. Should be called to unload obsolete tries from memory.
+    fn retain_mem_tries(&self, shard_uids: &[ShardUId]);
+
+    /// Unload trie from memory for given shard.
+    fn unload_mem_trie(&self, shard_uid: &ShardUId);
 }
 
 /// The last known / checked height and time when we have processed it.
