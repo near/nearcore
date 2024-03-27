@@ -10,8 +10,9 @@ const LISTENER_BACKLOG: u32 = 128;
 
 /// TEST-ONLY: guards ensuring that OS considers the given TCP listener port to be in use until
 /// this OS process is terminated.
-static RESERVED_LISTENER_ADDRS: Lazy<Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static RESERVED_LISTENER_ADDRS: Lazy<
+    Mutex<HashMap<std::net::SocketAddr, tokio::net::TcpSocket>>,
+> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// TCP connections established by a node belong to different logical networks (aka tiers),
 /// which serve different purpose.
@@ -83,8 +84,9 @@ impl Stream {
     }
 
     pub async fn connect(peer_info: &PeerInfo, tier: Tier) -> anyhow::Result<Stream> {
-        let addr =
-            peer_info.addr.ok_or(anyhow!("Trying to connect to peer with no public address"))?;
+        let addr = peer_info
+            .addr
+            .ok_or_else(|| anyhow!("Trying to connect to peer with no public address"))?;
         // The `connect` may take several minutes. This happens when the
         // `SYN` packet for establishing a TCP connection gets silently
         // dropped, in which case the default TCP timeout is applied. That's

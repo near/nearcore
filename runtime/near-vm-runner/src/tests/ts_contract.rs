@@ -14,6 +14,7 @@ pub fn test_ts_contract() {
     let config = test_vm_config();
     with_vm_variants(&config, |vm_kind: VMKind| {
         let code = ContractCode::new(near_test_contracts::ts_contract().to_vec(), None);
+        let code_hash = code.hash();
         let mut fake_external = MockedExternal::new();
 
         let context = create_context(Vec::new());
@@ -23,10 +24,11 @@ pub fn test_ts_contract() {
         let promise_results = vec![];
         let runtime = vm_kind.runtime(config.clone()).expect("runtime has not been compiled");
         let result = runtime.run(
-            &code,
+            *code_hash,
+            Some(&code),
             "try_panic",
             &mut fake_external,
-            context,
+            &context,
             &fees,
             &promise_results,
             None,
@@ -43,10 +45,11 @@ pub fn test_ts_contract() {
         let context = create_context(b"foo bar".to_vec());
         runtime
             .run(
-                &code,
+                *code_hash,
+                Some(&code),
                 "try_storage_write",
                 &mut fake_external,
-                context,
+                &context,
                 &fees,
                 &promise_results,
                 None,
@@ -65,10 +68,11 @@ pub fn test_ts_contract() {
         let context = create_context(b"foo".to_vec());
         let outcome = runtime
             .run(
-                &code,
+                *code_hash,
+                Some(&code),
                 "try_storage_read",
                 &mut fake_external,
-                context,
+                &context,
                 &fees,
                 &promise_results,
                 None,

@@ -1,5 +1,5 @@
-use near_chain::{ChainGenesis, ChainStoreAccess, Provenance};
-use near_chain_configs::Genesis;
+use near_chain::{ChainStoreAccess, Provenance};
+use near_chain_configs::{Genesis, NEAR_BASE};
 use near_client::test_utils::TestEnv;
 use near_client::ProcessTxResponse;
 use near_crypto::{InMemorySigner, KeyType, Signer};
@@ -15,9 +15,7 @@ use near_store::{
     StoreConfig, TrieConfig,
 };
 use near_store::{NodeStorage, Store};
-use nearcore::config::GenesisExt;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
-use nearcore::NEAR_BASE;
 use std::path::PathBuf;
 
 struct StateSnaptshotTestEnv {
@@ -55,7 +53,6 @@ impl StateSnaptshotTestEnv {
             home_dir: home_dir.clone(),
             hot_store_path: hot_store_path.clone(),
             state_snapshot_subdir: state_snapshot_subdir.clone(),
-            compaction_enabled: true,
         };
         let shard_tries = ShardTries::new(
             store.clone(),
@@ -167,7 +164,7 @@ fn verify_make_snapshot(
     // check that there's only one snapshot at the parent directory of snapshot path
     let parent_path = snapshot_path
         .parent()
-        .ok_or(anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
+        .ok_or_else(|| anyhow::anyhow!("{snapshot_path:?} needs to have a parent dir"))?;
     let parent_path_result = std::fs::read_dir(parent_path)?;
     if vec![parent_path_result.filter_map(Result::ok)].len() > 1 {
         return Err(anyhow::Error::msg(
@@ -194,11 +191,10 @@ fn delete_content_at_path(path: &str) -> std::io::Result<()> {
 fn test_make_state_snapshot() {
     init_test_logger();
     let genesis = Genesis::test(vec!["test0".parse().unwrap()], 1);
-    let mut env = TestEnv::builder(ChainGenesis::test())
+    let mut env = TestEnv::builder(&genesis.config)
         .clients_count(1)
         .use_state_snapshots()
         .real_stores()
-        .real_epoch_managers(&genesis.config)
         .nightshade_runtimes(&genesis)
         .build();
 

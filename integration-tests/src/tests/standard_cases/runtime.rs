@@ -5,7 +5,6 @@ use near_crypto::SecretKey;
 use near_primitives::checked_feature;
 use near_primitives::state_record::StateRecord;
 use near_primitives::version::PROTOCOL_VERSION;
-use nearcore::config::{GenesisExt, TESTING_INIT_BALANCE};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
 fn create_runtime_node() -> RuntimeNode {

@@ -8,7 +8,7 @@ use near_epoch_manager::EpochManager;
 use near_o11y::testonly::init_integration_logger;
 use near_primitives::types::StateRoot;
 use near_store::Mode;
-use nearcore::{get_default_home, load_config, NightshadeRuntime};
+use nearcore::{get_default_home, load_config, NightshadeRuntime, NightshadeRuntimeExt};
 use std::time::{Duration, Instant};
 
 /// Read `TrieItem`s - nodes containing values - using Trie iterator, stop when 10k items were read.
@@ -44,7 +44,8 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
-        let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager);
+        let runtime = NightshadeRuntime::from_config(&home_dir, store, &near_config, epoch_manager)
+            .unwrap_or_else(|e| panic!("could not create the transaction runtime: {e}"));
         let head = chain_store.head().unwrap();
         let last_block = chain_store.get_block(&head.last_block_hash).unwrap();
         let state_roots: Vec<StateRoot> =

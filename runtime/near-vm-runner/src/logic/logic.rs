@@ -13,6 +13,7 @@ use near_parameters::{
     transfer_exec_fee, transfer_send_fee, ActionCosts, ExtCosts, RuntimeFeesConfig,
 };
 use near_primitives_core::config::ViewConfig;
+use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{
     AccountId, Balance, Compute, EpochHeight, Gas, GasWeight, StorageUsage,
 };
@@ -32,7 +33,7 @@ pub struct VMLogic<'a> {
     /// receipts creation.
     ext: &'a mut dyn External,
     /// Part of Context API and Economics API that was extracted from the receipt.
-    context: VMContext,
+    context: &'a VMContext,
     /// All gas and economic parameters required during contract execution.
     pub(crate) config: &'a Config,
     /// Fees for creating (async) actions on runtime.
@@ -127,7 +128,7 @@ impl PublicKeyBuffer {
 impl<'a> VMLogic<'a> {
     pub fn new(
         ext: &'a mut dyn External,
-        context: VMContext,
+        context: &'a VMContext,
         config: &'a Config,
         fees_config: &'a RuntimeFeesConfig,
         promise_results: &'a [PromiseResult],
@@ -810,7 +811,7 @@ impl<'a> VMLogic<'a> {
     ///    alt_bn128 is Y^2 = X^3 + 3 curve over Fq.
     ///
     ///   `value` is encoded as packed, little-endian
-    ///   `[(u8, (u256, u256))]` slice. `0u8` is postive sign,
+    ///   `[(u8, (u256, u256))]` slice. `0u8` is positive sign,
     ///   `1u8` -- negative.
     ///
     /// # Errors
@@ -1460,7 +1461,7 @@ impl<'a> VMLogic<'a> {
         let account_id = self.read_and_parse_account_id(account_id_ptr, account_id_len)?;
         let sir = account_id == self.context.current_account_id;
         self.pay_gas_for_new_receipt(sir, &[])?;
-        let new_receipt_idx = self.ext.create_receipt(vec![], account_id)?;
+        let new_receipt_idx = self.ext.create_action_receipt(vec![], account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -1517,7 +1518,7 @@ impl<'a> VMLogic<'a> {
             .collect();
         self.pay_gas_for_new_receipt(sir, &deps)?;
 
-        let new_receipt_idx = self.ext.create_receipt(receipt_dependencies, account_id)?;
+        let new_receipt_idx = self.ext.create_action_receipt(receipt_dependencies, account_id)?;
 
         self.checked_push_promise(Promise::Receipt(new_receipt_idx))
     }
@@ -2013,6 +2014,165 @@ impl<'a> VMLogic<'a> {
 
         self.ext.append_action_delete_account(receipt_idx, beneficiary_id)?;
         Ok(())
+    }
+
+    /// Creates a promise that will execute a method on the current account with given arguments
+    /// and gas. The created promise will have a special input data dependency.
+    ///
+    /// A resumption token is written by this function into the register denoted by `register_id`.
+    /// To satisfy the data dependency, call `promise_yield_resume` with the resumption token
+    /// and a payload. The provided method will then be executed with input
+    /// `PromiseResult::Successful(payload)`.
+    ///
+    /// The resumption token is portable across transactions, but only the current account
+    /// is allowed to resolve this data dependency.
+    ///
+    /// If `promise_yield_resume` has not been called after a certain protocol-defined number of
+    /// of blocks (as defined by the `yield_timeout_length_in_blocks` parameter) the created
+    /// promise will instead be executed with input `PromiseResult::Failed`.
+    ///
+    /// # Errors
+    ///
+    /// * If `method_name_len + method_name_ptr` or `arguments_len + arguments_ptr` point outside
+    /// the memory of the guest or host returns `MemoryAccessViolation`;
+    /// * If called as view function returns `ProhibitedInView`;
+    /// * Gas is insufficient;
+    /// * Too many promises have been created already;
+    /// * Resumption token cannot be written to the register `register_id`.
+    ///
+    /// # Returns
+    ///
+    /// Index of the new promise that uniquely identifies it within the current execution of the
+    /// method.
+    ///
+    /// # Cost
+    ///
+    /// The following fees are charged:
+    ///
+    /// * `base` fee;
+    /// * `yield_create_base` fee;
+    /// * `yield_create_byte` for each byte of `method_name` and `arguments`;
+    /// * Fees for reading the `method_name` and `arguments`;
+    /// * Fees for writing the Data ID to the output register;
+    /// * Fees for setting up the receipt and the eventual function call of the method.
+    pub fn promise_yield_create(
+        &mut self,
+        method_name_len: u64,
+        method_name_ptr: u64,
+        arguments_len: u64,
+        arguments_ptr: u64,
+        gas: Gas,
+        gas_weight: u64,
+        register_id: u64,
+    ) -> Result<u64> {
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_yield_create".to_string(),
+            }
+            .into());
+        }
+        self.gas_counter.pay_base(yield_create_base)?;
+
+        let method_name = get_memory_or_register!(self, method_name_ptr, method_name_len)?;
+        if method_name.is_empty() {
+            return Err(HostError::EmptyMethodName.into());
+        }
+        let arguments = get_memory_or_register!(self, arguments_ptr, arguments_len)?;
+        let method_name = method_name.into_owned();
+        let arguments = arguments.into_owned();
+
+        // Input can't be large enough to overflow, WebAssembly address space is 32-bits.
+        let num_bytes = method_name.len() as u64 + arguments.len() as u64;
+        self.gas_counter.pay_per(yield_create_byte, num_bytes)?;
+        // Prepay gas for the callback so that it cannot be used for this execution any longer.
+        self.gas_counter.prepay_gas(gas)?;
+
+        // Here we are creating a receipt with a single data dependency which will then be
+        // resolved by the resume call.
+        self.pay_gas_for_new_receipt(true, &[true])?;
+        let (new_receipt_idx, data_id) =
+            self.ext.create_promise_yield_receipt(self.context.current_account_id.clone())?;
+
+        let new_promise_idx = self.checked_push_promise(Promise::Receipt(new_receipt_idx))?;
+        self.pay_action_base(ActionCosts::function_call_base, true)?;
+        self.pay_action_per_byte(ActionCosts::function_call_byte, num_bytes, true)?;
+        self.ext.append_action_function_call_weight(
+            new_receipt_idx,
+            method_name,
+            arguments,
+            0,
+            gas,
+            GasWeight(gas_weight),
+        )?;
+
+        self.registers.set(
+            &mut self.gas_counter,
+            &self.config.limit_config,
+            register_id,
+            *data_id.as_bytes(),
+        )?;
+        Ok(new_promise_idx)
+    }
+
+    /// Submits the data for a yield promise which is awaiting its value.
+    ///
+    /// The `data_id` pair of parameters must refer to a resumption token generated by a call to
+    /// the [`promise_yield_create`] made by the same account.
+    ///
+    /// Returns `1` if submitting the payload for the data dependency was successful. This
+    /// guarantees that the yield callback function will be executed with a payload. Otherwise a
+    /// `0` is returned.
+    ///
+    /// # Errors
+    ///
+    /// * If `data_id_ptr + data_id_ptr` points outside the memory of the guest or host
+    /// returns `MemoryAccessViolation`;
+    /// * If a malformed data id is passed, returns `DataIdMalformed`;
+    /// * If `payload_len` exceeds the maximum permitted returns `YieldPayloadLength`;
+    /// * If called as view function returns `ProhibitedInView`;
+    /// * Runs out of gas.
+    ///
+    /// # Cost
+    ///
+    /// The following fees are charged:
+    ///
+    /// * `base` fee;
+    /// * `yield_resume_base` fee;
+    /// * `yield_resume_byte` for each byte of `payload`;
+    /// * Fees for reading the `data_id` and `payload`.
+    pub fn promise_yield_resume(
+        &mut self,
+        data_id_len: u64,
+        data_id_ptr: u64,
+        payload_len: u64,
+        payload_ptr: u64,
+    ) -> Result<u32, VMLogicError> {
+        self.gas_counter.pay_base(base)?;
+        if self.context.is_view() {
+            return Err(HostError::ProhibitedInView {
+                method_name: "promise_submit_data".to_string(),
+            }
+            .into());
+        }
+        self.gas_counter.pay_base(yield_resume_base)?;
+        self.gas_counter.pay_per(yield_resume_byte, payload_len)?;
+        let data_id = get_memory_or_register!(self, data_id_ptr, data_id_len)?;
+        let payload = get_memory_or_register!(self, payload_ptr, payload_len)?;
+        let payload_len = payload.len() as u64;
+        if payload_len > self.config.limit_config.max_yield_payload_size {
+            return Err(HostError::YieldPayloadLength {
+                length: payload_len,
+                limit: self.config.limit_config.max_yield_payload_size,
+            }
+            .into());
+        }
+
+        let data_id: [_; CryptoHash::LENGTH] =
+            (&*data_id).try_into().map_err(|_| HostError::DataIdMalformed)?;
+        let data_id = CryptoHash(data_id);
+        let payload = payload.into_owned();
+        self.ext.submit_promise_resume_data(data_id, payload).map(u32::from)
     }
 
     /// If the current function is invoked by a callback we can access the execution results of the
@@ -2840,7 +3000,7 @@ impl<'a> VMLogic<'a> {
     pub fn before_loading_executable(
         &mut self,
         method_name: &str,
-        wasm_code_bytes: usize,
+        wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if method_name.is_empty() {
             let error = super::errors::FunctionCallError::MethodResolveError(
@@ -2849,7 +3009,7 @@ impl<'a> VMLogic<'a> {
             return Err(error);
         }
         if self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
                 let error =
                     super::errors::FunctionCallError::HostError(super::HostError::GasExceeded);
                 return Err(error);
@@ -2861,10 +3021,10 @@ impl<'a> VMLogic<'a> {
     /// Legacy code to preserve old gas charging behaviour in old protocol versions.
     pub fn after_loading_executable(
         &mut self,
-        wasm_code_bytes: usize,
+        wasm_code_bytes: u64,
     ) -> std::result::Result<(), super::errors::FunctionCallError> {
         if !self.config.fix_contract_loading_cost {
-            if self.add_contract_loading_fee(wasm_code_bytes as u64).is_err() {
+            if self.add_contract_loading_fee(wasm_code_bytes).is_err() {
                 return Err(super::errors::FunctionCallError::HostError(
                     super::HostError::GasExceeded,
                 ));

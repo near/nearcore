@@ -16,11 +16,10 @@ use near_store::flat::{
     store_helper, BlockInfo, FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata, FlatStorage,
     FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
 };
-use near_store::{
-    ShardTries, ShardUId, StateSnapshotConfig, Store, StoreCompiledContractCache, TrieUpdate,
-};
+use near_store::{ShardTries, ShardUId, StateSnapshotConfig, TrieUpdate};
 use near_store::{TrieCache, TrieCachingStorage, TrieConfig};
 use near_vm_runner::logic::LimitConfig;
+use near_vm_runner::FilesystemContractRuntimeCache;
 use node_runtime::{ApplyState, Runtime};
 use std::collections::HashMap;
 use std::iter;
@@ -47,6 +46,9 @@ pub(crate) struct CachedCosts {
     pub(crate) apply_block: Option<GasCost>,
     pub(crate) touching_trie_node_write: Option<GasCost>,
     pub(crate) ed25519_verify_base: Option<GasCost>,
+    pub(crate) function_call_base: Option<GasCost>,
+    #[cfg(feature = "nightly")]
+    pub(crate) yield_create_base: Option<GasCost>,
 }
 
 impl<'c> EstimatorContext<'c> {
@@ -91,12 +93,14 @@ impl<'c> EstimatorContext<'c> {
         let mut trie_config = near_store::TrieConfig::default();
         trie_config.enable_receipt_prefetching = true;
         let tries = ShardTries::new(
-            store.clone(),
+            store,
             trie_config,
             &[shard_uid],
             flat_storage_manager,
             StateSnapshotConfig::default(),
         );
+        let cache = FilesystemContractRuntimeCache::new(workdir.path(), None::<&str>)
+            .expect("create contract cache");
 
         Testbed {
             config: self.config,
@@ -105,7 +109,7 @@ impl<'c> EstimatorContext<'c> {
             root,
             runtime: Runtime::new(),
             prev_receipts: Vec::new(),
-            apply_state: Self::make_apply_state(store),
+            apply_state: Self::make_apply_state(cache),
             epoch_info_provider: MockEpochInfoProvider::default(),
             transaction_builder: TransactionBuilder::new(
                 (0..self.config.active_accounts)
@@ -115,9 +119,11 @@ impl<'c> EstimatorContext<'c> {
         }
     }
 
-    fn make_apply_state(store: Store) -> ApplyState {
+    fn make_apply_state(cache: FilesystemContractRuntimeCache) -> ApplyState {
         let mut runtime_config =
             RuntimeConfigStore::new(None).get_config(PROTOCOL_VERSION).as_ref().clone();
+        runtime_config.wasm_config.enable_all_features();
+        runtime_config.wasm_config.make_free();
 
         // Override vm limits config to simplify block processing.
         runtime_config.wasm_config.limit_config = LimitConfig {
@@ -152,7 +158,7 @@ impl<'c> EstimatorContext<'c> {
             random_seed: Default::default(),
             current_protocol_version: PROTOCOL_VERSION,
             config: Arc::new(runtime_config),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&store))),
+            cache: Some(Box::new(cache)),
             is_new_chunk: true,
             migration_data: Arc::new(MigrationData::default()),
             migration_flags: MigrationFlags::default(),
@@ -251,7 +257,10 @@ impl Testbed<'_> {
                 extra_blocks = self.process_blocks_until_no_receipts(allow_failures);
                 start.elapsed()
             };
-            assert_eq!(block_latency, extra_blocks);
+            assert_eq!(
+                block_latency, extra_blocks,
+                "block latency {block_latency} does not match expected {extra_blocks}"
+            );
 
             let mut ext_costs: HashMap<ExtCosts, u64> = HashMap::new();
             node_runtime::with_ext_cost_counter(|cc| {

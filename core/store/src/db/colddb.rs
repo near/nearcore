@@ -26,7 +26,7 @@ impl ColdDB {
         format!("Reading from column missing from cold storage. {col:?}")
     }
 
-    // Checks if the column is is the cold db and returns an error if not.
+    // Checks if the column is the cold db and returns an error if not.
     fn check_is_in_colddb(col: DBCol) -> std::io::Result<()> {
         if !col.is_in_colddb() {
             return Err(std::io::Error::other(Self::err_msg(col)));
@@ -34,7 +34,7 @@ impl ColdDB {
         Ok(())
     }
 
-    // Checks if the column is is the cold db and panics if not.
+    // Checks if the column is the cold db and panics if not.
     fn log_assert_is_in_colddb(col: DBCol) {
         log_assert!(col.is_in_colddb(), "{}", Self::err_msg(col));
     }
@@ -111,8 +111,12 @@ impl Database for ColdDB {
         self.cold.get_store_statistics()
     }
 
-    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        self.cold.create_checkpoint(path)
+    fn create_checkpoint(
+        &self,
+        path: &std::path::Path,
+        columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
+        self.cold.create_checkpoint(path, columns_to_keep)
     }
 }
 
@@ -271,7 +275,7 @@ mod test {
         // Check expected value.  Use cargo-insta to update the expected value:
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
-        insta::assert_display_snapshot!(result.join("\n"), @r###"
+        insta::assert_snapshot!(result.join("\n"), @r###"
         State `ShardUId || 11111111111111111111111111111111`
             [cold] get_raw_bytes        → FooBar; rc: 1
             [cold] get_with_rc_stripped → FooBar
@@ -317,7 +321,7 @@ mod test {
         // Check expected value.  Use cargo-insta to update the expected value:
         //     cargo install cargo-insta
         //     cargo insta test --accept -p near-store  -- db::colddb
-        insta::assert_display_snapshot!(result.join("\n"), @r###"
+        insta::assert_snapshot!(result.join("\n"), @r###"
         State
         [cold] (`ShardUId || 11111111111111111111111111111111`, FooBar)
         [raw ] (`ShardUId || 11111111111111111111111111111111`, FooBar)

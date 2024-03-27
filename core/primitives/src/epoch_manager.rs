@@ -146,26 +146,42 @@ impl AllEpochConfig {
         config
     }
 
-    // StatelessNet only. Lower the kickout threshold so the network is more stable while
-    // we figure out issues with block and chunk production.
     fn config_stateless_net(
         config: &mut EpochConfig,
         chain_id: &str,
         protocol_version: ProtocolVersion,
     ) {
-        if chain_id == near_primitives_core::chains::STATELESSNET
-            && checked_feature!(
+        // StatelessNet only.
+        if chain_id == near_primitives_core::chains::STATELESSNET {
+            // Lower the kickout threshold so the network is more stable while
+            // we figure out issues with block and chunk production.
+            if checked_feature!(
                 "stable",
                 LowerValidatorKickoutPercentForDebugging,
                 protocol_version
-            )
-        {
-            config.block_producer_kickout_threshold = 50;
-            config.chunk_producer_kickout_threshold = 50;
+            ) {
+                config.block_producer_kickout_threshold = 50;
+                config.chunk_producer_kickout_threshold = 50;
+            }
+            // Shuffle shard assignments every epoch, to trigger state sync more
+            // frequently to exercise that code path.
+            if checked_feature!(
+                "stable",
+                StatelessnetShuffleShardAssignmentsForChunkProducers,
+                protocol_version
+            ) {
+                config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers =
+                    true;
+            }
         }
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
+        if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
+            Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
+            return;
+        }
+
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v2());
             return;
@@ -252,6 +268,8 @@ pub struct ValidatorSelectionConfig {
     pub minimum_validators_per_shard: NumSeats,
     #[default(Rational32::new(160, 1_000_000))]
     pub minimum_stake_ratio: Rational32,
+    #[default(false)]
+    pub shuffle_shard_assignment_for_chunk_producers: bool,
 }
 
 pub mod block_info {
@@ -366,6 +384,11 @@ pub mod block_info {
                 Self::V1(v1) => &v1.prev_hash,
                 Self::V2(v2) => &v2.prev_hash,
             }
+        }
+
+        #[inline]
+        pub fn is_genesis(&self) -> bool {
+            self.prev_hash() == &CryptoHash::default()
         }
 
         #[inline]
@@ -1081,33 +1104,37 @@ pub mod epoch_info {
             }
         }
 
-        pub fn sample_chunk_producer(&self, height: BlockHeight, shard_id: ShardId) -> ValidatorId {
+        pub fn sample_chunk_producer(
+            &self,
+            height: BlockHeight,
+            shard_id: ShardId,
+        ) -> Option<ValidatorId> {
             match &self {
                 Self::V1(v1) => {
                     let cp_settlement = &v1.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V2(v2) => {
                     let cp_settlement = &v2.chunk_producers_settlement;
-                    let shard_cps = &cp_settlement[shard_id as usize];
-                    shard_cps[(height as u64 % (shard_cps.len() as u64)) as usize]
+                    let shard_cps = cp_settlement.get(shard_id as usize)?;
+                    shard_cps.get((height as u64 % (shard_cps.len() as u64)) as usize).copied()
                 }
                 Self::V3(v3) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v3.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v3.chunk_producers_sampler[shard_id].sample(seed);
-                    v3.chunk_producers_settlement[shard_id][sample]
+                    let sample = v3.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v3.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
                 Self::V4(v4) => {
                     let protocol_version = self.protocol_version();
                     let seed =
                         Self::chunk_produce_seed(protocol_version, &v4.rng_seed, height, shard_id);
                     let shard_id = shard_id as usize;
-                    let sample = v4.chunk_producers_sampler[shard_id].sample(seed);
-                    v4.chunk_producers_settlement[shard_id][sample]
+                    let sample = v4.chunk_producers_sampler.get(shard_id)?.sample(seed);
+                    v4.chunk_producers_settlement.get(shard_id)?.get(sample).copied()
                 }
             }
         }
@@ -1172,6 +1199,16 @@ pub mod epoch_info {
             // are not implemented for larger seeds, see
             // https://docs.rs/rand_core/0.6.2/rand_core/trait.SeedableRng.html#associated-types
             // Therefore `buffer` is hashed to obtain a `[u8; 32]`.
+            let seed = hash(&buffer);
+            SeedableRng::from_seed(seed.0)
+        }
+
+        /// Returns a new RNG used for shuffling chunk producer shard assignments.
+        pub fn shard_assignment_shuffling_rng(seed: &RngSeed) -> ChaCha20Rng {
+            let mut buffer = [0u8; 62];
+            buffer[0..32].copy_from_slice(seed);
+            // Do this to avoid any possibility of colliding with any other rng.
+            buffer[32..62].copy_from_slice(b"shard_assignment_shuffling_rng");
             let seed = hash(&buffer);
             SeedableRng::from_seed(seed.0)
         }
@@ -1247,7 +1284,6 @@ pub mod epoch_sync {
     use crate::errors::epoch_sync::{EpochSyncHashType, EpochSyncInfoError};
     use crate::types::EpochId;
     use borsh::{BorshDeserialize, BorshSerialize};
-    use near_o11y::log_assert;
     use near_primitives_core::hash::CryptoHash;
     use std::collections::{HashMap, HashSet};
 
@@ -1324,10 +1360,11 @@ pub mod epoch_sync {
             let epoch_first_header = self.get_epoch_first_header()?;
             let header = self.get_header(*hash, EpochSyncHashType::Other)?;
 
-            log_assert!(
-                epoch_first_header.epoch_id() == header.epoch_id(),
-                "We can only correctly reconstruct headers from this epoch"
-            );
+            if epoch_first_header.epoch_id() != header.epoch_id() {
+                let msg = "We can only correctly reconstruct headers from this epoch";
+                debug_assert!(false, "{}", msg);
+                tracing::error!(message = msg);
+            }
 
             let last_finalized_height = if *header.last_final_block() == CryptoHash::default() {
                 0

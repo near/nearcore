@@ -2,6 +2,8 @@ mod rpc;
 mod runtime;
 
 use assert_matches::assert_matches;
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
+use near_chain_configs::NEAR_BASE;
 use near_crypto::{InMemorySigner, KeyType, PublicKey};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::{ActionCosts, ExtCosts};
@@ -20,7 +22,6 @@ use near_primitives::views::{
     FinalExecutionStatus,
 };
 use near_store::trie::TrieNodesCount;
-use nearcore::config::{NEAR_BASE, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use std::sync::Arc;
 
 use crate::node::Node;
@@ -1460,7 +1461,7 @@ fn check_trie_nodes_count(
             node_touches = receipt_hashes
                 .iter()
                 .map(|receipt_hash| {
-                    let result = node_user.get_transaction_result(receipt_hash);
+                    let result = node_user.get_transaction_result(receipt_hash).unwrap();
                     get_trie_nodes_count(&result.metadata, runtime_config)
                 })
                 .collect();

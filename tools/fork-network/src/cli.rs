@@ -1,8 +1,9 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
+use anyhow::Context;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
-use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode};
+use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
 use near_crypto::PublicKey;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
 use near_mirror::key_mapping::{map_account, map_key};
@@ -30,7 +31,7 @@ use near_store::{
     checkpoint_hot_storage_and_cleanup_columns, DBCol, Store, TrieDBStorage, TrieStorage,
     FINAL_HEAD_KEY,
 };
-use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NEAR_BASE};
+use nearcore::{load_config, open_storage, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -165,9 +166,6 @@ impl ForkNetworkCommand {
         .await
         .global();
 
-        if !near_config.config.store.flat_storage_creation_enabled {
-            panic!("Flat storage must be enabled");
-        }
         near_config.config.store.state_snapshot_enabled = false;
 
         match &self.command {
@@ -208,8 +206,8 @@ impl ForkNetworkCommand {
         near_config: &NearConfig,
         home_dir: &Path,
     ) -> anyhow::Result<bool> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         let fork_snapshot_path = store_path.join("fork-snapshot");
 
         if fork_snapshot_path.exists() && fork_snapshot_path.is_dir() {
@@ -320,7 +318,8 @@ impl ForkNetworkCommand {
             .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
             .collect();
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
         runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
@@ -362,7 +361,8 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
@@ -440,8 +440,8 @@ impl ForkNetworkCommand {
     /// Deletes `~/.near/data/fork-snapshot/data`.
     /// Moves `~/.near/genesis.json.backup` to `~/.near/genesis.json`.
     fn reset(self, near_config: &NearConfig, home_dir: &Path) -> anyhow::Result<()> {
-        let store_path =
-            home_dir.join(near_config.config.store.path.clone().unwrap_or(PathBuf::from("data")));
+        let store_path = home_dir
+            .join(near_config.config.store.path.clone().unwrap_or_else(|| PathBuf::from("data")));
         // '/data' prefix comes from the use of `checkpoint_hot_storage_and_cleanup_columns` fn
         let fork_snapshot_path = store_path.join("fork-snapshot/data");
         if !Path::new(&fork_snapshot_path).exists() {
@@ -666,7 +666,7 @@ impl ForkNetworkCommand {
                     }
                     storage_mutator.set_access_key(
                         account_id,
-                        near_mirror::key_mapping::EXTRA_KEY.public_key(),
+                        near_mirror::key_mapping::default_extra_key(None).public_key(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
@@ -749,8 +749,10 @@ impl ForkNetworkCommand {
                 Account::new(
                     liquid_balance,
                     validator_account.amount,
+                    0,
                     CryptoHash::default(),
                     storage_bytes,
+                    PROTOCOL_VERSION,
                 ),
             )?;
             storage_mutator.set_access_key(
@@ -804,6 +806,9 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            shuffle_shard_assignment_for_chunk_producers: epoch_config
+                .validator_selection_config
+                .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: epoch_info.protocol_version(),
             validators: new_validator_accounts,

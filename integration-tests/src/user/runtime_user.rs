@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+use near_chain_configs::MIN_GAS_PRICE;
 use near_crypto::{PublicKey, Signer};
 use near_jsonrpc_primitives::errors::ServerError;
 use near_parameters::RuntimeConfig;
@@ -19,7 +20,6 @@ use near_primitives::views::{
     FinalExecutionOutcomeView, FinalExecutionStatus, ViewApplyState, ViewStateResult,
 };
 use near_store::{ShardTries, TrieUpdate};
-use nearcore::config::MIN_GAS_PRICE;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{ApplyState, Runtime};
 
@@ -174,7 +174,13 @@ impl RuntimeUser {
         &self,
         hash: &CryptoHash,
     ) -> Vec<ExecutionOutcomeWithIdView> {
-        let outcome = self.get_transaction_result(hash);
+        let outcome = match self.get_transaction_result(hash) {
+            Some(outcome) => outcome,
+            None => {
+                return vec![];
+            }
+        };
+
         let receipt_ids = outcome.receipt_ids.clone();
         let mut transactions = vec![ExecutionOutcomeWithIdView {
             id: *hash,
@@ -341,8 +347,8 @@ impl User for RuntimeUser {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
-        self.transaction_results.borrow().get(hash).cloned().unwrap()
+    fn get_transaction_result(&self, hash: &CryptoHash) -> Option<ExecutionOutcomeView> {
+        self.transaction_results.borrow().get(hash).cloned()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {

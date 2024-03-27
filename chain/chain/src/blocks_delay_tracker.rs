@@ -1,9 +1,8 @@
-use chrono::DateTime;
+use near_async::time::{Clock, Instant, Utc};
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::block::{Block, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, ShardId};
 use near_primitives::views::{
     BlockProcessingInfo, BlockProcessingStatus, ChainProcessingInfo, ChunkProcessingInfo,
@@ -11,7 +10,6 @@ use near_primitives::views::{
 };
 use std::collections::{hash_map::Entry, BTreeMap, HashMap};
 use std::mem;
-use std::time::Instant;
 use tracing::error;
 
 use crate::{metrics, Chain, ChainStoreAccess};
@@ -25,8 +23,8 @@ const BLOCK_DELAY_TRACKING_COUNT: u64 = 50;
 /// the block already passes a few checks in ClientActor and in Client before it enters the chain
 /// code. For example, client actor checks that the block must be within head_height + BLOCK_HORIZON (500),
 /// that's why we know tracker at most tracks 550 blocks.
-#[derive(Debug, Default)]
 pub struct BlocksDelayTracker {
+    clock: Clock,
     // A block is added at the first time it was received, and
     // removed if it is too far from the chain head.
     blocks: HashMap<CryptoHash, BlockTrackingStats>,
@@ -45,7 +43,7 @@ pub struct BlocksDelayTracker {
 pub struct BlockTrackingStats {
     /// Timestamp when block was received.
     pub received_timestamp: Instant,
-    pub received_utc_timestamp: DateTime<chrono::Utc>,
+    pub received_utc_timestamp: Utc,
     /// Timestamp when block was put to the orphan pool, if it ever was
     pub orphaned_timestamp: Option<Instant>,
     /// Timestamp when block was put to the missing chunks pool
@@ -73,9 +71,9 @@ pub struct ChunkTrackingStats {
     pub shard_id: ShardId,
     pub prev_block_hash: CryptoHash,
     /// Timestamp of first time when we request for this chunk.
-    pub requested_timestamp: Option<DateTime<chrono::Utc>>,
+    pub requested_timestamp: Option<Utc>,
     /// Timestamp of when the node receives all information it needs for this chunk
-    pub completed_timestamp: Option<DateTime<chrono::Utc>>,
+    pub completed_timestamp: Option<Utc>,
 }
 
 impl ChunkTrackingStats {
@@ -109,7 +107,7 @@ impl ChunkTrackingStats {
             .ok();
         let request_duration = if let Some(requested_timestamp) = self.requested_timestamp {
             if let Some(completed_timestamp) = self.completed_timestamp {
-                Some((completed_timestamp - requested_timestamp).num_milliseconds() as u64)
+                Some((completed_timestamp - requested_timestamp).whole_milliseconds() as u64)
             } else {
                 None
             }
@@ -132,12 +130,18 @@ impl ChunkTrackingStats {
 }
 
 impl BlocksDelayTracker {
-    pub fn mark_block_received(
-        &mut self,
-        block: &Block,
-        timestamp: Instant,
-        utc_timestamp: DateTime<chrono::Utc>,
-    ) {
+    pub fn new(clock: Clock) -> Self {
+        Self {
+            clock,
+            blocks: HashMap::new(),
+            blocks_height_map: BTreeMap::new(),
+            chunks: HashMap::new(),
+            floating_chunks: HashMap::new(),
+            head_height: 0,
+        }
+    }
+
+    pub fn mark_block_received(&mut self, block: &Block) {
         let block_hash = block.header().hash();
 
         if let Entry::Vacant(entry) = self.blocks.entry(*block_hash) {
@@ -150,7 +154,7 @@ impl BlocksDelayTracker {
                         let chunk_hash = chunk.chunk_hash();
                         self.chunks
                             .entry(chunk_hash.clone())
-                            .or_insert(ChunkTrackingStats::new(chunk));
+                            .or_insert_with(|| ChunkTrackingStats::new(chunk));
                         self.floating_chunks.remove(&chunk_hash);
                         Some(chunk_hash)
                     } else {
@@ -159,8 +163,8 @@ impl BlocksDelayTracker {
                 })
                 .collect();
             entry.insert(BlockTrackingStats {
-                received_timestamp: timestamp,
-                received_utc_timestamp: utc_timestamp,
+                received_timestamp: self.clock.now(),
+                received_utc_timestamp: self.clock.now_utc(),
                 orphaned_timestamp: None,
                 missing_chunks_timestamp: None,
                 removed_from_orphan_timestamp: None,
@@ -190,47 +194,39 @@ impl BlocksDelayTracker {
         }
     }
 
-    pub fn mark_block_orphaned(&mut self, block_hash: &CryptoHash, timestamp: Instant) {
+    pub fn mark_block_orphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
-            block_entry.orphaned_timestamp = Some(timestamp);
+            block_entry.orphaned_timestamp = Some(self.clock.now());
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was orphaned but was not marked received", block_hash);
         }
     }
 
-    pub fn mark_block_unorphaned(&mut self, block_hash: &CryptoHash, timestamp: Instant) {
+    pub fn mark_block_unorphaned(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
-            block_entry.removed_from_orphan_timestamp = Some(timestamp);
+            block_entry.removed_from_orphan_timestamp = Some(self.clock.now());
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was unorphaned but was not marked received", block_hash);
         }
     }
 
-    pub fn mark_block_has_missing_chunks(&mut self, block_hash: &CryptoHash, timestamp: Instant) {
+    pub fn mark_block_has_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
-            block_entry.missing_chunks_timestamp = Some(timestamp);
+            block_entry.missing_chunks_timestamp = Some(self.clock.now());
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having missing chunks but was not marked received", block_hash);
         }
     }
 
-    pub fn mark_block_completed_missing_chunks(
-        &mut self,
-        block_hash: &CryptoHash,
-        timestamp: Instant,
-    ) {
+    pub fn mark_block_completed_missing_chunks(&mut self, block_hash: &CryptoHash) {
         if let Some(block_entry) = self.blocks.get_mut(block_hash) {
-            block_entry.removed_from_missing_chunks_timestamp = Some(timestamp);
+            block_entry.removed_from_missing_chunks_timestamp = Some(self.clock.now());
         } else {
             error!(target:"blocks_delay_tracker", "block {:?} was marked as having no missing chunks but was not marked received", block_hash);
         }
     }
 
-    pub fn mark_chunk_completed(
-        &mut self,
-        chunk_header: &ShardChunkHeader,
-        timestamp: DateTime<chrono::Utc>,
-    ) {
+    pub fn mark_chunk_completed(&mut self, chunk_header: &ShardChunkHeader) {
         let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
@@ -239,14 +235,10 @@ impl BlocksDelayTracker {
                 ChunkTrackingStats::new(chunk_header)
             })
             .completed_timestamp
-            .get_or_insert(timestamp);
+            .get_or_insert(self.clock.now_utc());
     }
 
-    pub fn mark_chunk_requested(
-        &mut self,
-        chunk_header: &ShardChunkHeader,
-        timestamp: DateTime<chrono::Utc>,
-    ) {
+    pub fn mark_chunk_requested(&mut self, chunk_header: &ShardChunkHeader) {
         let chunk_hash = chunk_header.chunk_hash();
         self.chunks
             .entry(chunk_hash.clone())
@@ -255,7 +247,7 @@ impl BlocksDelayTracker {
                 ChunkTrackingStats::new(chunk_header)
             })
             .requested_timestamp
-            .get_or_insert(timestamp);
+            .get_or_insert(self.clock.now_utc());
     }
 
     fn update_head(&mut self, head_height: BlockHeight) {
@@ -298,7 +290,7 @@ impl BlocksDelayTracker {
 
     pub fn finish_block_processing(&mut self, block_hash: &CryptoHash, new_head: Option<Tip>) {
         if let Some(processed_block) = self.blocks.get_mut(&block_hash) {
-            processed_block.processed_timestamp = Some(StaticClock::instant());
+            processed_block.processed_timestamp = Some(self.clock.now());
         }
         // To get around the rust reference scope check
         if let Some(processed_block) = self.blocks.get(&block_hash) {
@@ -320,8 +312,7 @@ impl BlocksDelayTracker {
     fn update_block_metrics(&self, block: &BlockTrackingStats) {
         if let Some(start) = block.orphaned_timestamp {
             if let Some(end) = block.removed_from_orphan_timestamp {
-                metrics::BLOCK_ORPHANED_DELAY
-                    .observe(end.saturating_duration_since(start).as_secs_f64());
+                metrics::BLOCK_ORPHANED_DELAY.observe((end - start).as_seconds_f64().max(0.0));
             }
         } else {
             metrics::BLOCK_ORPHANED_DELAY.observe(0.);
@@ -329,7 +320,7 @@ impl BlocksDelayTracker {
         if let Some(start) = block.missing_chunks_timestamp {
             if let Some(end) = block.removed_from_missing_chunks_timestamp {
                 metrics::BLOCK_MISSING_CHUNKS_DELAY
-                    .observe(end.saturating_duration_since(start).as_secs_f64());
+                    .observe((end - start).as_seconds_f64().max(0.0));
             }
         } else {
             metrics::BLOCK_MISSING_CHUNKS_DELAY.observe(0.);
@@ -343,7 +334,7 @@ impl BlocksDelayTracker {
             if let Some(chunk_received) = chunk.completed_timestamp {
                 metrics::CHUNK_RECEIVED_DELAY
                     .with_label_values(&[&shard_id.to_string()])
-                    .observe((chunk_received - chunk_requested).num_milliseconds() as f64 / 1000.);
+                    .observe((chunk_received - chunk_requested).as_seconds_f64());
             }
         }
     }
@@ -369,30 +360,29 @@ impl BlocksDelayTracker {
                     }
                 })
                 .collect();
-            let now = StaticClock::instant();
+            let now = self.clock.now();
             let block_status = chain.get_block_status(block_hash, block_stats);
-            let in_progress_ms = block_stats
-                .processed_timestamp
-                .unwrap_or(now)
-                .checked_duration_since(block_stats.received_timestamp)
-                .map(|x| x.as_millis())
-                .unwrap_or_default();
+            let in_progress_ms = (block_stats.processed_timestamp.unwrap_or(now)
+                - block_stats.received_timestamp)
+                .whole_milliseconds()
+                .max(0) as u128;
             let orphaned_ms = if let Some(orphaned_time) = block_stats.orphaned_timestamp {
-                block_stats
-                    .removed_from_orphan_timestamp
-                    .unwrap_or(now)
-                    .checked_duration_since(orphaned_time)
-                    .map(|x| x.as_millis())
+                Some(
+                    (block_stats.removed_from_orphan_timestamp.unwrap_or(now) - orphaned_time)
+                        .whole_milliseconds()
+                        .max(0) as u128,
+                )
             } else {
                 None
             };
             let missing_chunks_ms =
                 if let Some(missing_chunks_time) = block_stats.missing_chunks_timestamp {
-                    block_stats
-                        .removed_from_missing_chunks_timestamp
-                        .unwrap_or(now)
-                        .checked_duration_since(missing_chunks_time)
-                        .map(|x| x.as_millis())
+                    Some(
+                        (block_stats.removed_from_missing_chunks_timestamp.unwrap_or(now)
+                            - missing_chunks_time)
+                            .whole_milliseconds()
+                            .max(0) as u128,
+                    )
                 } else {
                     None
                 };

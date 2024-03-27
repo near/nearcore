@@ -18,7 +18,7 @@ use near_primitives::types::{NumShards, StateRoot};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::HashMap;
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::sync::Arc;
 
 /// Creates an in-memory node storage.
@@ -162,6 +162,7 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid, *root);
     let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let mut store_update = tries.store_update();
+    tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
@@ -249,6 +250,15 @@ pub fn gen_unique_accounts(rng: &mut impl Rng, min_size: usize, max_size: usize)
     accounts.dedup();
     accounts.shuffle(rng);
     accounts
+}
+
+// returns one account for each shard
+pub fn gen_shard_accounts() -> Vec<AccountId> {
+    vec!["aaa", "aurora", "aurora-0", "kkuuue2akv_1630967379.near", "tge-lockup.sweat"]
+        .into_iter()
+        .map(AccountId::from_str)
+        .map(Result::unwrap)
+        .collect()
 }
 
 pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {

@@ -38,6 +38,7 @@ pub const STATE_SNAPSHOT_KEY: &[u8; 18] = b"STATE_SNAPSHOT_KEY";
 // `DBCol::Misc` keys
 pub const FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS_KEY: &[u8] =
     b"FLAT_STATE_VALUES_INLINING_MIGRATION_STATUS";
+pub const STATE_TRANSITION_START_HEIGHTS: &[u8] = b"STATE_TRANSITION_START_HEIGHTS";
 
 #[derive(Default, Debug)]
 pub struct DBTransaction {
@@ -229,7 +230,11 @@ pub trait Database: Sync + Send {
     fn get_store_statistics(&self) -> Option<StoreStatistics>;
 
     /// Create checkpoint in provided path
-    fn create_checkpoint(&self, path: &std::path::Path) -> anyhow::Result<()>;
+    fn create_checkpoint(
+        &self,
+        path: &std::path::Path,
+        columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()>;
 }
 
 fn assert_no_overwrite(col: DBCol, key: &[u8], value: &[u8], old_value: &[u8]) {

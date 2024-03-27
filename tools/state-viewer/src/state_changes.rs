@@ -10,7 +10,7 @@ use near_primitives::types::{
 };
 use near_primitives_core::types::BlockHeight;
 use near_store::{KeyForStateChanges, Store, WrappedTrieChanges};
-use nearcore::{NearConfig, NightshadeRuntime};
+use nearcore::{NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::{Path, PathBuf};
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -140,7 +140,8 @@ fn apply_state_changes(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .expect("could not create the transaction runtime");
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,

@@ -198,7 +198,11 @@ impl Database for SplitDB {
         None
     }
 
-    fn create_checkpoint(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+    fn create_checkpoint(
+        &self,
+        _path: &std::path::Path,
+        _columns_to_keep: Option<&[DBCol]>,
+    ) -> anyhow::Result<()> {
         log_assert_fail!("create_checkpoint is not allowed - the split storage has two stores");
         Ok(())
     }
@@ -255,7 +259,7 @@ mod test {
         let cold = create_cold();
         let split = SplitDB::new(hot.clone(), cold.clone());
 
-        // Block is a nice column for testing because is is a cold column but
+        // Block is a nice column for testing because is a cold column but
         // cold doesn't do anything funny to it.
         let col = DBCol::Block;
 

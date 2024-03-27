@@ -370,6 +370,9 @@ impl StateChanges {
                 TrieKey::PostponedReceipt { .. } => {}
                 TrieKey::DelayedReceiptIndices => {}
                 TrieKey::DelayedReceipt { .. } => {}
+                TrieKey::PromiseYieldIndices => {}
+                TrieKey::PromiseYieldTimeout { .. } => {}
+                TrieKey::PromiseYieldReceipt { .. } => {}
             }
         }
 

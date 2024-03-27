@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use once_cell::sync::OnceCell;
 
-/// `ProcessingDoneTracker` can be used in conjuction with a `ProcessingDoneWaiter`
+/// `ProcessingDoneTracker` can be used in conjunction with a `ProcessingDoneWaiter`
 /// to wait until some processing is finished. `ProcessingDoneTracker` should be
 /// kept alive as long as the processing is ongoing, then once it's dropped,
 /// the paired `ProcessingDoneWaiter` will be notified that the processing has finished.

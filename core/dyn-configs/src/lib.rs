@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
+use near_async::time::Clock;
 use near_chain_configs::UpdateableClientConfig;
 use near_o11y::log_config::LogConfig;
-use near_primitives::static_clock::StaticClock;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,7 +68,7 @@ impl UpdateableConfigLoader {
     }
 
     fn update_metrics() {
-        metrics::CONFIG_RELOAD_TIMESTAMP.set(StaticClock::utc().timestamp());
+        metrics::CONFIG_RELOAD_TIMESTAMP.set(Clock::real().now_utc().unix_timestamp());
         metrics::CONFIG_RELOADS.inc();
     }
 }

@@ -1,6 +1,7 @@
 use crate::rocksdb_metrics::export_stats_as_metrics;
 use crate::{NodeStorage, Store, Temperature};
 use actix_rt::ArbiterHandle;
+use near_async::time::Duration;
 use near_o11y::metrics::{
     exponential_buckets, try_create_histogram, try_create_histogram_vec,
     try_create_histogram_with_buckets, try_create_int_counter_vec, try_create_int_gauge,
@@ -262,15 +263,6 @@ pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_compact_state_snapshot_elapsed_sec",
-        "Latency of compaction of a state snapshot, in seconds",
-        exponential_buckets(0.001, 1.6, 40).unwrap(),
-    )
-    .unwrap()
-});
-
 pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_move_state_snapshot_flat_head_elapsed_sec",
@@ -391,89 +383,89 @@ pub mod flat_state_metrics {
 
     pub static FLAT_STORAGE_CREATION_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_status",
+            "near_flat_storage_creation_status",
             "Integer representing status of flat storage creation",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_remaining_state_parts",
+            "near_flat_storage_creation_remaining_state_parts",
             "Number of remaining state parts to fetch to fill flat storage in bytes",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: Lazy<IntCounterVec> = Lazy::new(|| {
         try_create_int_counter_vec(
-            "flat_storage_creation_fetched_state_parts",
+            "near_flat_storage_creation_fetched_state_parts",
             "Number of fetched state parts to fill flat storage in bytes",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: Lazy<IntCounterVec> = Lazy::new(|| {
         try_create_int_counter_vec(
-            "flat_storage_creation_fetched_state_items",
+            "near_flat_storage_creation_fetched_state_items",
             "Number of fetched items to fill flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CREATION_THREADS_USED: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_threads_used",
+            "near_flat_storage_creation_threads_used",
             "Number of currently used threads to fetch state",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_head_height",
+            "near_flat_storage_head_height",
             "Height of flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_deltas",
+            "near_flat_storage_cached_deltas",
             "Number of cached deltas in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_changes_num_items",
+            "near_flat_storage_cached_changes_num_items",
             "Number of items in all cached changes in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_changes_size",
+            "near_flat_storage_cached_changes_size",
             "Total size of cached changes in flat storage",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_distance_to_head",
+            "near_flat_storage_distance_to_head",
             "Height distance between processed block and flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
     pub static FLAT_STORAGE_HOPS_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_hops_to_head",
+            "near_flat_storage_hops_to_head",
             "Number of blocks visited to flat storage head",
-            &["shard_id"],
+            &["shard_uid"],
         )
         .unwrap()
     });
@@ -559,13 +551,13 @@ fn export_store_stats(store: &Store, temperature: Temperature) {
 
 pub fn spawn_db_metrics_loop(
     storage: &NodeStorage,
-    period: std::time::Duration,
+    period: Duration,
 ) -> anyhow::Result<ArbiterHandle> {
     tracing::debug!(target:"metrics", "Spawning the db metrics loop.");
     let db_metrics_arbiter = actix_rt::Arbiter::new();
 
     let start = tokio::time::Instant::now();
-    let mut interval = actix_rt::time::interval_at(start, period);
+    let mut interval = actix_rt::time::interval_at(start, period.unsigned_abs());
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let hot_store = storage.get_hot_store();
@@ -588,14 +580,11 @@ pub fn spawn_db_metrics_loop(
 
 #[cfg(test)]
 mod test {
-    use std::time::Duration;
-
-    use actix;
-
     use crate::db::{StatsValue, StoreStatistics};
     use crate::metadata::{DbKind, DB_VERSION};
     use crate::test_utils::create_test_node_storage_with_cold;
-
+    use actix;
+    use near_async::time::Duration;
     use near_o11y::testonly::init_test_logger;
 
     use super::spawn_db_metrics_loop;
@@ -606,7 +595,7 @@ mod test {
 
     async fn test_db_metrics_loop_impl() -> anyhow::Result<()> {
         let (storage, hot, cold) = create_test_node_storage_with_cold(DB_VERSION, DbKind::Cold);
-        let period = Duration::from_millis(100);
+        let period = Duration::milliseconds(100);
 
         let handle = spawn_db_metrics_loop(&storage, period)?;
 
@@ -622,7 +611,7 @@ mod test {
         hot.set_store_statistics(hot_stats);
         cold.set_store_statistics(cold_stats);
 
-        actix::clock::sleep(period).await;
+        actix::clock::sleep(period.unsigned_abs()).await;
         for _ in 0..10 {
             let int_gauges = crate::rocksdb_metrics::get_int_gauges();
 
@@ -631,17 +620,17 @@ mod test {
             if has_hot_gauge && has_cold_gauge {
                 break;
             }
-            actix::clock::sleep(period / 10).await;
+            actix::clock::sleep(period.unsigned_abs() / 10).await;
         }
 
         let int_gauges = crate::rocksdb_metrics::get_int_gauges();
         tracing::debug!("int_gauges {int_gauges:#?}");
 
         let hot_gauge = int_gauges.get(&hot_gauge_name);
-        let hot_gauge = hot_gauge.ok_or(anyhow::anyhow!("hot gauge is missing"))?;
+        let hot_gauge = hot_gauge.ok_or_else(|| anyhow::anyhow!("hot gauge is missing"))?;
 
         let cold_gauge = int_gauges.get(&cold_gauge_name);
-        let cold_gauge = cold_gauge.ok_or(anyhow::anyhow!("cold gauge is missing"))?;
+        let cold_gauge = cold_gauge.ok_or_else(|| anyhow::anyhow!("cold gauge is missing"))?;
 
         assert_eq!(hot_gauge.get(), 42);
         assert_eq!(cold_gauge.get(), 52);

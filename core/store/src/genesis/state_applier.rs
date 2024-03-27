@@ -1,7 +1,8 @@
 use crate::flat::FlatStateChanges;
 use crate::{
     get_account, has_received_data, set, set_access_key, set_account, set_code,
-    set_delayed_receipt, set_postponed_receipt, set_received_data, ShardTries, TrieUpdate,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -12,7 +13,7 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, Rece
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
@@ -269,43 +270,52 @@ impl GenesisStateApplier {
         );
         for receipt in postponed_receipts {
             let account_id = &receipt.receiver_id;
-            let action_receipt = match &receipt.receipt {
-                ReceiptEnum::Action(a) => a,
-                _ => panic!("Expected action receipt"),
-            };
+
             // Logic similar to `apply_receipt`
-            let mut pending_data_count: u32 = 0;
-            for data_id in &action_receipt.input_data_ids {
-                storage.modify(|state_update| {
-                    if !has_received_data(state_update, account_id, *data_id)
-                        .expect("Genesis storage error")
-                    {
-                        pending_data_count += 1;
-                        set(
-                            state_update,
-                            TrieKey::PostponedReceiptId {
-                                receiver_id: account_id.clone(),
-                                data_id: *data_id,
-                            },
-                            &receipt.receipt_id,
-                        )
+            match receipt.receipt {
+                ReceiptEnum::Action(ref action_receipt) => {
+                    let mut pending_data_count: u32 = 0;
+                    for data_id in &action_receipt.input_data_ids {
+                        storage.modify(|state_update| {
+                            if !has_received_data(state_update, account_id, *data_id)
+                                .expect("Genesis storage error")
+                            {
+                                pending_data_count += 1;
+                                set(
+                                    state_update,
+                                    TrieKey::PostponedReceiptId {
+                                        receiver_id: account_id.clone(),
+                                        data_id: *data_id,
+                                    },
+                                    &receipt.receipt_id,
+                                )
+                            }
+                        });
                     }
-                });
-            }
-            if pending_data_count == 0 {
-                panic!("Postponed receipt should have pending data")
-            } else {
-                storage.modify(|state_update| {
-                    set(
-                        state_update,
-                        TrieKey::PendingDataCount {
-                            receiver_id: account_id.clone(),
-                            receipt_id: receipt.receipt_id,
-                        },
-                        &pending_data_count,
-                    );
-                    set_postponed_receipt(state_update, &receipt);
-                });
+                    if pending_data_count == 0 {
+                        panic!("Postponed receipt should have pending data")
+                    } else {
+                        storage.modify(|state_update| {
+                            set(
+                                state_update,
+                                TrieKey::PendingDataCount {
+                                    receiver_id: account_id.clone(),
+                                    receipt_id: receipt.receipt_id,
+                                },
+                                &pending_data_count,
+                            );
+                            set_postponed_receipt(state_update, &receipt);
+                        });
+                    }
+                }
+                ReceiptEnum::PromiseYield(ref _action_receipt) => {
+                    storage.modify(|state_update| {
+                        set_promise_yield_receipt(state_update, &receipt);
+                    });
+                }
+                ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
+                    panic!("Expected action receipt")
+                }
             }
         }
 
@@ -337,15 +347,13 @@ impl GenesisStateApplier {
     pub fn apply(
         op_limit: &atomic::AtomicUsize,
         tries: ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &StorageUsageConfig,
         genesis: &Genesis,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        let shard_uid =
-            ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
         let mut storage =
             AutoFlushingTrieUpdate::new(op_limit, StateRoot::default(), &tries, shard_uid);
         Self::apply_batch(

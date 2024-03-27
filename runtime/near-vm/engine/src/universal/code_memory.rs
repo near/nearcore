@@ -91,7 +91,7 @@ impl<'a> CodeMemoryWriter<'a> {
 /// Mappings to regions of memory storing the executable JIT code.
 pub struct CodeMemory {
     /// Where to return this memory to when dropped.
-    source_pool: Option<Arc<crossbeam_queue::ArrayQueue<Self>>>,
+    source_pool: Option<Arc<std::sync::Mutex<Vec<Self>>>>,
 
     /// The mapping
     map: *mut u8,
@@ -138,16 +138,10 @@ impl CodeMemory {
         if self.size < size {
             // Ideally we would use mremap, but see
             // https://bugzilla.kernel.org/show_bug.cgi?id=8691
-            let source_pool = unsafe {
-                mm::munmap(self.map.cast(), self.size)?;
-                let source_pool = self.source_pool.take();
-                std::mem::forget(self);
-                source_pool
-            };
-            Self::create(size).map(|mut m| {
-                m.source_pool = source_pool;
-                m
-            })
+            let mut result = Self::create(size)?;
+            result.source_pool = self.source_pool.take();
+            drop(self);
+            Ok(result)
         } else {
             self.executable_end = 0;
             Ok(self)
@@ -218,12 +212,13 @@ impl Drop for CodeMemory {
                     );
                 }
             }
-            drop(source_pool.push(Self {
+            let mut guard = source_pool.lock().expect("unreachable due to panic=abort");
+            guard.push(Self {
                 source_pool: None,
                 map: self.map,
                 size: self.size,
                 executable_end: 0,
-            }));
+            });
         } else {
             unsafe {
                 if let Err(e) = mm::munmap(self.map.cast(), self.size) {
@@ -240,33 +235,33 @@ impl Drop for CodeMemory {
 
 unsafe impl Send for CodeMemory {}
 
-/// The pool of preallocated memory maps for storing the code.
+/// The pool of memory maps for storing the code.
 ///
-/// This pool cannot grow and will only allow up to a number of code mappings that were specified
-/// at construction time.
-///
-/// However it is possible for the mappings inside to grow to accomodate larger code.
+/// The memories and the size of the pool may grow towards a high watermark.
 #[derive(Clone)]
-pub struct LimitedMemoryPool {
-    pool: Arc<crossbeam_queue::ArrayQueue<CodeMemory>>,
+pub struct MemoryPool {
+    pool: Arc<std::sync::Mutex<Vec<CodeMemory>>>,
 }
 
-impl LimitedMemoryPool {
-    /// Create a new pool with `count` mappings initialized to `default_memory_size` each.
-    pub fn new(count: usize, default_memory_size: usize) -> rustix::io::Result<Self> {
-        let pool = Arc::new(crossbeam_queue::ArrayQueue::new(count));
-        let this = Self { pool };
-        for _ in 0..count {
-            this.pool
-                .push(CodeMemory::create(default_memory_size)?)
-                .unwrap_or_else(|_| panic!("ArrayQueue could not accomodate {count} memories!"));
+impl MemoryPool {
+    /// Create a new pool with `preallocate_count` mappings initialized to `initial_map_size` each.
+    pub fn new(preallocate_count: usize, initial_map_size: usize) -> rustix::io::Result<Self> {
+        let mut pool = Vec::with_capacity(preallocate_count);
+        for _ in 0..preallocate_count {
+            pool.push(CodeMemory::create(initial_map_size)?);
         }
-        Ok(this)
+        let pool = Arc::new(std::sync::Mutex::new(pool));
+        Ok(Self { pool })
     }
 
     /// Get a memory mapping, at least `size` bytes large.
     pub fn get(&self, size: usize) -> rustix::io::Result<CodeMemory> {
-        let mut memory = self.pool.pop().ok_or(rustix::io::Errno::NOMEM)?;
+        let mut guard = self.pool.lock().expect("unreachable due to panic=abort");
+        let mut memory = match guard.pop() {
+            Some(m) => m,
+            // This memory will later return to this pool via the drop of `CodeMemory`.
+            None => CodeMemory::create(std::cmp::max(size, 1))?,
+        };
         memory.source_pool = Some(Arc::clone(&self.pool));
         if memory.size < size {
             Ok(memory.resize(size)?)

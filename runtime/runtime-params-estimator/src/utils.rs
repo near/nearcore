@@ -24,9 +24,7 @@ pub fn read_resource(path: &str) -> Vec<u8> {
 /// other systems. Requires write access to /proc/sys/vm/drop_caches
 #[cfg(target_os = "linux")]
 pub fn clear_linux_page_cache() -> std::io::Result<()> {
-    unsafe {
-        libc::sync();
-    }
+    rustix::fs::sync();
     std::fs::write("/proc/sys/vm/drop_caches", b"1")
 }
 
@@ -107,7 +105,10 @@ pub(crate) fn fn_cost(
     // should use `fn_cost_count`.
     let block_latency = 0;
     let (total_cost, measured_count) = fn_cost_count(ctx, method, ext_cost, block_latency);
-    assert_eq!(measured_count, count);
+    assert_eq!(
+        measured_count, count,
+        "fn_cost: measured_count={measured_count} did not match the expected {count}"
+    );
 
     let base_cost = noop_function_call_cost(ctx);
 
@@ -167,9 +168,9 @@ pub(crate) fn fn_cost_with_setup(
     method: &str,
     ext_cost: ExtCosts,
     count: u64,
+    block_latency: usize,
 ) -> GasCost {
     let (total_cost, measured_count) = {
-        let block_latency = 0;
         let overhead = overhead_per_measured_block(ctx, block_latency);
         let block_size = 2usize;
         let n_blocks = ctx.config.warmup_iters_per_block + ctx.config.iter_per_block;
@@ -197,7 +198,7 @@ pub(crate) fn fn_cost_with_setup(
             blocks
         };
 
-        let measurements = testbed.measure_blocks(blocks, 0);
+        let measurements = testbed.measure_blocks(blocks, block_latency);
         // Filter out setup blocks.
         let measurements: Vec<_> = measurements
             .into_iter()
@@ -223,7 +224,10 @@ pub(crate) fn fn_cost_with_setup(
 
         (gas_cost, ext_costs[&ext_cost])
     };
-    assert_eq!(measured_count, count);
+    assert_eq!(
+        measured_count, count,
+        "fn_cost_with_setup: measured_count={measured_count} did not match {count}"
+    );
 
     let base_cost = noop_function_call_cost(ctx);
 

@@ -6,6 +6,7 @@ use crate::state_dump::state_dump;
 use crate::state_dump::state_dump_redis;
 use crate::tx_dump::dump_tx_from_block;
 use crate::{apply_chunk, epoch_info};
+use anyhow::Context;
 use bytesize::ByteSize;
 use itertools::GroupBy;
 use itertools::Itertools;
@@ -30,7 +31,7 @@ use near_primitives::sharding::ChunkHash;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_record::state_record_to_account_id;
 use near_primitives::state_record::StateRecord;
-use near_primitives::trie_key::col::NON_DELAYED_RECEIPT_COLUMNS;
+use near_primitives::trie_key::col::COLUMNS_WITH_ACCOUNT_ID_IN_KEY;
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{chunk_extra::ChunkExtra, BlockHeight, ShardId, StateRoot};
 use near_primitives_core::types::Gas;
@@ -39,6 +40,7 @@ use near_store::flat::FlatStorageManager;
 use near_store::test_utils::create_test_store;
 use near_store::TrieStorage;
 use near_store::{DBCol, Store, Trie, TrieCache, TrieCachingStorage, TrieConfig, TrieDBStorage};
+use nearcore::NightshadeRuntimeExt;
 use nearcore::{NearConfig, NightshadeRuntime};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use serde_json::json;
@@ -147,7 +149,8 @@ pub(crate) fn apply_block_at_height(
     );
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+            .context("could not create the transaction runtime")?;
     let block_hash = chain_store.get_block_hash_by_height(height).unwrap();
     let (block, apply_result) = apply_block(
         block_hash,
@@ -180,7 +183,8 @@ pub(crate) fn apply_chunk(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     let mut chain_store = ChainStore::new(
         store,
         near_config.genesis.config.genesis_height,
@@ -220,7 +224,8 @@ pub(crate) fn apply_range(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .expect("could not create the transaction runtime");
     apply_chain_range(
         store,
         &near_config.genesis,
@@ -250,7 +255,8 @@ pub(crate) fn apply_receipt(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     apply_chunk::apply_receipt(
         near_config.genesis.config.genesis_height,
         epoch_manager.as_ref(),
@@ -275,7 +281,8 @@ pub(crate) fn apply_tx(
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
     apply_chunk::apply_tx(
         near_config.genesis.config.genesis_height,
         epoch_manager.as_ref(),
@@ -383,7 +390,7 @@ pub(crate) fn dump_state(
     let home_dir = PathBuf::from(&home_dir);
 
     if stream {
-        let output_dir = file.unwrap_or(home_dir.join("output"));
+        let output_dir = file.unwrap_or_else(|| home_dir.join("output"));
         let records_path = output_dir.join("records.json");
         let new_near_config = state_dump(
             epoch_manager.as_ref(),
@@ -406,7 +413,7 @@ pub(crate) fn dump_state(
             None,
             change_config,
         );
-        let output_file = file.unwrap_or(home_dir.join("output.json"));
+        let output_file = file.unwrap_or_else(|| home_dir.join("output.json"));
         println!("Saving state at {:?} @ {} into {}", state_roots, height, output_file.display(),);
         new_near_config.genesis.to_file(&output_file);
     }
@@ -609,7 +616,7 @@ pub(crate) fn print_chain(
                         .get_block_producer(&epoch_id, header.height())
                         .map(|account_id| account_id.to_string())
                         .ok()
-                        .unwrap_or("error".to_owned());
+                        .unwrap_or_else(|| "error".to_owned());
                     account_id_to_blocks
                         .entry(block_producer.clone())
                         .and_modify(|e| *e += 1)
@@ -627,7 +634,7 @@ pub(crate) fn print_chain(
                         let chunk_producer = epoch_manager
                             .get_chunk_producer(&epoch_id, header.height(), shard_id as u64)
                             .map(|account_id| account_id.to_string())
-                            .unwrap_or("CP Unknown".to_owned());
+                            .unwrap_or_else(|_| "CP Unknown".to_owned());
                         if header.chunk_mask()[shard_id] {
                             let chunk_hash = &block.chunks()[shard_id].chunk_hash();
                             if let Ok(chunk) = chain_store.get_chunk(chunk_hash) {
@@ -670,7 +677,7 @@ pub(crate) fn print_chain(
             let block_producer = epoch_manager
                 .get_block_producer(epoch_id, height)
                 .map(|account_id| account_id.to_string())
-                .unwrap_or("error".to_owned());
+                .unwrap_or_else(|_| "error".to_owned());
             println!(
                 "{: >3} {} | {: >10}",
                 height,
@@ -953,7 +960,8 @@ fn load_trie_stop_at_height(
 
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store, near_config, epoch_manager.clone())
+            .expect("could not create the transaction runtime");
     let head = chain_store.head().unwrap();
     let last_block = match mode {
         LoadTrieMode::LastFinalFromHeight(height) => {
@@ -1139,7 +1147,7 @@ fn get_state_stats_group_by<'a>(
     // The flat state iterator is sorted by type, account id. In order to
     // rearrange it we get the iterators for each type and later merge them by
     // the account id.
-    let type_iters = NON_DELAYED_RECEIPT_COLUMNS
+    let type_iters = COLUMNS_WITH_ACCOUNT_ID_IN_KEY
         .iter()
         .map(|(type_byte, _)| {
             chunk_view.iter_flat_state_entries(Some(&[*type_byte]), Some(&[*type_byte + 1]))
@@ -1320,7 +1328,6 @@ impl std::fmt::Debug for StateStatsAccount {
 #[cfg(test)]
 mod tests {
     use near_chain::types::RuntimeAdapter;
-    use near_chain::ChainGenesis;
     use near_chain_configs::Genesis;
     use near_client::test_utils::TestEnv;
     use near_crypto::{InMemorySigner, KeyFile, KeyType};
@@ -1330,7 +1337,6 @@ mod tests {
     use near_primitives::types::AccountId;
     use near_store::genesis::initialize_genesis_state;
     use nearcore::config::Config;
-    use nearcore::config::GenesisExt;
     use nearcore::{NearConfig, NightshadeRuntime};
     use std::sync::Arc;
 
@@ -1342,7 +1348,6 @@ mod tests {
         near_o11y::testonly::init_test_logger();
         let validators = vec!["test0".parse::<AccountId>().unwrap()];
         let genesis = Genesis::test_sharded_new_version(validators, 1, vec![1]);
-        let chain_genesis = ChainGenesis::test();
 
         let tmp_dir = tempfile::tempdir().unwrap();
         let home_dir = tmp_dir.path();
@@ -1361,7 +1366,7 @@ mod tests {
         let epoch_managers = vec![epoch_manager];
         let runtimes = vec![runtime];
 
-        let mut env = TestEnv::builder(chain_genesis)
+        let mut env = TestEnv::builder(&genesis.config)
             .stores(stores)
             .epoch_managers(epoch_managers)
             .runtimes(runtimes)

@@ -1,12 +1,13 @@
 //! Client is responsible for tracking the chain, chunks, and producing them when needed.
 //! This client works completely synchronously and must be operated by some async actor outside.
 
-use crate::adapter::ProcessTxResponse;
+use crate::chunk_distribution_network::{ChunkDistributionClient, ChunkDistributionNetwork};
 use crate::chunk_inclusion_tracker::ChunkInclusionTracker;
 use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
+use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -15,12 +16,11 @@ use crate::sync::state::{StateSync, StateSyncResult};
 use crate::SyncAdapter;
 use crate::SyncMessage;
 use crate::{metrics, SyncStatus};
-use actix_rt::ArbiterHandle;
-use chrono::DateTime;
-use chrono::Utc;
 use itertools::Itertools;
+use near_async::futures::{AsyncComputationSpawner, FutureSpawner};
 use near_async::messaging::IntoSender;
 use near_async::messaging::{CanSend, Sender};
+use near_async::time::{Clock, Duration, Instant};
 use near_chain::chain::VerifyBlockHashAndSignatureResult;
 use near_chain::chain::{
     ApplyStatePartsRequest, BlockCatchUpRequest, BlockMissingChunks, BlocksCatchUpState,
@@ -52,6 +52,7 @@ use near_client_primitives::types::{
 };
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
+use near_network::client::ProcessTxResponse;
 use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, SetChainInfo};
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
@@ -73,7 +74,6 @@ use near_primitives::sharding::{
     ChunkHash, EncodedShardChunk, PartialEncodedChunk, ReedSolomonWrapper, ShardChunk,
     ShardChunkHeader, ShardInfo,
 };
-use near_primitives::static_clock::StaticClock;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
 use near_primitives::types::{AccountId, ApprovalStake, BlockHeight, EpochId, NumBlocks, ShardId};
@@ -88,17 +88,16 @@ use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::{Duration, Instant};
 use tracing::{debug, debug_span, error, info, trace, warn};
 
 const NUM_REBROADCAST_BLOCKS: usize = 30;
 
 /// The time we wait for the response to a Epoch Sync request before retrying
 // TODO #3488 set 30_000
-pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::from_millis(1_000);
+pub const EPOCH_SYNC_REQUEST_TIMEOUT: Duration = Duration::milliseconds(1_000);
 /// How frequently a Epoch Sync response can be sent to a particular peer
 // TODO #3488 set 60_000
-pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::from_millis(10);
+pub const EPOCH_SYNC_PEER_TIMEOUT: Duration = Duration::milliseconds(10);
 /// Drop blocks whose height are beyond head + horizon if it is not in the current epoch.
 const BLOCK_HORIZON: u64 = 500;
 
@@ -128,6 +127,7 @@ pub struct Client {
     #[cfg(feature = "sandbox")]
     pub(crate) accrued_fastforward_delta: near_primitives::types::BlockHeightDelta,
 
+    pub clock: Clock,
     pub config: ClientConfig,
     pub sync_status: SyncStatus,
     pub state_sync_adapter: Arc<RwLock<SyncAdapter>>,
@@ -181,7 +181,7 @@ pub struct Client {
 
     /// When the "sync block" was requested.
     /// The "sync block" is the last block of the previous epoch, i.e. `prev_hash` of the `sync_hash` block.
-    pub last_time_sync_block_requested: Option<DateTime<Utc>>,
+    pub last_time_sync_block_requested: Option<near_async::time::Utc>,
     /// Helper module for stateless validation functionality like chunk witness production, validation
     /// chunk endorsements tracking etc.
     pub chunk_validator: ChunkValidator,
@@ -190,6 +190,11 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
+    pub state_witness_tracker: ChunkStateWitnessTracker,
+
+    // Optional value used for the Chunk Distribution Network Feature.
+    chunk_distribution_network: Option<ChunkDistributionNetwork>,
 }
 
 impl Client {
@@ -215,7 +220,7 @@ pub struct BlockDebugStatus {
     // Chunk statuses are below:
     // We first sent the request to fetch the chunk
     // Later we get the response from the peer and we try to reconstruct it.
-    // If reconstructions suceeds, the chunk will be marked as complete.
+    // If reconstructions succeeds, the chunk will be marked as complete.
     // If it fails (or fragments are missing) - we're going to re-request the chunk again.
 
     // Chunks that we reqeusted (sent the request to peers).
@@ -235,6 +240,7 @@ pub struct ProduceChunkResult {
 
 impl Client {
     pub fn new(
+        clock: Clock,
         config: ClientConfig,
         chain_genesis: ChainGenesis,
         epoch_manager: Arc<dyn EpochManagerAdapter>,
@@ -247,6 +253,7 @@ impl Client {
         enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
+        async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<Self, Error> {
         let doomslug_threshold_mode = if enable_doomslug {
             DoomslugThresholdMode::TwoThirds
@@ -259,6 +266,7 @@ impl Client {
             resharding_config: config.resharding_config.clone(),
         };
         let chain = Chain::new(
+            clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime_adapter.clone(),
@@ -266,6 +274,7 @@ impl Client {
             doomslug_threshold_mode,
             chain_config.clone(),
             snapshot_callbacks,
+            async_computation_spawner.clone(),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
@@ -279,6 +288,7 @@ impl Client {
         let sync_status = SyncStatus::AwaitingPeers;
         let genesis_block = chain.genesis_block();
         let epoch_sync = EpochSync::new(
+            clock.clone(),
             network_adapter.clone(),
             genesis_block.header().epoch_id().clone(),
             genesis_block.header().next_epoch_id().clone(),
@@ -294,6 +304,7 @@ impl Client {
             EPOCH_SYNC_PEER_TIMEOUT,
         );
         let header_sync = HeaderSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.header_sync_initial_timeout,
             config.header_sync_progress_timeout,
@@ -301,6 +312,7 @@ impl Client {
             config.header_sync_expected_height_per_second,
         );
         let block_sync = BlockSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.block_fetch_horizon,
             config.archive,
@@ -322,6 +334,7 @@ impl Client {
         }
 
         let state_sync = StateSync::new(
+            clock.clone(),
             network_adapter.clone(),
             config.state_sync_timeout,
             &config.chain_id,
@@ -333,6 +346,7 @@ impl Client {
         let parity_parts = epoch_manager.num_total_parts() - data_parts;
 
         let doomslug = Doomslug::new(
+            clock.clone(),
             chain.chain_store().largest_target_height()?,
             config.min_block_production_delay,
             config.max_block_production_delay,
@@ -349,7 +363,10 @@ impl Client {
             network_adapter.clone().into_sender(),
             runtime_adapter.clone(),
             chunk_endorsement_tracker.clone(),
+            config.orphan_state_witness_pool_size,
+            async_computation_spawner,
         );
+        let chunk_distribution_network = ChunkDistributionNetwork::from_config(&config);
         Ok(Self {
             #[cfg(feature = "test_features")]
             adv_produce_blocks: None,
@@ -359,6 +376,7 @@ impl Client {
             produce_invalid_tx_in_chunks: false,
             #[cfg(feature = "sandbox")]
             accrued_fastforward_delta: 0,
+            clock: clock.clone(),
             config,
             sync_status,
             state_sync_adapter,
@@ -380,7 +398,7 @@ impl Client {
             challenges: Default::default(),
             rs_for_chunk_production: ReedSolomonWrapper::new(data_parts, parity_parts),
             rebroadcasted_blocks: lru::LruCache::new(NUM_REBROADCAST_BLOCKS),
-            last_time_head_progress_made: StaticClock::instant(),
+            last_time_head_progress_made: clock.now(),
             block_production_info: BlockProductionTracker::new(),
             chunk_production_info: lru::LruCache::new(PRODUCTION_TIMES_CACHE_SIZE),
             tier1_accounts_cache: None,
@@ -389,20 +407,22 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
+            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
+            chunk_distribution_network,
         })
     }
 
     // Checks if it's been at least `stall_timeout` since the last time the head was updated, or
     // this method was called. If yes, rebroadcasts the current head.
     pub fn check_head_progress_stalled(&mut self, stall_timeout: Duration) -> Result<(), Error> {
-        if StaticClock::instant() > self.last_time_head_progress_made + stall_timeout
+        if self.clock.now() > self.last_time_head_progress_made + stall_timeout
             && !self.sync_status.is_syncing()
         {
             let block = self.chain.get_block(&self.chain.head()?.last_block_hash)?;
             self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
                 NetworkRequests::Block { block: block },
             ));
-            self.last_time_head_progress_made = StaticClock::instant();
+            self.last_time_head_progress_made = self.clock.now();
         }
         Ok(())
     }
@@ -689,9 +709,9 @@ impl Client {
         };
 
         #[cfg(feature = "sandbox")]
-        let timestamp_override = Some(StaticClock::utc() + self.sandbox_delta_time());
+        let block_timestamp = self.clock.now_utc() + self.sandbox_delta_time();
         #[cfg(not(feature = "sandbox"))]
-        let timestamp_override = None;
+        let block_timestamp = self.clock.now_utc();
 
         // Get block extra from previous block.
         let block_merkle_tree = self.chain.chain_store().get_block_merkle_tree(&prev_hash)?;
@@ -725,8 +745,14 @@ impl Client {
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
-            chunk_headers[shard_id as usize] = chunk_header;
-            chunk_endorsements[shard_id as usize] = chunk_endorsement;
+            *chunk_headers
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_header;
+            *chunk_endorsements
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -778,7 +804,7 @@ impl Client {
             &*validator_signer,
             next_bp_hash,
             block_merkle_root,
-            timestamp_override,
+            block_timestamp,
         );
 
         // Update latest known even before returning block out, to prevent race conditions.
@@ -843,15 +869,11 @@ impl Client {
         let prepared_transactions =
             self.prepare_transactions(shard_uid, prev_block_hash, chunk_extra.as_ref())?;
         #[cfg(feature = "test_features")]
-        let prepared_transactions = PreparedTransactions {
-            transactions: Self::maybe_insert_invalid_transaction(
-                prepared_transactions.transactions,
-                prev_block_hash,
-                self.produce_invalid_tx_in_chunks,
-            ),
-            limited_by: prepared_transactions.limited_by,
-            storage_proof: prepared_transactions.storage_proof,
-        };
+        let prepared_transactions = Self::maybe_insert_invalid_transaction(
+            prepared_transactions,
+            prev_block_hash,
+            self.produce_invalid_tx_in_chunks,
+        );
         let num_filtered_transactions = prepared_transactions.transactions.len();
         let (tx_root, _) = merklize(&prepared_transactions.transactions);
         let outgoing_receipts = self.chain.get_outgoing_receipts_for_shard(
@@ -896,8 +918,10 @@ impl Client {
         self.chunk_production_info.put(
             (next_height, shard_id),
             ChunkProduction {
-                chunk_production_time: Some(StaticClock::utc()),
-                chunk_production_duration_millis: Some(timer.elapsed().as_millis() as u64),
+                chunk_production_time: Some(self.clock.now_utc()),
+                chunk_production_duration_millis: Some(
+                    (self.clock.now() - timer).whole_milliseconds().max(0) as u64,
+                ),
             },
         );
         if let Some(limit) = prepared_transactions.limited_by {
@@ -939,12 +963,12 @@ impl Client {
 
     #[cfg(feature = "test_features")]
     fn maybe_insert_invalid_transaction(
-        mut txs: Vec<SignedTransaction>,
+        mut txs: PreparedTransactions,
         prev_block_hash: CryptoHash,
         insert: bool,
-    ) -> Vec<SignedTransaction> {
+    ) -> PreparedTransactions {
         if insert {
-            txs.push(SignedTransaction::new(
+            txs.transactions.push(SignedTransaction::new(
                 near_crypto::Signature::empty(near_crypto::KeyType::ED25519),
                 near_primitives::transaction::Transaction::new(
                     "test".parse().unwrap(),
@@ -954,6 +978,9 @@ impl Client {
                     prev_block_hash,
                 ),
             ));
+            if txs.storage_proof.is_none() {
+                txs.storage_proof = Some(Default::default());
+            }
         }
         txs
     }
@@ -972,18 +999,11 @@ impl Client {
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
-            let me = self
-                .validator_signer
-                .as_ref()
-                .map(|validator_signer| validator_signer.validator_id().clone());
-            let record_storage = chain
-                .should_produce_state_witness_for_this_or_next_epoch(&me, &prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
-                record_storage,
             };
             runtime.prepare_transactions(
                 storage_config,
@@ -1079,11 +1099,7 @@ impl Client {
     ) -> Result<(), near_chain::Error> {
         let _span =
             debug_span!(target: "chain", "receive_block_impl", was_requested, ?peer_id).entered();
-        self.chain.blocks_delay_tracker.mark_block_received(
-            &block,
-            StaticClock::instant(),
-            StaticClock::utc(),
-        );
+        self.chain.blocks_delay_tracker.mark_block_received(&block);
         // To protect ourselves from spamming, we do some pre-check on block height before we do any
         // real processing.
         if !self.check_block_height(&block, was_requested)? {
@@ -1383,7 +1399,7 @@ impl Client {
         apply_chunks_done_callback: DoneApplyChunkCallback,
     ) {
         let chunk_header = partial_chunk.cloned_header();
-        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header, StaticClock::utc());
+        self.chain.blocks_delay_tracker.mark_chunk_completed(&chunk_header);
         self.block_production_info
             .record_chunk_collected(partial_chunk.height_created(), partial_chunk.shard_id());
 
@@ -1435,12 +1451,7 @@ impl Client {
             } else {
                 self.chain.get_block_header(&last_final_hash)?.height()
             };
-            self.doomslug.set_tip(
-                StaticClock::instant(),
-                tip.last_block_hash,
-                tip.height,
-                last_final_height,
-            );
+            self.doomslug.set_tip(tip.last_block_hash, tip.height, last_final_height);
         }
 
         Ok(())
@@ -1457,33 +1468,28 @@ impl Client {
         } else {
             self.chain.get_block_header(&last_final_hash)?.height()
         };
-        self.doomslug.set_tip(
-            StaticClock::instant(),
-            tip.last_block_hash,
-            height,
-            last_final_height,
-        );
+        self.doomslug.set_tip(tip.last_block_hash, height, last_final_height);
 
         Ok(())
     }
 
     /// Gets the advanced timestamp delta in nanoseconds for sandbox once it has been fast-forwarded
     #[cfg(feature = "sandbox")]
-    pub fn sandbox_delta_time(&self) -> chrono::Duration {
-        let avg_block_prod_time = (self.config.min_block_production_delay.as_nanos()
-            + self.config.max_block_production_delay.as_nanos())
+    pub fn sandbox_delta_time(&self) -> Duration {
+        let avg_block_prod_time = (self.config.min_block_production_delay.whole_nanoseconds()
+            + self.config.max_block_production_delay.whole_nanoseconds())
             / 2;
 
-        let ns = (self.accrued_fastforward_delta as u128 * avg_block_prod_time)
+        let ns = (self.accrued_fastforward_delta as i128 * avg_block_prod_time)
             .try_into()
             .unwrap_or_else(|_| {
                 panic!(
-                    "Too high of a delta_height {} to convert into u64",
+                    "Too high of a delta_height {} to convert into i64",
                     self.accrued_fastforward_delta
                 )
             });
 
-        chrono::Duration::nanoseconds(ns)
+        Duration::nanoseconds(ns)
     }
 
     pub fn send_approval(
@@ -1637,6 +1643,8 @@ impl Client {
 
         self.shards_manager_adapter
             .send(ShardsManagerRequestFromClient::CheckIncompleteChunks(*block.hash()));
+
+        self.process_ready_orphan_witnesses_and_clean_old(&block);
     }
 
     /// Reconcile the transaction pool after processing a block.
@@ -1789,8 +1797,22 @@ impl Client {
             Some(shard_chunk.clone()),
             self.chain.mut_chain_store(),
         )?;
+
+        let chunk_header = encoded_chunk.cloned_header();
+        if let Some(chunk_distribution) = &self.chunk_distribution_network {
+            if chunk_distribution.enabled() {
+                let partial_chunk = partial_chunk.clone();
+                let mut thread_local_client = chunk_distribution.clone();
+                near_performance_metrics::actix::spawn("ChunkDistributionNetwork", async move {
+                    if let Err(err) = thread_local_client.publish_chunk(&partial_chunk).await {
+                        error!(target: "client", ?err, "Failed to distribute chunk via Chunk Distribution Network");
+                    }
+                });
+            }
+        }
+
         self.chunk_inclusion_tracker
-            .mark_chunk_header_ready_for_inclusion(encoded_chunk.cloned_header(), validator_id);
+            .mark_chunk_header_ready_for_inclusion(chunk_header, validator_id);
         self.shards_manager_adapter.send(ShardsManagerRequestFromClient::DistributeEncodedChunk {
             partial_chunk,
             encoded_chunk,
@@ -1811,10 +1833,28 @@ impl Client {
             ?blocks_missing_chunks,
             ?orphans_missing_chunks)
         .entered();
-        let now = StaticClock::utc();
+        if let Some(chunk_distribution) = &self.chunk_distribution_network {
+            if chunk_distribution.enabled() {
+                return crate::chunk_distribution_network::request_missing_chunks(
+                    blocks_missing_chunks,
+                    orphans_missing_chunks,
+                    chunk_distribution.clone(),
+                    &mut self.chain.blocks_delay_tracker,
+                    &self.shards_manager_adapter,
+                );
+            }
+        }
+        self.p2p_request_missing_chunks(blocks_missing_chunks, orphans_missing_chunks);
+    }
+
+    fn p2p_request_missing_chunks(
+        &mut self,
+        blocks_missing_chunks: Vec<BlockMissingChunks>,
+        orphans_missing_chunks: Vec<OrphanMissingChunks>,
+    ) {
         for BlockMissingChunks { prev_hash, missing_chunks } in blocks_missing_chunks {
             for chunk in &missing_chunks {
-                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
+                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk);
             }
             self.shards_manager_adapter.send(ShardsManagerRequestFromClient::RequestChunks {
                 chunks_to_request: missing_chunks,
@@ -1826,7 +1866,7 @@ impl Client {
             orphans_missing_chunks
         {
             for chunk in &missing_chunks {
-                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk, now);
+                self.chain.blocks_delay_tracker.mark_chunk_requested(chunk);
             }
             self.shards_manager_adapter.send(
                 ShardsManagerRequestFromClient::RequestChunksForOrphan {
@@ -2035,7 +2075,7 @@ impl Client {
                     return;
                 }
             };
-        self.doomslug.on_approval_message(StaticClock::instant(), approval, &block_producer_stakes);
+        self.doomslug.on_approval_message(approval, &block_producer_stakes);
     }
 
     /// Forwards given transaction to upcoming validators.
@@ -2284,11 +2324,11 @@ impl Client {
     pub fn run_catchup(
         &mut self,
         highest_height_peers: &[HighestHeightPeerInfo],
-        state_parts_task_scheduler: &dyn Fn(ApplyStatePartsRequest),
-        block_catch_up_task_scheduler: &dyn Fn(BlockCatchUpRequest),
-        resharding_scheduler: &dyn Fn(ReshardingRequest),
+        state_parts_task_scheduler: &Sender<ApplyStatePartsRequest>,
+        block_catch_up_task_scheduler: &Sender<BlockCatchUpRequest>,
+        resharding_scheduler: &Sender<ReshardingRequest>,
         apply_chunks_done_callback: DoneApplyChunkCallback,
-        state_parts_arbiter_handle: &ArbiterHandle,
+        state_parts_future_spawner: &dyn FutureSpawner,
     ) -> Result<(), Error> {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
@@ -2307,6 +2347,7 @@ impl Client {
                     notify_state_sync = true;
                     (
                         StateSync::new(
+                            self.clock.clone(),
                             network_adapter,
                             state_sync_timeout,
                             &self.config.chain_id,
@@ -2359,7 +2400,7 @@ impl Client {
                 tracking_shards,
                 state_parts_task_scheduler,
                 resharding_scheduler,
-                state_parts_arbiter_handle,
+                state_parts_future_spawner,
                 use_colour,
                 self.runtime_adapter.clone(),
             )? {
@@ -2560,7 +2601,7 @@ impl Client {
             tracing::debug_span!(target: "client", "get_tier1_accounts(): recomputing").entered();
 
         // What we really need are: chunk producers, block producers and block approvers for
-        // this epoch and the beginnig of the next epoch (so that all required connections are
+        // this epoch and the beginning of the next epoch (so that all required connections are
         // established in advance). Note that block producers and block approvers are not
         // exactly the same - last blocks of this epoch will also need to be signed by the
         // block producers of the next epoch. On the other hand, block approvers

@@ -456,7 +456,8 @@ impl TxTracker {
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
         if let Some(s) = &self.send_time {
-            tokio::time::sleep_until(s.as_ref().deadline() - Duration::from_millis(20)).await;
+            tokio::time::sleep_until(s.as_ref().deadline() - std::time::Duration::from_millis(20))
+                .await;
         }
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
@@ -853,7 +854,7 @@ impl TxTracker {
                     }
                 }
             }
-            _ => {}
+            ReceiptEnumView::Data { .. } => {}
         };
         Ok(())
     }
@@ -1005,7 +1006,7 @@ impl TxTracker {
 
     // among the last 10 blocks, what's the second longest time between their timestamps?
     // probably there's a better heuristic to use than that but this will do for now.
-    // TODO: it's possible these tiimestamps are just increasing by one nanosecond each time
+    // TODO: it's possible these timestamps are just increasing by one nanosecond each time
     // if block producers' clocks are off. should handle that case
     fn second_longest_recent_block_delay(&self) -> Option<Duration> {
         if self.recent_block_timestamps.len() < 5 {

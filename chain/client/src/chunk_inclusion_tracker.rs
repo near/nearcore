@@ -1,27 +1,35 @@
-use chrono::{DateTime, Utc};
 use itertools::Itertools;
 use lru::LruCache;
-use std::collections::HashMap;
-
+use near_async::time::Utc;
 use near_chain_primitives::Error;
+use near_o11y::log_assert_fail;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::types::{AccountId, EpochId, ShardId};
+use std::collections::HashMap;
 
 use crate::metrics;
-use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
+use crate::stateless_validation::chunk_endorsement_tracker::{
+    ChunkEndorsementTracker, ChunkEndorsementsState,
+};
 
 const CHUNK_HEADERS_FOR_INCLUSION_CACHE_SIZE: usize = 2048;
 const NUM_EPOCH_CHUNK_PRODUCERS_TO_KEEP_IN_BLOCKLIST: usize = 1000;
 
 // chunk_header, received_time and chunk_producer are populated when we call mark_chunk_header_ready_for_inclusion
-// signatures is populated later during call to prepare_chunk_headers_ready_for_inclusion
+// endorsements is populated later during call to prepare_chunk_headers_ready_for_inclusion
 struct ChunkInfo {
     pub chunk_header: ShardChunkHeader,
-    pub received_time: DateTime<Utc>,
+    pub received_time: Utc,
     pub chunk_producer: AccountId,
-    pub signatures: Option<ChunkEndorsementSignatures>,
+    pub endorsements: ChunkEndorsementsState,
+}
+
+impl ChunkInfo {
+    fn is_endorsed(&self) -> bool {
+        matches!(self.endorsements, ChunkEndorsementsState::Endorsed(_, _))
+    }
 }
 
 pub struct ChunkInclusionTracker {
@@ -71,8 +79,12 @@ impl ChunkInclusionTracker {
         }
         // Insert chunk info in chunk_hash_to_chunk_info. This would be cleaned up later during eviction
         let chunk_hash = chunk_header.chunk_hash();
-        let chunk_info =
-            ChunkInfo { chunk_header, received_time: Utc::now(), chunk_producer, signatures: None };
+        let chunk_info = ChunkInfo {
+            chunk_header,
+            received_time: Utc::now_utc(),
+            chunk_producer,
+            endorsements: ChunkEndorsementsState::NotEnoughStake(None),
+        };
         self.chunk_hash_to_chunk_info.insert(chunk_hash, chunk_info);
     }
 
@@ -101,8 +113,8 @@ impl ChunkInclusionTracker {
 
         for chunk_hash in entry.values() {
             let chunk_info = self.chunk_hash_to_chunk_info.get_mut(chunk_hash).unwrap();
-            chunk_info.signatures =
-                endorsement_tracker.get_chunk_endorsement_signatures(&chunk_info.chunk_header)?;
+            chunk_info.endorsements =
+                endorsement_tracker.compute_chunk_endorsements(&chunk_info.chunk_header)?;
         }
         Ok(())
     }
@@ -122,18 +134,6 @@ impl ChunkInclusionTracker {
         banned
     }
 
-    fn has_chunk_endorsements(&self, chunk_info: &ChunkInfo) -> bool {
-        let has_chunk_endorsements = chunk_info.signatures.is_some();
-        if !has_chunk_endorsements {
-            tracing::warn!(
-                target: "client",
-                chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
-                chunk_producer = ?chunk_info.chunk_producer,
-                "Not including chunk because of insufficient chunk endorsements");
-        }
-        has_chunk_endorsements
-    }
-
     /// Function to return the chunks that are ready to be included in a block.
     /// We filter out the chunks that are produced by banned chunk producers or have insufficient
     /// chunk validator endorsements.
@@ -151,7 +151,15 @@ impl ChunkInclusionTracker {
         for (shard_id, chunk_hash) in entry {
             let chunk_info = self.chunk_hash_to_chunk_info.get(chunk_hash).unwrap();
             let banned = self.is_banned(epoch_id, &chunk_info);
-            let has_chunk_endorsements = self.has_chunk_endorsements(&chunk_info);
+            let has_chunk_endorsements = chunk_info.is_endorsed();
+            if !has_chunk_endorsements {
+                tracing::debug!(
+                    target: "client",
+                    chunk_hash = ?chunk_info.chunk_header.chunk_hash(),
+                    chunk_producer = ?chunk_info.chunk_producer,
+                    "Not including chunk because of insufficient chunk endorsements"
+                );
+            }
             if !banned && has_chunk_endorsements {
                 // only add to chunk_headers_ready_for_inclusion if chunk is not from a banned chunk producer
                 // and chunk has sufficient chunk endorsements.
@@ -191,15 +199,45 @@ impl ChunkInclusionTracker {
     ) -> Result<(ShardChunkHeader, ChunkEndorsementSignatures), Error> {
         let chunk_info = self.get_chunk_info(chunk_hash)?;
         let chunk_header = chunk_info.chunk_header.clone();
-        let signatures = chunk_info.signatures.clone().unwrap_or_default();
+        let signatures = match &chunk_info.endorsements {
+            ChunkEndorsementsState::Endorsed(_, signatures) => signatures.clone(),
+            ChunkEndorsementsState::NotEnoughStake(_) => vec![],
+        };
         Ok((chunk_header, signatures))
     }
 
     pub fn get_chunk_producer_and_received_time(
         &self,
         chunk_hash: &ChunkHash,
-    ) -> Result<(AccountId, DateTime<Utc>), Error> {
+    ) -> Result<(AccountId, Utc), Error> {
         let chunk_info = self.get_chunk_info(chunk_hash)?;
         Ok((chunk_info.chunk_producer.clone(), chunk_info.received_time))
+    }
+
+    pub fn record_endorsement_metrics(&self, prev_block_hash: &CryptoHash) {
+        let Some(entry) = self.prev_block_to_chunk_hash_ready.peek(prev_block_hash) else {
+            return;
+        };
+
+        for (shard_id, chunk_hash) in entry {
+            let Some(chunk_info) = self.chunk_hash_to_chunk_info.get(chunk_hash) else {
+                log_assert_fail!("Chunk info is missing for shard {shard_id} chunk {chunk_hash:?}");
+                continue;
+            };
+            let Some(stats) = chunk_info.endorsements.stats() else {
+                continue;
+            };
+            let shard_label = shard_id.to_string();
+            let label_values = &[shard_label.as_ref()];
+            metrics::BLOCK_PRODUCER_ENDORSED_STAKE_RATIO
+                .with_label_values(label_values)
+                .observe(stats.endorsed_stake as f64 / stats.total_stake as f64);
+            metrics::BLOCK_PRODUCER_MISSING_ENDORSEMENT_COUNT
+                .with_label_values(label_values)
+                .observe(
+                    (stats.total_validators_count.saturating_sub(stats.endorsed_validators_count))
+                        as f64,
+                );
+        }
     }
 }

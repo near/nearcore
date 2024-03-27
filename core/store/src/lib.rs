@@ -1,34 +1,5 @@
 extern crate core;
 
-use std::fs::File;
-use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
-use std::{fmt, io};
-
-use borsh::{BorshDeserialize, BorshSerialize};
-use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
-use once_cell::sync::Lazy;
-use strum;
-
-pub use columns::DBCol;
-pub use db::{
-    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
-    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
-    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
-};
-use near_crypto::PublicKey;
-use near_fmt::{AbbrBytes, StorageKey};
-use near_primitives::account::{AccessKey, Account};
-pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
-use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
-pub use near_primitives::shard_layout::ShardUId;
-use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, StateRoot};
-use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
-use near_vm_runner::ContractCode;
-
 use crate::db::{refcount, DBIterator, DBOp, DBSlice, DBTransaction, Database, StoreStatistics};
 pub use crate::trie::iterator::{TrieIterator, TrieTraversalItem};
 pub use crate::trie::update::{TrieUpdate, TrieUpdateIterator, TrieUpdateValuePtr};
@@ -37,7 +8,36 @@ pub use crate::trie::{
     PartialStorage, PrefetchApi, PrefetchError, RawTrieNode, RawTrieNodeWithSize, ShardTries,
     StateSnapshot, StateSnapshotConfig, Trie, TrieAccess, TrieCache, TrieCachingStorage,
     TrieChanges, TrieConfig, TrieDBStorage, TrieStorage, WrappedTrieChanges,
+    STATE_SNAPSHOT_COLUMNS,
 };
+use borsh::{BorshDeserialize, BorshSerialize};
+pub use columns::DBCol;
+pub use db::{
+    CHUNK_TAIL_KEY, COLD_HEAD_KEY, FINAL_HEAD_KEY, FORK_TAIL_KEY, GENESIS_JSON_HASH_KEY,
+    GENESIS_STATE_ROOTS_KEY, HEADER_HEAD_KEY, HEAD_KEY, LARGEST_TARGET_HEIGHT_KEY,
+    LATEST_KNOWN_KEY, STATE_SNAPSHOT_KEY, STATE_SYNC_DUMP_KEY, TAIL_KEY,
+};
+use metadata::{DbKind, DbVersion, KIND_KEY, VERSION_KEY};
+use near_crypto::PublicKey;
+use near_fmt::{AbbrBytes, StorageKey};
+use near_primitives::account::{AccessKey, Account};
+pub use near_primitives::errors::{MissingTrieValueContext, StorageError};
+use near_primitives::hash::CryptoHash;
+use near_primitives::receipt::{
+    DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum,
+    ReceivedData,
+};
+pub use near_primitives::shard_layout::ShardUId;
+use near_primitives::trie_key::{trie_key_parsers, TrieKey};
+use near_primitives::types::{AccountId, BlockHeight, StateRoot};
+use near_vm_runner::{CompiledContractInfo, ContractCode, ContractRuntimeCache};
+use once_cell::sync::Lazy;
+use std::fs::File;
+use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::{fmt, io};
+use strum;
 
 pub mod cold_storage;
 mod columns;
@@ -570,7 +570,7 @@ impl StoreUpdate {
     ///
     /// Panics if `self`’s and `other`’s storage are incompatible.
     pub fn merge(&mut self, other: StoreUpdate) {
-        assert!(same_db(&self.storage, &other.storage));
+        assert!(core::ptr::addr_eq(Arc::as_ptr(&self.storage), Arc::as_ptr(&other.storage)));
         self.transaction.merge(other.transaction)
     }
 
@@ -621,13 +621,6 @@ impl StoreUpdate {
         }
         self.storage.write(self.transaction)
     }
-}
-
-fn same_db(lhs: &Arc<dyn Database>, rhs: &Arc<dyn Database>) -> bool {
-    // Note: avoid comparing wide pointers here to work-around
-    // https://github.com/rust-lang/rust/issues/69757
-    let addr = |arc| Arc::as_ptr(arc) as *const u8;
-    return addr(lhs) == addr(rhs);
 }
 
 impl fmt::Debug for StoreUpdate {
@@ -712,6 +705,7 @@ pub fn has_received_data(
 }
 
 pub fn set_postponed_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    assert!(matches!(receipt.receipt, ReceiptEnum::Action(_)));
     let key = TrieKey::PostponedReceipt {
         receiver_id: receipt.receiver_id.clone(),
         receipt_id: receipt.receipt_id,
@@ -756,6 +750,79 @@ pub fn set_delayed_receipt(
         .next_available_index
         .checked_add(1)
         .expect("Next available index for delayed receipt exceeded the integer limit");
+}
+
+pub fn get_promise_yield_indices(
+    trie: &dyn TrieAccess,
+) -> Result<PromiseYieldIndices, StorageError> {
+    Ok(get(trie, &TrieKey::PromiseYieldIndices)?.unwrap_or_default())
+}
+
+pub fn set_promise_yield_indices(
+    state_update: &mut TrieUpdate,
+    promise_yield_indices: &PromiseYieldIndices,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+    set(state_update, TrieKey::PromiseYieldIndices, promise_yield_indices);
+}
+
+// Enqueues given timeout to the PromiseYield timeout queue
+pub fn enqueue_promise_yield_timeout(
+    state_update: &mut TrieUpdate,
+    promise_yield_indices: &mut PromiseYieldIndices,
+    account_id: AccountId,
+    data_id: CryptoHash,
+    expires_at: BlockHeight,
+) {
+    assert!(cfg!(feature = "yield_resume"));
+    set(
+        state_update,
+        TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
+        &PromiseYieldTimeout { account_id, data_id, expires_at },
+    );
+    promise_yield_indices.next_available_index = promise_yield_indices
+        .next_available_index
+        .checked_add(1)
+        .expect("Next available index for PromiseYield timeout queue exceeded the integer limit");
+}
+
+pub fn set_promise_yield_receipt(state_update: &mut TrieUpdate, receipt: &Receipt) {
+    assert!(cfg!(feature = "yield_resume"));
+    match &receipt.receipt {
+        ReceiptEnum::PromiseYield(ref action_receipt) => {
+            assert!(action_receipt.input_data_ids.len() == 1);
+            let key = TrieKey::PromiseYieldReceipt {
+                receiver_id: receipt.receiver_id.clone(),
+                data_id: action_receipt.input_data_ids[0],
+            };
+            set(state_update, key, receipt);
+        }
+        _ => unreachable!("Expected PromiseYield receipt"),
+    }
+}
+
+pub fn remove_promise_yield_receipt(
+    state_update: &mut TrieUpdate,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) {
+    state_update.remove(TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id });
+}
+
+pub fn get_promise_yield_receipt(
+    trie: &dyn TrieAccess,
+    receiver_id: &AccountId,
+    data_id: CryptoHash,
+) -> Result<Option<Receipt>, StorageError> {
+    get(trie, &TrieKey::PromiseYieldReceipt { receiver_id: receiver_id.clone(), data_id })
+}
+
+pub fn has_promise_yield_receipt(
+    trie: &dyn TrieAccess,
+    receiver_id: AccountId,
+    data_id: CryptoHash,
+) -> Result<bool, StorageError> {
+    trie.contains_key(&TrieKey::PromiseYieldReceipt { receiver_id, data_id })
 }
 
 pub fn set_access_key(
@@ -885,11 +952,12 @@ where
     }
 }
 
-pub struct StoreCompiledContractCache {
+#[derive(Clone)]
+pub struct StoreContractRuntimeCache {
     db: Arc<dyn Database>,
 }
 
-impl StoreCompiledContractCache {
+impl StoreContractRuntimeCache {
     pub fn new(store: &Store) -> Self {
         Self { db: store.storage.clone() }
     }
@@ -899,8 +967,15 @@ impl StoreCompiledContractCache {
 /// We store contracts in VM-specific format in DBCol::CachedContractCode.
 /// Key must take into account VM being used and its configuration, so that
 /// we don't cache non-gas metered binaries, for example.
-impl CompiledContractCache for StoreCompiledContractCache {
-    fn put(&self, key: &CryptoHash, value: CompiledContract) -> io::Result<()> {
+impl ContractRuntimeCache for StoreContractRuntimeCache {
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreContractRuntimeCache::put",
+        skip_all,
+        fields(key = key.to_string(), value.len = value.compiled.debug_len()),
+    )]
+    fn put(&self, key: &CryptoHash, value: CompiledContractInfo) -> io::Result<()> {
         let mut update = crate::db::DBTransaction::new();
         // We intentionally use `.set` here, rather than `.insert`. We don't yet
         // guarantee deterministic compilation, so, if we happen to compile the
@@ -914,9 +989,16 @@ impl CompiledContractCache for StoreCompiledContractCache {
         self.db.write(update)
     }
 
-    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContract>> {
+    #[tracing::instrument(
+        level = "trace",
+        target = "store",
+        "StoreContractRuntimeCache::get",
+        skip_all,
+        fields(key = key.to_string()),
+    )]
+    fn get(&self, key: &CryptoHash) -> io::Result<Option<CompiledContractInfo>> {
         match self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()) {
-            Ok(Some(bytes)) => Ok(Some(CompiledContract::try_from_slice(&bytes)?)),
+            Ok(Some(bytes)) => Ok(Some(CompiledContractInfo::try_from_slice(&bytes)?)),
             Ok(None) => Ok(None),
             Err(err) => Err(err),
         }
@@ -925,11 +1007,16 @@ impl CompiledContractCache for StoreCompiledContractCache {
     fn has(&self, key: &CryptoHash) -> io::Result<bool> {
         self.db.get_raw_bytes(DBCol::CachedContractCode, key.as_ref()).map(|entry| entry.is_some())
     }
+
+    fn handle(&self) -> Box<dyn ContractRuntimeCache> {
+        Box::new(self.clone())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use near_primitives::hash::CryptoHash;
+    use near_vm_runner::CompiledContractInfo;
 
     use super::{DBCol, NodeStorage, Store};
 
@@ -1040,20 +1127,23 @@ mod tests {
         test_iter_order_impl(crate::test_utils::create_test_store());
     }
 
-    /// Check StoreCompiledContractCache implementation.
+    /// Check StoreContractRuntimeCache implementation.
     #[test]
     fn test_store_compiled_contract_cache() {
-        use near_vm_runner::logic::{CompiledContract, CompiledContractCache};
+        use near_vm_runner::{CompiledContract, ContractRuntimeCache};
         use std::str::FromStr;
 
         let store = crate::test_utils::create_test_store();
-        let cache = super::StoreCompiledContractCache::new(&store);
+        let cache = super::StoreContractRuntimeCache::new(&store);
         let key = CryptoHash::from_str("75pAU4CJcp8Z9eoXcL6pSU8sRK5vn3NEpgvUrzZwQtr3").unwrap();
 
         assert_eq!(None, cache.get(&key).unwrap());
         assert_eq!(false, cache.has(&key).unwrap());
 
-        let record = CompiledContract::Code(b"foo".to_vec());
+        let record = CompiledContractInfo {
+            wasm_bytes: 3,
+            compiled: CompiledContract::Code(b"foo".to_vec()),
+        };
         cache.put(&key, record.clone()).unwrap();
         assert_eq!(Some(record), cache.get(&key).unwrap());
         assert_eq!(true, cache.has(&key).unwrap());

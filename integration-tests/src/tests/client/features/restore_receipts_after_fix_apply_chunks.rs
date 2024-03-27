@@ -1,5 +1,6 @@
 use crate::tests::client::process_blocks::set_block_protocol_version;
-use near_chain::{ChainGenesis, Provenance};
+use near_chain::runtime::migrations::load_migration_data;
+use near_chain::Provenance;
 use near_chain_configs::Genesis;
 use near_client::test_utils::TestEnv;
 use near_o11y::testonly::init_test_logger;
@@ -7,8 +8,6 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::runtime::migration_data::MigrationData;
 use near_primitives::types::BlockHeight;
 use near_primitives::version::ProtocolFeature;
-use nearcore::config::GenesisExt;
-use nearcore::migrations::load_migration_data;
 use nearcore::test_utils::TestEnvNightshadeSetupExt;
 use std::collections::HashSet;
 
@@ -29,14 +28,10 @@ fn run_test(
     genesis.config.chain_id = String::from(chain_id);
     genesis.config.epoch_length = EPOCH_LENGTH;
     genesis.config.protocol_version = protocol_version;
-    let chain_genesis = ChainGenesis::new(&genesis);
     // TODO #4305: get directly from NightshadeRuntime
     let migration_data = load_migration_data(&genesis.config.chain_id);
 
-    let mut env = TestEnv::builder(chain_genesis)
-        .real_epoch_managers(&genesis.config)
-        .nightshade_runtimes(&genesis)
-        .build();
+    let mut env = TestEnv::builder(&genesis.config).nightshade_runtimes(&genesis).build();
 
     let get_restored_receipt_hashes = |migration_data: &MigrationData| -> HashSet<CryptoHash> {
         HashSet::from_iter(

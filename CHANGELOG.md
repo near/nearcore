@@ -4,6 +4,12 @@
 
 ### Protocol Changes
 
+### Non-protocol Changes
+
+## 1.37.0
+
+### Protocol Changes
+
 * Resharding v2 - new implementation for resharding and a new shard layout for production networks. [#10303](https://github.com/near/nearcore/pull/10303), [NEP-0508](https://github.com/near/NEPs/pull/508)
 * Restrict the creation of non-implicit top-level account that are longer than 32 bytes. Only the registrar account can create them. [#9589](https://github.com/near/nearcore/pull/9589)
 * Adjust the number of block producers and chunk producers on testnet to facilitate testing of chunk-only producers [#9563](https://github.com/near/nearcore/pull/9563)

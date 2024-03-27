@@ -3,6 +3,7 @@ use crate::types::{
     ApplyChunkBlockContext, ApplyChunkResult, ApplyChunkShardContext, ApplyResultForResharding,
     ReshardingResults, RuntimeAdapter, RuntimeStorageConfig, StorageDataSource,
 };
+use near_async::time::Clock;
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -114,7 +115,6 @@ pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
-    pub record_storage: bool,
 }
 
 /// Processes shard update with given block and shard.
@@ -178,13 +178,12 @@ pub fn apply_new_chunk(
     .entered();
     let gas_limit = chunk_header.gas_limit();
 
-    let _timer = CryptoHashTimer::new(chunk_header.chunk_hash().0);
+    let _timer = CryptoHashTimer::new(Clock::real(), chunk_header.chunk_hash().0);
     let storage_config = RuntimeStorageConfig {
         state_root: chunk_header.prev_state_root(),
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -246,7 +245,6 @@ pub fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,

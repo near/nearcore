@@ -1,15 +1,16 @@
 use actix::{Actor, Addr};
 use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
-use near_async::messaging::{IntoSender, LateBoundSender, Sender};
-use near_async::time;
-use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
+use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
+use near_async::time::{self, Clock};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::ClientConfig;
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
+use near_client::adapter::client_sender_for_network;
 use near_client::{start_client, start_view_client, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
@@ -26,7 +27,9 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::genesis::initialize_genesis_state;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
@@ -47,18 +50,25 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-    let store = near_store::test_utils::create_test_node_storage_default();
-
+    let node_storage = near_store::test_utils::create_test_node_storage_default();
     let num_validators = validators.len() as ValidatorId;
 
-    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let epoch_manager = MockEpochManager::new_with_validators(store.get_hot_store(), vs, 5);
+    let mut genesis = Genesis::test(validators, 1);
+    genesis.config.epoch_length = 5;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store.get_hot_store(), epoch_manager.as_ref());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        node_storage.get_hot_store(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
-    let db = store.into_inner(near_store::Temperature::Hot);
+    let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config =
         ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;
@@ -70,12 +80,13 @@ fn setup_network_node(
         chain_id: client_config.chain_id.clone(),
         hash: *genesis_block.header().hash(),
     };
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let shards_manager_adapter = Arc::new(LateBoundSender::default());
+    let network_adapter = LateBoundSender::new();
+    let shards_manager_adapter = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::default();
     let state_sync_adapter =
-        Arc::new(RwLock::new(SyncAdapter::new(Sender::noop(), Sender::noop())));
+        Arc::new(RwLock::new(SyncAdapter::new(noop().into_sender(), noop().into_sender())));
     let client_actor = start_client(
+        Clock::real(),
         client_config.clone(),
         chain_genesis.clone(),
         epoch_manager.clone(),
@@ -83,7 +94,7 @@ fn setup_network_node(
         runtime.clone(),
         config.node_id(),
         state_sync_adapter,
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         shards_manager_adapter.as_sender(),
         Some(signer.clone()),
         telemetry_actor,
@@ -94,12 +105,13 @@ fn setup_network_node(
     )
     .0;
     let view_client_actor = start_view_client(
+        Clock::real(),
         config.validator.as_ref().map(|v| v.account_id()),
         chain_genesis,
         epoch_manager.clone(),
         shard_tracker.clone(),
         runtime.clone(),
-        network_adapter.clone().into(),
+        network_adapter.as_multi_sender(),
         client_config.clone(),
         adv,
     );
@@ -117,7 +129,7 @@ fn setup_network_node(
         time::Clock::real(),
         db.clone(),
         config,
-        Arc::new(near_client::adapter::Adapter::new(client_actor, view_client_actor)),
+        client_sender_for_network(client_actor, view_client_actor),
         shards_manager_adapter.as_sender(),
         genesis_id,
     )
@@ -295,12 +307,8 @@ impl Runner {
         let test_config: Vec<_> = (0..num_nodes).map(TestConfig::new).collect();
         let validators =
             test_config[0..num_validators].iter().map(|c| c.account_id.clone()).collect();
-        Self {
-            test_config,
-            validators,
-            state_machine: StateMachine::new(),
-            chain_genesis: ChainGenesis::test(),
-        }
+        let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
+        Self { test_config, validators, state_machine: StateMachine::new(), chain_genesis }
     }
 
     /// Add node `v` to the whitelist of node `u`.
@@ -479,7 +487,7 @@ pub(crate) fn start_test(runner: Runner) -> anyhow::Result<()> {
 
 impl RunningInfo {
     fn get_node(&self, node_id: usize) -> anyhow::Result<&NodeHandle> {
-        self.nodes[node_id].as_ref().ok_or(anyhow!("node is down"))
+        self.nodes[node_id].as_ref().ok_or_else(|| anyhow!("node is down"))
     }
     fn stop_node(&mut self, node_id: usize) {
         tracing::debug!("stopping {node_id}");

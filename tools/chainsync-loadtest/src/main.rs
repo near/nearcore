@@ -4,8 +4,10 @@ mod network;
 
 use anyhow::{anyhow, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
+use near_async::messaging::noop;
+use near_async::messaging::IntoMultiSender;
+use near_async::messaging::IntoSender;
 use near_async::messaging::LateBoundSender;
-use near_async::messaging::Sender;
 use near_async::time;
 use near_chain_configs::Genesis;
 use near_network::concurrency::ctx;
@@ -33,15 +35,15 @@ fn genesis_hash(chain_id: &str) -> CryptoHash {
 }
 
 pub fn start_with_config(config: NearConfig, qps_limit: u32) -> anyhow::Result<Arc<Network>> {
-    let network_adapter = Arc::new(LateBoundSender::default());
-    let network = Network::new(&config, network_adapter.clone().into(), qps_limit);
+    let network_adapter = LateBoundSender::new();
+    let network = Network::new(&config, network_adapter.as_multi_sender(), qps_limit);
 
     let network_actor = PeerManagerActor::spawn(
         time::Clock::real(),
         near_store::db::TestDB::new(),
         config.network_config,
-        network.clone(),
-        Sender::noop(),
+        network.as_client_adapter(),
+        noop().into_sender(),
         GenesisId {
             chain_id: config.client_config.chain_id.clone(),
             hash: genesis_hash(&config.client_config.chain_id),

@@ -13,7 +13,7 @@ use near_store::flat::{
     FlatStorageManager, FlatStorageStatus,
 };
 use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
-use nearcore::{load_config, NearConfig, NightshadeRuntime};
+use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
@@ -156,7 +156,8 @@ impl FlatStorageCommand {
             node_storage.get_hot_store(),
             &near_config,
             epoch_manager.clone(),
-        );
+        )
+        .expect("could not create transaction runtime");
         let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
         let hot_store = node_storage.get_hot_store();
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)

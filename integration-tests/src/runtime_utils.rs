@@ -10,7 +10,6 @@ use near_primitives_core::types::NumShards;
 use near_store::genesis::GenesisStateApplier;
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{ShardTries, TrieUpdate};
-use nearcore::config::GenesisExt;
 use node_runtime::{state_viewer::TrieViewer, Runtime};
 use testlib::runtime_utils::{add_test_contract, alice_account, bob_account};
 
@@ -49,7 +48,7 @@ pub fn get_runtime_and_trie_from_genesis(genesis: &Genesis) -> (Runtime, ShardTr
     let genesis_root = GenesisStateApplier::apply(
         &writers,
         tries.clone(),
-        0,
+        ShardUId::from_shard_id_and_layout(0, shard_layout),
         &genesis
             .config
             .validators

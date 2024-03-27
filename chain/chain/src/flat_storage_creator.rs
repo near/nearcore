@@ -15,14 +15,15 @@ use assert_matches::assert_matches;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_primitives::block::Tip;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
 use near_primitives::state_part::PartId;
 use near_primitives::types::{BlockHeight, StateRoot};
 use near_store::flat::{
     store_helper, BlockInfo, FetchingStateStatus, FlatStateChanges, FlatStorageCreationMetrics,
-    FlatStorageCreationStatus, FlatStorageReadyStatus, FlatStorageStatus, NUM_PARTS_IN_ONE_STEP,
-    STATE_PART_MEMORY_LIMIT,
+    FlatStorageCreationStatus, FlatStorageManager, FlatStorageReadyStatus, FlatStorageStatus,
+    NUM_PARTS_IN_ONE_STEP, STATE_PART_MEMORY_LIMIT,
 };
 use near_store::Store;
 use near_store::{Trie, TrieDBStorage, TrieTraversalItem};
@@ -70,7 +71,7 @@ impl FlatStorageShardCreator {
             remaining_state_parts: None,
             fetched_parts_sender,
             fetched_parts_receiver,
-            metrics: FlatStorageCreationMetrics::new(shard_uid.shard_id()),
+            metrics: FlatStorageCreationMetrics::new(shard_uid),
         }
     }
 
@@ -434,15 +435,51 @@ impl FlatStorageCreator {
         chain_store: &ChainStore,
         num_threads: usize,
     ) -> Result<Option<Self>, Error> {
-        let chain_head = chain_store.head()?;
-        let shard_ids = epoch_manager.shard_ids(&chain_head.epoch_id)?;
-        let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
-        let mut creation_needed = false;
         let flat_storage_manager = runtime.get_flat_storage_manager();
         // Create flat storage for all shards.
         // TODO(nikurt): Choose which shards need to open the flat storage.
+
+        // Create flat storage for the shards in the current epoch.
+        let chain_head = chain_store.head()?;
+        let shard_creators = Self::create_flat_storage_for_current_epoch(
+            &chain_head,
+            &epoch_manager,
+            &flat_storage_manager,
+            &runtime,
+        )?;
+
+        // Create flat storage for the shards in the next epoch. This only
+        // matters during resharding where the shards in the next epoch are
+        // different than in the current epoch. The flat storage for the
+        // children shards is initially created at the end of the resharding.
+        // This method here is only needed when the node is restared after
+        // resharding is finished but before switching to the new shard layout.
+        Self::create_flat_storage_for_next_epoch(
+            &chain_head,
+            &epoch_manager,
+            &flat_storage_manager,
+        )?;
+
+        if shard_creators.is_empty() {
+            return Ok(None);
+        }
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap();
+        let flat_storage_creator = Self { shard_creators, pool };
+        Ok(Some(flat_storage_creator))
+    }
+
+    fn create_flat_storage_for_current_epoch(
+        chain_head: &Tip,
+        epoch_manager: &Arc<dyn EpochManagerAdapter>,
+        flat_storage_manager: &FlatStorageManager,
+        runtime: &Arc<dyn RuntimeAdapter>,
+    ) -> Result<HashMap<ShardUId, FlatStorageShardCreator>, Error> {
+        let epoch_id = &chain_head.epoch_id;
+        tracing::debug!(target: "store", ?epoch_id, "creating flat storage for the current epoch");
+
+        let mut shard_creators: HashMap<ShardUId, FlatStorageShardCreator> = HashMap::new();
+        let shard_ids = epoch_manager.shard_ids(epoch_id)?;
         for shard_id in shard_ids {
-            // The node applies transactions from the shards it cares about this and the next epoch.
             let shard_uid = epoch_manager.shard_id_to_uid(shard_id, &chain_head.epoch_id)?;
             let status = flat_storage_manager.get_flat_storage_status(shard_uid);
 
@@ -451,7 +488,6 @@ impl FlatStorageCreator {
                     flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
                 }
                 FlatStorageStatus::Empty | FlatStorageStatus::Creation(_) => {
-                    creation_needed = true;
                     shard_creators.insert(
                         shard_uid,
                         FlatStorageShardCreator::new(
@@ -466,15 +502,39 @@ impl FlatStorageCreator {
             }
         }
 
-        let flat_storage_creator = if creation_needed {
-            Some(Self {
-                shard_creators,
-                pool: rayon::ThreadPoolBuilder::new().num_threads(num_threads).build().unwrap(),
-            })
-        } else {
-            None
-        };
-        Ok(flat_storage_creator)
+        Ok(shard_creators)
+    }
+
+    fn create_flat_storage_for_next_epoch(
+        chain_head: &Tip,
+        epoch_manager: &Arc<dyn EpochManagerAdapter>,
+        flat_storage_manager: &FlatStorageManager,
+    ) -> Result<(), Error> {
+        if !epoch_manager.will_shard_layout_change(&chain_head.last_block_hash)? {
+            return Ok(());
+        }
+
+        let next_epoch_id = &chain_head.next_epoch_id;
+        tracing::debug!(target: "store", ?next_epoch_id, "creating flat storage for the next epoch");
+
+        let shard_ids = epoch_manager.shard_ids(next_epoch_id)?;
+        for shard_id in shard_ids {
+            let shard_uid = epoch_manager.shard_id_to_uid(shard_id, next_epoch_id)?;
+            let status = flat_storage_manager.get_flat_storage_status(shard_uid);
+
+            match status {
+                FlatStorageStatus::Ready(_) => {
+                    flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+                }
+                FlatStorageStatus::Empty
+                | FlatStorageStatus::Creation(_)
+                | FlatStorageStatus::Disabled => {
+                    // The flat storage for children shards will be created
+                    // separately in the resharding process.
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Updates statuses of underlying flat storage creation processes. Returns boolean

@@ -1,5 +1,5 @@
-use chrono::{DateTime, Duration, Utc};
 use near_async::messaging::CanSend;
+use near_async::time::{Clock, Duration, Utc};
 use near_chain::Chain;
 use near_chain::{check_known, ChainStoreAccess};
 use near_client_primitives::types::SyncStatus;
@@ -8,7 +8,6 @@ use near_network::types::{HighestHeightPeerInfo, NetworkRequests, PeerManagerAda
 use near_o11y::log_assert;
 use near_primitives::block::Tip;
 use near_primitives::hash::CryptoHash;
-use near_primitives::static_clock::StaticClock;
 use near_primitives::types::{BlockHeight, BlockHeightDelta};
 use rand::seq::IteratorRandom;
 use tracing::{debug, warn};
@@ -24,11 +23,13 @@ pub struct BlockSyncRequest {
     // Head of the chain at the time of the last requests.
     head: CryptoHash,
     // When the last requests were made.
-    when: DateTime<Utc>,
+    when: Utc,
 }
 
 /// Helper to track block syncing.
 pub struct BlockSync {
+    clock: Clock,
+
     network_adapter: PeerManagerAdapter,
 
     // When the last block requests were made.
@@ -46,12 +47,14 @@ pub struct BlockSync {
 
 impl BlockSync {
     pub fn new(
+        clock: Clock,
         network_adapter: PeerManagerAdapter,
         block_fetch_horizon: BlockHeightDelta,
         archive: bool,
         state_sync_enabled: bool,
     ) -> Self {
         BlockSync {
+            clock,
             network_adapter,
             last_request: None,
             block_fetch_horizon,
@@ -178,7 +181,7 @@ impl BlockSync {
         // TODO: If this code fails we should retry ASAP. Shouldn't we?
         let chain_head = chain.head()?;
         self.last_request =
-            Some(BlockSyncRequest { head: chain_head.last_block_hash, when: StaticClock::utc() });
+            Some(BlockSyncRequest { head: chain_head.last_block_hash, when: self.clock.now_utc() });
 
         // The last block on the canonical chain that is processed (is in store).
         let reference_hash = self.get_last_processed_block(chain)?;
@@ -210,7 +213,7 @@ impl BlockSync {
         let mut num_requests = 0;
         for (height, hash) in requests {
             let request_from_archival = self.archive && height < gc_stop_height;
-            // Assume that heads of `highest_height_peers` are are ahead of the blocks we're requesting.
+            // Assume that heads of `highest_height_peers` are ahead of the blocks we're requesting.
             let peer = if request_from_archival {
                 // Normal peers are unlikely to have old blocks, request from an archival node.
                 let archival_peer_iter = highest_height_peers.iter().filter(|p| p.archival);
@@ -274,7 +277,7 @@ impl BlockSync {
                 // TODO: Does receiving a response to one of those requests cancel and restart the other requests?
                 let head_got_updated = head.last_block_hash != request.head;
                 // Timeout elapsed
-                let timeout = StaticClock::utc() - request.when
+                let timeout = self.clock.now_utc() - request.when
                     > Duration::milliseconds(BLOCK_REQUEST_TIMEOUT_MS);
                 if head_got_updated || timeout {
                     // Request the next block.
@@ -302,8 +305,10 @@ enum BlockSyncDue {
 mod test {
     use std::sync::Arc;
 
+    use near_async::messaging::IntoMultiSender;
     use near_chain::test_utils::wait_for_all_blocks_in_processing;
-    use near_chain::{ChainGenesis, Provenance};
+    use near_chain::Provenance;
+    use near_chain_configs::GenesisConfig;
     use near_crypto::{KeyType, PublicKey};
     use near_network::test_utils::MockPeerManagerAdapter;
     use near_o11y::testonly::TracingCapture;
@@ -364,11 +369,17 @@ mod test {
         let mut capture = TracingCapture::enable();
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
-        let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, false, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 100;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+        let mut block_sync = BlockSync::new(
+            Clock::real(),
+            network_adapter.as_multi_sender(),
+            block_fetch_horizon,
+            false,
+            true,
+        );
+        let mut genesis_config = GenesisConfig::test(Clock::real());
+        genesis_config.epoch_length = 100;
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..5 * MAX_BLOCK_REQUESTS + 1 {
             let block = env.clients[0].produce_block(i as u64).unwrap().unwrap();
@@ -443,11 +454,17 @@ mod test {
     fn test_block_sync_archival() {
         let network_adapter = Arc::new(MockPeerManagerAdapter::default());
         let block_fetch_horizon = 10;
-        let mut block_sync =
-            BlockSync::new(network_adapter.clone().into(), block_fetch_horizon, true, true);
-        let mut chain_genesis = ChainGenesis::test();
-        chain_genesis.epoch_length = 5;
-        let mut env = TestEnv::builder(chain_genesis).clients_count(2).build();
+        let mut block_sync = BlockSync::new(
+            Clock::real(),
+            network_adapter.as_multi_sender(),
+            block_fetch_horizon,
+            true,
+            true,
+        );
+        let mut genesis_config = GenesisConfig::test(Clock::real());
+        genesis_config.epoch_length = 5;
+        let mut env =
+            TestEnv::builder(&genesis_config).clients_count(2).mock_epoch_managers().build();
         let mut blocks = vec![];
         for i in 1..41 {
             let block = env.clients[0].produce_block(i).unwrap().unwrap();

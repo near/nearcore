@@ -1,23 +1,26 @@
 use std::collections::BTreeSet;
 
-use near_chain::types::{ChainConfig, RuntimeStorageConfig};
-use near_chain::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use crate::types::{ChainConfig, RuntimeStorageConfig};
+use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
+use near_chain_configs::test_utils::{TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::types::BlockHeaderInfo;
 use near_epoch_manager::{EpochManager, RngSeed};
 use near_pool::{
     InsertTransactionResult, PoolIteratorWrapper, TransactionGroupIteratorWrapper, TransactionPool,
 };
+use near_primitives::checked_feature;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::validator_stake::{ValidatorStake, ValidatorStakeIter};
+use near_primitives::version::PROTOCOL_VERSION;
 use near_store::flat::{FlatStateChanges, FlatStateDelta, FlatStateDeltaMetadata};
 use near_store::genesis::initialize_genesis_state;
 use num_rational::Ratio;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::config::{GenesisExt, TESTING_INIT_BALANCE, TESTING_INIT_STAKE};
 use near_chain_configs::{
     default_produce_chunk_add_transactions_time_limit, Genesis, DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
+    NEAR_BASE,
 };
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
@@ -36,6 +39,8 @@ use near_store::{get_genesis_state_roots, NodeStorage, PartialStorage};
 
 use super::*;
 
+use crate::rayon_spawner::RayonAsyncComputationSpawner;
+use near_async::time::Clock;
 use near_primitives::account::id::AccountIdRef;
 use near_primitives::trie_key::TrieKey;
 use primitive_types::U256;
@@ -194,10 +199,14 @@ impl TestEnv {
         let runtime_config_store =
             if config.zero_fees { RuntimeConfigStore::free() } else { RuntimeConfigStore::test() };
 
+        let compiled_contract_cache =
+            FilesystemContractRuntimeCache::new(&dir.as_ref(), None::<&str>).unwrap();
+
         initialize_genesis_state(store.clone(), &genesis, Some(dir.path()));
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let runtime = NightshadeRuntime::new(
             store.clone(),
+            compiled_contract_cache.handle(),
             &genesis.config,
             epoch_manager.clone(),
             None,
@@ -210,7 +219,6 @@ impl TestEnv {
                 home_dir: PathBuf::from(dir.path()),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         );
         let state_roots = get_genesis_state_roots(&store).unwrap().unwrap();
@@ -421,7 +429,7 @@ fn test_validator_rotation() {
         &signer,
         CryptoHash::default(),
     );
-    let test2_stake_amount = 3600 * crate::NEAR_BASE;
+    let test2_stake_amount = 3600 * NEAR_BASE;
     let transactions = {
         // With the new validator selection algorithm, test2 needs to have less stake to
         // become a fisherman.
@@ -1144,7 +1152,7 @@ fn test_fishermen_stake() {
         .iter()
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
-    let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
+    let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], fishermen_stake);
@@ -1218,7 +1226,7 @@ fn test_fishermen_unstake() {
         .iter()
         .map(|id| InMemorySigner::from_seed(id.clone(), KeyType::ED25519, id.as_ref()))
         .collect();
-    let fishermen_stake = 3300 * crate::NEAR_BASE + 1;
+    let fishermen_stake = 3300 * NEAR_BASE + 1;
 
     let staking_transaction = stake(1, &signers[0], &block_producers[0], fishermen_stake);
     env.step_default(vec![staking_transaction]);
@@ -1369,7 +1377,7 @@ fn test_insufficient_stake() {
         .collect();
 
     let staking_transaction1 = stake(1, &signers[1], &block_producers[1], 100);
-    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * crate::NEAR_BASE);
+    let staking_transaction2 = stake(2, &signers[1], &block_producers[1], 100 * NEAR_BASE);
     env.step_default(vec![staking_transaction1, staking_transaction2]);
     assert!(env.last_proposals.is_empty());
     let staking_transaction3 = stake(3, &signers[1], &block_producers[1], 0);
@@ -1446,7 +1454,7 @@ fn test_trie_and_flat_state_equality() {
 #[test]
 fn test_genesis_hash() {
     let genesis = near_mainnet_res::mainnet_genesis();
-    let chain_genesis = ChainGenesis::new(&genesis);
+    let chain_genesis = ChainGenesis::new(&genesis.config);
     let store = near_store::test_utils::create_test_store();
 
     let tempdir = tempfile::tempdir().unwrap();
@@ -1455,6 +1463,9 @@ fn test_genesis_hash() {
     let runtime = NightshadeRuntime::test_with_runtime_config_store(
         tempdir.path(),
         store.clone(),
+        FilesystemContractRuntimeCache::new(tempdir.path(), None::<&str>)
+            .expect("filesystem contract cache")
+            .handle(),
         &genesis.config,
         epoch_manager.clone(),
         RuntimeConfigStore::new(None),
@@ -1518,7 +1529,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     let validators = (0..num_nodes)
         .map(|i| AccountId::try_from(format!("test{}", i + 1)).unwrap())
         .collect::<Vec<_>>();
-    let chain_genesis = ChainGenesis::test();
+    let chain_genesis = ChainGenesis::new(&GenesisConfig::test(Clock::real()));
     let mut env = TestEnv::new_with_config(
         vec![validators.clone()],
         TestEnvConfig {
@@ -1531,6 +1542,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
     );
 
     let chain = Chain::new(
+        Clock::real(),
         env.epoch_manager.clone(),
         ShardTracker::new_empty(env.epoch_manager.clone()),
         env.runtime.clone(),
@@ -1538,6 +1550,7 @@ fn get_test_env_with_chain_and_pool() -> (TestEnv, Chain, TransactionPool) {
         DoomslugThresholdMode::NoApprovals,
         ChainConfig::test(),
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
 
@@ -1590,6 +1603,11 @@ fn prepare_transactions(
 /// Check that transactions validation works the same when using recorded storage proof instead of db.
 #[test]
 fn test_prepare_transactions_storage_proof() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1598,7 +1616,6 @@ fn test_prepare_transactions_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1619,7 +1636,6 @@ fn test_prepare_transactions_storage_proof() {
             nodes: proposed_transactions.storage_proof.unwrap(),
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validated_transactions = prepare_transactions(
@@ -1636,6 +1652,11 @@ fn test_prepare_transactions_storage_proof() {
 /// Check that transactions validation fails if provided empty storage proof.
 #[test]
 fn test_prepare_transactions_empty_storage_proof() {
+    if !checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION) {
+        println!("Test not applicable without StatelessValidation enabled");
+        return;
+    }
+
     let (env, chain, mut transaction_pool) = get_test_env_with_chain_and_pool();
     let transactions_count = transaction_pool.len();
 
@@ -1644,7 +1665,6 @@ fn test_prepare_transactions_empty_storage_proof() {
         use_flat_storage: true,
         source: StorageDataSource::Db,
         state_patch: Default::default(),
-        record_storage: true,
     };
 
     let proposed_transactions = prepare_transactions(
@@ -1665,7 +1685,6 @@ fn test_prepare_transactions_empty_storage_proof() {
             nodes: PartialState::default(), // We use empty storage proof here.
         }),
         state_patch: Default::default(),
-        record_storage: false,
     };
 
     let validation_result = prepare_transactions(

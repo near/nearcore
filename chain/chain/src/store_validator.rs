@@ -1,21 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
+use crate::types::RuntimeAdapter;
 use borsh::BorshDeserialize;
 use enum_map::Enum;
+use near_async::time::{Clock, Duration, Instant};
+use near_chain_configs::GenesisConfig;
 use near_epoch_manager::shard_tracker::ShardTracker;
 use near_epoch_manager::EpochManagerAdapter;
-use strum::IntoEnumIterator;
-use tracing::warn;
-
-use near_chain_configs::GenesisConfig;
 use near_primitives::block::{Block, BlockHeader};
 use near_primitives::borsh;
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
 use near_primitives::epoch_manager::AGGREGATOR_KEY;
 use near_primitives::hash::CryptoHash;
+use near_primitives::shard_layout::get_block_shard_uid_rev;
 use near_primitives::sharding::{ChunkHash, ShardChunk, StateSyncInfo};
 use near_primitives::state_sync::{ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey};
 use near_primitives::transaction::ExecutionOutcomeWithProof;
@@ -24,11 +20,11 @@ use near_primitives::types::{AccountId, BlockHeight, EpochId};
 use near_primitives::utils::{get_block_shard_id_rev, get_outcome_id_block_hash_rev};
 use near_store::db::refcount;
 use near_store::{DBCol, Store, TrieChanges};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use strum::IntoEnumIterator;
+use tracing::warn;
 use validate::StoreValidatorError;
-
-use crate::types::RuntimeAdapter;
-use near_primitives::shard_layout::get_block_shard_uid_rev;
-use near_primitives::static_clock::StaticClock;
 
 mod validate;
 
@@ -76,7 +72,7 @@ pub struct StoreValidator {
     runtime: Arc<dyn RuntimeAdapter>,
     store: Store,
     inner: StoreValidatorCache,
-    timeout: Option<u64>,
+    timeout: Option<i64>,
     start_time: Instant,
     pub is_archival: bool,
 
@@ -103,13 +99,13 @@ impl StoreValidator {
             store: store,
             inner: StoreValidatorCache::new(),
             timeout: None,
-            start_time: StaticClock::instant(),
+            start_time: Clock::real().now(),
             is_archival,
             errors: vec![],
             tests: 0,
         }
     }
-    pub fn set_timeout(&mut self, timeout: u64) {
+    pub fn set_timeout(&mut self, timeout: i64) {
         self.timeout = Some(timeout)
     }
     pub fn is_failed(&self) -> bool {
@@ -314,7 +310,7 @@ impl StoreValidator {
                 _ => {}
             }
             if let Some(timeout) = self.timeout {
-                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                     return Ok(());
                 }
             }
@@ -323,7 +319,7 @@ impl StoreValidator {
     }
 
     pub fn validate(&mut self) {
-        self.start_time = StaticClock::instant();
+        self.start_time = Clock::real().now();
 
         // Init checks
         // Check Head-Tail validity and fill cache with their values
@@ -337,7 +333,7 @@ impl StoreValidator {
                 self.process_error(e, col.to_string(), col)
             }
             if let Some(timeout) = self.timeout {
-                if self.start_time.elapsed() > Duration::from_millis(timeout) {
+                if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                     warn!(target: "adversary", "Store validator hit timeout at {col} ({}/{})", col.into_usize(), DBCol::LENGTH);
                     return;
                 }
@@ -345,7 +341,7 @@ impl StoreValidator {
         }
         if let Some(timeout) = self.timeout {
             // We didn't complete all Column checks and cannot do final checks, returning here
-            if self.start_time.elapsed() > Duration::from_millis(timeout) {
+            if self.start_time.elapsed() > Duration::milliseconds(timeout) {
                 warn!(target: "adversary", "Store validator hit timeout before final checks");
                 return;
             }
@@ -385,9 +381,14 @@ impl StoreValidator {
 
 #[cfg(test)]
 mod tests {
+    use near_async::time::Clock;
+    use near_chain_configs::Genesis;
+    use near_epoch_manager::EpochManager;
+    use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
-    use crate::test_utils::{KeyValueRuntime, MockEpochManager};
+    use crate::rayon_spawner::RayonAsyncComputationSpawner;
+    use crate::runtime::NightshadeRuntime;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
 
@@ -395,13 +396,20 @@ mod tests {
 
     fn init() -> (Chain, StoreValidator) {
         let store = create_test_store();
-        let chain_genesis = ChainGenesis::test();
-        let epoch_manager = MockEpochManager::new(store.clone(), chain_genesis.epoch_length);
+        let genesis = Genesis::test(vec!["test".parse().unwrap()], 1);
+        let tempdir = tempfile::tempdir().unwrap();
+        initialize_genesis_state(store.clone(), &genesis, Some(tempdir.path()));
+        let epoch_manager = EpochManager::new_arc_handle(store.clone(), &genesis.config);
         let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-        let runtime = KeyValueRuntime::new(store.clone(), epoch_manager.as_ref());
-        let mut genesis = GenesisConfig::default();
-        genesis.genesis_height = 0;
+        let runtime = NightshadeRuntime::test(
+            tempdir.path(),
+            store.clone(),
+            &genesis.config,
+            epoch_manager.clone(),
+        );
+        let chain_genesis = ChainGenesis::new(&genesis.config);
         let chain = Chain::new(
+            Clock::real(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
@@ -409,11 +417,20 @@ mod tests {
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
             None,
+            Arc::new(RayonAsyncComputationSpawner),
         )
         .unwrap();
         (
             chain,
-            StoreValidator::new(None, genesis, epoch_manager, shard_tracker, runtime, store, false),
+            StoreValidator::new(
+                None,
+                genesis.config,
+                epoch_manager,
+                shard_tracker,
+                runtime,
+                store,
+                false,
+            ),
         )
     }
 

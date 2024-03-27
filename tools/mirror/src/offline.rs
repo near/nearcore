@@ -15,7 +15,7 @@ use near_primitives::views::{
     AccessKeyPermissionView, ExecutionOutcomeWithIdView, QueryRequest, QueryResponseKind,
 };
 use near_primitives_core::types::ShardId;
-use nearcore::NightshadeRuntime;
+use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -48,7 +48,8 @@ impl ChainAccess {
         );
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
         let runtime =
-            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone());
+            NightshadeRuntime::from_config(home.as_ref(), store, &config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
         Ok(Self { chain, epoch_manager, runtime })
     }
 }

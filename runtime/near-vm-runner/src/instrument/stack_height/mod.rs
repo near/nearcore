@@ -86,10 +86,11 @@ macro_rules! instrument_call {
 mod max_height;
 mod thunk;
 
-/// Error that occured during processing the module.
+/// Error that occurred during processing the module.
 ///
 /// This means that the module is invalid.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Error(String);
 
 pub(crate) struct Context {

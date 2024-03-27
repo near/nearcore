@@ -35,6 +35,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 nearcore.workspace = true
+near-async.workspace = true
 near-chain-configs.workspace = true
 near-chain.workspace = true
 near-chain-primitives.workspace = true
@@ -52,6 +53,7 @@ near-crypto.workspace = true
 
 [features]
 nightly = [
+  "near-async/nightly",
   "near-chain-configs/nightly",
   "near-chain/nightly",
   "near-client-primitives/nightly",
@@ -68,6 +70,7 @@ nightly = [
   "nightly_protocol",
 ]
 nightly_protocol = [
+  "near-async/nightly_protocol",
   "near-chain-configs/nightly_protocol",
   "near-chain/nightly_protocol",
   "near-client-primitives/nightly_protocol",

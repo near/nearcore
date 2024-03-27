@@ -8,6 +8,7 @@ use near_client::sync::external::{
 use near_jsonrpc::client::{new_client, JsonRpcClient};
 use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
+use near_primitives::state_sync::ShardStateSyncResponseHeader;
 use near_primitives::types::{
     BlockId, BlockReference, EpochId, EpochReference, Finality, ShardId, StateRoot,
 };
@@ -61,6 +62,9 @@ pub struct LoopCheckCommand {
     // address of RPC server to retrieve latest block, epoch information
     #[clap(long)]
     rpc_server_addr: Option<String>,
+    // Loop interval in seconds
+    #[clap(long, default_value = "60")]
+    interval: u64,
 }
 
 #[derive(clap::Parser)]
@@ -119,6 +123,7 @@ impl SingleCheckCommand {
         let sys = actix::System::new();
         sys.block_on(async move {
             let _check_result = run_single_check_with_3_retries(
+                None,
                 chain_id,
                 self.epoch_id.clone(),
                 self.epoch_height,
@@ -171,6 +176,7 @@ impl LoopCheckCommand {
             gcs_bucket,
             &rpc_client,
             &self.prometheus_addr,
+            self.interval,
         );
 
         tracing::info!("run_loop_all_shards finished");
@@ -193,8 +199,8 @@ impl LoopCheckCommand {
 enum StatePartsDumpCheckStatus {
     // download and validation for dumped parts of the epoch is done
     Done { epoch_height: u64 },
-    // not all required parts are dumped for the epoch
-    WaitingForParts { epoch_height: u64 },
+    // not all required parts and headers are dumped for the epoch
+    Waiting { epoch_height: u64, parts_done: bool, headers_done: bool },
 }
 
 #[derive(Clone)]
@@ -249,6 +255,20 @@ fn validate_state_part(state_root: &StateRoot, part_id: PartId, part: &[u8]) -> 
     }
 }
 
+fn validate_state_header(header: &[u8]) -> bool {
+    match ShardStateSyncResponseHeader::try_from_slice(&header) {
+        Ok(_) => {
+            // Nodes will be able to download and deserialize the header.
+            true
+        }
+        // Deserialization error means we've got invalid data stored in the external folder.
+        Err(err) => {
+            tracing::error!(target: "state-parts", ?err, "Header deserialization error");
+            false
+        }
+    }
+}
+
 // run an infinite loop to download and validate state parts for all shards whenever new epoch becomes available
 fn run_loop_all_shards(
     chain_id: String,
@@ -258,6 +278,7 @@ fn run_loop_all_shards(
     gcs_bucket: Option<String>,
     rpc_client: &JsonRpcClient,
     prometheus_addr: &str,
+    loop_interval: u64,
 ) -> anyhow::Result<()> {
     let mut last_check_status =
         HashMap::<ShardId, anyhow::Result<StatePartsDumpCheckStatus>>::new();
@@ -271,10 +292,10 @@ fn run_loop_all_shards(
             sys.block_on(async move { get_processing_epoch_information(&rpc_client).await });
         if let Err(err) = dump_check_iter_info_res {
             tracing::info!(
-                "get_processing_epoch_information errs out with {}. sleeping for 60s.",
+                "get_processing_epoch_information errs out with {}. sleeping for {loop_interval}s.",
                 err
             );
-            sleep(Duration::from_secs(60));
+            sleep(Duration::from_secs(loop_interval));
             continue;
         }
         let dump_check_iter_info = dump_check_iter_info_res?;
@@ -282,15 +303,21 @@ fn run_loop_all_shards(
         for shard_id in 0..num_shards as u64 {
             tracing::info!(shard_id, "started check");
             let dump_check_iter_info = dump_check_iter_info.clone();
-            let status = last_check_status
-                .get(&shard_id)
-                .unwrap_or(&Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: 0 }));
+            let status = last_check_status.get(&shard_id).unwrap_or(&Ok(
+                StatePartsDumpCheckStatus::Waiting {
+                    epoch_height: 0,
+                    parts_done: false,
+                    headers_done: false,
+                },
+            ));
             match status {
                 Ok(StatePartsDumpCheckStatus::Done { epoch_height }) => {
                     tracing::info!(epoch_height, "last one was done.");
                     if *epoch_height >= dump_check_iter_info.epoch_height {
-                        tracing::info!("current height was already checked. sleeping for 60s.");
-                        sleep(Duration::from_secs(60));
+                        tracing::info!(
+                            "current height was already checked. sleeping for {loop_interval}s."
+                        );
+                        sleep(Duration::from_secs(loop_interval));
                         continue;
                     }
 
@@ -307,7 +334,11 @@ fn run_loop_all_shards(
                     }
                     reset_num_parts_metrics(&chain_id, shard_id);
                 }
-                Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height }) => {
+                Ok(StatePartsDumpCheckStatus::Waiting {
+                    epoch_height,
+                    parts_done,
+                    headers_done,
+                }) => {
                     tracing::info!(epoch_height, "last one was waiting.");
                     if dump_check_iter_info.epoch_height > *epoch_height {
                         tracing::info!("last one was never finished. There is a skip between last waiting epoch at epoch height {epoch_height}, and latest available epoch at {}", dump_check_iter_info.epoch_height);
@@ -316,8 +347,13 @@ fn run_loop_all_shards(
                             .set(1);
                         reset_num_parts_metrics(&chain_id, shard_id);
                     } else {
-                        // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedly
-                        tracing::info!("last one was waiting. Latest epoch is the same as last one waiting. Will recheck the same epoch at epoch_height: {}", epoch_height);
+                        // this check would be working on the same epoch as last check, so we don't reset the num parts metrics to 0 repeatedlyd
+                        tracing::info!(
+                            ?epoch_height,
+                            ?parts_done,
+                            ?headers_done,
+                            "Still working on the same epoch as last check."
+                        );
                     }
                 }
                 Err(_) => {
@@ -331,6 +367,7 @@ fn run_loop_all_shards(
             let s3_bucket = s3_bucket.clone();
             let s3_region = s3_region.clone();
             let gcs_bucket = gcs_bucket.clone();
+            let old_status = status.as_ref().ok().cloned();
             let new_status = sys.block_on(async move {
                 if !is_prometheus_server_up {
                     let server = HttpServer::new(move || {
@@ -348,6 +385,7 @@ fn run_loop_all_shards(
                 }
 
                 run_single_check_with_3_retries(
+                    old_status,
                     chain_id,
                     dump_check_iter_info.epoch_id,
                     dump_check_iter_info.epoch_height,
@@ -374,9 +412,16 @@ fn reset_num_parts_metrics(chain_id: &str, shard_id: ShardId) -> () {
     crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_PARTS_INVALID
         .with_label_values(&[&shard_id.to_string(), chain_id])
         .set(0);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_VALID
+        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .set(0);
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_INVALID
+        .with_label_values(&[&shard_id.to_string(), chain_id])
+        .set(0);
 }
 
 async fn run_single_check_with_3_retries(
+    status: Option<StatePartsDumpCheckStatus>,
     chain_id: String,
     epoch_id: EpochId,
     epoch_height: u64,
@@ -397,6 +442,7 @@ async fn run_single_check_with_3_retries(
         let gcs_bucket = gcs_bucket.clone();
         let epoch_id = epoch_id.clone();
         res = run_single_check(
+            status.clone(),
             chain_id,
             epoch_id,
             epoch_height,
@@ -432,37 +478,14 @@ async fn run_single_check_with_3_retries(
 }
 
 // download and validate state parts for a single epoch and shard
-async fn run_single_check(
-    chain_id: String,
-    epoch_id: EpochId,
+async fn check_parts(
+    chain_id: &String,
+    epoch_id: &EpochId,
     epoch_height: u64,
     shard_id: ShardId,
     state_root: StateRoot,
-    root_dir: Option<PathBuf>,
-    s3_bucket: Option<String>,
-    s3_region: Option<String>,
-    gcs_bucket: Option<String>,
-) -> anyhow::Result<StatePartsDumpCheckStatus> {
-    tracing::info!(
-        epoch_height,
-        %state_root,
-        "run_single_check for"
-    );
-    crate::metrics::STATE_SYNC_DUMP_CHECK_EPOCH_HEIGHT
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(epoch_height as i64);
-
-    crate::metrics::STATE_SYNC_DUMP_CHECK_PROCESS_IS_UP
-        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
-        .set(1);
-
-    let external = create_external_connection(
-        root_dir.clone(),
-        s3_bucket.clone(),
-        s3_region.clone(),
-        gcs_bucket.clone(),
-    );
-
+    external: &ExternalConnection,
+) -> anyhow::Result<bool> {
     let directory_path = external_storage_location_directory(
         &chain_id,
         &epoch_id,
@@ -473,7 +496,7 @@ async fn run_single_check(
     tracing::info!(directory_path, "the storage location for the state parts being checked:");
     let part_file_names = external.list_objects(shard_id, &directory_path).await?;
     if part_file_names.is_empty() {
-        return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
+        return Ok(false);
     }
     let part_file_ids: HashSet<_> = part_file_names
         .iter()
@@ -508,7 +531,7 @@ async fn run_single_check(
             num_parts,
             "Waiting for all parts to be dumped."
         );
-        return Ok(StatePartsDumpCheckStatus::WaitingForParts { epoch_height: epoch_height });
+        return Ok(false);
     } else if num_parts > total_required_parts {
         tracing::info!(
             epoch_height,
@@ -517,7 +540,7 @@ async fn run_single_check(
             num_parts,
             "There are more dumped parts than total required, something is seriously wrong."
         );
-        return Ok(StatePartsDumpCheckStatus::Done { epoch_height: epoch_height });
+        return Ok(true);
     }
 
     tracing::info!(
@@ -550,12 +573,123 @@ async fn run_single_check(
     }
 
     for handle in handles {
-        let _ = handle.await.unwrap();
+        let _ = handle.await?;
     }
 
     let duration = start.elapsed();
     tracing::info!("Time elapsed in downloading and validating the parts is: {:?}", duration);
-    Ok(StatePartsDumpCheckStatus::Done { epoch_height: epoch_height })
+    Ok(true)
+}
+
+// download and validate state headers for a single epoch and shard
+async fn check_headers(
+    chain_id: &String,
+    epoch_id: &EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    external: &ExternalConnection,
+) -> anyhow::Result<bool> {
+    let directory_path = external_storage_location_directory(
+        &chain_id,
+        &epoch_id,
+        epoch_height,
+        shard_id,
+        &StateFileType::StateHeader,
+    );
+    tracing::info!(directory_path, "the storage location for the state header being checked:");
+    if !external
+        .is_state_sync_header_stored_for_epoch(shard_id, chain_id, epoch_id, epoch_height)
+        .await?
+    {
+        tracing::info!(epoch_height, shard_id, "Waiting for header to be dumped.");
+        return Ok(false);
+    }
+
+    crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_DUMPED
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+        .set(1 as i64);
+
+    tracing::info!(shard_id, epoch_height, "Download and validate state header.");
+
+    let start = Instant::now();
+    let chain_id = chain_id.clone();
+    let epoch_id = epoch_id.clone();
+    let external = external.clone();
+
+    process_header_with_3_retries(chain_id, epoch_id, epoch_height, shard_id, external).await?;
+
+    let duration = start.elapsed();
+    tracing::info!("Time elapsed in downloading and validating the header is: {:?}", duration);
+    Ok(true)
+}
+
+async fn run_single_check(
+    status: Option<StatePartsDumpCheckStatus>,
+    chain_id: String,
+    epoch_id: EpochId,
+    current_epoch_height: u64,
+    shard_id: ShardId,
+    state_root: StateRoot,
+    root_dir: Option<PathBuf>,
+    s3_bucket: Option<String>,
+    s3_region: Option<String>,
+    gcs_bucket: Option<String>,
+) -> anyhow::Result<StatePartsDumpCheckStatus> {
+    tracing::info!(
+        current_epoch_height,
+        %state_root,
+        "run_single_check for"
+    );
+    crate::metrics::STATE_SYNC_DUMP_CHECK_EPOCH_HEIGHT
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+        .set(current_epoch_height as i64);
+
+    crate::metrics::STATE_SYNC_DUMP_CHECK_PROCESS_IS_UP
+        .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+        .set(1);
+
+    let external = create_external_connection(
+        root_dir.clone(),
+        s3_bucket.clone(),
+        s3_region.clone(),
+        gcs_bucket.clone(),
+    );
+
+    let (mut parts_done, mut headers_done) = match status {
+        Some(StatePartsDumpCheckStatus::Done { epoch_height }) => {
+            if epoch_height == current_epoch_height {
+                (true, true)
+            } else {
+                (false, false)
+            }
+        }
+        Some(StatePartsDumpCheckStatus::Waiting { parts_done, headers_done, epoch_height }) => {
+            if epoch_height == current_epoch_height {
+                (parts_done, headers_done)
+            } else {
+                (false, false)
+            }
+        }
+        None => (false, false),
+    };
+
+    parts_done = parts_done
+        || check_parts(&chain_id, &epoch_id, current_epoch_height, shard_id, state_root, &external)
+            .await
+            .unwrap_or(false);
+    headers_done = headers_done
+        || check_headers(&chain_id, &epoch_id, current_epoch_height, shard_id, &external)
+            .await
+            .unwrap_or(false);
+    if !parts_done || !headers_done {
+        Ok(StatePartsDumpCheckStatus::Waiting {
+            epoch_height: current_epoch_height,
+            parts_done,
+            headers_done,
+        })
+    } else {
+        Ok(StatePartsDumpCheckStatus::Done { epoch_height: current_epoch_height })
+    }
 }
 
 async fn process_part_with_3_retries(
@@ -617,6 +751,49 @@ async fn process_part_with_3_retries(
     res?
 }
 
+async fn process_header_with_3_retries(
+    chain_id: String,
+    epoch_id: EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    external: ExternalConnection,
+) -> anyhow::Result<()> {
+    let mut retries = 0;
+    let mut res: Result<Result<(), anyhow::Error>, tokio::time::error::Elapsed>;
+    loop {
+        let chain_id = chain_id.clone();
+        let epoch_id = epoch_id.clone();
+        let external = external.clone();
+        let timeout_duration = tokio::time::Duration::from_secs(60);
+        res = timeout(
+            timeout_duration,
+            process_header(chain_id, epoch_id, epoch_height, shard_id, external),
+        )
+        .await;
+        match res {
+            Ok(Ok(_)) => {
+                tracing::info!(shard_id, epoch_height, "process_header success.",);
+                break;
+            }
+            _ if retries < MAX_RETRIES => {
+                tracing::info!(shard_id, epoch_height, ?res, "process_header failed. Will retry.",);
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            _ => {
+                tracing::info!(
+                    shard_id,
+                    epoch_height,
+                    ?res,
+                    "process_header failed. No more retries.",
+                );
+                break;
+            }
+        }
+    }
+    res?
+}
+
 async fn process_part(
     part_id: u64,
     chain_id: String,
@@ -647,6 +824,33 @@ async fn process_part(
     Ok(())
 }
 
+async fn process_header(
+    chain_id: String,
+    epoch_id: EpochId,
+    epoch_height: u64,
+    shard_id: ShardId,
+    external: ExternalConnection,
+) -> anyhow::Result<()> {
+    tracing::info!("process_header started.");
+    let file_type = StateFileType::StateHeader;
+    let location =
+        external_storage_location(&chain_id, &epoch_id, epoch_height, shard_id, &file_type);
+    let header = external.get_file(shard_id, &location, &file_type).await?;
+
+    if validate_state_header(&header) {
+        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_VALID
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+            .inc();
+        tracing::info!("header {shard_id} is valid.");
+    } else {
+        crate::metrics::STATE_SYNC_DUMP_CHECK_NUM_HEADERS_INVALID
+            .with_label_values(&[&shard_id.to_string(), &chain_id.to_string()])
+            .inc();
+        tracing::info!("header {shard_id} is invalid.");
+    }
+    Ok(())
+}
+
 // get epoch information of the latest epoch that's complete
 async fn get_processing_epoch_information(
     rpc_client: &JsonRpcClient,
@@ -654,12 +858,12 @@ async fn get_processing_epoch_information(
     let latest_block_response = rpc_client
         .block(BlockReference::Finality(Finality::Final))
         .await
-        .or_else(|_| Err(anyhow!("get final block failed")))?;
+        .or_else(|err| Err(anyhow!("get final block failed {err}")))?;
     let latest_epoch_id = latest_block_response.header.epoch_id;
     let latest_epoch_response = rpc_client
         .validators(Some(EpochReference::EpochId(EpochId(latest_epoch_id))))
         .await
-        .or_else(|_| Err(anyhow!("validators_by_epoch_id for latest_epoch_id failed")))?;
+        .or_else(|err| Err(anyhow!("validators_by_epoch_id for latest_epoch_id failed: {err}")))?;
     let latest_epoch_height = latest_epoch_response.epoch_height;
     let prev_epoch_last_block_response =
         get_previous_epoch_last_block_response(rpc_client, latest_epoch_id).await?;

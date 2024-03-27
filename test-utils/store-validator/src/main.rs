@@ -6,7 +6,7 @@ use near_epoch_manager::{
     EpochManager,
 };
 use near_o11y::testonly::init_integration_logger;
-use nearcore::{get_default_home, load_config};
+use nearcore::{get_default_home, load_config, NightshadeRuntimeExt};
 use std::path::PathBuf;
 use std::process;
 use yansi::Color::{Green, Red, White, Yellow};
@@ -49,8 +49,8 @@ fn main() {
         store.clone(),
         &near_config,
         epoch_manager.clone(),
-    );
-
+    )
+    .expect("could not create transaction runtime");
     let mut store_validator = StoreValidator::new(
         near_config.validator_signer.as_ref().map(|x| x.validator_id().clone()),
         near_config.genesis.config,

@@ -7,6 +7,7 @@ with_macos_excludes := if os() == "macos" {
     ""
 }
 nightly_flags := "--features nightly,test_features"
+statelessnet_flags := "--features statelessnet_protocol"
 
 export RUST_BACKTRACE := env("RUST_BACKTRACE", "short")
 ci_hack_nextest_profile := if env("CI_HACKS", "0") == "1" { "--profile ci" } else { "" }
@@ -22,10 +23,14 @@ test-ci *FLAGS: check-cargo-fmt \
                 check-cargo-clippy \
                 check-non-default \
                 check-cargo-udeps \
+                (nextest "stable" FLAGS) \
                 (nextest "nightly" FLAGS) \
-                (nextest "stable" FLAGS)
+                (nextest "statelessnet" FLAGS) \
+                doctests
 # order them with the fastest / most likely to fail checks first
 # when changing this, remember to adjust the CI workflow in parallel, as CI runs each of these in a separate job
+# remove statelessnet everywhere once the program is finished, see
+# https://github.com/near/near-one-project-tracking/issues/20
 
 # tests that are as close to CI as possible, but not exactly the same code
 test-extra: check-lychee
@@ -35,6 +40,7 @@ nextest TYPE *FLAGS: (nextest-unit TYPE FLAGS) (nextest-integration TYPE FLAGS)
 
 # cargo unit tests, TYPE is "stable" or "nightly"
 nextest-unit TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --workspace \
@@ -43,6 +49,7 @@ nextest-unit TYPE *FLAGS:
         {{ ci_hack_nextest_profile }} \
         {{ with_macos_excludes }} \
         {{ if TYPE == "nightly" { nightly_flags } \
+           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neighter 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
@@ -50,12 +57,14 @@ nextest-unit TYPE *FLAGS:
 # cargo integration tests, TYPE is "stable" or "nightly"
 [linux]
 nextest-integration TYPE *FLAGS:
+    RUSTFLAGS="-D warnings" \
     cargo nextest run \
         --locked \
         --package integration-tests \
         --cargo-profile dev-release \
         {{ ci_hack_nextest_profile }} \
         {{ if TYPE == "nightly" { nightly_flags } \
+           else if TYPE == "statelessnet" { statelessnet_flags } \
            else if TYPE == "stable" { "" } \
            else { error("TYPE is neither 'nightly' nor 'stable'") } }} \
         {{ FLAGS }}
@@ -64,9 +73,13 @@ nextest-integration TYPE *FLAGS:
 nextest-integration TYPE *FLAGS:
     @echo "Nextest integration tests are currently disabled on macos!"
 
+doctests:
+    cargo test --doc
+
 # check various build configurations compile as anticipated
 check-non-default:
     # Ensure that near-vm-runner always builds without default features enabled
+    RUSTFLAGS="-D warnings" \
     cargo check -p near-vm-runner --no-default-features
 
 # check rust formatting
@@ -75,7 +88,9 @@ check-cargo-fmt:
 
 # check clippy lints
 check-cargo-clippy:
-    env CARGO_TARGET_DIR="target/clippy" cargo clippy --all-features --all-targets --locked
+    CARGO_TARGET_DIR="target/clippy" \
+    RUSTFLAGS="-D warnings" \
+    cargo clippy --all-features --all-targets --locked
 
 # check cargo deny lints
 check-cargo-deny:

@@ -3,7 +3,6 @@ use crate::trie::{
 };
 use crate::DBCol;
 use near_primitives::shard_layout::ShardUId;
-use std::time::Duration;
 use std::{collections::HashMap, iter::FromIterator};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -91,30 +90,11 @@ pub struct StoreConfig {
     #[serde(skip_serializing_if = "MigrationSnapshot::is_default")]
     pub migration_snapshot: MigrationSnapshot,
 
-    /// Number of threads to execute storage background migrations.
-    /// Needed to create flat storage which need to happen in parallel
-    /// with block processing.
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub background_migration_threads: usize,
-
-    /// Enables background flat storage creation.
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub flat_storage_creation_enabled: bool,
-
-    /// Duration to perform background flat storage creation step. Defines how
-    /// frequently we check creation status and execute work related to it in
-    /// main thread (scheduling and collecting state parts, catching up blocks, etc.).
-    /// TODO (#8826): remove, because creation successfully happened in 1.34.
-    pub flat_storage_creation_period: Duration,
-
     /// State Snapshot configuration
     pub state_snapshot_config: StateSnapshotConfig,
 
     // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
-
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_compaction_enabled: bool,
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
@@ -122,11 +102,6 @@ pub struct StoreConfig {
 #[serde(default)]
 pub struct StateSnapshotConfig {
     pub state_snapshot_type: StateSnapshotType,
-    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
-    /// amount of time.
-    /// It makes state snapshots tiny (10GB) over the course of an epoch.
-    /// We may want to disable it for archival nodes during resharding
-    pub compaction_enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -252,10 +227,13 @@ impl Default for StoreConfig {
                     (ShardUId { version: 1, shard_id: 3 }, bytesize::ByteSize::gb(3)),
                     // In simple nightshade v2 the heavy contract "token.sweat" is in shard 4
                     (ShardUId { version: 2, shard_id: 4 }, bytesize::ByteSize::gb(3)),
+                    // In simple nightshade v3 the heavy contract "token.sweat" is in shard 5
+                    (ShardUId { version: 3, shard_id: 5 }, bytesize::ByteSize::gb(3)),
                     // Shard 1 is dedicated to aurora and it had very few cache
                     // misses even with cache size of only 50MB
                     (ShardUId { version: 1, shard_id: 1 }, bytesize::ByteSize::mb(50)),
                     (ShardUId { version: 2, shard_id: 1 }, bytesize::ByteSize::mb(50)),
+                    (ShardUId { version: 3, shard_id: 1 }, bytesize::ByteSize::mb(50)),
                 ]),
                 shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
             },
@@ -284,25 +262,10 @@ impl Default for StoreConfig {
 
             migration_snapshot: Default::default(),
 
-            // We checked that this number of threads doesn't impact
-            // regular block processing significantly.
-            background_migration_threads: 8,
-
-            flat_storage_creation_enabled: true,
-
-            // It shouldn't be very low, because on single flat storage creation step
-            // we do several disk reads from `FlatStateMisc` and `FlatStateDeltas`.
-            // One second should be enough to save deltas on start and catch up
-            // flat storage head quickly. State read work is much more expensive.
-            flat_storage_creation_period: Duration::from_secs(1),
-
             state_snapshot_config: Default::default(),
 
             // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
-
-            // TODO: To be phased out in favor of state_snapshot_config
-            state_snapshot_compaction_enabled: false,
         }
     }
 }

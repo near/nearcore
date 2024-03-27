@@ -4,6 +4,7 @@ use crate::EpochInfoAggregator;
 use crate::EpochManagerHandle;
 use near_chain_primitives::Error;
 use near_crypto::Signature;
+use near_primitives::block::Tip;
 use near_primitives::block_header::{Approval, ApprovalInner, BlockHeader};
 use near_primitives::epoch_manager::block_info::BlockInfo;
 use near_primitives::epoch_manager::epoch_info::EpochInfo;
@@ -113,11 +114,25 @@ pub trait EpochManagerAdapter: Send + Sync {
     ///
     /// Most of the times parent of the shard is the shard itself, unless a
     /// resharding happened and some shards were split.
+    /// If there was no resharding, it just returns `shard_ids` as is, without any validation.
+    /// The resulting Vec will always be of the same length as the `shard_ids` argument.
     fn get_prev_shard_ids(
         &self,
         prev_hash: &CryptoHash,
         shard_ids: Vec<ShardId>,
     ) -> Result<Vec<ShardId>, Error>;
+
+    /// For a `ShardId` in the current block, returns its parent `ShardId`
+    /// from previous block.
+    ///
+    /// Most of the times parent of the shard is the shard itself, unless a
+    /// resharding happened and some shards were split.
+    /// If there was no resharding, it just returns the `shard_id` as is, without any validation.
+    fn get_prev_shard_id(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error>;
 
     /// Get shard layout given hash of previous block.
     fn get_shard_layout_from_prev_block(
@@ -278,6 +293,14 @@ pub trait EpochManagerAdapter: Send + Sync {
         )))
     }
 
+    fn is_chunk_producer_for_epoch(
+        &self,
+        epoch_id: &EpochId,
+        account_id: &AccountId,
+    ) -> Result<bool, EpochError> {
+        Ok(self.get_epoch_chunk_producers(epoch_id)?.iter().any(|v| v.account_id() == account_id))
+    }
+
     /// Epoch Manager init procedure that is necessary after Epoch Sync.
     fn epoch_sync_init_epoch_manager(
         &self,
@@ -393,6 +416,12 @@ pub trait EpochManagerAdapter: Send + Sync {
         state_witness: &ChunkStateWitness,
     ) -> Result<bool, Error>;
 
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error>;
+
     fn cares_about_shard_from_prev_block(
         &self,
         parent_hash: &CryptoHash,
@@ -408,6 +437,20 @@ pub trait EpochManagerAdapter: Send + Sync {
     ) -> Result<bool, EpochError>;
 
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError>;
+
+    /// Tries to estimate in which epoch the given height would reside.
+    /// Looks at the previous, current and next epoch around the tip
+    /// and adds them to the result if the height might be inside the epoch.
+    /// It returns a list of possible epochs instead of a single value
+    /// because sometimes it's impossible to determine the exact epoch
+    /// in which the height will be. The exact starting height of the
+    /// next epoch isn't known until it actually starts, so it's impossible
+    /// to determine the exact epoch for heights which are ahead of the tip.
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        tip: &Tip,
+        height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError>;
 
     /// Returns a vector of all hashes in the epoch ending with `last_block_info`.
     /// Only return blocks on chain of `last_block_info`.
@@ -572,6 +615,28 @@ impl EpochManagerAdapter for EpochManagerHandle {
             }
         }
         Ok(shard_ids)
+    }
+
+    fn get_prev_shard_id(
+        &self,
+        prev_hash: &CryptoHash,
+        shard_id: ShardId,
+    ) -> Result<ShardId, Error> {
+        if self.is_next_block_epoch_start(prev_hash)? {
+            let shard_layout = self.get_shard_layout_from_prev_block(prev_hash)?;
+            let prev_shard_layout = self.get_shard_layout(&self.get_epoch_id(prev_hash)?)?;
+            if prev_shard_layout != shard_layout {
+                let parent_shard_id = shard_layout.get_parent_shard_id(shard_id)?;
+                assert!(prev_shard_layout.shard_ids().any(|i| i == parent_shard_id),
+                                    "invalid shard layout.  parent_shard_id: {}\nshard_layout: {:?}\nprev_shard_layout: {:?}",
+                                    parent_shard_id,
+                                    shard_layout,
+                                    parent_shard_id
+                            );
+                return Ok(parent_shard_id);
+            }
+        }
+        Ok(shard_id)
     }
 
     fn get_shard_layout_from_prev_block(
@@ -1004,6 +1069,16 @@ impl EpochManagerAdapter for EpochManagerHandle {
         let chunk_header = &state_witness.inner.chunk_header;
         let epoch_id =
             epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
+        self.verify_chunk_state_witness_signature_in_epoch(state_witness, &epoch_id)
+    }
+
+    fn verify_chunk_state_witness_signature_in_epoch(
+        &self,
+        state_witness: &ChunkStateWitness,
+        epoch_id: &EpochId,
+    ) -> Result<bool, Error> {
+        let epoch_manager = self.read();
+        let chunk_header = &state_witness.inner.chunk_header;
         let chunk_producer = epoch_manager.get_chunk_producer_info(
             &epoch_id,
             chunk_header.height_created(),
@@ -1041,6 +1116,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
     fn will_shard_layout_change(&self, parent_hash: &CryptoHash) -> Result<bool, EpochError> {
         let epoch_manager = self.read();
         epoch_manager.will_shard_layout_change(parent_hash)
+    }
+
+    fn possible_epochs_of_height_around_tip(
+        &self,
+        tip: &Tip,
+        height: BlockHeight,
+    ) -> Result<Vec<EpochId>, EpochError> {
+        let epoch_manager = self.read();
+        epoch_manager.possible_epochs_of_height_around_tip(tip, height)
     }
 
     #[cfg(feature = "new_epoch_sync")]

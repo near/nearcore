@@ -81,7 +81,7 @@ impl StandaloneRuntime {
         let root = GenesisStateApplier::apply(
             &writers,
             tries.clone(),
-            0,
+            ShardUId::from_shard_id_and_layout(0, &genesis.config.shard_layout),
             &[],
             &runtime_config.fees.storage_usage_config,
             &genesis,
@@ -220,7 +220,14 @@ impl RuntimeGroup {
             if (i as u64) < num_existing_accounts {
                 state_records.push(StateRecord::Account {
                     account_id: account_id.clone(),
-                    account: Account::new(TESTING_INIT_BALANCE, TESTING_INIT_STAKE, code_hash, 0),
+                    account: Account::new(
+                        TESTING_INIT_BALANCE,
+                        TESTING_INIT_STAKE,
+                        0,
+                        code_hash,
+                        0,
+                        PROTOCOL_VERSION,
+                    ),
                 });
                 state_records.push(StateRecord::AccessKey {
                     account_id: account_id.clone(),

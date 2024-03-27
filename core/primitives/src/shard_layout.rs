@@ -76,7 +76,7 @@ type ShardSplitMap = Vec<Vec<ShardId>>;
 pub struct ShardLayoutV1 {
     /// The boundary accounts are the accounts on boundaries between shards.
     /// Each shard contains a range of accounts from one boundary account to
-    /// another - or the the smallest or largest account possible. The total
+    /// another - or the smallest or largest account possible. The total
     /// number of shards is equal to the number of boundary accounts plus 1.
     boundary_accounts: Vec<AccountId>,
     /// Maps shards from the last shard layout to shards that it splits to in this shard layout,
@@ -164,6 +164,24 @@ impl ShardLayout {
                 .collect(),
             Some(vec![vec![0], vec![1], vec![2], vec![3, 4]]),
             2,
+        )
+    }
+
+    /// Returns the simple nightshade layout, version 3, that will be used in production.
+    pub fn get_simple_nightshade_layout_v3() -> ShardLayout {
+        ShardLayout::v1(
+            vec![
+                "aurora",
+                "aurora-0",
+                "game.hot.tg",
+                "kkuuue2akv_1630967379.near",
+                "tge-lockup.sweat",
+            ]
+            .into_iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+            Some(vec![vec![0], vec![1], vec![2, 3], vec![4], vec![5]]),
+            3,
         )
     }
 
@@ -568,6 +586,7 @@ mod tests {
         let v0 = ShardLayout::v0(1, 0);
         let v1 = ShardLayout::get_simple_nightshade_layout();
         let v2 = ShardLayout::get_simple_nightshade_layout_v2();
+        let v3 = ShardLayout::get_simple_nightshade_layout_v3();
 
         insta::assert_snapshot!(serde_json::to_string_pretty(&v0).unwrap(), @r###"
         {
@@ -635,6 +654,46 @@ mod tests {
               3
             ],
             "version": 2
+          }
+        }
+        "###);
+        insta::assert_snapshot!(serde_json::to_string_pretty(&v3).unwrap(), @r###"
+        {
+          "V1": {
+            "boundary_accounts": [
+              "aurora",
+              "aurora-0",
+              "game.hot.tg",
+              "kkuuue2akv_1630967379.near",
+              "tge-lockup.sweat"
+            ],
+            "shards_split_map": [
+              [
+                0
+              ],
+              [
+                1
+              ],
+              [
+                2,
+                3
+              ],
+              [
+                4
+              ],
+              [
+                5
+              ]
+            ],
+            "to_parent_shard_map": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4
+            ],
+            "version": 3
           }
         }
         "###);
