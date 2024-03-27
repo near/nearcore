@@ -6,7 +6,7 @@ use near_network::client::ClientSenderForNetworkMessage;
 
 pub fn forward_client_messages_from_network_to_client_actions(
 ) -> LoopEventHandler<ClientActions, ClientSenderForNetworkMessage> {
-    LoopEventHandler::new(|msg, client_actions: &mut ClientActions, _| {
+    LoopEventHandler::new(|msg, client_actions: &mut ClientActions| {
         match msg {
             ClientSenderForNetworkMessage::_state_response(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));

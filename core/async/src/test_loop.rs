@@ -63,18 +63,17 @@ pub mod adhoc;
 pub mod delay_sender;
 pub mod event_handler;
 pub mod futures;
-pub mod multi_instance;
 
 use self::{
     delay_sender::DelaySender,
     event_handler::LoopEventHandler,
     futures::{TestLoopFutureSpawner, TestLoopTask},
 };
-use crate::test_loop::event_handler::LoopHandlerContext;
 use crate::time;
-use crate::time::Duration;
+use crate::time::{Clock, Duration};
 use near_o11y::{testonly::init_test_logger, tracing::info};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::{collections::BinaryHeap, fmt::Debug, sync::Arc};
 
@@ -109,9 +108,9 @@ pub struct TestLoop<Data: 'static, Event: Debug + Send + 'static> {
     current_time: Duration,
     /// Fake clock that always returns the virtual time.
     clock: time::FakeClock,
-
-    /// Handlers are initialized only once, upon the first call to run().
-    handlers_initialized: bool,
+    /// Shutdown flag. When this flag is true, delayed action runners will no
+    /// longer post any new events to the event loop.
+    shutting_down: Arc<AtomicBool>,
     /// All the event handlers that are registered. We invoke them one by one
     /// for each event, until one of them handles the event (or panic if no one
     /// handles it).
@@ -190,6 +189,7 @@ pub struct TestLoopBuilder<Event: Debug + Send + 'static> {
     clock: time::FakeClock,
     pending_events: Arc<Mutex<InFlightEvents<Event>>>,
     pending_events_sender: DelaySender<Event>,
+    shutting_down: Arc<AtomicBool>,
 }
 
 impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
@@ -207,6 +207,7 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
             pending_events_sender: DelaySender::new(move |event, delay| {
                 pending_events.lock().unwrap().add(event, delay);
             }),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -220,8 +221,20 @@ impl<Event: Debug + Send + 'static> TestLoopBuilder<Event> {
         self.clock.clock()
     }
 
+    /// Returns a flag indicating whether the TestLoop system is being shut down;
+    /// this is similar to whether the Actix system is shutting down.
+    pub fn shutting_down(&self) -> Arc<AtomicBool> {
+        self.shutting_down.clone()
+    }
+
     pub fn build<Data>(self, data: Data) -> TestLoop<Data, Event> {
-        TestLoop::new(self.pending_events, self.pending_events_sender, self.clock, data)
+        TestLoop::new(
+            self.pending_events,
+            self.pending_events_sender,
+            self.clock,
+            self.shutting_down,
+            data,
+        )
     }
 }
 
@@ -253,6 +266,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         pending_events: Arc<Mutex<InFlightEvents<Event>>>,
         sender: DelaySender<Event>,
         clock: time::FakeClock,
+        shutting_down: Arc<AtomicBool>,
         data: Data,
     ) -> Self {
         Self {
@@ -263,7 +277,7 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
             next_event_index: 0,
             current_time: time::Duration::ZERO,
             clock,
-            handlers_initialized: false,
+            shutting_down,
             handlers: Vec::new(),
         }
     }
@@ -272,22 +286,17 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         self.sender.clone()
     }
 
-    /// Registers a new event handler to the test loop.
-    pub fn register_handler(&mut self, handler: LoopEventHandler<Data, Event>) {
-        assert!(!self.handlers_initialized, "Cannot register more handlers after run() is called");
-        self.handlers.push(handler);
+    pub fn clock(&self) -> Clock {
+        self.clock.clock()
     }
 
-    fn maybe_initialize_handlers(&mut self) {
-        if self.handlers_initialized {
-            return;
-        }
-        for handler in &mut self.handlers {
-            handler.init(LoopHandlerContext {
-                sender: self.sender.clone(),
-                clock: self.clock.clock(),
-            });
-        }
+    pub fn shutting_down(&self) -> Arc<AtomicBool> {
+        self.shutting_down.clone()
+    }
+
+    /// Registers a new event handler to the test loop.
+    pub fn register_handler(&mut self, handler: LoopEventHandler<Data, Event>) {
+        self.handlers.push(handler);
     }
 
     /// Helper to push events we have just received into the heap.
@@ -308,13 +317,10 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
         &mut self,
         decider: &impl Fn(Option<Duration>, &mut Data) -> AdvanceDecision,
     ) -> Option<EventInHeap<Event>> {
-        // Handlers may emit events during initialization, so do this first.
-        self.maybe_initialize_handlers();
-
         loop {
-            // Initializers may have emitted new events, and the previous iteration may have
-            // advanced the clock and made a new future available to run; either way, we enqueue
-            // any new events we have received.
+            // New events may have been sent to the TestLoop from outside, and the previous
+            // iteration of the loop may have made new futures ready, so queue up any received
+            // events.
             self.queue_received_events();
 
             // Now there are two ways an event may be/become available. One is that the event is
@@ -437,35 +443,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
     /// Used to finish off remaining events that are still in the loop. This can be necessary if the
     /// destructor of some components wait for certain condition to become true. Otherwise, the
     /// destructors may end up waiting forever. This also helps avoid a panic when destructing
-    /// TestLoop itself, as it asserts that all important events have been handled.
-    ///
-    /// Note that events that are droppable are dropped and not handled. It would not be consistent
-    /// to continue using the TestLoop, and therefore it is consumed by this function.
-    pub fn finish_remaining_events(mut self, maximum_duration: Duration) {
-        let deadline = self.current_time + maximum_duration;
-        'outer: while let Some(mut event) = self.advance_till_next_event(&|time, _| {
-            if time.is_some() {
-                AdvanceDecision::AdvanceToNextEvent
-            } else {
-                AdvanceDecision::Stop
-            }
-        }) {
-            if self.current_time > deadline {
-                panic!(
-                    "finish_remaining_events could not finish all events; \
-                     event still remaining: {:?}",
-                    event.event
-                );
-            }
-            for handler in &self.handlers {
-                if let Err(e) = handler.try_drop(event.event) {
-                    event.event = e;
-                } else {
-                    continue 'outer;
-                }
-            }
-            self.process_event(event);
-        }
+    /// TestLoop itself, as it asserts that all events have been handled.
+    pub fn shutdown_and_drain_remaining_events(mut self, maximum_duration: Duration) {
+        self.shutting_down.store(true, Ordering::Relaxed);
+        self.run_for(maximum_duration);
+        // Implicitly dropped here, which asserts that no more events are remaining.
     }
 
     pub fn run_instant(&mut self) {
@@ -483,19 +465,11 @@ impl<Data, Event: Debug + Send + 'static> TestLoop<Data, Event> {
 impl<Data: 'static, Event: Debug + Send + 'static> Drop for TestLoop<Data, Event> {
     fn drop(&mut self) {
         self.queue_received_events();
-        'outer: for event in self.events.drain() {
-            let mut to_handle = event.event;
-            for handler in &mut self.handlers {
-                if let Err(e) = handler.try_drop(to_handle) {
-                    to_handle = e;
-                } else {
-                    continue 'outer;
-                }
-            }
+        if let Some(event) = self.events.pop() {
             panic!(
-                "Important event scheduled at {} is not handled at the end of the test: {:?}.
-                 Consider calling `test.run()` again, or with a longer duration.",
-                event.due, to_handle
+                "Event scheduled at {} is not handled at the end of the test: {:?}.
+                 Consider calling `test.shutdown_and_drain_remaining_events(...)`.",
+                event.due, event.event
             );
         }
     }
