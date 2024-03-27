@@ -1,6 +1,7 @@
 use crate::download_file::{run_download_file, FileDownloadError};
 use crate::dyn_config::LOG_CONFIG_FILENAME;
 use anyhow::{anyhow, bail, Context};
+use bytesize::ByteSize;
 use near_async::time::{Clock, Duration};
 use near_chain::runtime::NightshadeRuntime;
 use near_chain_configs::test_utils::{
@@ -11,17 +12,18 @@ use near_chain_configs::{
     default_enable_multiline_logging, default_epoch_sync_enabled,
     default_header_sync_expected_height_per_second, default_header_sync_initial_timeout,
     default_header_sync_progress_timeout, default_header_sync_stall_ban_timeout,
-    default_log_summary_period, default_orphan_state_witness_pool_size,
-    default_produce_chunk_add_transactions_time_limit, default_state_sync,
-    default_state_sync_enabled, default_state_sync_timeout, default_sync_check_period,
-    default_sync_height_threshold, default_sync_step_period, default_transaction_pool_size_limit,
-    default_trie_viewer_state_size_limit, default_tx_routing_height_horizon,
-    default_view_client_threads, default_view_client_throttle_period, get_initial_supply,
-    ChunkDistributionNetworkConfig, ClientConfig, GCConfig, Genesis, GenesisConfig,
-    GenesisValidationMode, LogSummaryStyle, MutableConfigValue, ReshardingConfig, StateSyncConfig,
-    BLOCK_PRODUCER_KICKOUT_THRESHOLD, CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH,
-    FISHERMEN_THRESHOLD, GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT,
-    MAX_INFLATION_RATE, MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
+    default_log_summary_period, default_orphan_state_witness_max_size,
+    default_orphan_state_witness_pool_size, default_produce_chunk_add_transactions_time_limit,
+    default_state_sync, default_state_sync_enabled, default_state_sync_timeout,
+    default_sync_check_period, default_sync_height_threshold, default_sync_step_period,
+    default_transaction_pool_size_limit, default_trie_viewer_state_size_limit,
+    default_tx_routing_height_horizon, default_view_client_threads,
+    default_view_client_throttle_period, get_initial_supply, ChunkDistributionNetworkConfig,
+    ClientConfig, GCConfig, Genesis, GenesisConfig, GenesisValidationMode, LogSummaryStyle,
+    MutableConfigValue, ReshardingConfig, StateSyncConfig, BLOCK_PRODUCER_KICKOUT_THRESHOLD,
+    CHUNK_PRODUCER_KICKOUT_THRESHOLD, EXPECTED_EPOCH_LENGTH, FISHERMEN_THRESHOLD,
+    GAS_PRICE_ADJUSTMENT_RATE, GENESIS_CONFIG_FILENAME, INITIAL_GAS_LIMIT, MAX_INFLATION_RATE,
+    MIN_BLOCK_PRODUCTION_DELAY, MIN_GAS_PRICE, NEAR_BASE, NUM_BLOCKS_PER_YEAR,
     NUM_BLOCK_PRODUCER_SEATS, PROTOCOL_REWARD_RATE, PROTOCOL_UPGRADE_STAKE_THRESHOLD,
     TRANSACTION_VALIDITY_PERIOD,
 };
@@ -48,6 +50,7 @@ use near_rosetta_rpc::RosettaRpcConfig;
 use near_store::config::StateSnapshotType;
 use near_store::{StateSnapshotConfig, Store, TrieConfig};
 use near_telemetry::TelemetryConfig;
+use near_vm_runner::{ContractRuntimeCache, FilesystemContractRuntimeCache};
 use num_rational::Rational32;
 use std::fs;
 use std::fs::File;
@@ -266,6 +269,7 @@ pub struct Config {
     pub state_sync: Option<StateSyncConfig>,
     /// Limit of the size of per-shard transaction pool measured in bytes. If not set, the size
     /// will be unbounded.
+    ///
     /// New transactions that bring the size of the pool over this limit will be rejected. This
     /// guarantees that the node will use bounded resources to store incoming transactions.
     /// Setting this value too low (<1MB) on the validator might lead to production of smaller
@@ -277,12 +281,15 @@ pub struct Config {
     /// to upcoming chunk producers.
     pub tx_routing_height_horizon: BlockHeightDelta,
     /// Limit the time of adding transactions to a chunk.
+    ///
     /// A node produces a chunk by adding transactions from the transaction pool until
     /// some limit is reached. This time limit ensures that adding transactions won't take
     /// longer than the specified duration, which helps to produce the chunk quickly.
+    #[serde(default)]
     #[serde(with = "near_async::time::serde_opt_duration_as_std")]
     pub produce_chunk_add_transactions_time_limit: Option<Duration>,
     /// Optional config for the Chunk Distribution Network feature.
+    ///
     /// If set to `None` then this node does not participate in the Chunk Distribution Network.
     /// Nodes not participating will still function fine, but possibly with higher
     /// latency due to the need of requesting chunks over the peer-to-peer network.
@@ -292,6 +299,16 @@ pub struct Config {
     /// because the previous block isn't available. The witnesses wait in the pool untl the
     /// required block appears. This variable controls how many witnesses can be stored in the pool.
     pub orphan_state_witness_pool_size: usize,
+    /// Maximum size (number of bytes) of state witnesses in the OrphanStateWitnessPool.
+    ///
+    /// We keep only orphan witnesses which are smaller than this size.
+    /// This limits the maximum memory usage of OrphanStateWitnessPool.
+    /// TODO(#10259) - consider merging this limit with the non-orphan witness size limit.
+    pub orphan_state_witness_max_size: ByteSize,
+    /// The number of the contracts kept loaded up for execution.
+    ///
+    /// Each loaded contract will increase the baseline memory use of the node appreciably.
+    pub max_loaded_contracts: usize,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -338,6 +355,8 @@ impl Default for Config {
                 default_produce_chunk_add_transactions_time_limit(),
             chunk_distribution_network: None,
             orphan_state_witness_pool_size: default_orphan_state_witness_pool_size(),
+            orphan_state_witness_max_size: default_orphan_state_witness_max_size(),
+            max_loaded_contracts: 256,
         }
     }
 }
@@ -555,6 +574,7 @@ impl NearConfig {
                 ),
                 chunk_distribution_network: config.chunk_distribution_network,
                 orphan_state_witness_pool_size: config.orphan_state_witness_pool_size,
+                orphan_state_witness_max_size: config.orphan_state_witness_max_size,
             },
             network_config: NetworkConfig::new(
                 config.network,
@@ -614,16 +634,13 @@ impl NightshadeRuntime {
         store: Store,
         config: &NearConfig,
         epoch_manager: Arc<EpochManagerHandle>,
-    ) -> Arc<NightshadeRuntime> {
+    ) -> std::io::Result<Arc<NightshadeRuntime>> {
         // TODO (#9989): directly use the new state snapshot config once the migration is done.
         let mut state_snapshot_type =
             config.config.store.state_snapshot_config.state_snapshot_type.clone();
         if config.config.store.state_snapshot_enabled {
             state_snapshot_type = StateSnapshotType::EveryEpoch;
         }
-        // TODO (#9989): directly use the new state snapshot config once the migration is done.
-        let compaction_enabled = config.config.store.state_snapshot_compaction_enabled
-            || config.config.store.state_snapshot_config.compaction_enabled;
         let state_snapshot_config = StateSnapshotConfig {
             state_snapshot_type,
             home_dir: home_dir.to_path_buf(),
@@ -634,10 +651,18 @@ impl NightshadeRuntime {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("data")),
             state_snapshot_subdir: PathBuf::from("state_snapshot"),
-            compaction_enabled,
         };
-        NightshadeRuntime::new(
+        // FIXME: this (and other contract runtime resources) should probably get constructed by
+        // the caller and passed into this `NightshadeRuntime::from_config` here. But that's a big
+        // refactor...
+        let contract_cache = FilesystemContractRuntimeCache::with_memory_cache(
+            home_dir,
+            config.config.store.path.as_ref(),
+            config.config.max_loaded_contracts,
+        )?;
+        Ok(NightshadeRuntime::new(
             store,
+            ContractRuntimeCache::handle(&contract_cache),
             &config.genesis.config,
             epoch_manager,
             config.client_config.trie_viewer_state_size_limit,
@@ -646,7 +671,7 @@ impl NightshadeRuntime {
             config.config.gc.gc_num_epochs_to_keep(),
             TrieConfig::from_store_config(&config.config.store),
             state_snapshot_config,
-        )
+        ))
     }
 }
 

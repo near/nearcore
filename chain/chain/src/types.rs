@@ -263,7 +263,6 @@ pub struct RuntimeStorageConfig {
     pub use_flat_storage: bool,
     pub source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
-    pub record_storage: bool,
 }
 
 impl RuntimeStorageConfig {
@@ -273,7 +272,6 @@ impl RuntimeStorageConfig {
             use_flat_storage,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
-            record_storage: false,
         }
     }
 }

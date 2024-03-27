@@ -375,9 +375,7 @@ fn get_locator_ordinals(lowest_ordinal: u64, highest_ordinal: u64) -> Vec<u64> {
 mod test {
     use near_async::messaging::IntoMultiSender;
     use near_async::time::{Clock, Duration, FakeClock, Utc};
-    use near_chain::test_utils::{
-        process_block_sync, setup, setup_with_validators_and_start_time, ValidatorSchedule,
-    };
+    use near_chain::test_utils::{process_block_sync, setup, setup_with_tx_validity_period};
     use near_chain::types::Tip;
     use near_chain::{BlockProcessingArtifact, Provenance};
     use near_client_primitives::types::SyncStatus;
@@ -744,14 +742,10 @@ mod test {
             1_000_000_000,
         );
 
-        let vs = ValidatorSchedule::new()
-            .block_producers_per_epoch(vec![vec!["test0".parse().unwrap()]]);
         let clock = FakeClock::new(Utc::UNIX_EPOCH);
         // Don't bother with epoch switches. It's not relevant.
-        let (mut chain, _, _, _) =
-            setup_with_validators_and_start_time(clock.clock(), vs.clone(), 10000, 100);
-        let (mut chain2, _, _, signers2) =
-            setup_with_validators_and_start_time(clock.clock(), vs, 10000, 100);
+        let (mut chain, _, _, _) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
+        let (mut chain2, _, _, signer2) = setup_with_tx_validity_period(clock.clock(), 100, 10000);
         // Set up the second chain with 2000+ blocks.
         let mut block_merkle_tree = PartialMerkleTree::default();
         block_merkle_tree.insert(*chain.genesis().hash()); // for genesis block
@@ -777,7 +771,7 @@ mod test {
                 epoch_id,
                 next_epoch_id,
                 None,
-                signers2
+                [&signer2]
                     .iter()
                     .map(|signer| {
                         Some(Box::new(
@@ -797,7 +791,7 @@ mod test {
                 Some(0),
                 vec![],
                 vec![],
-                &*signers2[0],
+                signer2.as_ref(),
                 *last_block.header().next_bp_hash(),
                 block_merkle_tree.root(),
                 clock.now_utc(),

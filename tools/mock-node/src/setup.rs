@@ -40,7 +40,8 @@ fn setup_runtime(
     let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
-    let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone());
+    let runtime = NightshadeRuntime::from_config(home_dir, store, config, epoch_manager.clone())
+        .expect("could not create transaction runtime");
     (epoch_manager, shard_tracker, runtime)
 }
 

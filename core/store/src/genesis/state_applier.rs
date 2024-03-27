@@ -1,8 +1,8 @@
 use crate::flat::FlatStateChanges;
 use crate::{
     get_account, has_received_data, set, set_access_key, set_account, set_code,
-    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise, ShardTries,
-    TrieUpdate,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -13,7 +13,7 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceiptEnum, Rece
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_record::{state_record_to_account_id, StateRecord};
 use near_primitives::trie_key::TrieKey;
-use near_primitives::types::{AccountId, Balance, ShardId, StateChangeCause, StateRoot};
+use near_primitives::types::{AccountId, Balance, StateChangeCause, StateRoot};
 use near_vm_runner::ContractCode;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic;
@@ -310,7 +310,7 @@ impl GenesisStateApplier {
                 }
                 ReceiptEnum::PromiseYield(ref _action_receipt) => {
                     storage.modify(|state_update| {
-                        set_yielded_promise(state_update, &receipt);
+                        set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
                 ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {
@@ -347,15 +347,13 @@ impl GenesisStateApplier {
     pub fn apply(
         op_limit: &atomic::AtomicUsize,
         tries: ShardTries,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         validators: &[(AccountId, PublicKey, Balance)],
         config: &StorageUsageConfig,
         genesis: &Genesis,
         shard_account_ids: HashSet<AccountId>,
     ) -> StateRoot {
         let mut delayed_receipts_indices = DelayedReceiptIndices::default();
-        let shard_uid =
-            ShardUId { version: genesis.config.shard_layout.version(), shard_id: shard_id as u32 };
         let mut storage =
             AutoFlushingTrieUpdate::new(op_limit, StateRoot::default(), &tries, shard_uid);
         Self::apply_batch(

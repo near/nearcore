@@ -15,6 +15,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -30,7 +31,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -39,12 +40,11 @@ use near_store::config::StateSnapshotType;
 use near_store::flat::FlatStorageManager;
 use near_store::metadata::DbKind;
 use near_store::{
-    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store,
-    StoreCompiledContractCache, Trie, TrieConfig, TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
+    ApplyStatePartResult, DBCol, ShardTries, StateSnapshotConfig, Store, Trie, TrieConfig,
+    TrieUpdate, WrappedTrieChanges, COLD_HEAD_KEY,
 };
-use near_vm_runner::logic::CompiledContractCache;
-use near_vm_runner::precompile_contract;
 use near_vm_runner::ContractCode;
+use near_vm_runner::{precompile_contract, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use node_runtime::adapter::ViewRuntimeAdapter;
 use node_runtime::state_viewer::TrieViewer;
 use node_runtime::{
@@ -69,6 +69,7 @@ pub struct NightshadeRuntime {
     runtime_config_store: RuntimeConfigStore,
 
     store: Store,
+    compiled_contract_cache: Box<dyn ContractRuntimeCache>,
     tries: ShardTries,
     trie_viewer: TrieViewer,
     pub runtime: Runtime,
@@ -80,6 +81,7 @@ pub struct NightshadeRuntime {
 impl NightshadeRuntime {
     pub fn new(
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_viewer_state_size_limit: Option<u64>,
@@ -111,12 +113,13 @@ impl NightshadeRuntime {
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             Ok(shard_layout.shard_uids().collect())
         }) {
-            tracing::error!(target: "runtime", ?err, "Failed to check if a state snapshot exists");
+            tracing::debug!(target: "runtime", ?err, "The state snapshot is not available.");
         }
 
         let migration_data = Arc::new(migrations::load_migration_data(&genesis_config.chain_id));
         Arc::new(NightshadeRuntime {
             genesis_config: genesis_config.clone(),
+            compiled_contract_cache,
             runtime_config_store,
             store,
             tries,
@@ -131,6 +134,7 @@ impl NightshadeRuntime {
     pub fn test_with_runtime_config_store(
         home_dir: &Path,
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         runtime_config_store: RuntimeConfigStore,
@@ -138,6 +142,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         Self::new(
             store,
+            compiled_contract_cache,
             genesis_config,
             epoch_manager,
             None,
@@ -150,7 +155,6 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         )
     }
@@ -158,6 +162,7 @@ impl NightshadeRuntime {
     pub fn test_with_trie_config(
         home_dir: &Path,
         store: Store,
+        compiled_contract_cache: Box<dyn ContractRuntimeCache>,
         genesis_config: &GenesisConfig,
         epoch_manager: Arc<EpochManagerHandle>,
         trie_config: TrieConfig,
@@ -165,6 +170,7 @@ impl NightshadeRuntime {
     ) -> Arc<Self> {
         Self::new(
             store,
+            compiled_contract_cache,
             genesis_config,
             epoch_manager,
             None,
@@ -177,7 +183,6 @@ impl NightshadeRuntime {
                 home_dir: home_dir.to_path_buf(),
                 hot_store_path: PathBuf::from("data"),
                 state_snapshot_subdir: PathBuf::from("state_snapshot"),
-                compaction_enabled: false,
             },
         )
     }
@@ -191,6 +196,9 @@ impl NightshadeRuntime {
         Self::test_with_runtime_config_store(
             home_dir,
             store,
+            FilesystemContractRuntimeCache::with_memory_cache(home_dir, None::<&str>, 1)
+                .expect("filesystem contract cache")
+                .handle(),
             genesis_config,
             epoch_manager,
             RuntimeConfigStore::test(),
@@ -358,7 +366,7 @@ impl NightshadeRuntime {
             random_seed,
             current_protocol_version,
             config: self.runtime_config_store.get_config(current_protocol_version).clone(),
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.store))),
+            cache: Some(self.compiled_contract_cache.handle()),
             is_new_chunk,
             migration_data: Arc::clone(&self.migration_data),
             migration_flags: MigrationFlags {
@@ -456,8 +464,8 @@ impl NightshadeRuntime {
         .entered();
         let protocol_version = self.epoch_manager.get_epoch_protocol_version(epoch_id)?;
         let runtime_config = self.runtime_config_store.get_config(protocol_version);
-        let compiled_contract_cache: Option<Box<dyn CompiledContractCache>> =
-            Some(Box::new(StoreCompiledContractCache::new(&self.store)));
+        let compiled_contract_cache: Option<Box<dyn ContractRuntimeCache>> =
+            Some(Box::new(self.compiled_contract_cache.handle()));
         // Execute precompile_contract in parallel but prevent it from using more than half of all
         // threads so that node will still function normally.
         rayon::scope(|scope| {
@@ -697,7 +705,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
@@ -858,7 +868,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
 
@@ -1212,6 +1224,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_config.validator_selection_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio =
             epoch_config.validator_selection_config.minimum_stake_ratio;
+        genesis_config.shuffle_shard_assignment_for_chunk_producers =
+            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
@@ -1275,7 +1289,7 @@ impl node_runtime::adapter::ViewRuntimeAdapter for NightshadeRuntime {
             epoch_height,
             block_timestamp,
             current_protocol_version,
-            cache: Some(Box::new(StoreCompiledContractCache::new(&self.tries.get_store()))),
+            cache: Some(Box::new(self.compiled_contract_cache.handle())),
         };
         self.trie_viewer.call_function(
             state_update,

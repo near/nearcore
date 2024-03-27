@@ -9,6 +9,7 @@ from utils import MetricsTracker
 
 V1_PROTOCOL_VERSION = 48
 V2_PROTOCOL_VERSION = 64
+V3_PROTOCOL_VERSION = 65
 
 V0_SHARD_LAYOUT = {
     "V0": {
@@ -24,6 +25,19 @@ V1_SHARD_LAYOUT = {
         "shards_split_map": [[0, 1, 2, 3]],
         "to_parent_shard_map": [0, 0, 0, 0],
         "version": 1
+    }
+}
+V2_SHARD_LAYOUT = {
+    "V1": {
+        "boundary_accounts": [
+            "aurora",
+            "aurora-0",
+            "kkuuue2akv_1630967379.near",
+            "tge-lockup.sweat",
+        ],
+        "shards_split_map": [[0], [1], [2], [3, 4]],
+        "to_parent_shard_map": [0, 1, 2, 3, 3],
+        "version": 2
     }
 }
 
@@ -52,6 +66,28 @@ def append_shard_layout_config_changes(
     logger=None,
 ):
     genesis_config_changes.append(["use_production_config", True])
+
+    if binary_protocol_version >= V3_PROTOCOL_VERSION:
+        if logger:
+            logger.info("Testing migration from V2 to V3.")
+        # Set the initial protocol version to a version just before V3.
+        genesis_config_changes.append([
+            "protocol_version",
+            V3_PROTOCOL_VERSION - 1,
+        ])
+        genesis_config_changes.append([
+            "shard_layout",
+            V2_SHARD_LAYOUT,
+        ])
+        genesis_config_changes.append([
+            "num_block_producer_seats_per_shard",
+            [1, 1, 1, 1],
+        ])
+        genesis_config_changes.append([
+            "avg_hidden_validator_seats_per_shard",
+            [0, 0, 0, 0],
+        ])
+        return
 
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
         if logger:
@@ -101,6 +137,8 @@ def append_shard_layout_config_changes(
 
 
 def get_genesis_shard_layout_version(binary_protocol_version):
+    if binary_protocol_version >= V3_PROTOCOL_VERSION:
+        return 2
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
         return 1
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -110,6 +148,8 @@ def get_genesis_shard_layout_version(binary_protocol_version):
 
 
 def get_target_shard_layout_version(binary_protocol_version):
+    if binary_protocol_version >= V3_PROTOCOL_VERSION:
+        return 3
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
         return 2
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -119,6 +159,8 @@ def get_target_shard_layout_version(binary_protocol_version):
 
 
 def get_genesis_num_shards(binary_protocol_version):
+    if binary_protocol_version >= V3_PROTOCOL_VERSION:
+        return 5
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
         return 4
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -129,6 +171,8 @@ def get_genesis_num_shards(binary_protocol_version):
 
 def get_target_num_shards(binary_protocol_version):
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
+        return 6
+    if binary_protocol_version >= V2_PROTOCOL_VERSION:
         return 5
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
         return 4
@@ -137,6 +181,8 @@ def get_target_num_shards(binary_protocol_version):
 
 
 def get_epoch_offset(binary_protocol_version):
+    if binary_protocol_version >= V3_PROTOCOL_VERSION:
+        return 1
     if binary_protocol_version >= V2_PROTOCOL_VERSION:
         return 1
     if binary_protocol_version >= V1_PROTOCOL_VERSION:
@@ -203,4 +249,5 @@ class ReshardingTestBase(unittest.TestCase):
         return metrics_tracker.get_metric_all_values("near_resharding_status")
 
     def get_flat_storage_head(self, metrics_tracker: MetricsTracker):
-        return metrics_tracker.get_metric_all_values("flat_storage_head_height")
+        return metrics_tracker.get_metric_all_values(
+            "near_flat_storage_head_height")

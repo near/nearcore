@@ -17,6 +17,10 @@ impl Queue {
         self.messages.iter().map(|receipt| receipt.size).sum()
     }
 
+    pub fn attached_gas(&self) -> u64 {
+        self.messages.iter().map(|receipt| receipt.attached_gas).sum()
+    }
+
     pub fn shard(&self) -> ShardId {
         self.shard
     }

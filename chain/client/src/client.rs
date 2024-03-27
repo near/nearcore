@@ -7,6 +7,7 @@ use crate::debug::BlockProductionTracker;
 use crate::debug::PRODUCTION_TIMES_CACHE_SIZE;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::stateless_validation::chunk_validator::ChunkValidator;
+use crate::stateless_validation::state_witness_tracker::ChunkStateWitnessTracker;
 use crate::sync::adapter::SyncShardInfo;
 use crate::sync::block::BlockSync;
 use crate::sync::epoch::EpochSync;
@@ -189,6 +190,8 @@ pub struct Client {
     pub chunk_inclusion_tracker: ChunkInclusionTracker,
     /// Tracks chunk endorsements received from chunk validators. Used to filter out chunks ready for inclusion
     pub chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
+    /// Tracks a collection of state witnesses sent from chunk producers to chunk validators.
+    pub state_witness_tracker: ChunkStateWitnessTracker,
 
     // Optional value used for the Chunk Distribution Network Feature.
     chunk_distribution_network: Option<ChunkDistributionNetwork>,
@@ -404,6 +407,7 @@ impl Client {
             chunk_validator,
             chunk_inclusion_tracker: ChunkInclusionTracker::new(),
             chunk_endorsement_tracker,
+            state_witness_tracker: ChunkStateWitnessTracker::new(clock),
             chunk_distribution_network,
         })
     }
@@ -741,8 +745,14 @@ impl Client {
             let (mut chunk_header, chunk_endorsement) =
                 self.chunk_inclusion_tracker.get_chunk_header_and_endorsements(&chunk_hash)?;
             *chunk_header.height_included_mut() = height;
-            chunk_headers[shard_id as usize] = chunk_header;
-            chunk_endorsements[shard_id as usize] = chunk_endorsement;
+            *chunk_headers
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_header;
+            *chunk_endorsements
+                .get_mut(shard_id as usize)
+                .ok_or_else(|| near_chain_primitives::Error::InvalidShardId(shard_id))? =
+                chunk_endorsement;
         }
 
         let prev_header = &prev_block.header();
@@ -989,18 +999,11 @@ impl Client {
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
-            let me = self
-                .validator_signer
-                .as_ref()
-                .map(|validator_signer| validator_signer.validator_id().clone());
-            let record_storage = chain
-                .should_produce_state_witness_for_this_or_next_epoch(&me, &prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
-                record_storage,
             };
             runtime.prepare_transactions(
                 storage_config,
