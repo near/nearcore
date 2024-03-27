@@ -38,6 +38,7 @@ impl UndoBlockCommand {
             store,
             near_config.genesis.config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.client_config.validator_minimal_store,
         );
 
         if self.reset_only_body {

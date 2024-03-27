@@ -45,6 +45,7 @@ impl ChainAccess {
             store.clone(),
             config.genesis.config.genesis_height,
             config.client_config.save_trie_changes,
+            config.client_config.validator_minimal_store,
         );
         let epoch_manager = EpochManager::new_arc_handle(store.clone(), &config.genesis.config);
         let runtime =

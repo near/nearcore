@@ -56,6 +56,7 @@ impl AnalyseGasUsageCommand {
             store.clone(),
             near_config.genesis.config.genesis_height,
             false,
+            false,
         ));
         let epoch_manager =
             EpochManager::new_from_genesis_config(store, &near_config.genesis.config).unwrap();

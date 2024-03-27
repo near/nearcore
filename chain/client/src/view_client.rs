@@ -142,6 +142,7 @@ impl ViewClientActor {
             chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             config.save_trie_changes,
+            config.validator_minimal_store,
         )?;
         Ok(ViewClientActor {
             clock,

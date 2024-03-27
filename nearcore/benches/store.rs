@@ -40,7 +40,7 @@ fn read_trie_items(bench: &mut Bencher, shard_id: usize, mode: Mode) {
         .get_hot_store();
 
         let chain_store =
-            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true);
+            ChainStore::new(store.clone(), near_config.genesis.config.genesis_height, true, false);
 
         let epoch_manager =
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);

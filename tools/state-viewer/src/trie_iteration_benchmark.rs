@@ -106,6 +106,7 @@ impl TrieIterationBenchmarkCmd {
             store.clone(),
             genesis_config.genesis_height,
             near_config.client_config.save_trie_changes,
+            near_config.client_config.validator_minimal_store,
         );
         let head = chain_store.head().unwrap();
         let block = chain_store.get_block(&head.last_block_hash).unwrap();
