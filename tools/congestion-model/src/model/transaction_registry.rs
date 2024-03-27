@@ -1,4 +1,4 @@
-use crate::{ShardId, Transaction, TransactionBuilder};
+use crate::{Round, ShardId, Transaction, TransactionBuilder};
 
 #[derive(Default)]
 /// Stores all transactions of a model execution and assigns TransactionIds.
@@ -28,8 +28,12 @@ impl TransactionRegistry {
     ///
     /// The internal [`TransactionId`] is only valid once the
     /// [`TransactionBuilder`] has finished building the [`Transaction`].
-    pub(crate) fn new_transaction_builder(&mut self, shard_id: ShardId) -> TransactionBuilder {
-        TransactionBuilder::new(self.next_id(), shard_id)
+    pub(crate) fn new_transaction_builder(
+        &mut self,
+        shard_id: ShardId,
+        round: Round,
+    ) -> TransactionBuilder {
+        TransactionBuilder::new(self.next_id(), shard_id, round)
     }
 
     pub(crate) fn build_transaction(&mut self, builder: TransactionBuilder) -> TransactionId {

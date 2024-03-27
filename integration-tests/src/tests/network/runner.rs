@@ -3,14 +3,14 @@ use anyhow::{anyhow, bail, Context};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, LateBoundSender};
 use near_async::time::{self, Clock};
-use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::RuntimeAdapter;
 use near_chain::{Chain, ChainGenesis};
-use near_chain_configs::{ClientConfig, GenesisConfig};
+use near_chain_configs::{ClientConfig, Genesis, GenesisConfig};
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::{start_client, start_view_client, SyncAdapter};
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_epoch_manager::EpochManager;
 use near_network::actix::ActixSystem;
 use near_network::blacklist;
 use near_network::config;
@@ -27,7 +27,9 @@ use near_primitives::network::PeerId;
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::types::{AccountId, ValidatorId};
 use near_primitives::validator_signer::ValidatorSigner;
+use near_store::genesis::initialize_genesis_state;
 use near_telemetry::{TelemetryActor, TelemetryConfig};
+use nearcore::NightshadeRuntime;
 use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Iterator;
@@ -48,18 +50,25 @@ fn setup_network_node(
     chain_genesis: ChainGenesis,
     config: config::NetworkConfig,
 ) -> Addr<PeerManagerActor> {
-    let store = near_store::test_utils::create_test_node_storage_default();
-
+    let node_storage = near_store::test_utils::create_test_node_storage_default();
     let num_validators = validators.len() as ValidatorId;
 
-    let vs = ValidatorSchedule::new().block_producers_per_epoch(vec![validators]);
-    let epoch_manager = MockEpochManager::new_with_validators(store.get_hot_store(), vs, 5);
+    let mut genesis = Genesis::test(validators, 1);
+    genesis.config.epoch_length = 5;
+    let tempdir = tempfile::tempdir().unwrap();
+    initialize_genesis_state(node_storage.get_hot_store(), &genesis, Some(tempdir.path()));
+    let epoch_manager = EpochManager::new_arc_handle(node_storage.get_hot_store(), &genesis.config);
     let shard_tracker = ShardTracker::new_empty(epoch_manager.clone());
-    let runtime = KeyValueRuntime::new(store.get_hot_store(), epoch_manager.as_ref());
+    let runtime = NightshadeRuntime::test(
+        tempdir.path(),
+        node_storage.get_hot_store(),
+        &genesis.config,
+        epoch_manager.clone(),
+    );
     let signer = Arc::new(create_test_signer(account_id.as_str()));
     let telemetry_actor = TelemetryActor::new(TelemetryConfig::default()).start();
 
-    let db = store.into_inner(near_store::Temperature::Hot);
+    let db = node_storage.into_inner(near_store::Temperature::Hot);
     let mut client_config =
         ClientConfig::test(false, 100, 200, num_validators, false, true, true, true);
     client_config.archive = config.archive;

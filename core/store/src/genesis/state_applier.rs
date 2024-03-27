@@ -1,8 +1,8 @@
 use crate::flat::FlatStateChanges;
 use crate::{
     get_account, has_received_data, set, set_access_key, set_account, set_code,
-    set_delayed_receipt, set_postponed_receipt, set_received_data, set_yielded_promise, ShardTries,
-    TrieUpdate,
+    set_delayed_receipt, set_postponed_receipt, set_promise_yield_receipt, set_received_data,
+    ShardTries, TrieUpdate,
 };
 
 use near_chain_configs::Genesis;
@@ -310,7 +310,7 @@ impl GenesisStateApplier {
                 }
                 ReceiptEnum::PromiseYield(ref _action_receipt) => {
                     storage.modify(|state_update| {
-                        set_yielded_promise(state_update, &receipt);
+                        set_promise_yield_receipt(state_update, &receipt);
                     });
                 }
                 ReceiptEnum::Data(_) | ReceiptEnum::PromiseResume(_) => {

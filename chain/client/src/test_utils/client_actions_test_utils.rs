@@ -32,6 +32,9 @@ pub fn forward_client_messages_from_network_to_client_actions(
             ClientSenderForNetworkMessage::_chunk_state_witness(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }
+            ClientSenderForNetworkMessage::_chunk_state_witness_ack(msg) => {
+                (msg.callback)(Ok(client_actions.handle(msg.message)));
+            }
             ClientSenderForNetworkMessage::_chunk_endorsement(msg) => {
                 (msg.callback)(Ok(client_actions.handle(msg.message)));
             }

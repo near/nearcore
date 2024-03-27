@@ -37,10 +37,9 @@ impl VMLogicBuilder {
     }
 
     pub fn build(&mut self) -> TestVMLogic<'_> {
-        let context = self.context.clone();
         TestVMLogic::from(VMLogic::new(
             &mut self.ext,
-            context,
+            &self.context,
             &self.config,
             &self.fees_config,
             &self.promise_results,

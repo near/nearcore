@@ -31,19 +31,24 @@ pub(crate) fn with_vm_variants(
     #[allow(unused)] cfg: &near_parameters::vm::Config,
     runner: impl Fn(VMKind) -> (),
 ) {
+    let run = move |kind| {
+        println!("running test with {kind:?}");
+        runner(kind)
+    };
+
     #[cfg(all(feature = "wasmer0_vm", target_arch = "x86_64"))]
-    runner(VMKind::Wasmer0);
+    run(VMKind::Wasmer0);
 
     #[cfg(feature = "wasmtime_vm")]
-    runner(VMKind::Wasmtime);
+    run(VMKind::Wasmtime);
 
     #[cfg(all(feature = "wasmer2_vm", target_arch = "x86_64"))]
-    runner(VMKind::Wasmer2);
+    run(VMKind::Wasmer2);
 
     #[cfg(all(feature = "near_vm", target_arch = "x86_64"))]
     if cfg.limit_config.contract_prepare_version == near_parameters::vm::ContractPrepareVersion::V2
     {
-        runner(VMKind::NearVm);
+        run(VMKind::NearVm);
     }
 }
 
