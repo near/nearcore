@@ -2,7 +2,7 @@ use chrono::Utc;
 use clap::Parser;
 use congestion_model::strategy::{
     FancyGlobalTransactionStop, GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure,
-    TrafficLight,
+    SoftBackpressure, TrafficLight,
 };
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
@@ -164,6 +164,7 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "Fancy Global Transaction Stop" => Box::<FancyGlobalTransactionStop>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
+            "Soft backpressure" => Box::<SoftBackpressure>::default(),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -204,6 +205,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "Fancy Global Transaction Stop".to_string(),
         "New TX last".to_string(),
         "Traffic Light".to_string(),
+        "Soft backpressure".to_string(),
     ];
 
     if strategy_name == "all" {
