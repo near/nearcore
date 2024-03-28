@@ -55,7 +55,7 @@ cross-shard congestion design proposed in
 One approach to solve congestion would be to never allow more work into the
 system than we can execute.
 
-But this is not ideal Just consider this example where everybody tries to access
+But this is not ideal. Just consider this example where everybody tries to access
 a contract on the same shard.
 
 ![graph](../../images/congestion/receipt_flow_example_1.svg)
@@ -119,7 +119,7 @@ indirectly requires bandwidth on the congested shard.
 
 Crucially, when accepting a transaction, we don't know ahead of time which
 shards will be affected by the full directed graph of receipts in a transaction.
-We only know the first step. For multi-jop transactions, there is no easy way out.
+We only know the first step. For multi-hop transactions, there is no easy way out.
 
 But it is worth mentioning, that in practice the single-hop function call is the
 most common case. And this case can be handled nicely by rejecting incoming
@@ -146,7 +146,7 @@ send receipts to a shard that has not enough work in the delayed receipts queue
 already.
 
 Basically, the backpressure limits from idea 3 are only applied to incoming
-receipts but not for the total size. This guarantees that in congested the
+receipts but not for the total size. This guarantees that in the congested
 scenario that previously caused a deadlock, we always have something in the
 incoming queue to work on, otherwise there wouldn't be backpressure at all.
 
@@ -161,7 +161,7 @@ total flow. Thus under the assumption that at least 10% of gas is being burnt,
 we have 100% utilization.
 
 A limit in bytes would be better to argue how much memory we need exactly. But
-in some sense, the wo are equivalent, as producing large receipts should cost a
+in some sense, the two are equivalent, as producing large receipts should cost a
 linear amount of gas. What exactly the conversion rate is, is rather complicated
 and warrants its own investigation with potential protocol changes to lower the
 ratio in the most extreme cases. And this is important regardless of how
