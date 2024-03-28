@@ -114,7 +114,9 @@ impl ShardTries {
         let prefetch_enabled = !is_view
             && (self.0.trie_config.enable_receipt_prefetching
                 || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
-                    && !self.0.trie_config.sweat_prefetch_senders.is_empty()));
+                    && !self.0.trie_config.sweat_prefetch_senders.is_empty())
+                || !self.0.trie_config.claim_sweat_prefetch_config.is_empty()
+                || !self.0.trie_config.kaiching_prefetch_config.is_empty());
         let prefetch_api = prefetch_enabled.then(|| {
             self.0
                 .prefetchers
