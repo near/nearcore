@@ -429,7 +429,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(
             formatter,
-            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+            "either string format of `ShardUId` like 's0.v3' for shard 0 version 3, or a map"
         )
     }
 
