@@ -243,7 +243,7 @@ class NeardRunner:
         args = ('tmp-near-home',) + args
         return os.path.join(self.home, *args)
 
-    def neard_init(self):
+    def neard_init(self, rpc_port, protocol_port, validator_id):
         # We make neard init save files to self.tmp_near_home_path() just to make it
         # a bit cleaner, so we can init to a non-existent directory and then move
         # the files we want to the real near home without having to remove it first
@@ -252,11 +252,20 @@ class NeardRunner:
             self.tmp_near_home_path(), 'init'
         ]
         if not self.is_traffic_generator():
-            cmd += ['--account-id', f'{socket.gethostname()}.near']
+            if validator_id is None:
+                validator_id = f'{socket.gethostname()}.near'
+            cmd += ['--account-id', validator_id]
+        else:
+            if validator_id is not None:
+                logging.warning(
+                    f'ignoring validator ID "{validator_id}" for traffic generator node'
+                )
         subprocess.check_call(cmd)
 
         with open(self.tmp_near_home_path('config.json'), 'r') as f:
             config = json.load(f)
+        config['rpc']['addr'] = f'0.0.0.0:{rpc_port}'
+        config['network']['addr'] = f'0.0.0.0:{protocol_port}'
         self.data['neard_addr'] = config['rpc']['addr']
         config['tracked_shards'] = [0, 1, 2, 3]
         config['log_summary_style'] = 'plain'
@@ -296,7 +305,20 @@ class NeardRunner:
     # TODO: add a binaries argument that tells what binaries we want to use in the test. Before we do
     # this, it is pretty mandatory to implement some sort of client authentication, because without it,
     # anyone would be able to get us to download and run arbitrary code
-    def do_new_test(self):
+    def do_new_test(self,
+                    rpc_port=3030,
+                    protocol_port=24567,
+                    validator_id=None):
+        if not isinstance(rpc_port, int):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='rpc_port argument not an int')
+        if not isinstance(protocol_port, int):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='protocol_port argument not an int')
+        if validator_id is not None and not isinstance(validator_id, str):
+            raise jsonrpc.exceptions.JSONRPCDispatchException(
+                code=-32600, message='validator_id argument not a string')
+
         with self.lock:
             self.kill_neard()
             try:
@@ -312,7 +334,7 @@ class NeardRunner:
             except FileNotFoundError:
                 pass
 
-            self.neard_init()
+            self.neard_init(rpc_port, protocol_port, validator_id)
             self.move_init_files()
 
             with open(self.target_near_home_path('config.json'), 'r') as f:
