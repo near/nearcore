@@ -332,6 +332,7 @@ impl TryFrom<&ParameterTable> for RuntimeConfig {
                     .get(Parameter::MinAllowedTopLevelAccountLength)?,
                 registrar_account_id: params.get(Parameter::RegistrarAccountId)?,
             },
+            storage_proof_size_soft_limit: params.get(Parameter::StorageProofSizeSoftLimit)?,
         })
     }
 }

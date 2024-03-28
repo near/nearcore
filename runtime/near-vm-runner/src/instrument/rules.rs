@@ -9,8 +9,8 @@ pub struct UnknownInstruction;
 pub trait Rules {
     /// Returns the cost for the passed `instruction`.
     ///
-    /// Returning `None` makes the gas instrumention end with an error. This is meant
-    /// as a way to have a partial rule set where any instruction that is not specifed
+    /// Returning `None` makes the gas instrumentation end with an error. This is meant
+    /// as a way to have a partial rule set where any instruction that is not specified
     /// is considered as forbidden.
     fn instruction_cost(&self, instruction: &Instruction) -> Option<u32>;
 

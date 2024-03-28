@@ -263,15 +263,6 @@ pub(crate) static DELETE_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| 
     .unwrap()
 });
 
-pub(crate) static COMPACT_STATE_SNAPSHOT_ELAPSED: Lazy<Histogram> = Lazy::new(|| {
-    try_create_histogram_with_buckets(
-        "near_compact_state_snapshot_elapsed_sec",
-        "Latency of compaction of a state snapshot, in seconds",
-        exponential_buckets(0.001, 1.6, 40).unwrap(),
-    )
-    .unwrap()
-});
-
 pub(crate) static MOVE_STATE_SNAPSHOT_FLAT_HEAD_ELAPSED: Lazy<HistogramVec> = Lazy::new(|| {
     try_create_histogram_vec(
         "near_move_state_snapshot_flat_head_elapsed_sec",
@@ -392,7 +383,7 @@ pub mod flat_state_metrics {
 
     pub static FLAT_STORAGE_CREATION_STATUS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_status",
+            "near_flat_storage_creation_status",
             "Integer representing status of flat storage creation",
             &["shard_uid"],
         )
@@ -400,7 +391,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CREATION_REMAINING_STATE_PARTS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_remaining_state_parts",
+            "near_flat_storage_creation_remaining_state_parts",
             "Number of remaining state parts to fetch to fill flat storage in bytes",
             &["shard_uid"],
         )
@@ -408,7 +399,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CREATION_FETCHED_STATE_PARTS: Lazy<IntCounterVec> = Lazy::new(|| {
         try_create_int_counter_vec(
-            "flat_storage_creation_fetched_state_parts",
+            "near_flat_storage_creation_fetched_state_parts",
             "Number of fetched state parts to fill flat storage in bytes",
             &["shard_uid"],
         )
@@ -416,7 +407,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CREATION_FETCHED_STATE_ITEMS: Lazy<IntCounterVec> = Lazy::new(|| {
         try_create_int_counter_vec(
-            "flat_storage_creation_fetched_state_items",
+            "near_flat_storage_creation_fetched_state_items",
             "Number of fetched items to fill flat storage",
             &["shard_uid"],
         )
@@ -424,7 +415,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CREATION_THREADS_USED: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_creation_threads_used",
+            "near_flat_storage_creation_threads_used",
             "Number of currently used threads to fetch state",
             &["shard_uid"],
         )
@@ -432,7 +423,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_HEAD_HEIGHT: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_head_height",
+            "near_flat_storage_head_height",
             "Height of flat storage head",
             &["shard_uid"],
         )
@@ -440,7 +431,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CACHED_DELTAS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_deltas",
+            "near_flat_storage_cached_deltas",
             "Number of cached deltas in flat storage",
             &["shard_uid"],
         )
@@ -448,7 +439,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CACHED_CHANGES_NUM_ITEMS: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_changes_num_items",
+            "near_flat_storage_cached_changes_num_items",
             "Number of items in all cached changes in flat storage",
             &["shard_uid"],
         )
@@ -456,7 +447,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_CACHED_CHANGES_SIZE: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_cached_changes_size",
+            "near_flat_storage_cached_changes_size",
             "Total size of cached changes in flat storage",
             &["shard_uid"],
         )
@@ -464,7 +455,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_DISTANCE_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_distance_to_head",
+            "near_flat_storage_distance_to_head",
             "Height distance between processed block and flat storage head",
             &["shard_uid"],
         )
@@ -472,7 +463,7 @@ pub mod flat_state_metrics {
     });
     pub static FLAT_STORAGE_HOPS_TO_HEAD: Lazy<IntGaugeVec> = Lazy::new(|| {
         try_create_int_gauge_vec(
-            "flat_storage_hops_to_head",
+            "near_flat_storage_hops_to_head",
             "Number of blocks visited to flat storage head",
             &["shard_uid"],
         )

@@ -8,14 +8,20 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct Transaction {
     #[allow(dead_code)]
     pub(crate) id: TransactionId,
+    /// When the transaction was produced.
+    pub(crate) submitted_at: Round,
 
     /// Where the transaction is converted to the first receipt.
     pub(crate) sender_shard: ShardId,
+    /// Where the transaction's first receipt is sent to.
+    pub(crate) initial_receipt_receiver: ShardId,
 
     /// The receipt created when converting the transaction to a receipt.
     pub(crate) initial_receipt: ReceiptId,
     /// Gas burnt for converting the transaction to the first receipt.
     pub(crate) tx_conversion_cost: GGas,
+    /// Gas attached to the first receipt.
+    pub(crate) initial_receipt_gas: GGas,
 
     /// Definition of directed edges of the DAG.
     pub(crate) outgoing: HashMap<ReceiptId, Vec<ReceiptId>>,
@@ -106,6 +112,14 @@ impl Transaction {
         receipt.created_at = Some(round);
         self.pending_receipts.insert(receipt.id);
         Some(receipt)
+    }
+
+    pub(crate) fn initial_receipt_receiver(&self) -> ShardId {
+        self.initial_receipt_receiver
+    }
+
+    pub(crate) fn initial_receipt_gas(&self) -> GGas {
+        self.initial_receipt_gas
     }
 }
 

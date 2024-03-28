@@ -1,3 +1,4 @@
+use crate::metrics::{PROTOCOL_VERSION_NEXT, PROTOCOL_VERSION_VOTES};
 use crate::proposals::proposals_to_epoch_info;
 use crate::types::EpochInfoAggregator;
 use near_cache::SyncLruCache;
@@ -39,6 +40,7 @@ pub use crate::reward_calculator::NUM_SECONDS_IN_A_YEAR;
 pub use crate::types::RngSeed;
 
 mod adapter;
+mod metrics;
 mod proposals;
 mod reward_calculator;
 mod shard_assignment;
@@ -546,9 +548,6 @@ impl EpochManager {
                 validator_kickout.remove(&validator);
             }
         }
-        for account_id in validator_kickout.keys() {
-            validator_block_chunk_stats.remove(account_id);
-        }
         (validator_kickout, validator_block_chunk_stats)
     }
 
@@ -572,13 +571,6 @@ impl EpochManager {
         let mut proposals = vec![];
         let mut validator_kickout = HashMap::new();
 
-        // Next protocol version calculation.
-        // Implements https://github.com/nearprotocol/NEPs/pull/64/files#diff-45f773511fe4321b446c3c4226324873R76
-        let mut versions = HashMap::new();
-        for (validator_id, version) in version_tracker {
-            let stake = epoch_info.validator_stake(validator_id);
-            *versions.entry(version).or_insert(0) += stake;
-        }
         let total_block_producer_stake: u128 = epoch_info
             .block_producers_settlement()
             .iter()
@@ -587,6 +579,21 @@ impl EpochManager {
             .iter()
             .map(|&id| epoch_info.validator_stake(id))
             .sum();
+
+        // Next protocol version calculation.
+        // Implements https://github.com/near/NEPs/blob/master/specs/ChainSpec/Upgradability.md
+        let mut versions = HashMap::new();
+        for (validator_id, version) in version_tracker {
+            let stake = epoch_info.validator_stake(validator_id);
+            *versions.entry(version).or_insert(0) += stake;
+        }
+        PROTOCOL_VERSION_VOTES.reset();
+        for (version, stake) in &versions {
+            let stake_percent = 100 * stake / total_block_producer_stake;
+            let stake_percent = stake_percent as i64;
+            PROTOCOL_VERSION_VOTES.with_label_values(&[&version.to_string()]).set(stake_percent);
+            tracing::info!(target: "epoch_manager", ?version, ?stake_percent, "Protocol version voting.");
+        }
 
         let protocol_version =
             if epoch_info.protocol_version() >= UPGRADABILITY_FIX_PROTOCOL_VERSION {
@@ -612,6 +619,10 @@ impl EpochManager {
         } else {
             protocol_version
         };
+
+        PROTOCOL_VERSION_NEXT.set(next_version as i64);
+        tracing::info!(target: "epoch_manager", ?next_version, "Protocol version voting.");
+
         // Gather slashed validators and add them to kick out first.
         let slashed_validators = last_block_info.slashed();
         for (account_id, _) in slashed_validators.iter() {
@@ -679,7 +690,7 @@ impl EpochManager {
         let EpochSummary {
             all_proposals,
             validator_kickout,
-            validator_block_chunk_stats,
+            mut validator_block_chunk_stats,
             next_version,
             ..
         } = epoch_summary;
@@ -691,6 +702,15 @@ impl EpochManager {
             assert!(block_info.timestamp_nanosec() > last_block_in_last_epoch.timestamp_nanosec());
             let epoch_duration =
                 block_info.timestamp_nanosec() - last_block_in_last_epoch.timestamp_nanosec();
+            for (account_id, reason) in validator_kickout.iter() {
+                if matches!(
+                    reason,
+                    ValidatorKickoutReason::NotEnoughBlocks { .. }
+                        | ValidatorKickoutReason::NotEnoughChunks { .. }
+                ) {
+                    validator_block_chunk_stats.remove(account_id);
+                }
+            }
             self.reward_calculator.calculate_reward(
                 validator_block_chunk_stats,
                 &validator_stake,
@@ -1535,8 +1555,11 @@ impl EpochManager {
         shard_id: ShardId,
     ) -> Result<bool, EpochError> {
         let epoch_info = self.get_epoch_info(&epoch_id)?;
-        let chunk_producers = epoch_info.chunk_producers_settlement();
-        for validator_id in chunk_producers[shard_id as usize].iter() {
+        let chunk_producers_settlement = epoch_info.chunk_producers_settlement();
+        let chunk_producers = chunk_producers_settlement
+            .get(shard_id as usize)
+            .ok_or_else(|| EpochError::ShardingError(format!("invalid shard id {shard_id}")))?;
+        for validator_id in chunk_producers.iter() {
             if epoch_info.validator_account_id(*validator_id) == account_id {
                 return Ok(true);
             }

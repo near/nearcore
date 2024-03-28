@@ -10,6 +10,7 @@ use futures::{future, FutureExt};
 use near_async::actix::AddrWithAutoSpanContextExt;
 use near_async::messaging::{noop, CanSend, IntoMultiSender, IntoSender, LateBoundSender, Sender};
 use near_async::time::{Clock, Duration, Instant, Utc};
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::state_snapshot_actor::SnapshotCallbacks;
 use near_chain::test_utils::{KeyValueRuntime, MockEpochManager, ValidatorSchedule};
 use near_chain::types::{ChainConfig, RuntimeAdapter};
@@ -119,6 +120,8 @@ pub fn setup(
             ),
         },
         None,
+        Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
     let genesis_block = chain.get_block(&chain.genesis().hash().clone()).unwrap();
@@ -181,6 +184,7 @@ pub fn setup(
         enable_doomslug,
         TEST_SEED,
         None,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     let client_actor = ClientActor::new(
@@ -254,6 +258,8 @@ pub fn setup_only_view(
                 "resharding_config",
             ),
         },
+        None,
+        Arc::new(RayonAsyncComputationSpawner),
         None,
     )
     .unwrap();
@@ -853,6 +859,9 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkStateWitness(_, _) => {
                             // TODO(#10265): Implement for integration tests.
                         },
+                        NetworkRequests::ChunkStateWitnessAck(_, _) => {
+                            // TODO(#10790): Implement for integration tests.
+                        },
                         NetworkRequests::ChunkEndorsement(_, _) => {
                             // TODO(#10265): Implement for integration tests.
                         },
@@ -984,6 +993,7 @@ pub fn setup_client_with_runtime(
         enable_doomslug,
         rng_seed,
         snapshot_callbacks,
+        Arc::new(RayonAsyncComputationSpawner),
     )
     .unwrap();
     client.sync_status = SyncStatus::NoSync;
@@ -1020,6 +1030,8 @@ pub fn setup_synchronous_shards_manager(
                 "resharding_config",
             ),
         }, // irrelevant
+        None,
+        Arc::new(RayonAsyncComputationSpawner),
         None,
     )
     .unwrap();

@@ -1,5 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_async::time::Clock;
+use near_chain::rayon_spawner::RayonAsyncComputationSpawner;
 use near_chain::types::{ChainConfig, Tip};
 use near_chain::{Chain, ChainGenesis, DoomslugThresholdMode};
 use near_chain_configs::{GenesisValidationMode, MutableConfigValue, ReshardingConfig};
@@ -20,6 +21,7 @@ use near_store::{DBCol, Mode, NodeStorage, Store, StoreUpdate};
 use nearcore::{NightshadeRuntime, NightshadeRuntimeExt};
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(serde::Serialize, BorshSerialize, BorshDeserialize)]
 pub struct BlockCheckpoint {
@@ -233,7 +235,8 @@ fn load_snapshot(load_cmd: LoadCmd) {
     let shard_tracker =
         ShardTracker::new(TrackedConfig::from_config(&config.client_config), epoch_manager.clone());
     let runtime =
-        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone());
+        NightshadeRuntime::from_config(home_dir, store.clone(), &config, epoch_manager.clone())
+            .expect("could not create transaction runtime");
     // This will initialize the database (add genesis block etc)
     let _chain = Chain::new(
         Clock::real(),
@@ -250,6 +253,8 @@ fn load_snapshot(load_cmd: LoadCmd) {
                 "resharding_config",
             ),
         },
+        None,
+        Arc::new(RayonAsyncComputationSpawner),
         None,
     )
     .unwrap();

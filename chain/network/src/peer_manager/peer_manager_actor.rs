@@ -47,7 +47,7 @@ use tracing::Instrument as _;
 const EXPONENTIAL_BACKOFF_RATIO: f64 = 1.1;
 /// The initial waiting time between consecutive attempts to establish connection
 const MONITOR_PEERS_INITIAL_DURATION: time::Duration = time::Duration::milliseconds(10);
-/// How often should we check wheter local edges match the connection pool.
+/// How often should we check whether local edges match the connection pool.
 const FIX_LOCAL_EDGES_INTERVAL: time::Duration = time::Duration::seconds(60);
 /// How much time we give fix_local_edges() to resolve the discrepancies, before forcing disconnect.
 const FIX_LOCAL_EDGES_TIMEOUT: time::Duration = time::Duration::seconds(6);
@@ -465,7 +465,7 @@ impl PeerManagerActor {
     /// If so, constructs a safe set of peers and selects one random peer outside of that set
     /// and sends signal to stop connection to it gracefully.
     ///
-    /// Safe set contruction process:
+    /// Safe set construction process:
     /// 1. Add all whitelisted peers to the safe set.
     /// 2. If the number of outbound connections is less or equal than minimum_outbound_connections,
     ///    add all outbound connections to the safe set.
@@ -974,6 +974,14 @@ impl PeerManagerActor {
                         RoutedMessageBody::ChunkStateWitness(state_witness.clone()),
                     );
                 }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::ChunkStateWitnessAck(target, ack) => {
+                self.state.send_message_to_account(
+                    &self.clock,
+                    &target,
+                    RoutedMessageBody::ChunkStateWitnessAck(ack),
+                );
                 NetworkResponses::NoResponse
             }
             NetworkRequests::ChunkEndorsement(target, endorsement) => {

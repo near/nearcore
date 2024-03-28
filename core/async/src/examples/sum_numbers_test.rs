@@ -12,10 +12,16 @@ use crate::{
 
 use super::sum_numbers::{ReportSumMsg, SumNumbersComponent, SumRequest};
 
-#[derive(derive_more::AsMut, derive_more::AsRef)]
+#[derive(derive_more::AsMut)]
 struct TestData {
     summer: SumNumbersComponent,
     sums: Vec<ReportSumMsg>,
+}
+
+impl AsMut<TestData> for TestData {
+    fn as_mut(&mut self) -> &mut Self {
+        self
+    }
 }
 
 #[derive(Debug, EnumTryInto, EnumFrom)]
@@ -71,7 +77,7 @@ fn test_simple_with_adhoc() {
     let mut test = builder.build(data);
     test.register_handler(forward_sum_request().widen());
     test.register_handler(capture_events::<ReportSumMsg>().widen());
-    test.register_handler(handle_adhoc_events());
+    test.register_handler(handle_adhoc_events::<TestData>().widen());
 
     // It is preferrable to put as much setup logic as possible into an adhoc
     // event (queued by .run below), so that as much logic as possible is

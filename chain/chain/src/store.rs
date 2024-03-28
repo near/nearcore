@@ -354,7 +354,11 @@ pub trait ChainStoreAccess {
         let mut shard_id = shard_id;
         loop {
             let block_header = self.get_block_header(&candidate_hash)?;
-            if block_header.chunk_mask()[shard_id as usize] {
+            if *block_header
+                .chunk_mask()
+                .get(shard_id as usize)
+                .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+            {
                 break Ok(block_header.epoch_id().clone());
             }
             candidate_hash = *block_header.prev_hash();
@@ -607,6 +611,7 @@ impl ChainStore {
     ) -> Result<(), Error> {
         tracing::trace!(target: "resharding", ?protocol_version, shard_id, receipts_shard_id, "reassign_outgoing_receipts_for_resharding");
         // If simple nightshade v2 is enabled and stable use that.
+        // Same reassignment of outgoing receipts works for simple nightshade v3
         if checked_feature!("stable", SimpleNightshadeV2, protocol_version) {
             Self::reassign_outgoing_receipts_for_resharding_v2(
                 receipts,
@@ -2767,8 +2772,7 @@ mod tests {
         let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork =
-            vec![TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
+        let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();

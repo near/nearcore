@@ -1,9 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage, ProcessTxRequest,
-    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
-    TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ChunkStateWitnessMessage,
+    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
+    TxStatusRequest, TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -392,13 +392,14 @@ impl PeerActor {
         self.send_message_with_encoding(msg, Encoding::Borsh);
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "network",
+        "send_message_with_encoding",
+        skip_all,
+        fields(msg_type = msg.msg_variant())
+    )]
     fn send_message_with_encoding(&self, msg: &PeerMessage, enc: Encoding) {
-        let msg_type: &str = msg.msg_variant();
-        let _span = tracing::trace_span!(
-            target: "network",
-            "send_message_with_encoding",
-            msg_type)
-        .entered();
         // Skip sending block and headers if we received it or header from this peer.
         // Record block requests in tracker.
         match msg {
@@ -426,6 +427,7 @@ impl PeerActor {
         tracing::trace!(target: "network", msg_len = bytes_len);
         self.framed.send(stream::Frame(bytes));
         metrics::PEER_DATA_SENT_BYTES.inc_by(bytes_len as u64);
+        let msg_type = msg.msg_variant();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_TOTAL.with_label_values(&[msg_type]).inc();
         metrics::PEER_MESSAGE_SENT_BY_TYPE_BYTES
             .with_label_values(&[msg_type])
@@ -930,6 +932,13 @@ impl PeerActor {
         }
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "network",
+        "receive_routed_message",
+        skip_all,
+        fields(body_type = <&'static str>::from(&body)),
+    )]
     async fn receive_routed_message(
         clock: &time::Clock,
         network_state: &NetworkState,
@@ -937,12 +946,6 @@ impl PeerActor {
         msg_hash: CryptoHash,
         body: RoutedMessageBody,
     ) -> Result<Option<RoutedMessageBody>, ReasonForBan> {
-        let _span = tracing::trace_span!(
-            target: "network",
-            "receive_routed_message",
-            "type" = <&RoutedMessageBody as Into<&'static str>>::into(&body)
-        )
-        .entered();
         Ok(match body {
             RoutedMessageBody::TxStatusRequest(account_id, tx_hash) => network_state
                 .client
@@ -1011,6 +1014,10 @@ impl PeerActor {
             }
             RoutedMessageBody::ChunkStateWitness(witness) => {
                 network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
+                None
+            }
+            RoutedMessageBody::ChunkStateWitnessAck(ack) => {
+                network_state.client.send_async(ChunkStateWitnessAckMessage(ack)).await.ok();
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
@@ -1167,19 +1174,19 @@ impl PeerActor {
         ));
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "network",
+        "handle_msg_ready",
+        skip_all,
+        fields(msg_type = <&'static str>::from(&peer_msg)),
+    )]
     fn handle_msg_ready(
         &mut self,
         ctx: &mut actix::Context<Self>,
         conn: Arc<connection::Connection>,
         peer_msg: PeerMessage,
     ) {
-        let _span = tracing::trace_span!(
-            target: "network",
-            "handle_msg_ready",
-            "type" = <&PeerMessage as Into<&'static str>>::into(&peer_msg)
-        )
-        .entered();
-
         #[cfg(test)]
         let message_processed_event = {
             let sink = self.network_state.config.event_sink.clone();
@@ -1476,13 +1483,18 @@ impl PeerActor {
         }
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "network",
+        "handle_sync_routing_table",
+        skip_all
+    )]
     async fn handle_sync_routing_table(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         rtu: RoutingTableUpdate,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_sync_routing_table").entered();
         if let Err(ban_reason) = network_state.add_edges(&clock, rtu.edges.clone()).await {
             conn.stop(Some(ban_reason));
         }
@@ -1517,14 +1529,13 @@ impl PeerActor {
         }
     }
 
+    #[tracing::instrument(level = "trace", target = "network", "handle_distance_vector", skip_all)]
     async fn handle_distance_vector(
         clock: &time::Clock,
         network_state: &Arc<NetworkState>,
         conn: Arc<connection::Connection>,
         distance_vector: DistanceVector,
     ) {
-        let _span = tracing::trace_span!(target: "network", "handle_distance_vector").entered();
-
         if conn.peer_info.id != distance_vector.root {
             conn.stop(Some(ReasonForBan::InvalidDistanceVector));
             return;
@@ -1784,6 +1795,7 @@ impl actix::Handler<WithSpanContext<Stop>> for PeerActor {
 type InboundHandshakePermit = tokio::sync::OwnedSemaphorePermit;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum ConnectingStatus {
     Inbound(InboundHandshakePermit),
     Outbound { _permit: connection::OutboundHandshakePermit, handshake_spec: HandshakeSpec },
@@ -1802,6 +1814,7 @@ enum ConnectingStatus {
 /// For the exact process of establishing a connection between peers,
 /// see PoolSnapshot in chain/network/src/peer_manager/connection.rs.
 #[derive(Debug)]
+#[allow(dead_code)]
 enum PeerStatus {
     /// Handshake in progress.
     Connecting(HandshakeSignalSender, ConnectingStatus),

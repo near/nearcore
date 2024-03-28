@@ -98,7 +98,7 @@ pub struct ViewApplyState {
     /// Current Protocol version when we apply the state transition
     pub current_protocol_version: ProtocolVersion,
     /// Cache for compiled contracts.
-    pub cache: Option<Box<dyn near_vm_runner::logic::CompiledContractCache>>,
+    pub cache: Option<Box<dyn near_vm_runner::ContractRuntimeCache>>,
 }
 
 impl From<&Account> for AccountView {
@@ -1123,7 +1123,7 @@ impl From<ChunkHeaderView> for ShardChunkHeader {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct BlockView {
     pub author: AccountId,
     pub header: BlockHeaderView,
@@ -1690,7 +1690,7 @@ impl ExecutionOutcomeWithIdView {
         self.outcome.to_hashes(self.id)
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TxStatusView {
     pub execution_outcome: Option<FinalExecutionOutcomeViewEnum>,
     pub status: TxExecutionStatus,
@@ -1706,8 +1706,6 @@ pub struct TxStatusView {
     Default,
     Eq,
     PartialEq,
-    Ord,
-    PartialOrd,
 )]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TxExecutionStatus {
@@ -1715,6 +1713,11 @@ pub enum TxExecutionStatus {
     None,
     /// Transaction is included into the block. The block may be not finalised yet
     Included,
+    /// Transaction is included into the block +
+    /// All the transaction receipts finished their execution.
+    /// The corresponding blocks for tx and each receipt may be not finalised yet
+    #[default]
+    ExecutedOptimistic,
     /// Transaction is included into finalised block
     IncludedFinal,
     /// Transaction is included into finalised block +
@@ -1723,7 +1726,6 @@ pub enum TxExecutionStatus {
     Executed,
     /// Transaction is included into finalised block +
     /// Execution of transaction receipts is finalised
-    #[default]
     Final,
 }
 
@@ -2249,7 +2251,7 @@ impl From<StateChangeKind> for StateChangeKindView {
 pub type StateChangesKindsView = Vec<StateChangeKindView>;
 
 /// See crate::types::StateChangeCause for details.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum StateChangeCauseView {
     NotWritableToDisk,
@@ -2294,7 +2296,7 @@ impl From<StateChangeCause> for StateChangeCauseView {
 }
 
 #[serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type", content = "change")]
 pub enum StateChangeValueView {
     AccountUpdate {
@@ -2368,7 +2370,7 @@ impl From<StateChangeValue> for StateChangeValueView {
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StateChangeWithCauseView {
     pub cause: StateChangeCauseView,
     #[serde(flatten)]
@@ -2398,6 +2400,8 @@ pub struct SplitStorageInfoView {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     use super::ExecutionMetadataView;
     use crate::profile_data_v2::ProfileDataV2;
@@ -2407,7 +2411,6 @@ mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use near_parameters::{RuntimeConfig, RuntimeConfigStore, RuntimeConfigView};
         use near_primitives_core::version::PROTOCOL_VERSION;
@@ -2420,7 +2423,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V1 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v1_view() {
         let metadata = ExecutionMetadata::V1;
         let view = ExecutionMetadataView::from(metadata);
@@ -2429,7 +2431,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V2 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v2_view() {
         let metadata = ExecutionMetadata::V2(ProfileDataV2::test());
         let view = ExecutionMetadataView::from(metadata);
@@ -2438,7 +2439,6 @@ mod tests {
 
     /// `ExecutionMetadataView` with profile V3 displayed on the RPC should not change.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_exec_metadata_v3_view() {
         let metadata = ExecutionMetadata::V3(ProfileDataV3::test().into());
         let view = ExecutionMetadataView::from(metadata);

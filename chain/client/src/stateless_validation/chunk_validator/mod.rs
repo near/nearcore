@@ -5,7 +5,8 @@ use super::processing_tracker::ProcessingDoneTracker;
 use crate::stateless_validation::chunk_endorsement_tracker::ChunkEndorsementTracker;
 use crate::{metrics, Client};
 use itertools::Itertools;
-use near_async::messaging::Sender;
+use near_async::futures::{AsyncComputationSpawner, AsyncComputationSpawnerExt};
+use near_async::messaging::{CanSend, Sender};
 use near_chain::chain::{
     apply_new_chunk, apply_old_chunk, NewChunkData, NewChunkResult, OldChunkData, OldChunkResult,
     ShardContext, StorageContext,
@@ -26,7 +27,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessInner,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessInner,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -57,6 +58,7 @@ pub struct ChunkValidator {
     runtime_adapter: Arc<dyn RuntimeAdapter>,
     chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
     orphan_witness_pool: OrphanStateWitnessPool,
+    validation_spawner: Arc<dyn AsyncComputationSpawner>,
 }
 
 impl ChunkValidator {
@@ -67,6 +69,7 @@ impl ChunkValidator {
         runtime_adapter: Arc<dyn RuntimeAdapter>,
         chunk_endorsement_tracker: Arc<ChunkEndorsementTracker>,
         orphan_witness_pool_size: usize,
+        validation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Self {
         Self {
             my_signer,
@@ -75,6 +78,7 @@ impl ChunkValidator {
             runtime_adapter,
             chunk_endorsement_tracker,
             orphan_witness_pool: OrphanStateWitnessPool::new(orphan_witness_pool_size),
+            validation_spawner,
         }
     }
 
@@ -124,7 +128,7 @@ impl ChunkValidator {
         let epoch_manager = self.epoch_manager.clone();
         let runtime_adapter = self.runtime_adapter.clone();
         let chunk_endorsement_tracker = self.chunk_endorsement_tracker.clone();
-        rayon::spawn(move || {
+        self.validation_spawner.spawn("stateless_validation", move || {
             // processing_done_tracker must survive until the processing is finished.
             let _processing_done_tracker_capture = processing_done_tracker;
 
@@ -258,7 +262,6 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 nodes: state_witness.new_transactions_validation_state.clone(),
             }),
             state_patch: Default::default(),
-            record_storage: false,
         };
 
         match validate_prepared_transactions(
@@ -310,7 +313,6 @@ pub(crate) fn pre_validate_chunk_state_witness(
                     nodes: state_witness.main_state_transition.base_state.clone(),
                 }),
                 state_patch: Default::default(),
-                record_storage: false,
             },
         })
     };
@@ -525,7 +527,6 @@ pub(crate) fn validate_chunk_state_witness(
                     nodes: transition.base_state,
                 }),
                 state_patch: Default::default(),
-                record_storage: false,
             },
         };
         let OldChunkResult { apply_result, .. } = apply_old_chunk(
@@ -636,6 +637,14 @@ impl Client {
         witness: ChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
+        // Send the acknowledgement for the state witness back to the chunk producer.
+        // This is currently used for network roundtrip time measurement, so we do not need to
+        // wait for validation to finish.
+        if let Err(err) = self.send_state_witness_ack(&witness) {
+            tracing::warn!(target: "stateless_validation", error = &err as &dyn std::error::Error,
+                "Error sending chunk state witness acknowledgement");
+        }
+
         let prev_block_hash = witness.inner.chunk_header.prev_block_hash();
         let prev_block = match self.chain.get_block(prev_block_hash) {
             Ok(block) => block,
@@ -646,11 +655,33 @@ impl Client {
             }
             Err(err) => return Err(err),
         };
+
         self.process_chunk_state_witness_with_prev_block(
             witness,
             &prev_block,
             processing_done_tracker,
         )
+    }
+
+    fn send_state_witness_ack(&self, witness: &ChunkStateWitness) -> Result<(), Error> {
+        // First find the AccountId for the chunk producer and then send the ack to that account.
+        let chunk_header = &witness.inner.chunk_header;
+        let prev_block_hash = chunk_header.prev_block_hash();
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_block_hash)?;
+        let chunk_producer = self.epoch_manager.get_chunk_producer(
+            &epoch_id,
+            chunk_header.height_created(),
+            chunk_header.shard_id(),
+        )?;
+
+        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::ChunkStateWitnessAck(
+                chunk_producer,
+                ChunkStateWitnessAck::new(&witness),
+            ),
+        ));
+
+        Ok(())
     }
 
     pub fn process_chunk_state_witness_with_prev_block(

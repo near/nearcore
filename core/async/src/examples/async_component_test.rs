@@ -51,7 +51,7 @@ fn inner_request_handler(
 fn test_async_component() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sender = builder.sender();
-    let future_spawner = builder.future_spawner();
+    let future_spawner = builder.sender().into_future_spawner();
     let mut test = builder.build(TestData {
         dummy: (),
         output: vec![],

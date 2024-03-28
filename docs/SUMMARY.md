@@ -50,6 +50,7 @@
 - [Testing](./practices/testing/README.md)
   - [Python Tests](./practices/testing/python_tests.md)
   - [Testing Utils](./practices/testing/test_utils.md)
+  - [Test Coverage](./practices/testing/coverage.md)
 - [Protocol Upgrade](./practices/protocol_upgrade.md)
 
 # Advanced configuration

@@ -4,20 +4,29 @@ use std::collections::VecDeque;
 
 pub struct Queue {
     shard: ShardId,
+    name: String,
     messages: VecDeque<Receipt>,
 }
 
 impl Queue {
-    pub fn new(shard: ShardId) -> Self {
-        Self { shard, messages: VecDeque::new() }
+    pub fn new(shard: ShardId, name: &str) -> Self {
+        Self { shard, name: name.to_string(), messages: VecDeque::new() }
     }
 
     pub fn size(&self) -> u64 {
         self.messages.iter().map(|receipt| receipt.size).sum()
     }
 
+    pub fn attached_gas(&self) -> u64 {
+        self.messages.iter().map(|receipt| receipt.attached_gas).sum()
+    }
+
     pub fn shard(&self) -> ShardId {
         self.shard
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
     }
 }
 

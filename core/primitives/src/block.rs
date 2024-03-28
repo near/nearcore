@@ -693,6 +693,7 @@ impl<'a> ExactSizeIterator for VersionedChunksIter<'a> {
 impl<'a> Index<usize> for ChunksCollection<'a> {
     type Output = ShardChunkHeader;
 
+    /// Deprecated. Please use get instead, it's safer.
     fn index(&self, index: usize) -> &Self::Output {
         match self {
             ChunksCollection::V1(chunks) => &chunks[index],

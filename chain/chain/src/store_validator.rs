@@ -387,6 +387,7 @@ mod tests {
     use near_store::genesis::initialize_genesis_state;
     use near_store::test_utils::create_test_store;
 
+    use crate::rayon_spawner::RayonAsyncComputationSpawner;
     use crate::runtime::NightshadeRuntime;
     use crate::types::ChainConfig;
     use crate::{Chain, ChainGenesis, ChainStoreAccess, DoomslugThresholdMode};
@@ -415,6 +416,8 @@ mod tests {
             &chain_genesis,
             DoomslugThresholdMode::NoApprovals,
             ChainConfig::test(),
+            None,
+            Arc::new(RayonAsyncComputationSpawner),
             None,
         )
         .unwrap();

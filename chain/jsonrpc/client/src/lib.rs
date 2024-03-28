@@ -183,8 +183,6 @@ jsonrpc_client!(pub struct JsonRpcClient {
     pub fn status(&self) -> RpcRequest<StatusResponse>;
     #[allow(non_snake_case)]
     pub fn EXPERIMENTAL_genesis_config(&self) -> RpcRequest<serde_json::Value>;
-    #[allow(non_snake_case)]
-    pub fn EXPERIMENTAL_tx_status(&self, tx: String) -> RpcRequest<RpcTransactionResponse>;
     pub fn health(&self) -> RpcRequest<()>;
     pub fn chunk(&self, id: ChunkId) -> RpcRequest<ChunkView>;
     pub fn gas_price(&self, block_id: MaybeBlockId) -> RpcRequest<GasPriceView>;
@@ -218,6 +216,14 @@ impl JsonRpcClient {
 
     pub fn tx(&self, request: RpcTransactionStatusRequest) -> RpcRequest<RpcTransactionResponse> {
         call_method(&self.client, &self.server_addr, "tx", request)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EXPERIMENTAL_tx_status(
+        &self,
+        request: RpcTransactionStatusRequest,
+    ) -> RpcRequest<RpcTransactionResponse> {
+        call_method(&self.client, &self.server_addr, "EXPERIMENTAL_tx_status", request)
     }
 
     #[allow(non_snake_case)]

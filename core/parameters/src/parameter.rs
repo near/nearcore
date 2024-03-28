@@ -20,6 +20,9 @@ pub enum Parameter {
     BurntGasReward,
     PessimisticGasPriceInflation,
 
+    // Stateless validation config
+    StorageProofSizeSoftLimit,
+
     // Account creation config
     MinAllowedTopLevelAccountLength,
     RegistrarAccountId,

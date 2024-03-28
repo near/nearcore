@@ -39,4 +39,7 @@ nightly = [
 nightly_protocol = [
   "near-primitives-core/nightly_protocol",
 ]
+statelessnet_protocol = [
+  "near-primitives-core/statelessnet_protocol",
+]
 calimero_zero_storage = []

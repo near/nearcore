@@ -40,6 +40,9 @@ pub struct RuntimeFeesConfigView {
 
     /// Pessimistic gas price inflation ratio.
     pub pessimistic_gas_price_inflation_ratio: Rational32,
+
+    /// The maximum size of the state witness after which we defer execution of any new receipts.
+    pub storage_proof_size_soft_limit: usize,
 }
 
 /// The structure describes configuration for creation of new accounts.
@@ -179,6 +182,7 @@ impl From<crate::RuntimeConfig> for RuntimeConfigView {
                 pessimistic_gas_price_inflation_ratio: config
                     .fees
                     .pessimistic_gas_price_inflation_ratio,
+                storage_proof_size_soft_limit: config.storage_proof_size_soft_limit,
             },
             wasm_config: VMConfigView::from(config.wasm_config),
             account_creation_config: AccountCreationConfigView {
@@ -607,11 +611,12 @@ impl From<ExtCostsConfigView> for crate::ExtCostsConfig {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "nightly"))]
+#[cfg(not(feature = "statelessnet_protocol"))]
 mod tests {
     /// The JSON representation used in RPC responses must not remove or rename
     /// fields, only adding fields is allowed or we risk breaking clients.
     #[test]
-    #[cfg_attr(feature = "nightly", ignore)]
     fn test_runtime_config_view() {
         use crate::view::RuntimeConfigView;
         use crate::RuntimeConfig;

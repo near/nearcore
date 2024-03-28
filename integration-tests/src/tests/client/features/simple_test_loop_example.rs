@@ -2,7 +2,8 @@ use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::futures::DelayedActionRunnerExt;
 use near_async::messaging::{noop, IntoMultiSender, IntoSender};
 use near_async::test_loop::futures::{
-    drive_delayed_action_runners, drive_futures, TestLoopDelayedActionEvent, TestLoopTask,
+    drive_async_computations, drive_delayed_action_runners, drive_futures,
+    TestLoopAsyncComputationEvent, TestLoopDelayedActionEvent, TestLoopTask,
 };
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
@@ -35,6 +36,7 @@ use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
 use near_primitives::test_utils::{create_test_signer, create_user_test_signer};
 use near_primitives::types::{AccountId, AccountInfo};
+use near_primitives::utils::from_timestamp;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives_core::account::{AccessKey, Account};
 use near_primitives_core::hash::CryptoHash;
@@ -56,6 +58,7 @@ struct TestData {
 #[allow(clippy::large_enum_variant)]
 enum TestEvent {
     Task(Arc<TestLoopTask>),
+    AsyncComputation(TestLoopAsyncComputationEvent),
     ClientDelayedActions(TestLoopDelayedActionEvent<ClientActions>),
     ClientEventFromNetwork(ClientSenderForNetworkMessage),
     ClientEventFromClient(ClientSenderForClientMessage),
@@ -69,15 +72,12 @@ enum TestEvent {
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
 
-// TODO(robin-near): Complete this test so that it will actually run a chain.
-// TODO(robin-near): Make this a multi-node test.
-// TODO(robin-near): Make the network layer send messages.
 #[test]
 fn test_client_with_simple_test_loop() {
     let builder = TestLoopBuilder::<TestEvent>::new();
     let sync_jobs_actions = SyncJobsActions::new(
-        builder.wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
-        builder.wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<ClientSenderForSyncJobsMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForSyncJobsMessage, _>(),
     );
     let client_config = ClientConfig::test(
         true,
@@ -96,6 +96,7 @@ fn test_client_with_simple_test_loop() {
 
     // TODO: Make some builder for genesis.
     let mut genesis_config = GenesisConfig {
+        genesis_time: from_timestamp(builder.clock().now_utc().unix_timestamp_nanos() as u64),
         protocol_version: PROTOCOL_VERSION,
         genesis_height: 10000,
         shard_layout: ShardLayout::v1(
@@ -178,6 +179,7 @@ fn test_client_with_simple_test_loop() {
         true,
         [0; 32],
         None,
+        Arc::new(builder.sender().into_async_computation_spawner(|_| Duration::milliseconds(80))),
     )
     .unwrap();
 
@@ -196,7 +198,7 @@ fn test_client_with_simple_test_loop() {
     let client_actions = ClientActions::new(
         builder.clock(),
         client,
-        builder.wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
+        builder.sender().into_wrapped_multi_sender::<ClientSenderForClientMessage, _>(),
         client_config,
         PeerId::random(),
         noop().into_multi_sender(),
@@ -205,8 +207,8 @@ fn test_client_with_simple_test_loop() {
         None,
         Default::default(),
         None,
-        builder.wrapped_multi_sender::<SyncJobsSenderForClientMessage, _>(),
-        Box::new(builder.future_spawner()),
+        builder.sender().into_wrapped_multi_sender::<SyncJobsSenderForClientMessage, _>(),
+        Box::new(builder.sender().into_future_spawner()),
     )
     .unwrap();
 
@@ -222,14 +224,18 @@ fn test_client_with_simple_test_loop() {
     test.register_handler(forward_client_messages_from_sync_jobs_to_client_actions().widen());
     test.register_handler(forward_client_messages_from_shards_manager().widen());
     test.register_handler(
-        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(test.future_spawner()).widen(),
+        forward_sync_jobs_messages_from_client_to_sync_jobs_actions(
+            test.sender().into_future_spawner(),
+        )
+        .widen(),
     );
     test.register_handler(drive_futures().widen());
+    test.register_handler(drive_async_computations().widen());
     test.register_handler(drive_delayed_action_runners::<ClientActions>().widen());
     test.register_handler(forward_client_request_to_shards_manager().widen());
     // TODO: handle additional events.
 
-    test.delayed_action_runner::<ClientActions>().run_later(
+    test.sender().into_delayed_action_runner::<ClientActions>().run_later(
         "start_client",
         Duration::ZERO,
         |client, runner| {
@@ -237,4 +243,5 @@ fn test_client_with_simple_test_loop() {
         },
     );
     test.run_for(Duration::seconds(10));
+    test.finish_remaining_events(Duration::seconds(1));
 }
