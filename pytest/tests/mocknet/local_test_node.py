@@ -202,6 +202,17 @@ def make_records(neard_binary_path, traffic_home_dir, start_height):
     ])
 
 
+def make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
+                        start_height):
+    make_records(neard_binary_path, traffic_generator_home / '.near',
+                 start_height)
+    for node_home in node_homes:
+        shutil.copyfile(traffic_generator_home / '.near/setup/genesis.json',
+                        node_home / '.near/setup/genesis.json')
+        shutil.copyfile(traffic_generator_home / '.near/setup/records.json',
+                        node_home / '.near/setup/records.json')
+
+
 def mkdirs(local_mocknet_path):
     traffic_generator_home = local_mocknet_path / 'traffic-generator'
     traffic_generator_home.mkdir()
@@ -345,13 +356,8 @@ def local_test_setup_cmd(args):
     traffic_generator_home, node_homes = mkdirs(local_mocknet_path)
 
     copy_source_home(source_home_dir, traffic_generator_home / '.near')
-    make_records(neard_binary_path, traffic_generator_home / '.near',
-                 args.fork_height)
-    for node_home in node_homes:
-        shutil.copyfile(traffic_generator_home / '.near/setup/genesis.json',
-                        node_home / '.near/setup/genesis.json')
-        shutil.copyfile(traffic_generator_home / '.near/setup/records.json',
-                        node_home / '.near/setup/records.json')
+    make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
+                        args.fork_height)
 
     # now set up an HTTP server to serve the binary that each neard_runner.py will request
     binaries_path = make_binaries_dir(local_mocknet_path, neard_binary_path)
