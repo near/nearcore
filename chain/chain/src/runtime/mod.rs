@@ -15,7 +15,6 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
-use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -31,7 +30,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -710,9 +709,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
+        if storage_config.record_storage {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
@@ -874,9 +871,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
-            || cfg!(feature = "shadow_chunk_validation")
-        {
+        if storage_config.record_storage {
             trie = trie.recording_reads();
         }
 
