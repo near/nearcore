@@ -135,4 +135,8 @@ impl<'model> ChunkExecutionContext<'model> {
     pub fn tx_receiver(&self, id: TransactionId) -> ShardId {
         self.transactions[id].initial_receipt_receiver()
     }
+
+    pub fn tx_sender(&self, id: TransactionId) -> ShardId {
+        self.transactions[id].sender_shard
+    }
 }
