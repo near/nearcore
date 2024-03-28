@@ -44,12 +44,13 @@ mod trie_recording_tests {
     use crate::trie::mem::metrics::MEM_TRIE_NUM_LOOKUPS;
     use crate::trie::TrieNodesCount;
     use crate::{DBCol, Store, Trie};
+    use borsh::BorshDeserialize;
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::shard_layout::{get_block_shard_uid, get_block_shard_uid_rev, ShardUId};
+    use near_primitives::shard_layout::{get_block_shard_uid, ShardUId};
     use near_primitives::state::ValueRef;
     use near_primitives::types::chunk_extra::ChunkExtra;
     use near_primitives::types::StateRoot;
-    use rand::{thread_rng, Rng};
+    use rand::{random, thread_rng, Rng};
     use std::collections::{HashMap, HashSet};
     use std::num::NonZeroU32;
 
@@ -66,6 +67,8 @@ mod trie_recording_tests {
         /// The keys that we should be using to call get_optimized_ref() on the
         /// trie with.
         keys_to_get_ref: Vec<Vec<u8>>,
+        /// The keys to be updated after trie reads.
+        updates: Vec<(Vec<u8>, Option<Vec<u8>>)>,
         state_root: StateRoot,
     }
 
@@ -121,13 +124,26 @@ mod trie_recording_tests {
                 }
                 key
             })
-            .partition::<Vec<_>, _>(|_| thread_rng().gen());
+            .partition::<Vec<_>, _>(|_| random());
+        let updates = trie_changes
+            .iter()
+            .map(|(key, _)| {
+                let value = if thread_rng().gen_bool(0.5) {
+                    Some(vec![thread_rng().gen_range(0..10) as u8])
+                } else {
+                    None
+                };
+                (key.clone(), value)
+            })
+            .filter(|_| random())
+            .collect::<Vec<_>>();
         PreparedTrie {
             store: tries_for_building.get_store(),
             shard_uid,
             data_in_trie,
             keys_to_get,
             keys_to_get_ref,
+            updates,
             state_root,
         }
     }
@@ -146,7 +162,7 @@ mod trie_recording_tests {
         for result in store.iter_raw_bytes(DBCol::State) {
             let (key, value) = result.unwrap();
             let (_, refcount) = decode_value_with_rc(&value);
-            let (key_hash, _) = get_block_shard_uid_rev(&key).unwrap();
+            let key_hash: CryptoHash = CryptoHash::try_from_slice(&key[8..]).unwrap();
             if !key_hashes_to_keep.contains(&key_hash) {
                 update.decrement_refcount_by(
                     DBCol::State,
@@ -174,6 +190,7 @@ mod trie_recording_tests {
                 data_in_trie,
                 keys_to_get,
                 keys_to_get_ref,
+                updates,
                 state_root,
             } = prepare_trie(use_missing_keys);
             let tries = if use_in_memory_tries {
@@ -206,6 +223,7 @@ mod trie_recording_tests {
             }
             let baseline_trie_nodes_count = trie.get_trie_nodes_count();
             println!("Baseline trie nodes count: {:?}", baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             // Now let's do this again while recording, and make sure that the counters
             // we get are exactly the same.
@@ -223,6 +241,7 @@ mod trie_recording_tests {
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             // Now, let's check that when doing the same lookups with the captured partial storage,
             // we still get the same counters.
@@ -246,6 +265,7 @@ mod trie_recording_tests {
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             if use_in_memory_tries {
                 // sanity check that we did indeed use in-memory tries.
@@ -310,6 +330,7 @@ mod trie_recording_tests {
                 data_in_trie,
                 keys_to_get,
                 keys_to_get_ref,
+                updates,
                 state_root,
             } = prepare_trie(use_missing_keys);
             let tries = if use_in_memory_tries {
@@ -364,6 +385,7 @@ mod trie_recording_tests {
             }
             let baseline_trie_nodes_count = trie.get_trie_nodes_count();
             println!("Baseline trie nodes count: {:?}", baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             // Let's do this again, but this time recording reads. We'll make sure
             // the counters are exactly the same even when we're recording.
@@ -388,6 +410,7 @@ mod trie_recording_tests {
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             // Now, let's check that when doing the same lookups with the captured partial storage,
             // we still get the same counters.
@@ -411,6 +434,7 @@ mod trie_recording_tests {
                 );
             }
             assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
 
             if use_in_memory_tries {
                 // sanity check that we did indeed use in-memory tries.

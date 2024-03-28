@@ -390,6 +390,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        validator_account_id: Option<&AccountId>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -508,7 +509,19 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_uids: Vec<_> =
             epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
-        runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
+        let tracked_shards: Vec<_> = shard_uids
+            .iter()
+            .filter(|shard_uid| {
+                shard_tracker.care_about_shard(
+                    validator_account_id,
+                    &tip.prev_block_hash,
+                    shard_uid.shard_id(),
+                    true,
+                )
+            })
+            .cloned()
+            .collect();
+        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -1738,9 +1751,18 @@ impl Chain {
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
     ) -> Result<Option<Tip>, Error> {
+        // Save state transition data to the database only if it might later be needed
+        // for generating a state witness. Storage space optimization.
+        let should_save_state_transition_data =
+            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
-        let new_head =
-            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
+        let new_head = chain_update.postprocess_block(
+            me,
+            &block,
+            block_preprocess_info,
+            apply_results,
+            should_save_state_transition_data,
+        )?;
         chain_update.commit()?;
         Ok(new_head)
     }
@@ -2761,6 +2783,8 @@ impl Chain {
             );
             store_update.commit()?;
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            // Flat storage is ready, load memtrie if it is enabled.
+            self.runtime_adapter.load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -2954,9 +2978,17 @@ impl Chain {
         results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
+        // Save state transition data to the database only if it might later be needed
+        // for generating a state witness. Storage space optimization.
+        let should_save_state_transition_data =
+            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
-        chain_update.apply_chunk_postprocessing(&block, results)?;
+        chain_update.apply_chunk_postprocessing(
+            &block,
+            results,
+            should_save_state_transition_data,
+        )?;
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
@@ -3323,12 +3355,8 @@ impl Chain {
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
 
-            let storage_context = StorageContext {
-                storage_data_source: StorageDataSource::Db,
-                state_patch,
-                record_storage: self
-                    .should_produce_state_witness_for_this_or_next_epoch(me, block.header())?,
-            };
+            let storage_context =
+                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
             let stateful_job = self.get_update_shard_job(
                 me,
                 block,

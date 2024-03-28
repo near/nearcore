@@ -2296,7 +2296,7 @@ fn test_protocol_version_switch_with_shard_layout_change() {
         }
         epoch_manager.record_block_info(block_info, [0; 32]).unwrap();
     }
-    let epochs = vec![EpochId::default(), EpochId(h[2]), EpochId(h[4])];
+    let epochs = [EpochId::default(), EpochId(h[2]), EpochId(h[4])];
     assert_eq!(
         epoch_manager.get_epoch_info(&epochs[1]).unwrap().protocol_version(),
         new_protocol_version - 1
