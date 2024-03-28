@@ -121,6 +121,8 @@ arbitrary = { version = "1.2.3", features = ["derive"] }
 arc-swap = "1.5"
 assert_matches = "1.5.0"
 async-trait = "0.1.58"
+aurora-engine-transactions = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
+aurora-engine-types = { git = "https://github.com/aurora-is-near/aurora-engine.git", tag = "3.6.1" }
 awc = { version = "3", features = ["openssl"] }
 backtrace = "0.3"
 base64 = "0.21"
@@ -170,6 +172,7 @@ ed25519-dalek = { version = "2.1.0", default-features = false, features = [
 elastic-array = "0.11"
 enum-map = "2.1.0"
 enumset = "1.0"
+ethabi = "18"
 expect-test = "1.3.0"
 finite-wasm = "0.5.0"
 fs2 = "0.4"
