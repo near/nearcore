@@ -4,9 +4,7 @@ use super::actix_component::{
 use crate::futures::FutureSpawnerExt;
 use crate::messaging::IntoSender;
 use crate::test_loop::event_handler::{capture_events, LoopEventHandler};
-use crate::test_loop::futures::{
-    drive_delayed_action_runners, drive_futures, TestLoopDelayedActionEvent, TestLoopTask,
-};
+use crate::test_loop::futures::{drive_futures, TestLoopDelayedActionEvent, TestLoopTask};
 use crate::test_loop::TestLoopBuilder;
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use std::sync::Arc;
@@ -57,7 +55,7 @@ fn test_actix_component() {
     // test itself is synchronous.
     test.register_handler(drive_futures().widen());
     // This is to allow the ExampleComponent to run delayed actions (timers).
-    test.register_handler(drive_delayed_action_runners::<ExampleComponent>().widen());
+    test.register_delayed_action_handler::<ExampleComponent>();
     // This is to capture the periodic requests sent by the ExampleComponent
     // so we can assert against it.
     test.register_handler(capture_events::<PeriodicRequest>().widen());
@@ -66,7 +64,7 @@ fn test_actix_component() {
     test.register_handler(example_handler().widen());
 
     // We need to redo whatever the ExampleActor does in its `started` method.
-    test.data.example.start(&mut test.sender().into_delayed_action_runner());
+    test.data.example.start(&mut test.sender().into_delayed_action_runner(test.shutting_down()));
     // Send some requests; this can be done in the asynchronous context.
     test.future_spawner().spawn("wait for 5", {
         let res = test.data.outer.call_example_component_for_response(5);
@@ -87,4 +85,6 @@ fn test_actix_component() {
         test.data.periodic_requests_captured,
         vec![PeriodicRequest { id: 0 }, PeriodicRequest { id: 1 }, PeriodicRequest { id: 2 },]
     );
+
+    test.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }

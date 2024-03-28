@@ -1,10 +1,12 @@
-use super::{delay_sender::DelaySender, event_handler::LoopEventHandler};
+use super::{delay_sender::DelaySender, event_handler::LoopEventHandler, TestLoop};
 use crate::futures::{AsyncComputationSpawner, DelayedActionRunner};
+use crate::test_loop::event_handler::TryIntoOrSelf;
 use crate::time::Duration;
 use crate::{futures::FutureSpawner, messaging::CanSend};
 use futures::future::BoxFuture;
 use futures::task::{waker_ref, ArcWake};
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Context;
 
@@ -113,27 +115,24 @@ impl<T> Debug for TestLoopDelayedActionEvent<T> {
 
 /// An event handler that handles only `TestLoopDelayedActionEvent`s, by
 /// running the action encapsulated in the event.
-pub fn drive_delayed_action_runners<T>() -> LoopEventHandler<T, TestLoopDelayedActionEvent<T>> {
-    LoopEventHandler::new_with_drop(
-        |event, data, ctx| {
-            let mut runner = TestLoopDelayedActionRunner { sender: ctx.sender.clone() };
-            (event.action)(data, &mut runner);
-            Ok(())
-        },
-        |_| {
-            // Delayed actions are usually used for timers, so let's just say
-            // it's OK to drop them at the end of the test. It would be hard
-            // to distinguish what sort of delayed action was being scheduled
-            // anyways.
-            true
-        },
-    )
+pub fn drive_delayed_action_runners<T>(
+    sender: DelaySender<TestLoopDelayedActionEvent<T>>,
+    shutting_down: Arc<AtomicBool>,
+) -> LoopEventHandler<T, TestLoopDelayedActionEvent<T>> {
+    LoopEventHandler::new_simple(move |event: TestLoopDelayedActionEvent<T>, data: &mut T| {
+        let mut runner = TestLoopDelayedActionRunner {
+            sender: sender.clone(),
+            shutting_down: shutting_down.clone(),
+        };
+        (event.action)(data, &mut runner);
+    })
 }
 
 /// `DelayedActionRunner` that schedules the action to be run later by the
 /// TestLoop event loop.
 pub struct TestLoopDelayedActionRunner<T> {
     pub(crate) sender: DelaySender<TestLoopDelayedActionEvent<T>>,
+    pub(crate) shutting_down: Arc<AtomicBool>,
 }
 
 impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
@@ -143,9 +142,49 @@ impl<T> DelayedActionRunner<T> for TestLoopDelayedActionRunner<T> {
         dur: Duration,
         action: Box<dyn FnOnce(&mut T, &mut dyn DelayedActionRunner<T>) + Send + 'static>,
     ) {
+        if self.shutting_down.load(Ordering::Relaxed) {
+            return;
+        }
         self.sender.send_with_delay(
             TestLoopDelayedActionEvent { name: name.to_string(), action },
             dur.try_into().unwrap(),
+        );
+    }
+}
+
+impl<Data: 'static, Event: Debug + Send + 'static> TestLoop<Data, Event> {
+    /// Shorthand for registering this frequently used handler.
+    pub fn register_delayed_action_handler<T>(&mut self)
+    where
+        T: 'static,
+        Data: AsMut<T>,
+        Event: TryIntoOrSelf<TestLoopDelayedActionEvent<T>>
+            + From<TestLoopDelayedActionEvent<T>>
+            + 'static,
+    {
+        self.register_handler(
+            drive_delayed_action_runners::<T>(self.sender().narrow(), self.shutting_down()).widen(),
+        );
+    }
+}
+
+impl<Data: 'static, Event: Debug + Send + 'static> TestLoop<Vec<Data>, (usize, Event)> {
+    /// Shorthand for registering this frequently used handler for a multi-instance test.
+    pub fn register_delayed_action_handler_for_index<T>(&mut self, idx: usize)
+    where
+        T: 'static,
+        Data: AsMut<T>,
+        Event: TryIntoOrSelf<TestLoopDelayedActionEvent<T>>
+            + From<TestLoopDelayedActionEvent<T>>
+            + 'static,
+    {
+        self.register_handler(
+            drive_delayed_action_runners::<T>(
+                self.sender().for_index(idx).narrow(),
+                self.shutting_down(),
+            )
+            .widen()
+            .for_index(idx),
         );
     }
 }

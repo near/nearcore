@@ -1,4 +1,16 @@
+use crate::{
+    adapter::ShardsManagerRequestFromClient,
+    client::ShardsManagerResponse,
+    test_loop::{
+        forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
+        route_shards_manager_network_messages, MockChainForShardsManager,
+        MockChainForShardsManagerConfig,
+    },
+    test_utils::default_tip,
+    ShardsManager, CHUNK_REQUEST_RETRY,
+};
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
+use near_async::test_loop::futures::TestLoopDelayedActionEvent;
 use near_async::{
     messaging::IntoSender,
     test_loop::{
@@ -20,19 +32,6 @@ use near_primitives::{
 };
 use near_store::test_utils::create_test_store;
 
-use crate::{
-    adapter::ShardsManagerRequestFromClient,
-    client::ShardsManagerResponse,
-    test_loop::{
-        forward_client_request_to_shards_manager, forward_network_request_to_shards_manager,
-        periodically_resend_chunk_requests, route_shards_manager_network_messages,
-        MockChainForShardsManager, MockChainForShardsManagerConfig,
-        ShardsManagerResendChunkRequests,
-    },
-    test_utils::default_tip,
-    ShardsManager, CHUNK_REQUEST_RETRY,
-};
-
 #[derive(derive_more::AsMut, derive_more::AsRef)]
 struct TestData {
     shards_manager: ShardsManager,
@@ -50,11 +49,11 @@ impl AsMut<TestData> for TestData {
 #[derive(EnumTryInto, Debug, EnumFrom)]
 enum TestEvent {
     Adhoc(AdhocEvent<TestData>),
+    ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
     ClientToShardsManager(ShardsManagerRequestFromClient),
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
     OutboundNetwork(PeerManagerMessageRequest),
-    ShardsManagerResendChunkRequests(ShardsManagerResendChunkRequests),
 }
 
 type ShardsManagerTestLoop = near_async::test_loop::TestLoop<Vec<TestData>, (usize, TestEvent)>;
@@ -106,13 +105,24 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
     let mut test = builder.build(data);
     for idx in 0..test.data.len() {
         test.register_handler(handle_adhoc_events::<TestData>().widen().for_index(idx));
+        test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
         test.register_handler(forward_client_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(forward_network_request_to_shards_manager().widen().for_index(idx));
         test.register_handler(capture_events::<ShardsManagerResponse>().widen().for_index(idx));
-        test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
-        test.register_handler(
-            periodically_resend_chunk_requests(CHUNK_REQUEST_RETRY).widen().for_index(idx),
-        );
+        test.register_handler(route_shards_manager_network_messages(
+            test.sender(),
+            test.clock(),
+            NETWORK_DELAY,
+        ));
+
+        let sender = test.sender().for_index(idx);
+        let shutting_down = test.shutting_down();
+        test.sender().for_index(idx).send_adhoc_event("start_shards_manager", |data| {
+            data.shards_manager.periodically_resend_chunk_requests(
+                &mut sender.into_delayed_action_runner(shutting_down),
+                CHUNK_REQUEST_RETRY,
+            );
+        })
     }
     test
 }
@@ -175,6 +185,8 @@ fn test_distribute_chunk_basic() {
             _ => panic!("Unexpected event"),
         }
     }
+
+    test.shutdown_and_drain_remaining_events(time::Duration::seconds(1));
 }
 
 /// Tests that when we have some block producers (validators) in the network,
@@ -237,6 +249,7 @@ fn test_distribute_chunk_track_all_shards() {
             _ => panic!("Unexpected event"),
         }
     }
+    test.shutdown_and_drain_remaining_events(time::Duration::seconds(1));
 }
 
 /// Tests that when the network has some block producers and also some chunk-
@@ -348,4 +361,5 @@ fn test_distribute_chunk_with_chunk_only_producers() {
         });
     }
     test.run_instant();
+    test.shutdown_and_drain_remaining_events(time::Duration::seconds(1));
 }
