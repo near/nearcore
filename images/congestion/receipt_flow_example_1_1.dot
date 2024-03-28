@@ -1,0 +1,72 @@
+digraph G {
+    rankdir=LR;
+
+    // Invisible nodes for alignment
+    {
+        node [shape=point, width=0, height=0, label=""];
+        invisible_sink1;
+        invisible_sink2;
+        invisible_sink3;
+    }
+
+    // Nodes
+    subgraph cluster_shard1 {
+        label = "Shard 1";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source1 [label="Source"];
+        Shard1 [label="Shard 1"];
+        Sink1 [label="Sink"];
+
+        Sink1 -> invisible_sink1 [style=invis];
+    }
+
+    subgraph cluster_shard2 {
+        label = "Shard 2";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source2 [label="Source"];
+        Shard2 [label="Shard 2"];
+        Sink2 [label="Sink"];
+
+        invisible_sink1 -> invisible_sink2 [style=invis];
+        Sink2 -> invisible_sink2 [style=invis];
+    }
+
+    subgraph cluster_shard3 {
+        label = "Shard 3";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source3 [label="Source"];
+        Shard3 [label="Shard 3"];
+        Sink3 [label="Sink"];
+
+        invisible_sink2 -> invisible_sink3 [style=invis];
+        Sink3 -> invisible_sink3 [style=invis];
+    }
+
+    // Edges
+    Source1 -> Shard1 [label="333 Tgas" color="red" penwidth=3];
+    Shard1 -> Sink1 [label="1 Tgas / 1000 Tgas"];
+
+    Source2 -> Shard2 [label="333 Tgas" color="red" penwidth=3];
+    Shard2 -> Sink2 [label="1 Tgas / 1000 Tgas"];
+
+    Source3 -> Shard3 [label="333 Tgas" color="red" penwidth=3];
+    Shard3 -> Sink3 [label="997 Tgas / 1000 Tgas" color="green" penwidth=3];
+
+    Shard1 -> Shard3 [label="332 Tgas"];
+    Shard2 -> Shard3 [label="332 Tgas"];
+    Shard3 -> Shard3 [label="332 Tgas", dir="back"];
+
+    // Aligning subgraphs
+    {rank=same; Source1; Source2; Source3;}
+    {rank=same; Shard1; Shard2; Shard3;}
+    {rank=same; Sink1; Sink2; Sink3; invisible_sink1; invisible_sink2; invisible_sink3;}
+}

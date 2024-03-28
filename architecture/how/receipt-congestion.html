@@ -1,0 +1,338 @@
+<!DOCTYPE HTML>
+<html lang="en" class="sidebar-visible no-js light">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Receipt Congestion - Guide to Nearcore Development</title>
+        <!-- Custom HTML head -->
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff" />
+
+        <link rel="icon" href="../../favicon.svg">
+        <link rel="shortcut icon" href="../../favicon.png">
+        <link rel="stylesheet" href="../../css/variables.css">
+        <link rel="stylesheet" href="../../css/general.css">
+        <link rel="stylesheet" href="../../css/chrome.css">
+        <link rel="stylesheet" href="../../css/print.css" media="print">
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../../fonts/fonts.css">
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../../highlight.css">
+        <link rel="stylesheet" href="../../tomorrow-night.css">
+        <link rel="stylesheet" href="../../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+    </head>
+    <body>
+        <!-- Provide site root to javascript -->
+        <script type="text/javascript">
+            var path_to_root = "../../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script type="text/javascript">
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('no-js')
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add('js');
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            }
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded affix "><a href="../../index.html">Introduction</a></li><li class="chapter-item expanded affix "><li class="part-title">Architecture</li><li class="chapter-item expanded "><a href="../../architecture/index.html"><strong aria-hidden="true">1.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../architecture/how/index.html"><strong aria-hidden="true">2.</strong> How neard works</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/how/sync.html"><strong aria-hidden="true">2.1.</strong> How Sync Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gc.html"><strong aria-hidden="true">2.2.</strong> Garbage Collection</a></li><li class="chapter-item expanded "><a href="../../architecture/how/epoch.html"><strong aria-hidden="true">2.3.</strong> How Epoch Works</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_routing.html"><strong aria-hidden="true">2.4.</strong> Transaction Routing</a></li><li class="chapter-item expanded "><a href="../../architecture/how/tx_receipts.html"><strong aria-hidden="true">2.5.</strong> Transactions And Receipts</a></li><li class="chapter-item expanded "><a href="../../architecture/how/cross-shard.html"><strong aria-hidden="true">2.6.</strong> Cross shard transactions - deep dive</a></li><li class="chapter-item expanded "><a href="../../architecture/how/gas.html"><strong aria-hidden="true">2.7.</strong> Gas</a></li><li class="chapter-item expanded "><a href="../../architecture/how/receipt-congestion.html" class="active"><strong aria-hidden="true">2.8.</strong> Receipt Congestion</a></li><li class="chapter-item expanded "><a href="../../architecture/how/meta-tx.html"><strong aria-hidden="true">2.9.</strong> Meta transactions</a></li><li class="chapter-item expanded "><a href="../../architecture/how/serialization.html"><strong aria-hidden="true">2.10.</strong> Serialization: Borsh, Json, ProtoBuf</a></li><li class="chapter-item expanded "><a href="../../architecture/how/proofs.html"><strong aria-hidden="true">2.11.</strong> Proofs</a></li><li class="chapter-item expanded "><a href="../../architecture/how/resharding.html"><strong aria-hidden="true">2.12.</strong> Resharding</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/next/index.html"><strong aria-hidden="true">3.</strong> How neard will work</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/next/catchup_and_state_sync.html"><strong aria-hidden="true">3.1.</strong> Catchup and state sync improvements</a></li><li class="chapter-item expanded "><a href="../../architecture/next/malicious_chunk_producer_and_phase2.html"><strong aria-hidden="true">3.2.</strong> Malicious producers and phase 2</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/storage.html"><strong aria-hidden="true">4.</strong> Storage</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/storage/flow.html"><strong aria-hidden="true">4.1.</strong> Storage Request Flow</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/trie.html"><strong aria-hidden="true">4.2.</strong> Trie</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/database.html"><strong aria-hidden="true">4.3.</strong> Database Format</a></li><li class="chapter-item expanded "><a href="../../architecture/storage/flat_storage.html"><strong aria-hidden="true">4.4.</strong> Flat Storage</a></li></ol></li><li class="chapter-item expanded "><a href="../../architecture/network.html"><strong aria-hidden="true">5.</strong> Network</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/index.html"><strong aria-hidden="true">6.</strong> Gas Cost Parameters</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../architecture/gas/parameter_definition.html"><strong aria-hidden="true">6.1.</strong> Parameter Definitions</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/gas_profile.html"><strong aria-hidden="true">6.2.</strong> Gas Profile</a></li><li class="chapter-item expanded "><a href="../../architecture/gas/estimator.html"><strong aria-hidden="true">6.3.</strong> Runtime Parameter Estimator</a></li></ol></li><li class="chapter-item expanded "><li class="part-title">Practices</li><li class="chapter-item expanded "><a href="../../practices/index.html"><strong aria-hidden="true">7.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../practices/rust.html"><strong aria-hidden="true">8.</strong> Rust 🦀</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/index.html"><strong aria-hidden="true">9.</strong> Workflows</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/workflows/run_a_node.html"><strong aria-hidden="true">9.1.</strong> Run a Node</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/deploy_a_contract.html"><strong aria-hidden="true">9.2.</strong> Deploy a Contract</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/gas_estimations.html"><strong aria-hidden="true">9.3.</strong> Run Gas Estimations</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/localnet_on_many_machines.html"><strong aria-hidden="true">9.4.</strong> Localnet on many machines</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/io_trace.html"><strong aria-hidden="true">9.5.</strong> IO tracing</a></li><li class="chapter-item expanded "><a href="../../practices/workflows/otel_traces.html"><strong aria-hidden="true">9.6.</strong> Working with OpenTelemetry Traces</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/style.html"><strong aria-hidden="true">10.</strong> Code Style</a></li><li class="chapter-item expanded "><a href="../../practices/docs.html"><strong aria-hidden="true">11.</strong> Documentation</a></li><li class="chapter-item expanded "><a href="../../practices/tracking_issues.html"><strong aria-hidden="true">12.</strong> Tracking Issues</a></li><li class="chapter-item expanded "><a href="../../practices/security_vulnerabilities.html"><strong aria-hidden="true">13.</strong> Security Vulnerabilities</a></li><li class="chapter-item expanded "><a href="../../practices/fast_builds.html"><strong aria-hidden="true">14.</strong> Fast Builds</a></li><li class="chapter-item expanded "><a href="../../practices/testing/index.html"><strong aria-hidden="true">15.</strong> Testing</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../practices/testing/python_tests.html"><strong aria-hidden="true">15.1.</strong> Python Tests</a></li><li class="chapter-item expanded "><a href="../../practices/testing/test_utils.html"><strong aria-hidden="true">15.2.</strong> Testing Utils</a></li><li class="chapter-item expanded "><a href="../../practices/testing/coverage.html"><strong aria-hidden="true">15.3.</strong> Test Coverage</a></li></ol></li><li class="chapter-item expanded "><a href="../../practices/protocol_upgrade.html"><strong aria-hidden="true">16.</strong> Protocol Upgrade</a></li><li class="chapter-item expanded affix "><li class="part-title">Advanced configuration</li><li class="chapter-item expanded "><a href="../../advanced_configuration/networking.html"><strong aria-hidden="true">17.</strong> Networking</a></li><li class="chapter-item expanded affix "><li class="part-title">Custom test networks</li><li class="chapter-item expanded "><a href="../../test_networks/mainnet_spoon.html"><strong aria-hidden="true">18.</strong> Starting a network from mainnet state</a></li><li class="chapter-item expanded affix "><li class="part-title">Misc</li><li class="chapter-item expanded "><a href="../../misc/index.html"><strong aria-hidden="true">19.</strong> Overview</a></li><li class="chapter-item expanded "><a href="../../misc/state_sync_dump.html"><strong aria-hidden="true">20.</strong> State Sync Dump</a></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky bordered">
+                    <div class="left-buttons">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </button>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Guide to Nearcore Development</h1>
+
+                    <div class="right-buttons">
+                        <a href="../../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/tree/master/docs" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/near/nearcore/edit/master/docs/./architecture/how/receipt-congestion.md" title="Suggest an edit" aria-label="Suggest an edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script type="text/javascript">
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="receipt-congestion"><a class="header" href="#receipt-congestion">Receipt Congestion</a></h1>
+<p>Near Protocol executes transactions in multiple steps, or receipts. Once a
+transaction is accepted, the system has committed to finish all those receipts
+even if it does not know ahead of time how many receipts there will be or on
+which shards they will execute.</p>
+<p>This naturally leads to the problem that if shards just keep accepting more
+transactions, we might accept workload at a higher rate than we can execute.</p>
+<h2 id="cross-shard-congestion-as-flow-problem"><a class="header" href="#cross-shard-congestion-as-flow-problem">Cross-shard congestion as flow problem</a></h2>
+<p>For a quick formalized discussion on congestion, let us model the Near Protocol
+transaction execution as a <a href="https://en.wikipedia.org/wiki/Flow_network">flow
+network</a>.</p>
+<p>Each shard has a source that accepts new transactions and a sink for burning
+receipts. The flow is measured in gas. Edges to sinks have a capacity of 1000
+Tgas. (Technically, it should be 1300 but let's keep it simple for this
+discussion.)</p>
+<p><img src="../../images/congestion/base_flow_network.svg" alt="graph" /></p>
+<p>The edges between shards are not limited in this model. In reality, we are
+eventually limited by the receipt sizes and what we can send within a block time
+through the network links. But if we only look at that limit, we can send very
+many receipts with a lot of gas attached to them. Thus, the model considers it
+unlimited.</p>
+<p>Okay, we have the capacities of the network modeled. Now let's look how a
+receipt execution maps onto it.</p>
+<p>Let's say a receipt starts at shard 1 with 300 Tgas. While executing, it burns 100 Tgas and
+creates an outgoing receipts with 200 Tgas to another shard. We can represent this in the flow network with 
+100 Tgas to the sink of shard 1 and 200 Tgas to shard 2. </p>
+<p><img src="../../images/congestion/receipt_flow_example_0.svg" alt="graph" /></p>
+<p>Note: The graph includes the execution of the next block with the 200 Tgas to th
+sink of shard 2. This should be interpreted as if we continue sending the exact
+same workload on all shards every block. Then we reach this steady state where
+we continue to have these gas assignments per edge.</p>
+<p>Now we can do som flow analysis. It is immediately obvious that the total
+outflow per is limited to N * 1000 Tgas but the incoming flow is unlimited.</p>
+<p>For a finite amount of time, we can accept more inflow than outflow, we just have to add buffers to store what we cannot execute, yet. But to stay within finite memory requirements, we need to fall back to a flow diagram where outflows are greater or equal to inflows within a finite time frame.</p>
+<p>Next, we look at a ideas one at the time before combining some of them into the
+cross-shard congestion design proposed in
+<a href="https://github.com/near/NEPs/pull/539">NEP-539</a>.</p>
+<h2 id="idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit"><a class="header" href="#idea-1-compute-the-minimum-max-flow-and-stay-below-that-limit">Idea 1: Compute the minimum max-flow and stay below that limit</a></h2>
+<p>One approach to solve congestion would be to never allow more work into the
+system than we can execute.</p>
+<p>But this is not ideal. Just consider this example where everybody tries to access
+a contract on the same shard.</p>
+<p><img src="../../images/congestion/receipt_flow_example_1.svg" alt="graph" /></p>
+<p>In this workload where everyone want to use the capacity of the same shard, the
+max-flow of the system is essentially the 1000 Tgas that shard 3 can execute. No
+matter how many additional shards we add, this 1000 Tgas does not increase.</p>
+<p>Consequently, if we want to limit inflow to be the same or lower than the
+outflow, we cannot accept more than <code>1000 Tgas / NUM_SHARDS</code> of new transactions
+per chunk.</p>
+<p><img src="../../images/congestion/receipt_flow_example_1_1.svg" alt="graph" /></p>
+<p>So, can we just put a constant limit on sources that's <code>1000 Tgas / NUM_SHARDS</code>? Not
+really, as this limit is hardly practical. It means we limit global throughput
+to that of a single shard. Then why would we do sharding in the first place?</p>
+<p>The sad thing is, there is no way around it in the most general case. A
+congestion control strategy that does not apply this limit to this workload will
+always have infinitely sized queues.</p>
+<p>Of course, we won't give up. We are not limited to a constant capacity limit, we
+can instead adjust it dynamically. We simply have to find a strategy that
+detects such workload and eventually applies the required limit.</p>
+<p>Most of these strategies can be gamed by malicious actors and probably that
+means we eventually fall back to the minimum of <code>1000 Tgas / NUM_SHARDS</code>. But at
+this stage our ambition isn't to have 100% utilization under all malicious
+cases. We are instead trying to find a solution that can give 100% utilization
+for normal operation and then falls back to <code>1000 Tgas / NUM_SHARDS</code> when it has
+to, in order to prevent out-of-memory crashes.</p>
+<h2 id="idea-2-limit-transactions-when-we-use-too-much-memory"><a class="header" href="#idea-2-limit-transactions-when-we-use-too-much-memory">Idea 2: Limit transactions when we use too much memory</a></h2>
+<p>What if we have no limit at the source until we notice we are above the memory
+threshold we are comfortable with? Then we can reduce the source capacity in
+steps, potentially down to 0, until buffers are getting emptier and we use less
+memory again.</p>
+<p>If we do that, we can decide between either applying a global limit on all
+sources (allow only <code>1000 Tgas / NUM_SHARDS</code> new transactions on all shards like
+in idea 1) or applying the limit only to transactions that go to the shard with
+the congestion problem.</p>
+<p>The first choice is certainly safe. But it means that a single congested shard
+leads to all shards slowing down, even if they could keep working faster without
+ever sending receipts to the congested shard. This is a hit to utilization we
+want to avoid. So let's try the second way.</p>
+<p>In that case we filter transactions by receiver and keep accepting transactions
+that go to non-congested shards. This would work fine, if all transactions would
+only have depth 1.</p>
+<p>But receipts produced by an accepted transaction can produce more receipts to
+any other shard. Therefore, we might end up accepting more inflow that
+indirectly requires bandwidth on the congested shard.</p>
+<p><img src="../../images/congestion/receipt_flow_example_2.svg" alt="graph" /></p>
+<p>Crucially, when accepting a transaction, we don't know ahead of time which
+shards will be affected by the full directed graph of receipts in a transaction.
+We only know the first step. For multi-hop transactions, there is no easy way out.</p>
+<p>But it is worth mentioning, that in practice the single-hop function call is the
+most common case. And this case can be handled nicely by rejecting incoming
+transactions to congested shards.</p>
+<h2 id="idea-3-apply-backpressure-to-stop-all-flows-to-a-congested-shard"><a class="header" href="#idea-3-apply-backpressure-to-stop-all-flows-to-a-congested-shard">Idea 3: Apply backpressure to stop all flows to a congested shard</a></h2>
+<p>On top of stopping transactions to congested shards, we can also stop receipts if they have a congested shard as the receiver.
+We simply put them in a buffer of the sending shard and keep them there until
+the congested shard has space again for the receipts.</p>
+<p><img src="../../images/congestion/receipt_flow_example_3.svg" alt="graph" /></p>
+<p>The problem with this idea is that it leads to deadlocks where all receipts in
+the system are waiting in outgoing buffers but cannot make progress because the
+receiving shard already has too high memory usage.</p>
+<p><img src="../../images/congestion/receipt_flow_example_3_1.svg" alt="graph" /></p>
+<h2 id="idea-4-keep-minimum-incoming-queue-length-to-avoid-deadlocks"><a class="header" href="#idea-4-keep-minimum-incoming-queue-length-to-avoid-deadlocks">Idea 4: Keep minimum incoming queue length to avoid deadlocks</a></h2>
+<p>This is the final idea we need. To avoid deadlocks, we ensure that we can always
+send receipts to a shard that has not enough work in the delayed receipts queue
+already.</p>
+<p>Basically, the backpressure limits from idea 3 are only applied to incoming
+receipts but not for the total size. This guarantees that in the congested
+scenario that previously caused a deadlock, we always have something in the
+incoming queue to work on, otherwise there wouldn't be backpressure at all.</p>
+<p><img src="../../images/congestion/receipt_flow_example_4.svg" alt="graph" /></p>
+<p>We decided to measure the incoming congestion level using gas rather than
+bytes, because it is here to maximize utilization, not to minimize memory
+consumption. And utilization is best measured in gas. If we have a queue of
+10_000 Tgas waiting, even if only 10% of that is burnt in this step of the
+transaction, we still have 1000 Tgas of useful work we can contribute to the
+total flow. Thus under the assumption that at least 10% of gas is being burnt, 
+we have 100% utilization.</p>
+<p>A limit in bytes would be better to argue how much memory we need exactly. But
+in some sense, the two are equivalent, as producing large receipts should cost a
+linear amount of gas. What exactly the conversion rate is, is rather complicated
+and warrants its own investigation with potential protocol changes to lower the
+ratio in the most extreme cases. And this is important regardless of how
+congestion is handled, given that network bandwidth is becoming more and more
+important as we add more shards. Issue
+<a href="https://github.com/near/nearcore/issues/8214">#8214</a> tracks our effort on
+estimating what that cost should be and
+<a href="https://github.com/near/nearcore/issues/9378">#9378</a> tracks our best progress
+on calculating what it is today.</p>
+<p>Of course, we can increase the queue to have even better utility guarantees. But
+it comes at the cost of longer delays for every transaction or receipt that goes
+through a congested shard.</p>
+<p>This strategy also preserves the backpressure property in the sense that all
+shards on a path from sources to sinks that contribute to congestion will
+eventually end up with full buffers. Combined with idea 2, eventually all
+transactions to those shards are rejected. All of this without affecting shards
+that are not on the critical path.</p>
+<h2 id="putting-it-all-together"><a class="header" href="#putting-it-all-together">Putting it all together</a></h2>
+<p>The proposal in <a href="https://github.com/near/NEPs/pull/539">NEP-539</a> combines all
+ideas 2, 3, and 4.</p>
+<p>We have a limit of how much memory we consider to be normal operations (for
+example 500 MB). Then we stop new transaction coming in to that shard but still
+allow more incoming transactions to other shards if those are not congested.
+That alone already solves all problems with single-hop transactions.</p>
+<p>In the congested shard itself, we also keep accepting transactions to other
+shards. But we heavily reduce the gas allocated for new transactions, in order
+to have more capacity to work on finishing the waiting receipts. This is
+technically not necessary for any specific property, but it should make sense
+intuitively that this helps to reduce congestion quicker and therefore lead to a
+better user experience. This is why we added this feature. And our simulations
+also support this intuition.</p>
+<p>Then we apply backpressure for multi-hop receipts and avoid deadlocks by only
+applying the backpressure when we still have enough work queued up that holding
+it back cannot lead to a slowed down global throughput.</p>
+<p>Another design decision was to linearly interpolate the limits, as opposed to
+binary on and off states. This way, we don't have to be too precise in finding
+the right parameters, as the system should balance itself around a specific
+limit that works for each workload.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../../architecture/how/gas.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+                            <a rel="next" href="../../architecture/how/meta-tx.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../../architecture/how/gas.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                    <a rel="next" href="../../architecture/how/meta-tx.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+        <script type="text/javascript">
+            window.playground_copyable = true;
+        </script>
+        <script src="../../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../../book.js" type="text/javascript" charset="utf-8"></script>
+
+        <!-- Custom JS scripts -->
+    </body>
+</html>
