@@ -1751,18 +1751,9 @@ impl Chain {
         block_preprocess_info: BlockPreprocessInfo,
         apply_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
     ) -> Result<Option<Tip>, Error> {
-        // Save state transition data to the database only if it might later be needed
-        // for generating a state witness. Storage space optimization.
-        let should_save_state_transition_data =
-            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
-        let new_head = chain_update.postprocess_block(
-            me,
-            &block,
-            block_preprocess_info,
-            apply_results,
-            should_save_state_transition_data,
-        )?;
+        let new_head =
+            chain_update.postprocess_block(me, &block, block_preprocess_info, apply_results)?;
         chain_update.commit()?;
         Ok(new_head)
     }
@@ -2978,17 +2969,9 @@ impl Chain {
         results: Vec<Result<ShardUpdateResult, Error>>,
     ) -> Result<(), Error> {
         let block = self.chain_store.get_block(block_hash)?;
-        // Save state transition data to the database only if it might later be needed
-        // for generating a state witness. Storage space optimization.
-        let should_save_state_transition_data =
-            self.should_produce_state_witness_for_this_or_next_epoch(me, block.header())?;
         let mut chain_update = self.chain_update();
         let results = results.into_iter().collect::<Result<Vec<_>, Error>>()?;
-        chain_update.apply_chunk_postprocessing(
-            &block,
-            results,
-            should_save_state_transition_data,
-        )?;
+        chain_update.apply_chunk_postprocessing(&block, results)?;
         chain_update.commit()?;
 
         let epoch_id = block.header().epoch_id();
@@ -3355,8 +3338,12 @@ impl Chain {
             // only for a single shard. This so far has been enough.
             let state_patch = state_patch.take();
 
-            let storage_context =
-                StorageContext { storage_data_source: StorageDataSource::Db, state_patch };
+            let storage_context = StorageContext {
+                storage_data_source: StorageDataSource::Db,
+                state_patch,
+                record_storage: self
+                    .should_produce_state_witness_for_this_or_next_epoch(me, block.header())?,
+            };
             let stateful_job = self.get_update_shard_job(
                 me,
                 block,
