@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate } from 'react-router-dom';
 import './LandingPage.scss';
 import { Link } from 'react-router-dom';
 

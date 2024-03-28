@@ -303,7 +303,7 @@ impl ForkNetworkCommand {
         home_dir: &Path,
     ) -> anyhow::Result<Vec<StateRoot>> {
         // Open storage with migration
-        near_config.config.store.load_mem_tries_for_all_shards = true;
+        near_config.config.store.load_mem_tries_for_tracked_shards = true;
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
