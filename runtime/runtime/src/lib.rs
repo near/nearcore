@@ -26,12 +26,12 @@ use near_primitives::receipt::{
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
 use near_primitives::state_record::StateRecord;
+#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+use near_primitives::transaction::NonrefundableStorageTransferAction;
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus, LogEntry,
     SignedTransaction, TransferAction,
 };
-#[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-use near_primitives::transaction::{DeleteAccountAction, NonrefundableStorageTransferAction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::{
     validator_stake::ValidatorStake, AccountId, Balance, BlockHeight, Compute, EpochHeight,
@@ -525,10 +525,6 @@ impl Runtime {
             _ => unreachable!("given receipt should be an action receipt"),
         };
         let account_id = &receipt.receiver_id;
-
-        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let account_before_update = get_account(state_update, account_id)?;
-
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -565,6 +561,9 @@ impl Runtime {
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        let mut nonrefundable_amount_burnt: Balance = 0;
+
         // Executing actions one by one
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
@@ -606,17 +605,12 @@ impl Runtime {
                 break;
             }
 
-            // We update `other_burnt_amount` statistic with the non-refundable amount being burnt on account deletion.
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            if matches!(action, Action::DeleteAccount(DeleteAccountAction { beneficiary_id: _ })) {
-                // The `account_before_update` can be None if the account is both created and deleted within
-                // a single action receipt (see `test_create_account_add_key_call_delete_key_delete_account`).
-                if let Some(ref account_before_update) = account_before_update {
-                    stats.other_burnt_amount = safe_add_balance(
-                        stats.other_burnt_amount,
-                        account_before_update.nonrefundable(),
-                    )?
-                }
+            if let Action::NonrefundableStorageTransfer(NonrefundableStorageTransferAction {
+                deposit,
+            }) = action
+            {
+                nonrefundable_amount_burnt = safe_add_balance(nonrefundable_amount_burnt, *deposit)?
             }
         }
 
@@ -700,6 +694,12 @@ impl Runtime {
                 state_update.rollback();
             }
         };
+        // If the receipt was successfully applied, we update `other_burnt_amount` statistic with the non-refundable amount burnt.
+        #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
+        if result.result.is_ok() {
+            stats.other_burnt_amount =
+                safe_add_balance(stats.other_burnt_amount, nonrefundable_amount_burnt)?;
+        }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
         let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
@@ -1725,7 +1725,11 @@ fn action_transfer_or_implicit_account_creation(
         if nonrefundable {
             assert!(cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491"));
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            action_nonrefundable_storage_transfer(account, deposit)?;
+            action_nonrefundable_storage_transfer(
+                account,
+                deposit,
+                apply_state.config.storage_amount_per_byte(),
+            )?;
         } else {
             action_transfer(account, deposit)?;
         }

@@ -47,7 +47,7 @@
         "DelegateActionAccessKeyError",
         "DelegateActionInvalidNonce",
         "DelegateActionNonceTooLarge",
-        "NonRefundableBalanceToExistingAccount"
+        "NonRefundableTransferToExistingAccount"
       ],
       "props": {
         "index": ""
@@ -641,8 +641,8 @@
       "subtypes": [],
       "props": {}
     },
-    "NonRefundableBalanceToExistingAccount": {
-      "name": "NonRefundableBalanceToExistingAccount",
+    "NonRefundableTransferToExistingAccount": {
+      "name": "NonRefundableTransferToExistingAccount",
       "subtypes": [],
       "props": {
         "account_id": ""
