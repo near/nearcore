@@ -247,24 +247,18 @@ impl TriePrefetcher {
     }
 
     fn prefetch_claim_sweat(&self, account_id: AccountId, arg: &[u8]) -> Result<(), PrefetchError> {
-        // if account_id == "claim.sweat"
-        //     && fn_call.method_name == "record_batch_for_hold"
-        {
-            if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
-                if let Some(list) = get_inner_json(&json, "amounts") {
-                    if let Some(list) = list.as_array() {
-                        for tuple in list.iter() {
-                            if let Some(tuple) = tuple.as_array() {
-                                if let Some(user_account) = tuple.first().and_then(|a| a.as_str()) {
-                                    let mut key = vec![0, 64, 0, 0, 0];
-                                    key.extend(user_account.as_bytes());
-                                    let trie_key = TrieKey::ContractData {
-                                        account_id: account_id.clone(),
-                                        key,
-                                    };
-                                    near_o11y::io_trace!(count: "prefetch");
-                                    self.prefetch_trie_key(trie_key)?;
-                                }
+        if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(arg) {
+            if let Some(list) = get_inner_json(&json, "amounts") {
+                if let Some(list) = list.as_array() {
+                    for tuple in list.iter() {
+                        if let Some(tuple) = tuple.as_array() {
+                            if let Some(user_account) = tuple.first().and_then(|a| a.as_str()) {
+                                let mut key = vec![0, 64, 0, 0, 0];
+                                key.extend(user_account.as_bytes());
+                                let trie_key =
+                                    TrieKey::ContractData { account_id: account_id.clone(), key };
+                                near_o11y::io_trace!(count: "prefetch");
+                                self.prefetch_trie_key(trie_key)?;
                             }
                         }
                     }
@@ -275,51 +269,47 @@ impl TriePrefetcher {
     }
 
     fn prefetch_kaiching(&self, account_id: AccountId, arg: &[u8]) -> Result<(), PrefetchError> {
-        // if account_id == "earn.kaiching"
-        //     && fn_call.method_name == "ft_on_transfer"
-        {
-            if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(&arg) {
-                if let Some(msg) = get_inner_json(&json, "msg") {
-                    if let Some(json) = msg.as_str().and_then(|s| {
-                        serde_json::de::from_slice::<serde_json::Value>(s.as_bytes()).ok()
-                    }) {
-                        if let Some(list) = get_inner_json(&json, "rewards") {
-                            if let Some(list) = list.as_array() {
-                                for tuple in list.iter() {
-                                    if let Some(tuple) = tuple.as_array() {
-                                        let mut user_account_key = Vec::new();
-                                        user_account_key.extend([1, 109]);
-                                        let user_account_serialize_result = tuple
-                                            .get(0)
-                                            .and_then(|a| a.as_str())
-                                            .and_then(|a| AccountId::from_str(a).ok())
-                                            .and_then(|a| {
-                                                borsh::BorshSerialize::serialize(
-                                                    &a,
-                                                    &mut user_account_key,
-                                                )
-                                                .ok()
-                                            });
-                                        let reward_id = tuple.get(2).and_then(|a| a.as_str());
-                                        if user_account_serialize_result.is_some() {
-                                            if let Some(reward_id) = reward_id {
-                                                let user_account_key_hash = hash(&user_account_key);
-                                                let trie_key = TrieKey::ContractData {
-                                                    account_id: account_id.clone(),
-                                                    key: user_account_key_hash.0.to_vec(),
-                                                };
-                                                near_o11y::io_trace!(count: "prefetch");
-                                                self.prefetch_trie_key(trie_key)?;
+        if let Ok(json) = serde_json::de::from_slice::<serde_json::Value>(&arg) {
+            if let Some(msg) = get_inner_json(&json, "msg") {
+                if let Some(json) = msg.as_str().and_then(|s| {
+                    serde_json::de::from_slice::<serde_json::Value>(s.as_bytes()).ok()
+                }) {
+                    if let Some(list) = get_inner_json(&json, "rewards") {
+                        if let Some(list) = list.as_array() {
+                            for tuple in list.iter() {
+                                if let Some(tuple) = tuple.as_array() {
+                                    let mut user_account_key = Vec::new();
+                                    user_account_key.extend([1, 109]);
+                                    let user_account_serialize_result = tuple
+                                        .get(0)
+                                        .and_then(|a| a.as_str())
+                                        .and_then(|a| AccountId::from_str(a).ok())
+                                        .and_then(|a| {
+                                            borsh::BorshSerialize::serialize(
+                                                &a,
+                                                &mut user_account_key,
+                                            )
+                                            .ok()
+                                        });
+                                    let reward_id = tuple.get(2).and_then(|a| a.as_str());
+                                    if user_account_serialize_result.is_some() {
+                                        if let Some(reward_id) = reward_id {
+                                            let user_account_key_hash = hash(&user_account_key);
+                                            let trie_key = TrieKey::ContractData {
+                                                account_id: account_id.clone(),
+                                                key: user_account_key_hash.0.to_vec(),
+                                            };
+                                            near_o11y::io_trace!(count: "prefetch");
+                                            self.prefetch_trie_key(trie_key)?;
 
-                                                let mut reward_key = vec![0, 24, 0, 0, 0];
-                                                reward_key.extend(reward_id.as_bytes());
-                                                let trie_key = TrieKey::ContractData {
-                                                    account_id: account_id.clone(),
-                                                    key: reward_key,
-                                                };
-                                                near_o11y::io_trace!(count: "prefetch");
-                                                self.prefetch_trie_key(trie_key)?;
-                                            }
+                                            let mut reward_key = vec![0, 24, 0, 0, 0];
+                                            reward_key.extend(reward_id.as_bytes());
+                                            let trie_key = TrieKey::ContractData {
+                                                account_id: account_id.clone(),
+                                                key: reward_key,
+                                            };
+                                            near_o11y::io_trace!(count: "prefetch");
+                                            self.prefetch_trie_key(trie_key)?;
                                         }
                                     }
                                 }
