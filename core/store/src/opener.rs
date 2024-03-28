@@ -127,7 +127,7 @@ impl From<SnapshotRemoveError> for StoreOpenerError {
 fn get_default_kind(archive: bool, temp: Temperature) -> DbKind {
     match (temp, archive) {
         (Temperature::Hot, false) => DbKind::RPC,
-        (Temperature::Hot, true) => DbKind::Archive,
+        (Temperature::Hot, true) => DbKind::Hot,
         (Temperature::Cold, _) => DbKind::Cold,
     }
 }
