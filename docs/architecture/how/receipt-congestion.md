@@ -75,7 +75,7 @@ really, as this limit is hardly practical. It means we limit global throughput
 to that of a single shard. Then why would we do sharding in the first place?
 
 The sad thing is, there is no way around it in the most general case. A
-congestion control strategy that does apply this limit to this workload will
+congestion control strategy that does not apply this limit to this workload will
 always have infinitely sized queues.
 
 Of course, we won't give up. We are not limited to a constant capacity limit, we

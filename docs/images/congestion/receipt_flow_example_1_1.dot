@@ -63,6 +63,7 @@ digraph G {
 
     Shard1 -> Shard3 [label="332 Tgas"];
     Shard2 -> Shard3 [label="332 Tgas"];
+    Shard3 -> Shard3 [label="332 Tgas", dir="back"];
 
     // Aligning subgraphs
     {rank=same; Source1; Source2; Source3;}

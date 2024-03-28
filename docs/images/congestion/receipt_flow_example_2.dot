@@ -96,7 +96,7 @@ digraph G {
 
     Shard1 -> Sink1 [label="10 Tgas / 1000 Tgas"];
     Shard2 -> Sink2 [label="10 Tgas / 1000 Tgas"];
-    Shard3 -> Sink3 [label="1980 Tgas / 1000 Tgas" color="red" penwidth=3];
+    Shard3 -> Sink3 [label="1960 Tgas / 1000 Tgas" color="red" penwidth=3];
     Shard4 -> Sink4 [label="10 Tgas / 1000 Tgas"];
     Shard5 -> Sink5 [label="10 Tgas / 1000 Tgas"];
 
