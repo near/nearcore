@@ -1198,7 +1198,17 @@ impl<'a> VMLogic<'a> {
     /// * If we exceed usage limit imposed on burnt gas returns `GasLimitExceeded`;
     /// * If we exceed the `prepaid_gas` then returns `GasExceeded`.
     pub fn gas(&mut self, gas: Gas) -> Result<()> {
-        self.gas_counter.burn_gas(Gas::from(gas))
+        let res = self.gas_counter.burn_gas(Gas::from(gas));
+        match res.as_ref().err() {
+            Some(VMLogicError::HostError(HostError::GasExceeded)) => {
+                tracing::info!("Gas exceed error: {:#?}", self.context.current_account_id);
+            },
+            Some(VMLogicError::HostError(HostError::GasLimitExceeded)) => {
+                tracing::info!("Gas limit exceed error: {:#?}", self.context.current_account_id);
+            },
+            _ => (),
+        }
+        res
     }
 
     pub fn gas_opcodes(&mut self, opcodes: u32) -> Result<()> {
