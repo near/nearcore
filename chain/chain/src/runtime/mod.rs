@@ -31,7 +31,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
+use near_primitives::version::ProtocolVersion;
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -710,7 +710,7 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        if checked_feature!("stable", StateWitnessSizeLimit, protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
@@ -874,7 +874,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+        let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(&block.prev_block_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        if checked_feature!("stable", StateWitnessSizeLimit, protocol_version)
             || cfg!(feature = "shadow_chunk_validation")
         {
             trie = trie.recording_reads();
