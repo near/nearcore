@@ -1756,7 +1756,7 @@ impl TxStatusView {
     }
 }
 
-/// Execution outcome of the transaction and all of subsequent the receipts.
+/// Execution outcome of the transaction and all the subsequent receipts.
 /// Could be not finalised yet
 #[derive(
     BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone,
