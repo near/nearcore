@@ -445,9 +445,9 @@ impl NetworkState {
                 tracing::info!(target:"network", err = format!("{:#}", err), "Failed to connect to {peer_info}");
             }
 
-            if self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result).is_err() {
-                tracing::error!(target: "network", ?peer_info, "Failed to store connection attempt.");
-            }
+            // The peer may not be in the peer store; we try to record the connection attempt but
+            // ignore any storage errors
+            let _ = self.peer_store.peer_connection_attempt(&clock, &peer_info.id, result);
 
             if succeeded {
                 return;

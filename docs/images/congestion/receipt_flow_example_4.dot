@@ -1,0 +1,83 @@
+digraph G {
+    rankdir=LR;
+
+    // Invisible nodes for alignment
+    {
+        node [shape=point, width=0, height=0, label=""];
+        invisible_sink1;
+        invisible_sink2;
+    }
+
+    // Nodes
+    subgraph cluster_shard1 {
+        label = "Shard 1";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source1 [label="Source"];
+        Shard1 [label="Shard 1"];
+        Sink1 [label="Sink"];
+        Buffer1 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+        Queue1 [label="Incoming Queue allowed to fill to 10 PGas unaffected by backpressure" shape=box color="blue" penwidth=2];
+
+
+        Source1 -> Queue1 -> Buffer1 -> Shard1 -> Sink1 [style=invis];
+        Queue1 -> Shard1 [style=invis];
+        Source1 -> Shard1 [style=invis];
+
+        Sink1 -> invisible_sink1 [style=invis];
+        Buffer1 -> Sink1 [style=invis];
+        Source1 -> Queue1 [style=invis];
+        Buffer1 -> Shard1 [style=invis];
+
+        Source1 -> Queue1 [label="blockd tx to shard 1+2" color="red" penwidth=3];
+        Shard1 -> Sink1 [label="1000 Tgas / 1000 Tgas" color="green" penwidth=3];
+        Queue1 -> Shard1 [label="guaranteed 1000 Tgas flow if congested" color="green" penwidth=3];
+        Shard1 -> Buffer1 [label="backpressure" color="red" penwidth=2]
+    }
+
+    subgraph cluster_shard2 {
+        label = "Shard 2";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source2 [label="Source"];
+        Shard2 [label="Shard 2"];
+        Sink2 [label="Sink"];
+        Buffer2 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+        Queue2 [label="Incoming Queue allowed to fill to 10 PGas unaffected by backpressure" shape=box color="blue" penwidth=2];
+
+        Queue2 -> Shard2 [style=invis];
+        Source2 -> Queue2 -> Buffer2 -> Shard2 -> Sink2 [style=invis];
+        Source2 -> Shard2 [style=invis];
+        invisible_sink1 -> invisible_sink2 [style=invis];
+        Source1 -> Source2 [style=invis];
+        Sink2 -> invisible_sink2 [style=invis];
+        Buffer2 -> Sink2 [style=invis];
+        Source2 -> Queue2 [style=invis];
+        Queue1 -> Queue2 [style=invis];
+        Buffer1 -> Buffer2 [style=invis];
+        Buffer2 -> Shard2 [style=invis];
+
+        Source2 -> Queue2 [label="blocked tx to shard 1+2" color="red" penwidth=3];
+        Shard2 -> Sink2 [label="1000 Tgas / 1000 Tgas" color="green" penwidth=3];
+        Queue2 -> Shard2 [label="guaranteed 1000 Tgas flow if congested" color="green" penwidth=3];
+        Shard2 -> Buffer2 [label="backpressure" color="red" penwidth=2]
+    }
+
+    // Edges between nodes
+    Queue2 -> Buffer1 [label="backpressure" color="red" penwidth=2 dir="back"];
+    Queue1 -> Buffer2 [label="backpressure" color="red" penwidth=2 dir="back"];
+   
+
+    // Aligning subgraphs
+    // {rank=same; Source1; Source2; Queue1; Queue2;}
+    {rank=same; Source1; Source2;}
+    {rank=same; Queue1; Queue2;}
+    {rank=same; Shard1; Shard2;}
+    {rank=same; Buffer1; Buffer2;}
+    // {rank=same; Buffer1; Buffer2; Shard1; Shard2;}
+    {rank=same; Sink1; Sink2; invisible_sink1; invisible_sink2;}
+}

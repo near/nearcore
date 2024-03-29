@@ -113,7 +113,7 @@ impl TestTriesBuilder {
         let tries = ShardTries::new(
             store,
             TrieConfig {
-                load_mem_tries_for_all_shards: self.enable_in_memory_tries,
+                load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
             &shard_uids,

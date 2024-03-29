@@ -351,7 +351,7 @@ mod tests {
                 omit_expression => true,
             }, {
                 any_failure |= std::panic::catch_unwind(|| {
-                    insta::assert_display_snapshot!("parameters", params);
+                    insta::assert_snapshot!("parameters", params);
                 }).is_err();
             });
         }

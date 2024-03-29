@@ -37,8 +37,9 @@ use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_network::client::{
-    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessMessage,
-    ClientSenderForNetwork, ClientSenderForNetworkMessage, ProcessTxRequest,
+    BlockApproval, BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage,
+    ChunkStateWitnessMessage, ClientSenderForNetwork, ClientSenderForNetworkMessage,
+    ProcessTxRequest,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_loop::SupportsRoutingLookup;
@@ -61,8 +62,8 @@ use near_store::config::StateSnapshotType;
 use near_store::genesis::initialize_genesis_state;
 use near_store::test_utils::create_test_store;
 use near_store::TrieConfig;
-use near_vm_runner::CompiledContractCache;
-use near_vm_runner::FilesystemCompiledContractCache;
+use near_vm_runner::ContractRuntimeCache;
+use near_vm_runner::FilesystemContractRuntimeCache;
 use nearcore::NightshadeRuntime;
 use std::collections::HashMap;
 use std::path::Path;
@@ -229,7 +230,7 @@ fn test_client_with_multi_test_loop() {
             builder.sender().for_index(idx).into_sender(),
         )));
         let home_dir = Path::new(".");
-        let contract_cache = FilesystemCompiledContractCache::new(home_dir, None::<&str>)
+        let contract_cache = FilesystemContractRuntimeCache::new(home_dir, None::<&str>)
             .expect("filesystem contract cache")
             .handle();
         let runtime_adapter = NightshadeRuntime::test_with_trie_config(
@@ -238,7 +239,7 @@ fn test_client_with_multi_test_loop() {
             contract_cache,
             &genesis.config,
             epoch_manager.clone(),
-            TrieConfig { load_mem_tries_for_all_shards: true, ..Default::default() },
+            TrieConfig { load_mem_tries_for_tracked_shards: true, ..Default::default() },
             StateSnapshotType::ForReshardingOnly,
         );
 
@@ -538,6 +539,17 @@ pub fn route_network_messages_to_client<
                                 "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
                                 other_idxes, idx);
                         }
+                    }
+                }
+                NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
+                    let other_idx = data.index_for_account(&target);
+                    if other_idx != idx {
+                        drop(
+                            client_senders[other_idx]
+                                .send_async(ChunkStateWitnessAckMessage(witness_ack)),
+                        );
+                    } else {
+                        tracing::warn!("Dropping state-witness-ack message to self");
                     }
                 }
                 // TODO: Support more network message types as we expand the test.

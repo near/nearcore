@@ -143,7 +143,7 @@ impl MemTries {
     pub fn update(
         &self,
         root: CryptoHash,
-        track_disk_changes: bool,
+        track_trie_changes: bool,
     ) -> Result<MemTrieUpdate, StorageError> {
         let root_id = if root == CryptoHash::default() {
             None
@@ -163,7 +163,7 @@ impl MemTries {
             root_id,
             &self.arena.memory(),
             self.shard_uid.to_string(),
-            track_disk_changes,
+            track_trie_changes,
         ))
     }
 }

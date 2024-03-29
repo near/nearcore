@@ -390,6 +390,7 @@ impl Chain {
         chain_config: ChainConfig,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         apply_chunks_spawner: Arc<dyn AsyncComputationSpawner>,
+        validator_account_id: Option<&AccountId>,
     ) -> Result<Chain, Error> {
         // Get runtime initial state and create genesis block out of it.
         let state_roots = get_genesis_state_roots(runtime_adapter.store())?
@@ -508,7 +509,19 @@ impl Chain {
         let tip = chain_store.head()?;
         let shard_uids: Vec<_> =
             epoch_manager.get_shard_layout(&tip.epoch_id)?.shard_uids().collect();
-        runtime_adapter.load_mem_tries_on_startup(&shard_uids)?;
+        let tracked_shards: Vec<_> = shard_uids
+            .iter()
+            .filter(|shard_uid| {
+                shard_tracker.care_about_shard(
+                    validator_account_id,
+                    &tip.prev_block_hash,
+                    shard_uid.shard_id(),
+                    true,
+                )
+            })
+            .cloned()
+            .collect();
+        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -1204,9 +1217,12 @@ impl Chain {
                 self.chain_store.is_invalid_chunk(&chunk_header.chunk_hash())?
             {
                 let merkle_paths = Block::compute_chunk_headers_root(block.chunks().iter()).1;
+                let merkle_proof = merkle_paths
+                    .get(shard_id)
+                    .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?;
                 let chunk_proof = ChunkProofs {
                     block_header: borsh::to_vec(&block.header()).expect("Failed to serialize"),
-                    merkle_proof: merkle_paths[shard_id].clone(),
+                    merkle_proof: merkle_proof.clone(),
                     chunk: Box::new(MaybeEncodedShardChunk::Encoded(EncodedShardChunk::clone(
                         &encoded_chunk,
                     ))),
@@ -2246,7 +2262,10 @@ impl Chain {
         }
         // Chunk header here is the same chunk header as at the `current` height.
         let sync_prev_hash = sync_prev_block.hash();
-        let chunk_header = &sync_prev_block.chunks()[shard_id as usize];
+        let chunks = sync_prev_block.chunks();
+        let chunk_header = chunks
+            .get(shard_id as usize)
+            .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?;
         let (chunk_headers_root, chunk_proofs) = merklize(
             &sync_prev_block
                 .chunks()
@@ -2259,7 +2278,10 @@ impl Chain {
         assert_eq!(&chunk_headers_root, sync_prev_block.header().chunk_headers_root());
 
         let chunk = self.get_chunk_clone_from_header(chunk_header)?;
-        let chunk_proof = chunk_proofs[shard_id as usize].clone();
+        let chunk_proof = chunk_proofs
+            .get(shard_id as usize)
+            .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+            .clone();
         let block_header =
             self.get_block_header_on_chain_by_height(&sync_hash, chunk_header.height_included())?;
 
@@ -2268,7 +2290,11 @@ impl Chain {
             .get_block(block_header.prev_hash())
         {
             Ok(prev_block) => {
-                let prev_chunk_header = prev_block.chunks()[shard_id as usize].clone();
+                let prev_chunk_header = prev_block
+                    .chunks()
+                    .get(shard_id as usize)
+                    .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+                    .clone();
                 let (prev_chunk_headers_root, prev_chunk_proofs) = merklize(
                     &prev_block
                         .chunks()
@@ -2280,7 +2306,10 @@ impl Chain {
                 );
                 assert_eq!(&prev_chunk_headers_root, prev_block.header().chunk_headers_root());
 
-                let prev_chunk_proof = prev_chunk_proofs[shard_id as usize].clone();
+                let prev_chunk_proof = prev_chunk_proofs
+                    .get(shard_id as usize)
+                    .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+                    .clone();
                 let prev_chunk_height_included = prev_chunk_header.height_included();
 
                 (Some(prev_chunk_header), Some(prev_chunk_proof), prev_chunk_height_included)
@@ -2437,7 +2466,11 @@ impl Chain {
         if epoch_id == prev_block.header().epoch_id() {
             return Err(sync_hash_not_first_hash(sync_hash));
         }
-        let state_root = prev_block.chunks()[shard_id as usize].prev_state_root();
+        let state_root = prev_block
+            .chunks()
+            .get(shard_id as usize)
+            .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+            .prev_state_root();
         let prev_hash = *prev_block.hash();
         let prev_prev_hash = *prev_block.header().prev_hash();
         let state_root_node = self
@@ -2741,6 +2774,8 @@ impl Chain {
             );
             store_update.commit()?;
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            // Flat storage is ready, load memtrie if it is enabled.
+            self.runtime_adapter.load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
         }
 
         let mut height = shard_state_header.chunk_height_included();
@@ -3330,7 +3365,11 @@ impl Chain {
                 Ok(None) => {}
                 Err(err) => {
                     if err.is_bad_data() {
-                        let chunk_header = block.chunks()[shard_id].clone();
+                        let chunk_header = block
+                            .chunks()
+                            .get(shard_id)
+                            .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?
+                            .clone();
                         invalid_chunks.push(chunk_header);
                     }
                     return Err(err);
@@ -4036,7 +4075,10 @@ impl Chain {
             let block = self.get_block(&block_hash)?;
             let chunks = block.chunks();
             for &shard_id in shard_ids.iter() {
-                if chunks[shard_id as usize].height_included() == block.header().height() {
+                let chunk_header = &chunks
+                    .get(shard_id as usize)
+                    .ok_or_else(|| Error::InvalidShardId(shard_id as ShardId))?;
+                if chunk_header.height_included() == block.header().height() {
                     return Ok(Some((block_hash, shard_id)));
                 }
             }
@@ -4102,7 +4144,7 @@ impl Chain {
         self.invalid_blocks.contains(hash)
     }
 
-    /// Check that sync_hash is the frst block of an epoch.
+    /// Check that sync_hash is the first block of an epoch.
     pub fn check_sync_hash_validity(&self, sync_hash: &CryptoHash) -> Result<bool, Error> {
         // It's important to check that Block exists because we will sync with it.
         // Do not replace with `get_block_header()`.

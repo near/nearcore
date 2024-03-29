@@ -6,7 +6,7 @@ use near_parameters::RuntimeConfigStore;
 use near_primitives::types::ProtocolVersion;
 use near_vm_runner::internal::VMKindExt;
 use near_vm_runner::logic::mocks::mock_external::MockedExternal;
-use near_vm_runner::{CompiledContractCache, ContractCode, FilesystemCompiledContractCache};
+use near_vm_runner::{ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache};
 use std::fmt::Write;
 
 /// Estimates linear cost curve for a function call execution cost per byte of
@@ -62,8 +62,8 @@ fn compute_function_call_cost(
     warmup_repeats: u64,
     contract: &ContractCode,
 ) -> GasCost {
-    let cache_store = FilesystemCompiledContractCache::test().unwrap();
-    let cache: Option<&dyn CompiledContractCache> = Some(&cache_store);
+    let cache_store = FilesystemContractRuntimeCache::test().unwrap();
+    let cache: Option<&dyn ContractRuntimeCache> = Some(&cache_store);
     let protocol_version = ProtocolVersion::MAX;
     let config_store = RuntimeConfigStore::new(None);
     let runtime_config = config_store.get_config(protocol_version).as_ref();
@@ -78,10 +78,11 @@ fn compute_function_call_cost(
     for _ in 0..warmup_repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello0",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
@@ -94,10 +95,11 @@ fn compute_function_call_cost(
     for _ in 0..repeats {
         let result = runtime
             .run(
-                contract,
+                *contract.hash(),
+                Some(&contract),
                 "hello0",
                 &mut fake_external,
-                fake_context.clone(),
+                &fake_context,
                 &fees,
                 &promise_results,
                 cache,
