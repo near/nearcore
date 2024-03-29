@@ -1,4 +1,4 @@
-use crate::config::TrieCacheConfig;
+use crate::config::{PrefetchConfig, TrieCacheConfig};
 use crate::StoreConfig;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::types::AccountId;
@@ -31,6 +31,9 @@ pub struct TrieConfig {
     pub sweat_prefetch_receivers: Vec<AccountId>,
     /// List of allowed predecessor accounts for SWEAT prefetching.
     pub sweat_prefetch_senders: Vec<AccountId>,
+    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
+    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
+
     /// List of shards we will load into memory.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
     /// Whether mem-trie should be loaded for each tracked shard.
@@ -58,6 +61,9 @@ impl TrieConfig {
                 Err(e) => error!(target: "config", "invalid account id {account}: {e}"),
             }
         }
+        this.claim_sweat_prefetch_config = config.claim_sweat_prefetch_config.clone();
+        this.kaiching_prefetch_config = config.kaiching_prefetch_config.clone();
+
         this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
         this.load_mem_tries_for_tracked_shards = config.load_mem_tries_for_tracked_shards;
 

@@ -59,6 +59,9 @@ pub struct StoreConfig {
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_senders: Vec<String>,
 
+    pub claim_sweat_prefetch_config: Vec<PrefetchConfig>,
+    pub kaiching_prefetch_config: Vec<PrefetchConfig>,
+
     /// List of shard UIDs for which we should load the tries in memory.
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
@@ -251,6 +254,16 @@ impl Default for StoreConfig {
                 "oracle.sweat".to_owned(),
                 "sweat_the_oracle.testnet".to_owned(),
             ],
+            claim_sweat_prefetch_config: vec![PrefetchConfig {
+                receiver: "claim.sweat".to_owned(),
+                sender: "token.sweat".to_owned(),
+                method_name: "record_batch_for_hold".to_owned(),
+            }],
+            kaiching_prefetch_config: vec![PrefetchConfig {
+                receiver: "earn.kaiching".to_owned(),
+                sender: "wallet.kaiching".to_owned(),
+                method_name: "ft_on_transfer".to_owned(),
+            }],
 
             // TODO(#9511): Consider adding here shard id 3 or all shards after
             // this feature will be tested. Until that, use at your own risk.
@@ -329,4 +342,12 @@ impl Default for TrieCacheConfig {
             shard_cache_deletions_queue_capacity: DEFAULT_SHARD_CACHE_DELETIONS_QUEUE_CAPACITY,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct PrefetchConfig {
+    pub receiver: String,
+    pub sender: String,
+    pub method_name: String,
 }
