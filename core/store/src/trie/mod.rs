@@ -666,6 +666,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
 
