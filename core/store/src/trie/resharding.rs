@@ -68,16 +68,16 @@ impl ShardTries {
                 TrieKey::PromiseYieldIndices => {}
                 TrieKey::PromiseYieldTimeout { index } => match value {
                     Some(value) => {
-                        let yield_queue_entry = PromiseYieldTimeout::try_from_slice(&value)
-                            .map_err(|err| {
+                        let timeout =
+                            PromiseYieldTimeout::try_from_slice(&value).map_err(|err| {
                                 StorageError::StorageInconsistentState(format!(
-                                    "invalid yielded promise queue entry {:?}, err: {}",
+                                    "invalid PromiseYield queue entry {:?}, err: {}",
                                     value, err,
                                 ))
                             })?;
                         // Accumulate insertions so that they can be sorted by index and applied to
                         // the child tries in the correct order.
-                        inserted_timeouts.push((*index, yield_queue_entry));
+                        inserted_timeouts.push((*index, timeout));
                     }
                     None => {
                         // For PromiseYieldTimeout deletions we cannot infer the account information

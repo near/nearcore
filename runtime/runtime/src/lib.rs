@@ -1591,11 +1591,11 @@ impl Runtime {
             }
 
             // Check if the yielded promise still needs to be resolved
-            let yielded_promise_key = TrieKey::PromiseYieldReceipt {
+            let promise_yield_key = TrieKey::PromiseYieldReceipt {
                 receiver_id: queue_entry.account_id.clone(),
                 data_id: queue_entry.data_id,
             };
-            if state_update.contains_key(&yielded_promise_key)? {
+            if state_update.contains_key(&promise_yield_key)? {
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     protocol_version,
                     &queue_entry.data_id,
