@@ -210,12 +210,4 @@ impl FeeHelper {
             + node_runtime::config::total_send_fees(&self.rt_cfg, sir, actions, receiver).unwrap();
         self.gas_to_balance(total_gas)
     }
-
-    pub fn gas_refund_fee(&self) -> Gas {
-        if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
-            self.cfg().gas_fee_for_gas_refund()
-        } else {
-            0
-        }
-    }
 }

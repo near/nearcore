@@ -11,7 +11,6 @@ pub use crate::verifier::{
 };
 use config::total_prepaid_send_fees;
 pub use near_crypto;
-use near_parameters::cost::transfer_send_and_exec_fee;
 use near_parameters::{ActionCosts, RuntimeConfig};
 pub use near_primitives;
 use near_primitives::account::Account;
@@ -668,6 +667,29 @@ impl Runtime {
                 result.gas_burnt = 0;
                 result.compute_usage = 0;
                 result.gas_used = 0;
+            } else {
+                // Since refund receipts can't create implicit account, the execution cost of such
+                // receipts not include the implicit account creation cost.
+                if checked_feature!(
+                    "nightly_protocol",
+                    GasPriceRefundAdjustment,
+                    apply_state.current_protocol_version
+                ) {
+                    let mut gas_refund_cost =
+                        apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee()
+                            + apply_state.config.fees.fee(ActionCosts::transfer).exec_fee();
+                    // Gas refund receipt touches the function call key to refund the allowance.
+                    if action_receipt.signer_id == receipt.receiver_id {
+                        gas_refund_cost += apply_state
+                            .config
+                            .fees
+                            .fee(ActionCosts::add_function_call_key_base)
+                            .exec_fee();
+                    }
+                    result.gas_burnt = gas_refund_cost;
+                    result.compute_usage = gas_refund_cost;
+                    result.gas_used = gas_refund_cost;
+                }
             }
 
             // If the refund fails tokens are burned.
@@ -871,14 +893,14 @@ impl Runtime {
         } else {
             total_prepaid_gas - result.gas_used
         };
-        let gas_fee_for_gas_refund =
+        let gas_penalty_for_gas_refund =
             if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
-                config.fees.gas_fee_for_gas_refund()
+                config.fees.gas_penalty_for_gas_refund(gas_refund)
             } else {
                 0
             };
         // The gas cost for the gas refund receipt, even if it's not enough to cover it.
-        let gas_for_gas_refund = std::cmp::min(gas_refund, gas_fee_for_gas_refund);
+        let gas_for_gas_refund = std::cmp::min(gas_refund, gas_penalty_for_gas_refund);
         gas_refund -= gas_for_gas_refund;
         refund_result.extra_tx_burnt_amount =
             safe_gas_to_balance(current_gas_price, gas_for_gas_refund)?;
@@ -927,29 +949,15 @@ impl Runtime {
 
         if gas_balance_refund > 0 {
             if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, protocol_version) {
-                // We burn gas for the gas refund receipt as regular transfer, but including
-                // execution cost into the current receipt.
-                let gas_fee = transfer_send_and_exec_fee(
-                    &config.fees,
-                    false,
-                    config.wasm_config.implicit_account_creation,
-                    config.wasm_config.eth_implicit_accounts,
-                    action_receipt.signer_id.get_account_type(),
-                ) + config.fees.fee(ActionCosts::new_action_receipt).send_fee(false)
-                    + config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
-                // This would only trigger if the gas price refund is less than a regular transfer.
-                debug_assert!(
-                    gas_fee <= gas_for_gas_refund,
-                    "transfer fee {} > gas_for_gas_refund {}",
-                    gas_fee,
-                    gas_for_gas_refund
-                );
-                result.gas_burnt += gas_fee;
-                result.gas_used += gas_fee;
-                result.compute_usage += gas_fee;
-                let cost = safe_gas_to_balance(current_gas_price, gas_fee)?;
-                // The cost should be smaller than the extra_tx_burnt_amount, becuase the gas_fee
-                // is smaller than the gas_for_gas_refund.
+                // Charging for gas refund receipt. Send fee is burnt now, exec will be burnt at the
+                // refund time.
+                let burn_gas_fee = config.fees.gas_refund_send_fee();
+                result.gas_burnt += burn_gas_fee;
+                result.gas_used += burn_gas_fee + config.fees.gas_refund_exec_fee();
+                result.compute_usage += burn_gas_fee;
+                let cost = safe_gas_to_balance(current_gas_price, burn_gas_fee)?;
+                // The cost should be smaller than the extra_tx_burnt_amount, because the
+                // burn_gas_fee is smaller than the gas_for_gas_refund.
                 refund_result.extra_tx_burnt_amount -= cost;
             }
 

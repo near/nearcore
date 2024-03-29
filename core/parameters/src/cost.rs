@@ -489,15 +489,25 @@ impl RuntimeFeesConfig {
             + self.fee(ActionCosts::function_call_base).min_send_and_exec_fee()
     }
 
-    /// The cost is currently set to a fixed 5 TGas.
-    /// Note, in the future this cost will be dynamic and grow based on the distance from the
-    /// enabled block height to discourage function call refunds.
-    pub fn gas_fee_for_gas_refund(&self) -> Gas {
-        if self.fee(ActionCosts::new_action_receipt).min_send_and_exec_fee()
-            + self.fee(ActionCosts::transfer).min_send_and_exec_fee()
-            > 0
-        {
-            5_000_000_000_000
+    pub fn gas_refund_send_fee(&self) -> Gas {
+        self.fee(ActionCosts::new_action_receipt).send_fee(false)
+            + self.fee(ActionCosts::transfer).send_fee(false)
+            + self.fee(ActionCosts::add_function_call_key_base).send_fee(false)
+    }
+
+    pub fn gas_refund_exec_fee(&self) -> Gas {
+        self.fee(ActionCosts::new_action_receipt).exec_fee()
+            + self.fee(ActionCosts::transfer).exec_fee()
+            + self.fee(ActionCosts::add_function_call_key_base).exec_fee()
+    }
+
+    /// Penalty for the large gas refunds. Use 5% based on https://github.com/near/NEPs/pull/536
+    pub fn gas_penalty_for_gas_refund(&self, gas_refund: Gas) -> Gas {
+        if self.gas_refund_send_fee() > 0 {
+            std::cmp::max(
+                (u128::from(gas_refund) * 5 / 100) as Gas,
+                self.gas_refund_send_fee() + self.gas_refund_exec_fee(),
+            )
         } else {
             // To account for free config
             0

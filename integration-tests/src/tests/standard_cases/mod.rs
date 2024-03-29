@@ -1046,11 +1046,11 @@ pub fn test_access_key_smart_contract(node: impl Node) {
     let mut gas_refund =
         prepaid_gas + exec_gas - transaction_result.receipts_outcome[0].outcome.gas_burnt;
 
-    if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
-        // There is fixed cost for a gas refund receipt, but only the transfer cost is included in
-        // the burnt gas
-        gas_refund = gas_refund + fee_helper.transfer_fee() - fee_helper.gas_refund_fee();
-    }
+    // if checked_feature!("nightly_protocol", GasPriceRefundAdjustment, PROTOCOL_VERSION) {
+    //     // There is fixed cost for a gas refund receipt, but only the transfer cost is included in
+    //     // the burnt gas
+    //     gas_refund = gas_refund + fee_helper.transfer_fee() - fee_helper.gas_refund_fee();
+    // }
 
     let gas_refund_amount = fee_helper.gas_to_balance(gas_refund);
 

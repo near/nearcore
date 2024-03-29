@@ -146,7 +146,7 @@ pub enum ProtocolFeature {
     // epoch.
     StatelessnetShuffleShardAssignmentsForChunkProducers,
     // Disable gas price refunds and require some amount of gas for refunds.
-    #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
+    #[cfg(feature = "protocol_feature_gas_price_refund_adjustment_nep536")]
     GasPriceRefundAdjustment,
 }
 
@@ -218,7 +218,7 @@ impl ProtocolFeature {
             ProtocolFeature::NonrefundableStorage => 140,
             #[cfg(feature = "statelessnet_protocol")]
             ProtocolFeature::SimpleNightshadeV3 => 141,
-            #[cfg(feature = "protocol_feature_gas_price_refund_adjustment")]
+            #[cfg(feature = "protocol_feature_gas_price_refund_adjustment_nep536")]
             ProtocolFeature::GasPriceRefundAdjustment => 142,
         }
     }
