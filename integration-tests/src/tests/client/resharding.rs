@@ -8,6 +8,7 @@ use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
+use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
@@ -21,7 +22,9 @@ use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives::views::{
+    ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+};
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
 use near_store::metadata::DbKind;
@@ -511,8 +514,11 @@ impl TestReshardingEnv {
     /// This functions checks that the outcomes of all transactions and associated receipts
     /// have successful status
     /// If `allow_not_started` is true, allow transactions status to be NotStarted
-    /// Return successful transaction hashes
-    fn check_tx_outcomes(&mut self, allow_not_started: bool) -> Vec<CryptoHash> {
+    /// Returns a map from successful transaction hashes to the transaction outcomes
+    fn check_tx_outcomes(
+        &mut self,
+        allow_not_started: bool,
+    ) -> HashMap<CryptoHash, FinalExecutionOutcomeView> {
         tracing::debug!(target: "test", "checking tx outcomes");
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -528,7 +534,7 @@ impl TestReshardingEnv {
             txs_to_check.extend(txs);
         }
 
-        let mut successful_txs = Vec::new();
+        let mut successful_txs = HashMap::new();
         for tx in txs_to_check {
             let id = &tx.get_hash();
 
@@ -556,19 +562,24 @@ impl TestReshardingEnv {
                     continue;
                 }
                 let final_outcome = client.chain.get_final_transaction_result(id).unwrap();
+                for outcome in &final_outcome.receipts_outcome {
+                    assert_matches!(
+                        outcome.outcome.status,
+                        ExecutionStatusView::SuccessValue(_)
+                            | ExecutionStatusView::SuccessReceiptId(_)
+                    );
+                }
 
                 let outcome_status = final_outcome.status.clone();
                 if matches!(outcome_status, FinalExecutionStatus::SuccessValue(_)) {
-                    successful_txs.push(tx.get_hash());
+                    successful_txs.insert(tx.get_hash(), final_outcome);
                 } else {
                     tracing::error!(target: "test", tx=?id, client=i, "tx failed");
                     panic!("tx failed {:?}", final_outcome);
                 }
-                for outcome in final_outcome.receipts_outcome {
-                    assert_matches!(outcome.outcome.status, ExecutionStatusView::SuccessValue(_));
-                }
             }
         }
+
         successful_txs
     }
 
@@ -1417,7 +1428,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
 
@@ -1477,6 +1488,141 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
 }
 
+fn setup_test_env_with_promise_yield_txs(
+    test_env: &mut TestReshardingEnv,
+    epoch_length: u64,
+) -> Vec<CryptoHash> {
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+
+    // Generates an account for each shard
+    let contract_accounts = gen_shard_accounts();
+
+    // Add transactions deploying nightly_rs_contract to each account
+    let mut init_txs = vec![];
+    for account_id in &contract_accounts {
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::nightly_rs_contract().to_vec(),
+        })];
+        let init_tx = SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            actions,
+            genesis_hash,
+        );
+        init_txs.push(init_tx);
+    }
+    test_env.set_init_tx(init_txs);
+
+    let mut yield_tx_hashes = vec![];
+    let mut nonce = 100;
+
+    // In these tests we set the epoch length equal to the yield timeout length.
+    assert!(
+        epoch_length
+            == RuntimeConfig::test().wasm_config.limit_config.yield_timeout_length_in_blocks,
+    );
+    // Add transactions invoking promise_yield_create near the epoch boundaries.
+    for height in [
+        epoch_length - 2, // create in first epoch, trigger timeout during resharding epoch
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2, // create during resharding epoch, trigger timeout on upgraded layout
+        2 * epoch_length - 1,
+        2 * epoch_length,
+        3 * epoch_length - 2, // both the create and the timeout will occur on upgraded layout
+        3 * epoch_length - 1,
+        3 * epoch_length,
+    ] {
+        let txs = contract_accounts
+            .iter()
+            .map(|account_id| {
+                let signer = InMemorySigner::from_seed(
+                    account_id.clone(),
+                    KeyType::ED25519,
+                    account_id.as_ref(),
+                );
+                nonce += 1;
+                let tx = SignedTransaction::from_actions(
+                    nonce,
+                    account_id.clone(),
+                    account_id.clone(),
+                    &signer,
+                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                        method_name: "call_yield_create_return_promise".to_string(),
+                        args: vec![],
+                        gas: GAS_1,
+                        deposit: 0,
+                    }))],
+                    genesis_hash,
+                );
+                yield_tx_hashes.push(tx.get_hash());
+                tx
+            })
+            .collect();
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    yield_tx_hashes
+}
+
+// Test delivery of promise yield timeouts
+fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType, rng_seed: u64) {
+    init_test_logger();
+
+    // setup
+    let epoch_length =
+        RuntimeConfig::test().wasm_config.limit_config.yield_timeout_length_in_blocks;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    // reuse the test env for cross contract calls
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
+
+    let yield_tx_hashes = setup_test_env_with_promise_yield_txs(&mut test_env, epoch_length);
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..5 * epoch_length {
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.check_receipt_id_to_shard_id();
+    }
+
+    let tx_outcomes = test_env.check_tx_outcomes(false);
+    for tx_hash in yield_tx_hashes {
+        // The yield callback returns a specific value when it is invoked by timeout
+        assert_eq!(
+            tx_outcomes.get(&tx_hash).unwrap().status,
+            FinalExecutionStatus::SuccessValue(vec![23u8]),
+        );
+    }
+
+    test_env.check_resharding_artifacts(0);
+}
+
+#[test]
+fn test_shard_layout_upgrade_promise_yield_v1() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V1, 42);
+}
+
+#[test]
+fn test_shard_layout_upgrade_promise_yield_v2() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V2, 42);
+}
+
+#[cfg(not(feature = "statelessnet_protocol"))]
+#[test]
+fn test_shard_layout_upgrade_promise_yield_v3() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V3, 42);
+}
+
 fn test_shard_layout_upgrade_incoming_receipts_impl(
     resharding_type: ReshardingType,
     rng_seed: u64,
@@ -1517,7 +1663,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
 
     let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
     test_env.check_resharding_artifacts(0);
@@ -1608,7 +1754,7 @@ fn test_missing_chunks(
 
     let successful_txs = test_env.check_tx_outcomes(true);
     let new_accounts: Vec<_> =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 
     test_env.check_resharding_artifacts(0);
