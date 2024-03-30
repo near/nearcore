@@ -887,9 +887,39 @@ unsafe fn check_promise_result() {
 
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
+/// Sets the yield callback's output as the return value.
 #[cfg(feature = "nightly")]
 #[no_mangle]
-pub unsafe fn call_yield_create() {
+pub unsafe fn call_yield_create_return_promise() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    // Create a promise yield with callback `check_promise_result`,
+    // passing the expected payload as an argument to the function.
+    let method_name = "check_promise_result";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    let promise_index = promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        data_id_register,
+    );
+
+    promise_return(promise_index);
+}
+
+/// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
+/// Given input is passed as the argument to the `check_promise_result` function call.
+/// Returns the data id produced by promise_yield_create.
+#[cfg(feature = "nightly")]
+#[no_mangle]
+pub unsafe fn call_yield_create_return_data_id() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);

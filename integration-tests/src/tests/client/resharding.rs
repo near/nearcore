@@ -1477,6 +1477,90 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
 }
 
+fn setup_test_env_with_promise_yield_txs(test_env: &mut TestReshardingEnv, epoch_length: u64) {
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+
+    // Generates an account for each shard
+    let contract_accounts = gen_shard_accounts();
+
+    let mut init_txs = vec![];
+    let mut yield_txs = vec![];
+
+    for account_id in &contract_accounts {
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::nightly_rs_contract().to_vec(),
+        })];
+        let init_tx = SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            actions,
+            genesis_hash,
+        );
+        init_txs.push(init_tx);
+
+        let yield_payload = vec![6u8; 16];
+        let yield_tx = SignedTransaction::from_actions(
+            2,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            vec![Action::FunctionCall(Box::new(FunctionCallAction {
+                method_name: "call_yield_create_return_promise".to_string(),
+                args: serde_json::to_vec(&yield_payload).unwrap(),
+                gas: GAS_1,
+                deposit: 0,
+            }))],
+            genesis_hash,
+        );
+        yield_txs.push(yield_tx);
+    }
+
+    // Initialize contracts, then invoke promise yield before the epoch boundary
+    test_env.set_init_tx(init_txs);
+    test_env.set_tx_at_height(epoch_length - 3, yield_txs);
+}
+
+// Test promise yield timeout
+fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType, rng_seed: u64) {
+    init_test_logger();
+
+    // setup
+    let epoch_length = 10;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    // reuse test env for cross contract calls
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
+
+    setup_test_env_with_promise_yield_txs(&mut test_env, epoch_length);
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..5 * epoch_length {
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.check_receipt_id_to_shard_id();
+    }
+
+    let successful_txs = test_env.check_tx_outcomes(false);
+
+    test_env.check_resharding_artifacts(0);
+}
+
+// Test promise yield
+#[test]
+fn test_shard_layout_upgrade_promise_yield_v3_seed_44() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V3, 44);
+}
+
 fn test_shard_layout_upgrade_incoming_receipts_impl(
     resharding_type: ReshardingType,
     rng_seed: u64,
