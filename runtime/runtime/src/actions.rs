@@ -21,7 +21,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
@@ -486,12 +486,18 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
 pub(crate) fn action_nonrefundable_storage_transfer(
     account: &mut Account,
     deposit: Balance,
+    storage_amount_per_byte: Balance,
 ) -> Result<(), StorageError> {
-    account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
-        StorageError::StorageInconsistentState(
-            "non-refundable account balance integer overflow".to_string(),
-        )
-    })?);
+    let permanent_storage_bytes = (deposit / storage_amount_per_byte) as StorageUsage;
+    account.set_permanent_storage_bytes(
+        account.permanent_storage_bytes().checked_add(permanent_storage_bytes).ok_or_else(
+            || {
+                StorageError::StorageInconsistentState(
+                    "permanent_storage_bytes integer overflow".to_string(),
+                )
+            },
+        )?,
+    );
     Ok(())
 }
 
@@ -554,12 +560,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
-    nonrefundable: bool,
+    nonrefundable_storage_transfer: bool,
 ) {
     *actor_id = account_id.clone();
 
-    let (refundable_balance, nonrefundable_balance) =
-        if nonrefundable { (0, deposit) } else { (deposit, 0) };
+    let (amount, permanent_storage_bytes) = if nonrefundable_storage_transfer {
+        let permanent_storage_bytes =
+            (deposit / apply_state.config.storage_amount_per_byte()) as StorageUsage;
+        (0, permanent_storage_bytes)
+    } else {
+        (deposit, 0)
+    };
 
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
@@ -579,9 +590,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                refundable_balance,
+                amount,
                 0,
-                nonrefundable_balance,
+                permanent_storage_bytes,
                 CryptoHash::default(),
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
@@ -606,9 +617,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 *account = Some(Account::new(
-                    refundable_balance,
+                    amount,
                     0,
-                    nonrefundable_balance,
+                    permanent_storage_bytes,
                     *magic_bytes.hash(),
                     storage_usage,
                     current_protocol_version,
@@ -1106,7 +1117,7 @@ pub(crate) fn check_account_existence(
                 // purpose.
                 // For implicit accounts creation with non-refundable storage
                 // we require that this is the only action in the receipt.
-                return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
+                return Err(ActionErrorKind::NonRefundableTransferToExistingAccount {
                     account_id: account_id.clone(),
                 }
                 .into());

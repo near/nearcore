@@ -48,16 +48,16 @@ impl TryFrom<u8> for AccountVersion {
 )]
 #[derive(serde::Serialize, PartialEq, Eq, Debug, Clone)]
 pub struct Account {
-    /// The total not locked, refundable tokens.
+    /// The total not locked tokens.
     #[serde(with = "dec_format")]
     amount: Balance,
     /// The amount locked due to staking.
     #[serde(with = "dec_format")]
     locked: Balance,
-    /// Tokens that are not available to withdraw, stake, or refund, but can be used to cover storage usage.
+    /// Permanent storage allowance, additional to what storage staking gives.
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
     #[serde(with = "dec_format")]
-    nonrefundable: Balance,
+    permanent_storage_bytes: StorageUsage,
     /// Hash of the code stored in the storage for this account.
     code_hash: CryptoHash,
     /// Storage used by the given account, includes account id, this struct, access keys and other data.
@@ -81,7 +81,7 @@ impl Account {
     pub fn new(
         amount: Balance,
         locked: Balance,
-        nonrefundable: Balance,
+        permanent_storage_bytes: StorageUsage,
         code_hash: CryptoHash,
         storage_usage: StorageUsage,
         #[cfg_attr(not(feature = "protocol_feature_nonrefundable_transfer_nep491"), allow(unused))]
@@ -91,20 +91,20 @@ impl Account {
         let account_version = AccountVersion::V1;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let account_version = if checked_feature!("stable", NonRefundableBalance, protocol_version)
+        let account_version = if checked_feature!("stable", NonrefundableStorage, protocol_version)
         {
             AccountVersion::V2
         } else {
             AccountVersion::V1
         };
         if account_version == AccountVersion::V1 {
-            assert_eq!(nonrefundable, 0);
+            assert_eq!(permanent_storage_bytes, 0);
         }
         Account {
             amount,
             locked,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            nonrefundable,
+            permanent_storage_bytes,
             code_hash,
             storage_usage,
             version: account_version,
@@ -118,13 +118,13 @@ impl Account {
 
     #[inline]
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    pub fn nonrefundable(&self) -> Balance {
-        self.nonrefundable
+    pub fn permanent_storage_bytes(&self) -> StorageUsage {
+        self.permanent_storage_bytes
     }
 
     #[inline]
     #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
-    pub fn nonrefundable(&self) -> Balance {
+    pub fn permanent_storage_bytes(&self) -> StorageUsage {
         0
     }
 
@@ -155,8 +155,8 @@ impl Account {
 
     #[inline]
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    pub fn set_nonrefundable(&mut self, nonrefundable: Balance) {
-        self.nonrefundable = nonrefundable;
+    pub fn set_permanent_storage_bytes(&mut self, permanent_storage_bytes: StorageUsage) {
+        self.permanent_storage_bytes = permanent_storage_bytes;
     }
 
     #[inline]
@@ -197,7 +197,7 @@ struct AccountV2 {
     code_hash: CryptoHash,
     storage_usage: StorageUsage,
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    nonrefundable: Balance,
+    permanent_storage_bytes: StorageUsage,
 }
 
 /// We need custom serde deserialization in order to parse mainnet genesis accounts (LegacyAccounts)
@@ -216,7 +216,7 @@ impl<'de> serde::Deserialize<'de> for Account {
             locked: Balance,
             // If the field is missing, serde will use None as the default.
             #[serde(default, with = "dec_format")]
-            nonrefundable: Option<Balance>,
+            permanent_storage_bytes: Option<StorageUsage>,
             code_hash: CryptoHash,
             storage_usage: StorageUsage,
             #[serde(default)]
@@ -225,9 +225,9 @@ impl<'de> serde::Deserialize<'de> for Account {
 
         let account_data = AccountData::deserialize(deserializer)?;
 
-        match account_data.nonrefundable {
-            Some(nonrefundable) => {
-                // Given that the `nonrefundable` field has been serialized, the `version` field must has been serialized too.
+        match account_data.permanent_storage_bytes {
+            Some(permanent_storage_bytes) => {
+                // Given that the `permanent_storage_bytes` field has been serialized, the `version` field must has been serialized too.
                 let version = match account_data.version {
                     Some(version) => version,
                     None => {
@@ -236,9 +236,9 @@ impl<'de> serde::Deserialize<'de> for Account {
                 };
 
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                if version < AccountVersion::V2 && nonrefundable > 0 {
+                if version < AccountVersion::V2 && permanent_storage_bytes > 0 {
                     return Err(serde::de::Error::custom(
-                        "non-refundable positive amount exists for account version older than V2",
+                        "permanent storage bytes positive amount exists for account version older than V2",
                     ));
                 }
 
@@ -247,7 +247,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                     locked: account_data.locked,
                     code_hash: account_data.code_hash,
                     storage_usage: account_data.storage_usage,
-                    nonrefundable,
+                    permanent_storage_bytes,
                     version,
                 })
             }
@@ -256,7 +256,7 @@ impl<'de> serde::Deserialize<'de> for Account {
                 locked: account_data.locked,
                 code_hash: account_data.code_hash,
                 storage_usage: account_data.storage_usage,
-                nonrefundable: 0,
+                permanent_storage_bytes: 0,
                 version: AccountVersion::V1,
             }),
         }
@@ -300,7 +300,7 @@ impl BorshDeserialize for Account {
                 amount: account.amount,
                 locked: account.locked,
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                nonrefundable: account.nonrefundable,
+                permanent_storage_bytes: account.permanent_storage_bytes,
                 code_hash: account.code_hash,
                 storage_usage: account.storage_usage,
                 version,
@@ -318,7 +318,7 @@ impl BorshDeserialize for Account {
                 storage_usage,
                 version: AccountVersion::V1,
                 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-                nonrefundable: 0,
+                permanent_storage_bytes: 0,
             })
         }
     }
@@ -345,8 +345,8 @@ impl BorshSerialize for Account {
                 // while serializing. But that would break the borsh assumptions
                 // of unique binary representation.
                 AccountVersion::V1 => {
-                    if self.nonrefundable > 0 {
-                        panic!("Trying to serialize V1 account with nonrefundable amount");
+                    if self.permanent_storage_bytes > 0 {
+                        panic!("Trying to serialize V1 account with permanent_storage_bytes");
                     }
                     legacy_account.serialize(writer)
                 }
@@ -356,7 +356,7 @@ impl BorshSerialize for Account {
                         locked: self.locked(),
                         code_hash: self.code_hash(),
                         storage_usage: self.storage_usage(),
-                        nonrefundable: self.nonrefundable(),
+                        permanent_storage_bytes: self.permanent_storage_bytes(),
                     };
                     let sentinel = Account::SERIALIZATION_SENTINEL;
                     // For now a constant, but if we need V3 later we can use this
@@ -473,12 +473,12 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_v1_account_cannot_have_nonrefundable_amount() {
+    fn test_v1_account_cannot_have_permanent_storage_bytes() {
         #[cfg(not(feature = "protocol_feature_nonrefundable_transfer_nep491"))]
         let protocol_version = crate::version::PROTOCOL_VERSION;
 
         #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-        let protocol_version = ProtocolFeature::NonRefundableBalance.protocol_version() - 1;
+        let protocol_version = ProtocolFeature::NonrefundableStorage.protocol_version() - 1;
 
         Account::new(0, 0, 1, CryptoHash::default(), 0, protocol_version);
     }
@@ -498,7 +498,7 @@ mod tests {
         assert_eq!(new_account.locked(), old_account.locked);
         assert_eq!(new_account.code_hash(), old_account.code_hash);
         assert_eq!(new_account.storage_usage(), old_account.storage_usage);
-        assert_eq!(new_account.nonrefundable(), 0);
+        assert_eq!(new_account.permanent_storage_bytes(), 0);
         assert_eq!(new_account.version, AccountVersion::V1);
 
         let new_serialized_account = serde_json::to_string(&new_account).unwrap();
@@ -535,7 +535,7 @@ mod tests {
             amount: 10_000_000,
             locked: 100_000,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            nonrefundable: 0,
+            permanent_storage_bytes: 0,
             code_hash: CryptoHash::default(),
             storage_usage: 1000,
             version: AccountVersion::V1,
@@ -546,17 +546,17 @@ mod tests {
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    /// It is impossible to construct V1 account with nonrefundable amount greater than 0.
+    /// It is impossible to construct V1 account with permanent_storage_bytes greater than 0.
     /// So the situation in this test is theoretical.
     ///
-    /// Serialization of account V1 with non-refundable amount greater than 0 would pass without an error,
+    /// Serialization of account V1 with permanent_storage_bytes amount greater than 0 would pass without an error,
     /// but an error would be raised on deserialization of such invalid data.
     #[test]
     fn test_account_v1_serde_serialization_invalid_data() {
         let account = Account {
             amount: 10_000_000,
             locked: 100_000,
-            nonrefundable: 1,
+            permanent_storage_bytes: 1,
             code_hash: CryptoHash::default(),
             storage_usage: 1000,
             version: AccountVersion::V1,
@@ -573,7 +573,7 @@ mod tests {
             amount: 1_000_000,
             locked: 1_000_000,
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-            nonrefundable: 0,
+            permanent_storage_bytes: 0,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
             version: AccountVersion::V1,
@@ -604,17 +604,17 @@ mod tests {
     }
 
     #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
-    /// It is impossible to construct V1 account with nonrefundable amount greater than 0.
+    /// It is impossible to construct V1 account with permanent_storage_bytes greater than 0.
     /// So the situation in this test is theoretical.
     ///
-    /// If a V1 account had nonrefundable amount greater than zero, it would panic during Borsh serialization.
+    /// If a V1 account had permanent_storage_bytes greater than zero, it would panic during Borsh serialization.
     #[test]
-    #[should_panic(expected = "Trying to serialize V1 account with nonrefundable amount")]
+    #[should_panic(expected = "Trying to serialize V1 account with permanent_storage_bytes")]
     fn test_account_v1_borsh_serialization_invalid_data() {
         let account = Account {
             amount: 1_000_000,
             locked: 1_000_000,
-            nonrefundable: 1,
+            permanent_storage_bytes: 1,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
             version: AccountVersion::V1,
@@ -628,7 +628,7 @@ mod tests {
         let account = Account {
             amount: 10_000_000,
             locked: 100_000,
-            nonrefundable: 37,
+            permanent_storage_bytes: 37,
             code_hash: CryptoHash::default(),
             storage_usage: 1000,
             version: AccountVersion::V2,
@@ -644,14 +644,14 @@ mod tests {
         let account = Account {
             amount: 1_000_000,
             locked: 1_000_000,
-            nonrefundable: 42,
+            permanent_storage_bytes: 42,
             code_hash: CryptoHash::default(),
             storage_usage: 100,
             version: AccountVersion::V2,
         };
         let serialized_account = borsh::to_vec(&account).unwrap();
         if cfg!(feature = "protocol_feature_nonrefundable_transfer_nep491") {
-            expect_test::expect!("A3Ypkhkm6G5PYwHZw1eKYVunEzafLu8fbTAYLGts2AGy")
+            expect_test::expect!("G2Dn8ABMPqsoXuQCPR9yV19HgBi3ZJNqEMEntyLqveDR")
         } else {
             expect_test::expect!("EVk5UaxBe8LQ8r8iD5EAxVBs6TJcMDKqyH7PBuho6bBJ")
         }

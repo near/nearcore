@@ -434,6 +434,7 @@ impl Chain {
 
         let child_shard_uids = state_roots.keys().cloned().collect_vec();
         self.initialize_flat_storage(&prev_hash, &child_shard_uids)?;
+        // TODO(resharding) #10844 Load in-memory trie if needed.
 
         let mut chain_store_update = self.mut_chain_store().store_update();
         for (shard_uid, state_root) in state_roots {

@@ -43,7 +43,8 @@ use near_chain_configs::{ClientConfig, LogSummaryStyle, UpdateableClientConfig};
 use near_chunks::adapter::ShardsManagerRequestFromClient;
 use near_chunks::client::ShardedTransactionPool;
 use near_chunks::logic::{
-    cares_about_shard_this_or_next_epoch, decode_encoded_chunk, persist_chunk,
+    cares_about_shard_this_or_next_epoch, decode_encoded_chunk,
+    get_shards_cares_about_this_or_next_epoch, persist_chunk,
 };
 use near_chunks::ShardsManager;
 use near_client_primitives::debug::ChunkProduction;
@@ -275,6 +276,7 @@ impl Client {
             chain_config.clone(),
             snapshot_callbacks,
             async_computation_spawner.clone(),
+            validator_signer.as_ref().map(|x| x.validator_id()),
         )?;
         // Create flat storage or initiate migration to flat storage.
         let flat_storage_creator = FlatStorageCreator::new(
@@ -2333,13 +2335,15 @@ impl Client {
         let _span = debug_span!(target: "sync", "run_catchup").entered();
         let mut notify_state_sync = false;
         let me = &self.validator_signer.as_ref().map(|x| x.validator_id().clone());
+
         for (sync_hash, state_sync_info) in self.chain.chain_store().iterate_state_sync_infos()? {
             assert_eq!(sync_hash, state_sync_info.epoch_tail_hash);
             let network_adapter = self.network_adapter.clone();
 
             let shards_to_split = self.get_shards_to_split(sync_hash, &state_sync_info, me)?;
             let state_sync_timeout = self.config.state_sync_timeout;
-            let epoch_id = self.chain.get_block(&sync_hash)?.header().epoch_id().clone();
+            let block_header = self.chain.get_block(&sync_hash)?.header().clone();
+            let epoch_id = block_header.epoch_id();
 
             let (state_sync, shards_to_split, blocks_catch_up_state) =
                 self.catchup_state_syncs.entry(sync_hash).or_insert_with(|| {
@@ -2371,6 +2375,21 @@ impl Client {
                     .epoch_manager
                     .get_shard_layout(&epoch_id)
                     .expect("Cannot get shard layout");
+
+                // Make sure mem-tries for shards we do not care about are unloaded before we start a new state sync.
+                let shards_cares_this_or_next_epoch = get_shards_cares_about_this_or_next_epoch(
+                    me.as_ref(),
+                    true,
+                    &block_header,
+                    &self.shard_tracker,
+                    self.epoch_manager.as_ref(),
+                );
+                let shard_uids: Vec<_> = shards_cares_this_or_next_epoch
+                    .iter()
+                    .map(|id| self.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap())
+                    .collect();
+                self.runtime_adapter.retain_mem_tries(&shard_uids);
+
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);
                     match self.state_sync_adapter.clone().read() {

@@ -41,6 +41,13 @@ pub(crate) type VMResult<T = VMOutcome> = Result<T, VMRunnerError>;
 ///
 /// The gas cost for contract preparation will be subtracted by the VM
 /// implementation.
+#[tracing::instrument(target = "vm", level = "debug", "run", skip_all, fields(
+    code.hash = %account.code_hash(),
+    method_name,
+    vm_kind = ?wasm_config.vm_kind,
+    burnt_gas = tracing::field::Empty,
+    compute_usage = tracing::field::Empty,
+))]
 pub fn run(
     account: &Account,
     code: Option<&ContractCode>,
@@ -52,17 +59,8 @@ pub fn run(
     promise_results: &[PromiseResult],
     cache: Option<&dyn ContractRuntimeCache>,
 ) -> VMResult {
+    let span = tracing::Span::current();
     let vm_kind = wasm_config.vm_kind;
-    let span = tracing::debug_span!(
-        target: "vm",
-        "run",
-        "code.hash" = %account.code_hash(),
-        %method_name,
-        ?vm_kind,
-        burnt_gas = tracing::field::Empty,
-    )
-    .entered();
-
     let runtime = vm_kind
         .runtime(wasm_config.clone())
         .unwrap_or_else(|| panic!("the {vm_kind:?} runtime has not been enabled at compile time"));
@@ -78,7 +76,8 @@ pub fn run(
         cache,
     )?;
 
-    span.record("burnt_gas", &outcome.burnt_gas);
+    span.record("burnt_gas", outcome.burnt_gas);
+    span.record("compute_usage", outcome.compute_usage);
     Ok(outcome)
 }
 
