@@ -49,7 +49,7 @@ fn create_then_resume() {
         .function_call(
             "alice.near".parse().unwrap(),
             "test_contract".parse().unwrap(),
-            "call_yield_create_return_data_id",
+            "call_yield_create",
             yield_payload.clone(),
             MAX_GAS,
             0,
