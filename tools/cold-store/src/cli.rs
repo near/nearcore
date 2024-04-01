@@ -661,8 +661,9 @@ struct MakeColdGarbageCmd {}
 
 impl MakeColdGarbageCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
-        let cold_store =
-            storage.get_cold_store().ok_or(anyhow::anyhow!("Cold storage is not configured"))?;
+        let cold_store = storage
+            .get_cold_store()
+            .ok_or_else(|| anyhow::anyhow!("Cold storage is not configured"))?;
 
         let mut store_update = cold_store.store_update();
         store_update.delete(DBCol::BlockMisc, HEAD_KEY);
