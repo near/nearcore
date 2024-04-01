@@ -75,6 +75,7 @@ pub fn get_chain_with_epoch_length_and_num_shards(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap()
 }
@@ -164,6 +165,7 @@ pub fn setup_with_tx_validity_period(
         ChainConfig::test(),
         None,
         Arc::new(RayonAsyncComputationSpawner),
+        None,
     )
     .unwrap();
 

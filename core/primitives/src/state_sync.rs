@@ -267,6 +267,8 @@ pub enum StateSyncDumpProgress {
         epoch_id: EpochId,
         epoch_height: EpochHeight,
     },
+    /// * An epoch dump is skipped in the epoch where shard layout changes
+    Skipped { epoch_id: EpochId, epoch_height: EpochHeight },
     /// Represents the case of an epoch being partially dumped.
     InProgress {
         /// The dumped state corresponds to the state at the beginning of the specified epoch.

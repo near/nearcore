@@ -3381,8 +3381,9 @@ mod contract_precompilation_tests {
     use near_primitives::test_utils::MockEpochInfoProvider;
     use near_primitives::views::ViewApplyState;
     use near_store::TrieUpdate;
-    use near_vm_runner::CompiledContractCache;
-    use near_vm_runner::{get_contract_cache_key, ContractCode, FilesystemCompiledContractCache};
+    use near_vm_runner::{
+        get_contract_cache_key, ContractCode, ContractRuntimeCache, FilesystemContractRuntimeCache,
+    };
     use node_runtime::state_viewer::TrieViewer;
 
     const EPOCH_LENGTH: u64 = 25;
@@ -3416,8 +3417,8 @@ mod contract_precompilation_tests {
         let mut genesis =
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let mut caches: Vec<FilesystemCompiledContractCache> =
-            (0..num_clients).map(|_| FilesystemCompiledContractCache::test().unwrap()).collect();
+        let mut caches: Vec<FilesystemContractRuntimeCache> =
+            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
@@ -3451,7 +3452,7 @@ mod contract_precompilation_tests {
             .epoch_id()
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
-        let key = get_contract_cache_key(&contract_code, &runtime_config.wasm_config);
+        let key = get_contract_cache_key(*contract_code.hash(), &runtime_config.wasm_config);
         for i in 0..num_clients {
             caches[i]
                 .get(&key)
@@ -3509,8 +3510,8 @@ mod contract_precompilation_tests {
             Genesis::test(vec!["test0".parse().unwrap(), "test1".parse().unwrap()], 1);
         genesis.config.epoch_length = EPOCH_LENGTH;
 
-        let caches: Vec<FilesystemCompiledContractCache> =
-            (0..num_clients).map(|_| FilesystemCompiledContractCache::test().unwrap()).collect();
+        let caches: Vec<FilesystemContractRuntimeCache> =
+            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
@@ -3556,11 +3557,11 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let tiny_contract_key = get_contract_cache_key(
-            &ContractCode::new(tiny_wasm_code.clone(), None),
+            *ContractCode::new(tiny_wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
         let test_contract_key = get_contract_cache_key(
-            &ContractCode::new(wasm_code.clone(), None),
+            *ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 
@@ -3583,8 +3584,8 @@ mod contract_precompilation_tests {
             1,
         );
         genesis.config.epoch_length = EPOCH_LENGTH;
-        let caches: Vec<FilesystemCompiledContractCache> =
-            (0..num_clients).map(|_| FilesystemCompiledContractCache::test().unwrap()).collect();
+        let caches: Vec<FilesystemContractRuntimeCache> =
+            (0..num_clients).map(|_| FilesystemContractRuntimeCache::test().unwrap()).collect();
         let mut env = TestEnv::builder(&genesis.config)
             .clients_count(num_clients)
             .use_state_snapshots()
@@ -3634,7 +3635,7 @@ mod contract_precompilation_tests {
             .clone();
         let runtime_config = env.get_runtime_config(0, epoch_id);
         let contract_key = get_contract_cache_key(
-            &ContractCode::new(wasm_code.clone(), None),
+            *ContractCode::new(wasm_code.clone(), None).hash(),
             &runtime_config.wasm_config,
         );
 

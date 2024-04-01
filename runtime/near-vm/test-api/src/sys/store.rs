@@ -84,7 +84,7 @@ impl Default for Store {
         fn get_engine(mut config: impl CompilerConfig + 'static) -> UniversalEngine {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "default-universal")] {
-                    let pool = near_vm_engine::universal::LimitedMemoryPool::new(1, 0x10000).unwrap();
+                    let pool = near_vm_engine::universal::MemoryPool::new(1, 0x10000).unwrap();
                     near_vm_engine::universal::Universal::new(config)
                         .code_memory_pool(pool)
                         .engine()

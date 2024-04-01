@@ -563,7 +563,7 @@ pub struct ApplyStatePartResult {
 }
 
 enum NodeOrValue {
-    Node(Box<RawTrieNodeWithSize>),
+    Node,
     Value(std::sync::Arc<[u8]>),
 }
 
@@ -666,6 +666,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
 
@@ -812,7 +813,7 @@ impl Trie {
         to: &Option<&AccountId>,
     ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
-            Ok(NodeOrValue::Node(_)) => {
+            Ok(NodeOrValue::Node) => {
                 let mut prefix: Vec<u8> = Vec::new();
                 let mut limit = limit.unwrap_or(u32::MAX);
                 self.print_recursive_internal(
@@ -1115,7 +1116,7 @@ impl Trie {
     ) -> Result<NodeOrValue, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
-            Ok(node) => Ok(NodeOrValue::Node(Box::new(node))),
+            Ok(_) => Ok(NodeOrValue::Node),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
         }
     }
@@ -1498,7 +1499,44 @@ impl Trie {
                         None => trie_update.delete(&key),
                     }
                 }
-                Ok(trie_update.to_trie_changes())
+                let (trie_changes, trie_accesses) = trie_update.to_trie_changes();
+
+                // Sanity check for tests: all modified trie items must be
+                // present in ever accessed trie items.
+                #[cfg(test)]
+                {
+                    for t in trie_changes.deletions.iter() {
+                        let hash = t.trie_node_or_value_hash;
+                        assert!(
+                            trie_accesses.values.contains_key(&hash)
+                                || trie_accesses.nodes.contains_key(&hash),
+                            "Hash {} is not present in trie accesses",
+                            hash
+                        );
+                    }
+                }
+
+                // Retroactively record all accessed trie items which are
+                // required to process trie update but were not recorded at
+                // processing lookups.
+                // The main case is a branch with two children, one of which
+                // got removed, so we need to read another one and squash it
+                // together with parent.
+                if let Some(recorder) = &self.recorder {
+                    for (node_hash, serialized_node) in trie_accesses.nodes {
+                        recorder.borrow_mut().record(&node_hash, serialized_node);
+                    }
+                    for (value_hash, value) in trie_accesses.values {
+                        let value = match value {
+                            FlatStateValue::Ref(_) => {
+                                self.storage.retrieve_raw_bytes(&value_hash)?
+                            }
+                            FlatStateValue::Inlined(value) => value.into(),
+                        };
+                        recorder.borrow_mut().record(&value_hash, value);
+                    }
+                }
+                Ok(trie_changes)
             }
             None => {
                 let mut memory = NodesStorage::new();

@@ -33,7 +33,8 @@ pub struct TrieConfig {
     pub sweat_prefetch_senders: Vec<AccountId>,
     /// List of shards we will load into memory.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
-    pub load_mem_tries_for_all_shards: bool,
+    /// Whether mem-trie should be loaded for each tracked shard.
+    pub load_mem_tries_for_tracked_shards: bool,
 }
 
 impl TrieConfig {
@@ -58,7 +59,7 @@ impl TrieConfig {
             }
         }
         this.load_mem_tries_for_shards = config.load_mem_tries_for_shards.clone();
-        this.load_mem_tries_for_all_shards = config.load_mem_tries_for_all_shards;
+        this.load_mem_tries_for_tracked_shards = config.load_mem_tries_for_tracked_shards;
 
         this
     }

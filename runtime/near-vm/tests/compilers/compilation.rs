@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use near_vm_compiler::CompileError;
-use near_vm_engine::universal::{LimitedMemoryPool, Universal};
+use near_vm_engine::universal::{MemoryPool, Universal};
 use near_vm_test_api::*;
 use near_vm_vm::Artifact;
 
@@ -75,7 +75,7 @@ fn profiling() {
     "#;
     let wasm = wat2wasm(wat.as_bytes()).unwrap();
     let compiler = Singlepass::default();
-    let pool = LimitedMemoryPool::new(1, 0x10000).unwrap();
+    let pool = MemoryPool::new(1, 0x10000).unwrap();
     let engine = Arc::new(Universal::new(compiler).code_memory_pool(pool).engine());
     let store = Store::new(Arc::clone(&engine));
     match compile_uncached(&store, &engine, &wasm, false) {

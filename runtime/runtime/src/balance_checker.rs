@@ -78,11 +78,11 @@ fn total_accounts_balance(
     accounts_ids: &HashSet<AccountId>,
 ) -> Result<Balance, RuntimeError> {
     accounts_ids.iter().try_fold(0u128, |accumulator, account_id| {
-        let (amount, locked, nonrefundable) = match get_account(state, account_id)? {
+        let (amount, locked) = match get_account(state, account_id)? {
             None => return Ok(accumulator),
-            Some(account) => (account.amount(), account.locked(), account.nonrefundable()),
+            Some(account) => (account.amount(), account.locked()),
         };
-        Ok(safe_add_balance_apply!(accumulator, amount, locked, nonrefundable))
+        Ok(safe_add_balance_apply!(accumulator, amount, locked))
     })
 }
 
@@ -120,6 +120,12 @@ fn total_postponed_receipts_cost(
     })
 }
 
+#[tracing::instrument(target = "runtime", level = "debug", "check_balance", skip_all, fields(
+    transactions.len = transactions.len(),
+    incoming_receipts.len = incoming_receipts.len(),
+    yield_timeout_receipts.len = yield_timeout_receipts.len(),
+    outgoing_receipts.len = outgoing_receipts.len()
+))]
 pub(crate) fn check_balance(
     config: &RuntimeConfig,
     final_state: &TrieUpdate,

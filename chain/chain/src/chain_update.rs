@@ -145,10 +145,11 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         block: &Block,
         apply_results: Vec<ShardUpdateResult>,
+        should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
         let _span = tracing::debug_span!(target: "chain", "apply_chunk_postprocessing").entered();
         for result in apply_results {
-            self.process_apply_chunk_result(block, result)?;
+            self.process_apply_chunk_result(block, result, should_save_state_transition_data)?;
         }
         Ok(())
     }
@@ -299,6 +300,7 @@ impl<'a> ChainUpdate<'a> {
         &mut self,
         block: &Block,
         result: ShardUpdateResult,
+        should_save_state_transition_data: bool,
     ) -> Result<(), Error> {
         let block_hash = block.hash();
         let prev_hash = block.header().prev_hash();
@@ -351,12 +353,14 @@ impl<'a> ChainUpdate<'a> {
                     apply_result.outcomes,
                     outcome_paths,
                 );
-                self.chain_store_update.save_state_transition_data(
-                    *block_hash,
-                    shard_id,
-                    apply_result.proof,
-                    apply_result.applied_receipts_hash,
-                );
+                if should_save_state_transition_data {
+                    self.chain_store_update.save_state_transition_data(
+                        *block_hash,
+                        shard_id,
+                        apply_result.proof,
+                        apply_result.applied_receipts_hash,
+                    );
+                }
                 if let Some(resharding_results) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_results)?;
                 }
@@ -383,12 +387,14 @@ impl<'a> ChainUpdate<'a> {
 
                 self.chain_store_update.save_chunk_extra(block_hash, &shard_uid, new_extra);
                 self.chain_store_update.save_trie_changes(apply_result.trie_changes);
-                self.chain_store_update.save_state_transition_data(
-                    *block_hash,
-                    shard_uid.shard_id(),
-                    apply_result.proof,
-                    apply_result.applied_receipts_hash,
-                );
+                if should_save_state_transition_data {
+                    self.chain_store_update.save_state_transition_data(
+                        *block_hash,
+                        shard_uid.shard_id(),
+                        apply_result.proof,
+                        apply_result.applied_receipts_hash,
+                    );
+                }
 
                 if let Some(resharding_config) = resharding_results {
                     self.process_resharding_results(block, &shard_uid, resharding_config)?;
@@ -413,6 +419,7 @@ impl<'a> ChainUpdate<'a> {
         block: &Block,
         block_preprocess_info: BlockPreprocessInfo,
         apply_chunks_results: Vec<(ShardId, Result<ShardUpdateResult, Error>)>,
+        should_save_state_transition_data: bool,
     ) -> Result<Option<Tip>, Error> {
         let shard_ids = self.epoch_manager.shard_ids(block.header().epoch_id())?;
         let prev_hash = block.header().prev_hash();
@@ -422,7 +429,7 @@ impl<'a> ChainUpdate<'a> {
             }
             x
         }).collect::<Result<Vec<_>, Error>>()?;
-        self.apply_chunk_postprocessing(block, results)?;
+        self.apply_chunk_postprocessing(block, results, should_save_state_transition_data)?;
 
         let BlockPreprocessInfo {
             is_caught_up,

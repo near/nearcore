@@ -10,7 +10,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner, StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, ChunkStateWitnessInner,
+    StoredChunkStateTransitionData,
 };
 use near_primitives::types::EpochId;
 use std::collections::HashMap;
@@ -45,7 +46,7 @@ impl Client {
             .ordered_chunk_validators();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let witness = {
+        let (witness, witness_size) = {
             let witness_inner = self.create_state_witness_inner(
                 prev_block_header,
                 prev_chunk_header,
@@ -56,7 +57,7 @@ impl Client {
             metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
                 .with_label_values(&[&chunk_header.shard_id().to_string()])
                 .observe(witness_size as f64);
-            ChunkStateWitness { inner: witness_inner, signature }
+            (ChunkStateWitness { inner: witness_inner, signature }, witness_size)
         };
 
         if chunk_validators.contains(my_signer.validator_id()) {
@@ -78,10 +79,28 @@ impl Client {
             chunk.chunk_hash(),
             chunk_validators,
         );
+
+        // Record the witness in order to match the incoming acks for measuring round-trip times.
+        // See process_chunk_state_witness_ack for the handling of the ack messages.
+        self.state_witness_tracker.record_witness_sent(
+            &witness,
+            witness_size,
+            chunk_validators.len(),
+        );
+
         self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::ChunkStateWitness(chunk_validators, witness),
         ));
         Ok(())
+    }
+
+    /// Handles the state witness ack message from the chunk validator.
+    /// It computes the round-trip time between sending the state witness and receiving
+    /// the ack message and updates the corresponding metric with it.
+    /// Currently we do not raise an error for handling of witness-ack messages,
+    /// as it is used only for tracking some networking metrics.
+    pub fn process_chunk_state_witness_ack(&mut self, witness_ack: ChunkStateWitnessAck) -> () {
+        self.state_witness_tracker.on_witness_ack_received(witness_ack);
     }
 
     pub(crate) fn create_state_witness_inner(
