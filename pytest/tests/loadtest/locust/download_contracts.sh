@@ -1,8 +1,18 @@
 #!/bin/bash
 #
-# Downloads the WASM contracts necessary for all workloads and stores them in "res" folder.
+# Retrieves the WASM contracts from respective URLs or directories from necessary for all Locust workloads
+# and stores them in the "res" folder.
 
-wget https://raw.githubusercontent.com/NearSocial/social-db/master/res/social_db_release.wasm -O res/social_db.wasm
-wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat.wasm -O res/sweat.wasm
-cp ../../../../runtime/near-test-contracts/res/fungible_token.wasm res/fungible_token.wasm
-cp ../../../../runtime/near-test-contracts/res/backwards_compatible_rs_contract.wasm res/congestion.wasm
+SCRIPT_DIR="${0%/*}"
+
+# Directory to place the wasm files in.
+TARGET_CONTRACTS_DIR="${SCRIPT_DIR}/res"
+
+# Directory where some of the contracts are located.
+# TODO: Consider storing the contracts in a single place.
+SOURCE_CONTRACTS_DIR="${SCRIPT_DIR}/../../../../runtime/near-test-contracts/res"
+
+wget https://raw.githubusercontent.com/NearSocial/social-db/master/res/social_db_release.wasm -O ${TARGET_CONTRACTS_DIR}/social_db.wasm
+wget https://raw.githubusercontent.com/sweatco/sweat-near/main/res/sweat.wasm -O ${TARGET_CONTRACTS_DIR}/sweat.wasm
+cp ${SOURCE_CONTRACTS_DIR}/fungible_token.wasm ${TARGET_CONTRACTS_DIR}/fungible_token.wasm
+cp ${SOURCE_CONTRACTS_DIR}/backwards_compatible_rs_contract.wasm ${TARGET_CONTRACTS_DIR}/congestion.wasm
