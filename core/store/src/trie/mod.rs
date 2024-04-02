@@ -721,6 +721,13 @@ impl Trie {
     /// count_cost can be false to skip caching. This is used when we're
     /// generating a state proof, but the value is supposed to fetched from
     /// flat storage.
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie",
+        "Trie::internal_retrieve_raw_node",
+        skip_all,
+        fields(hash=%hash),
+    )]
     fn internal_retrieve_trie_node(
         &self,
         hash: &CryptoHash,
@@ -1091,13 +1098,6 @@ impl Trie {
         Ok(())
     }
 
-    #[tracing::instrument(
-        level = "trace",
-        target = "store::trie",
-        "Trie::retrieve_raw_node",
-        skip_all,
-        fields(hash=%hash),
-    )]
     fn retrieve_raw_node(
         &self,
         hash: &CryptoHash,
