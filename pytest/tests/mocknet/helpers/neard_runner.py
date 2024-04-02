@@ -272,6 +272,10 @@ class NeardRunner:
         config['network']['skip_sync_wait'] = False
         config['genesis_records_file'] = 'records.json'
         config['rpc']['enable_debug_rpc'] = True
+        config['consensus']['min_block_production_delay']['secs'] = 1
+        config['consensus']['min_block_production_delay']['nanos'] = 300000000
+        config['consensus']['max_block_production_delay']['secs'] = 3
+        config['consensus']['max_block_production_delay']['nanos'] = 0
         if self.is_traffic_generator():
             config['archive'] = True
         with open(self.tmp_near_home_path('config.json'), 'w') as f:
