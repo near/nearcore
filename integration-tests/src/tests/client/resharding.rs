@@ -1488,6 +1488,30 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
 }
 
+fn generate_yield_create_tx(
+    account_id: &AccountId,
+    callback_method_name: String,
+    nonce: u64,
+    block_hash: &CryptoHash,
+) -> SignedTransaction {
+    let signer =
+        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+
+    SignedTransaction::from_actions(
+        nonce,
+        account_id.clone(),
+        account_id.clone(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: callback_method_name,
+            args: vec![],
+            gas: GAS_1,
+            deposit: 0,
+        }))],
+        *block_hash,
+    )
+}
+
 fn setup_test_env_with_promise_yield_txs(
     test_env: &mut TestReshardingEnv,
     epoch_length: u64,
@@ -1537,32 +1561,21 @@ fn setup_test_env_with_promise_yield_txs(
         3 * epoch_length - 1,
         3 * epoch_length,
     ] {
-        let txs = contract_accounts
-            .iter()
-            .map(|account_id| {
-                let signer = InMemorySigner::from_seed(
-                    account_id.clone(),
-                    KeyType::ED25519,
-                    account_id.as_ref(),
-                );
-                nonce += 1;
-                let tx = SignedTransaction::from_actions(
-                    nonce,
-                    account_id.clone(),
-                    account_id.clone(),
-                    &signer,
-                    vec![Action::FunctionCall(Box::new(FunctionCallAction {
-                        method_name: "call_yield_create_return_promise".to_string(),
-                        args: vec![],
-                        gas: GAS_1,
-                        deposit: 0,
-                    }))],
-                    genesis_hash,
-                );
-                yield_tx_hashes.push(tx.get_hash());
-                tx
-            })
-            .collect();
+        let mut txs = vec![];
+        for account_id in &contract_accounts {
+            let tx = generate_yield_create_tx(
+                account_id,
+                "call_yield_create_return_promise".to_string(),
+                nonce,
+                &genesis_hash,
+            );
+
+            nonce += 1;
+
+            yield_tx_hashes.push(tx.get_hash());
+            txs.push(tx);
+        }
+
         test_env.set_tx_at_height(height, txs);
     }
 

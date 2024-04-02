@@ -395,7 +395,7 @@ fn apply_promise_yield_timeouts_to_children_states_impl(
 
         let stored_timeout = get::<PromiseYieldTimeout>(trie_update, &trie_key)?
             .expect("removed PromiseYield timeout does not exist in new state");
-        // check that the receipt to remove is at the first of delayed receipt queue
+        // check that the timeout to remove is at the front of the timeout queue
         assert_eq!(&stored_timeout, timeout);
         trie_update.remove(trie_key);
         promise_yield_indices.first_index += 1;
@@ -416,8 +416,12 @@ fn apply_promise_yield_timeouts_to_children_states_impl(
     Ok(())
 }
 
-/// Retrieve delayed receipts starting with `start_index` until `memory_limit` is hit
-/// return None if there is no delayed receipts with index >= start_index
+/// Retrieve delayed receipts starting with `start_index` until `memory_limit` is hit.
+///
+/// Returns an updated start_index (the first index which was not read in this batch)
+/// and a vec of delayed receipts which were read.
+///
+/// Returns None if there are no delayed receipts with index >= start_index.
 pub fn get_delayed_receipts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,
@@ -454,8 +458,12 @@ pub fn get_delayed_receipts(
     Ok(Some((delayed_receipt_indices.first_index, receipts)))
 }
 
-/// Retrieve PromiseYield timeouts starting with `start_index` until `memory_limit` is hit
-/// return None if there is no delayed receipts with index >= start_index
+/// Retrieve PromiseYield timeouts starting with `start_index` until `memory_limit` is hit.
+///
+/// Returns an updated start_index (the first index which was not read in this batch)
+/// and a vec of timeouts which were read.
+///
+/// Returns None if there are no timeouts with index >= start_index.
 pub fn get_promise_yield_timeouts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,
