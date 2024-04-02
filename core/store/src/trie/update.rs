@@ -142,13 +142,19 @@ impl TrieUpdate {
         target = "store::trie",
         "TrieUpdate::finalize",
         skip_all,
-        fields(committed.len = self.committed.len())
+        fields(
+            committed.len = self.committed.len(),
+            mem_reads = tracing::field::Empty,
+            db_reads = tracing::field::Empty
+        )
     )]
     pub fn finalize(
         self,
     ) -> Result<(Trie, TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
         assert!(self.prospective.is_empty(), "Finalize cannot be called with uncommitted changes.");
+        let span = tracing::Span::current();
         let TrieUpdate { trie, committed, .. } = self;
+        let start_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
         let mut state_changes = Vec::with_capacity(committed.len());
         let trie_changes =
             trie.update(committed.into_iter().map(|(k, changes_with_trie_key)| {
@@ -161,6 +167,11 @@ impl TrieUpdate {
                 state_changes.push(changes_with_trie_key);
                 (k, data)
             }))?;
+        let end_counts = trie.accounting_cache.borrow().get_trie_nodes_count();
+        if let Some(iops_delta) = end_counts.checked_sub(&start_counts) {
+            span.record("mem_reads", iops_delta.mem_reads);
+            span.record("db_reads", iops_delta.db_reads);
+        }
         Ok((trie, trie_changes, state_changes))
     }
 
