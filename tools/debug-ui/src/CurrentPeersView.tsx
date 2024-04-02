@@ -1,5 +1,5 @@
 import { MouseEvent, useCallback, useMemo, useState } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { PeerInfoView, fetchEpochInfo, fetchFullStatus } from './api';
 import { addDebugPortLink, formatDurationInMillis, formatTraffic } from './utils';
 import './CurrentPeersView.scss';

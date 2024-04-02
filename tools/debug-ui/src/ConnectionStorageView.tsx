@@ -1,4 +1,4 @@
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { toHumanTime } from './utils';
 import { fetchRecentOutboundConnections } from './api';
 import './ConnectionStorageView.scss';

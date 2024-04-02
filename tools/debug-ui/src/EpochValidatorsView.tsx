@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Tooltip } from 'react-tooltip';
 import { ValidatorKickoutReason, fetchEpochInfo } from './api';
 import './EpochValidatorsView.scss';

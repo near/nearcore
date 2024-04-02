@@ -1,4 +1,4 @@
-import { useQuery } from 'react-query';
+import { useQuery } from '@tanstack/react-query';
 import { fetchEpochInfo } from './api';
 import './EpochShardsView.scss';
 
