@@ -21,6 +21,7 @@ use near_async::time::{Duration, Instant};
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest, BlockCatchUpResponse,
+    LoadMemtrieRequest,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::test_utils::format_hash;
@@ -89,6 +90,7 @@ pub struct ClientSenderForClient {
 #[multi_send_message_derive(Debug)]
 pub struct SyncJobsSenderForClient {
     pub apply_state_parts: Sender<ApplyStatePartsRequest>,
+    pub load_memtrie: Sender<LoadMemtrieRequest>,
     pub block_catch_up: Sender<BlockCatchUpRequest>,
     pub resharding: Sender<ReshardingRequest>,
 }
@@ -1393,6 +1395,7 @@ impl ClientActions {
             if let Err(err) = self.client.run_catchup(
                 &self.network_info.highest_height_peers,
                 &self.sync_jobs_sender.apply_state_parts,
+                &self.sync_jobs_sender.state_finalize,
                 &self.sync_jobs_sender.block_catch_up,
                 &self.sync_jobs_sender.resharding,
                 self.get_apply_chunks_done_callback(),
@@ -1619,6 +1622,7 @@ impl ClientActions {
                         &self.network_info.highest_height_peers,
                         shards_to_sync,
                         &self.sync_jobs_sender.apply_state_parts,
+                        &self.sync_jobs_sender.state_finalize,
                         &self.sync_jobs_sender.resharding,
                         self.state_parts_future_spawner.as_ref(),
                         use_colour,

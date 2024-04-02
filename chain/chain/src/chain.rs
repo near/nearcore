@@ -2735,6 +2735,67 @@ impl Chain {
         Ok(())
     }
 
+    pub fn schedule_state_finalize(
+        &self,
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        state_finalize_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
+    ) -> Result<(), Error> {
+        let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
+        let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+
+        let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
+        let state_root = shard_state_header.chunk_prev_state_root();
+        let chunk = shard_state_header.cloned_chunk();
+
+        let block_hash = chunk.prev_block();
+
+        // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
+        // flat storage. Now we can set flat head to hash of this block and create flat storage.
+        // If block_hash is equal to default - this means that we're all the way back at genesis.
+        // So we don't have to add the storage state for shard in such case.
+        // TODO(8438) - add additional test scenarios for this case.
+        if *block_hash != CryptoHash::default() {
+            let block_header = self.get_block_header(block_hash)?;
+            let epoch_id = block_header.epoch_id();
+            let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
+
+            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+            // Flat storage must not exist at this point because leftover keys corrupt its state.
+            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+
+            let flat_head_hash = *chunk.prev_block();
+            let flat_head_header = self.get_block_header(&flat_head_hash)?;
+            let flat_head_prev_hash = *flat_head_header.prev_hash();
+            let flat_head_height = flat_head_header.height();
+
+            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
+            let mut store_update = self.runtime_adapter.store().store_update();
+            store_helper::set_flat_storage_status(
+                &mut store_update,
+                shard_uid,
+                FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                    flat_head: near_store::flat::BlockInfo {
+                        hash: flat_head_hash,
+                        prev_hash: flat_head_prev_hash,
+                        height: flat_head_height,
+                    },
+                }),
+            );
+            store_update.commit()?;
+            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+        }
+
+        state_finalize_scheduler.send(LoadMemtrieRequest {
+            runtime_adapter: self.runtime_adapter.clone(),
+            shard_uid,
+            prev_state_root: chunk.prev_state_root(),
+        });
+
+        Ok(())
+    }
+
     pub fn set_state_finalize(
         &mut self,
         shard_id: ShardId,
@@ -4526,6 +4587,34 @@ impl Debug for ApplyStatePartsRequest {
 #[rtype(result = "()")]
 pub struct ApplyStatePartsResponse {
     pub apply_result: Result<(), near_chain_primitives::error::Error>,
+    pub shard_id: ShardId,
+    pub sync_hash: CryptoHash,
+}
+
+#[derive(actix::Message)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieRequest {
+    pub runtime_adapter: Arc<dyn RuntimeAdapter>,
+    pub shard_uid: ShardUId,
+    pub prev_state_root: StateRoot,
+}
+
+// Skip `runtime_adapter` and `epoch_manager`, because these are complex object that have complex logic
+// and many fields.
+impl Debug for LoadMemtrieRequest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadMemtrieRequest")
+            .field("runtime_adapter", &"<not shown>")
+            .field("shard_uid", &self.shard_uid)
+            .field("prev_state_root", &self.prev_state_root)
+            .finish()
+    }
+}
+
+#[derive(actix::Message, Debug)]
+#[rtype(result = "()")]
+pub struct LoadMemtrieResponse {
+    pub load_result: Result<(), near_chain_primitives::error::Error>,
     pub shard_id: ShardId,
     pub sync_hash: CryptoHash,
 }

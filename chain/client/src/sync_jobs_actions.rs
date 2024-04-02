@@ -4,13 +4,15 @@ use near_async::time::Duration;
 use near_async::{MultiSend, MultiSendMessage, MultiSenderFrom};
 use near_chain::chain::{
     do_apply_chunks, ApplyStatePartsRequest, ApplyStatePartsResponse, BlockCatchUpRequest,
-    BlockCatchUpResponse,
+    BlockCatchUpResponse, LoadMemtrieRequest, LoadMemtrieResponse,
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::Chain;
+use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
+use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::DBCol;
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -78,6 +80,15 @@ impl SyncJobsActions {
             .remove_flat_storage_for_shard(msg.shard_uid, &mut store_update)?;
         store_update.commit()?;
         Ok(success)
+    }
+
+    pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
+        let result = msg.runtime_adapter.load_mem_trie_on_catchup(&msg.shard_uid, &msg.prev_state_root);
+        self.client_sender.send(LoadMemtrieResponse {
+            load_result: result,
+            shard_id: msg.shard_uid.shard_id(),
+            sync_hash: msg.sync_hash,
+        });
     }
 
     pub fn handle_apply_state_parts_request(&mut self, msg: ApplyStatePartsRequest) {
