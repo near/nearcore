@@ -477,6 +477,13 @@ pub(crate) fn validate_chunk_state_witness(
         .start_timer();
     let span = tracing::debug_span!(target: "chain", "validate_chunk_state_witness").entered();
     let block_hash = pre_validation_output.main_transition_params.block_hash();
+
+    #[cfg(feature = "statelessnet_endorse_all_chunks")]
+    {
+        // Endorse all chunks assuming we are in a trusted setup
+        return Ok(());
+    }
+
     let epoch_id = epoch_manager.get_epoch_id(&block_hash)?;
     let shard_uid = epoch_manager
         .shard_id_to_uid(pre_validation_output.main_transition_params.shard_id(), &epoch_id)?;

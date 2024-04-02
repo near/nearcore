@@ -124,6 +124,9 @@ statelessnet_protocol = [
 shadow_chunk_validation = [
   "near-client/shadow_chunk_validation",
 ]
+statelessnet_endorse_all_chunks = [
+  "near-client/statelessnet_endorse_all_chunks",
+]
 
 calimero_zero_storage = [
   "near-primitives/calimero_zero_storage",
