@@ -1,4 +1,3 @@
-use crate::OpenTelemetryLevel;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::{fs::File, io::Write};
@@ -12,7 +11,7 @@ pub struct LogConfig {
     /// Some("module") enables debug logging for "module".
     pub verbose_module: Option<String>,
     /// Verbosity level of collected traces.
-    pub opentelemetry_level: Option<OpenTelemetryLevel>,
+    pub opentelemetry_level: Option<String>,
 }
 
 impl LogConfig {
