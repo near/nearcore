@@ -46,6 +46,17 @@ impl Client {
             .ordered_chunk_validators();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
+        if chunk_validators.contains(my_signer.validator_id()) {
+            // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
+            send_chunk_endorsement_to_block_producers(
+                &chunk_header,
+                self.epoch_manager.as_ref(),
+                my_signer.as_ref(),
+                &self.network_adapter.clone().into_sender(),
+                self.chunk_endorsement_tracker.as_ref(),
+            );
+        }
+
         let (witness, witness_size) = {
             let witness_inner = self.create_state_witness_inner(
                 prev_block_header,
@@ -60,16 +71,6 @@ impl Client {
             (ChunkStateWitness { inner: witness_inner, signature }, witness_size)
         };
 
-        if chunk_validators.contains(my_signer.validator_id()) {
-            // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
-            send_chunk_endorsement_to_block_producers(
-                &chunk_header,
-                self.epoch_manager.as_ref(),
-                my_signer.as_ref(),
-                &self.network_adapter.clone().into_sender(),
-                self.chunk_endorsement_tracker.as_ref(),
-            );
-        }
         // Remove ourselves from the list of chunk validators. Network can't send messages to ourselves.
         chunk_validators.retain(|validator| validator != my_signer.validator_id());
 
