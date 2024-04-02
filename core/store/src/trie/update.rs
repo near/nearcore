@@ -137,6 +137,13 @@ impl TrieUpdate {
     /// This Function returns the [`Trie`] with which the [`TrieUpdate`] has been initially
     /// constructed. It can be reused to construct another `TrieUpdate` or to operate with `Trie`
     /// in any other way as desired.
+    #[tracing::instrument(
+        level = "debug",
+        target = "store::trie",
+        "TrieUpdate::finalize",
+        skip_all,
+        fields(committed.len = self.committed.len())
+    )]
     pub fn finalize(
         self,
     ) -> Result<(Trie, TrieChanges, Vec<RawStateChangesWithTrieKey>), StorageError> {
