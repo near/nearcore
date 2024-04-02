@@ -3077,6 +3077,39 @@ impl Chain {
         Ok(self.chain_store.get_outcomes_by_id(id)?.into_iter().map(Into::into).collect())
     }
 
+    /// Returns execution status based on the list of currently existing outcomes
+    fn get_execution_status(
+        &self,
+        outcomes: &[ExecutionOutcomeWithIdView],
+    ) -> FinalExecutionStatus {
+        let mut awaiting_receipt_ids = HashSet::new();
+        let mut seen_receipt_ids = HashSet::new();
+        let mut result: FinalExecutionStatus = FinalExecutionStatus::NotStarted;
+        for outcome in outcomes {
+            seen_receipt_ids.insert(&outcome.id);
+            match &outcome.outcome.status {
+                ExecutionStatusView::Unknown => return FinalExecutionStatus::Started,
+                ExecutionStatusView::Failure(e) => return FinalExecutionStatus::Failure(e.clone()),
+                ExecutionStatusView::SuccessValue(v) => {
+                    if result == FinalExecutionStatus::NotStarted {
+                        // historically, we used the first SuccessValue we have seen
+                        // let's continue sticking to it
+                        result = FinalExecutionStatus::SuccessValue(v.clone());
+                    }
+                }
+                ExecutionStatusView::SuccessReceiptId(_) => {
+                    awaiting_receipt_ids.extend(&outcome.outcome.receipt_ids);
+                }
+            }
+        }
+        return if (&awaiting_receipt_ids - &seen_receipt_ids).is_empty() {
+            result
+        } else {
+            FinalExecutionStatus::Started
+        };
+    }
+
+    /// Collect all the execution outcomes, fail if we have non executed receipts
     fn get_recursive_transaction_results(
         &self,
         outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
@@ -3091,44 +3124,64 @@ impl Chain {
         Ok(())
     }
 
+    /// Collect all the execution outcomes existing at the current moment
+    fn get_partial_recursive_transaction_results(
+        &self,
+        outcomes: &mut Vec<ExecutionOutcomeWithIdView>,
+        id: &CryptoHash,
+    ) {
+        if let Ok(outcome) = self.get_execution_outcome(id) {
+            outcomes.push(ExecutionOutcomeWithIdView::from(outcome));
+            let outcome_idx = outcomes.len() - 1;
+            for idx in 0..outcomes[outcome_idx].outcome.receipt_ids.len() {
+                let id = outcomes[outcome_idx].outcome.receipt_ids[idx];
+                self.get_partial_recursive_transaction_results(outcomes, &id);
+            }
+        }
+    }
+
+    /// Returns FinalExecutionOutcomeView for the given transaction.
+    /// Waits for the end of the execution of all corresponding receipts
     pub fn get_final_transaction_result(
         &self,
         transaction_hash: &CryptoHash,
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash)?;
-        let mut looking_for_id = *transaction_hash;
-        let num_outcomes = outcomes.len();
-        let status = outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = *id;
-                            None
-                        }
-                    }
-                } else {
-                    None
-                }
-            })
-            .expect("results should resolve to a final outcome");
+        let status = self.get_execution_status(&outcomes);
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
         })?;
         let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+        let transaction_outcome = outcomes.pop().unwrap();
+        Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
+    }
+
+    /// Returns FinalExecutionOutcomeView for the given transaction.
+    /// Does not wait for the end of the execution of all corresponding receipts
+    pub fn get_transaction_result_for_rpc(
+        &self,
+        transaction_hash: &CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView, Error> {
+        let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
+            Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
+        })?;
+        let transaction: SignedTransactionView = SignedTransaction::clone(&transaction).into();
+
+        let mut outcomes = Vec::new();
+        self.get_partial_recursive_transaction_results(&mut outcomes, transaction_hash);
+        if outcomes.is_empty() {
+            // It can't be, we would fail with tx not found error earlier in this case
+            // But if so, let's return meaningful error instead of panic on split_off
+            return Err(Error::DBNotFoundErr(format!(
+                "Transaction {} is not found",
+                transaction_hash
+            )));
+        }
+
+        let status = self.get_execution_status(&outcomes);
+        let receipts_outcome = outcomes.split_off(1);
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
     }
@@ -4177,7 +4230,8 @@ impl Chain {
         Ok(is_first_block_of_epoch?)
     }
 
-    /// Get transaction result for given hash of transaction or receipt id on the canonical chain
+    /// Get transaction result for given hash of transaction or receipt id
+    /// Chain may not be canonical yet
     pub fn get_execution_outcome(
         &self,
         id: &CryptoHash,
