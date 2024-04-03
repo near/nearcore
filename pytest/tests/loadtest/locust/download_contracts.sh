@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Retrieves the WASM contracts from respective URLs or directories from necessary for all Locust workloads
+# Retrieves the WASM contracts from respective URLs or directories for all Locust workloads
 # and stores them in the "res" folder.
 
 SCRIPT_DIR="${0%/*}"
