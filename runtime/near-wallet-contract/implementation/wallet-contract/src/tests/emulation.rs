@@ -1,5 +1,5 @@
 use crate::{
-    internal::{hash_to_address, CHAIN_ID, MAX_YOCTO_NEAR},
+    internal::{account_id_to_address, CHAIN_ID, MAX_YOCTO_NEAR},
     tests::utils::{crypto, nep141, test_context::TestContext},
 };
 use aurora_engine_types::types::{Address, Wei};
@@ -81,7 +81,7 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
         nonce: 0.into(),
         gas_price: 0.into(),
         gas_limit: 0.into(),
-        to: Some(Address::new(hash_to_address(
+        to: Some(Address::new(account_id_to_address(
             &token_contract.contract.id().as_str().parse().unwrap(),
         ))),
         value: Wei::zero(),
@@ -110,7 +110,7 @@ async fn test_erc20_emulation() -> anyhow::Result<()> {
         nonce: 1.into(),
         gas_price: 0.into(),
         gas_limit: 0.into(),
-        to: Some(Address::new(hash_to_address(
+        to: Some(Address::new(account_id_to_address(
             &token_contract.contract.id().as_str().parse().unwrap(),
         ))),
         value: Wei::zero(),

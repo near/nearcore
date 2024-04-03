@@ -1,5 +1,5 @@
 use crate::{
-    internal::{hash_to_address, CHAIN_ID},
+    internal::{account_id_to_address, CHAIN_ID},
     tests::{
         utils::{
             self, codec, crypto, nep141,
@@ -201,7 +201,7 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
             .unwrap();
     assert_eq!(
         token_address,
-        hash_to_address(&token_contract.contract.id().as_str().parse().unwrap(),).0
+        account_id_to_address(&token_contract.contract.id().as_str().parse().unwrap(),).0
     );
 
     // Set up a relayer with control to send transactions via the Wallet Contract account.

@@ -4,7 +4,7 @@
 
 use crate::{
     error::{Error, UnsupportedAction, UserError},
-    internal::{hash_to_address, CHAIN_ID},
+    internal::{account_id_to_address, CHAIN_ID},
     tests::utils::{self, crypto, test_context::TestContext},
     types::{Action, FUNCTION_CALL_SELECTOR},
 };
@@ -256,7 +256,7 @@ async fn test_bad_data() -> anyhow::Result<()> {
     let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let account_id = "aurora";
-    let to = Address::new(hash_to_address(&account_id.parse().unwrap()));
+    let to = Address::new(account_id_to_address(&account_id.parse().unwrap()));
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 0.into(),
         gas_price: 0.into(),

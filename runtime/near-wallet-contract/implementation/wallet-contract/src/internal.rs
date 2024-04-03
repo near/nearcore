@@ -93,7 +93,7 @@ fn decode_b64(input: &str) -> Result<Vec<u8>, Error> {
 
 /// Coverts any Near account ID into a 20-byte address by taking the last 20 bytes
 /// of the keccak256 hash.
-pub fn hash_to_address(account_id: &AccountId) -> Address {
+pub fn account_id_to_address(account_id: &AccountId) -> Address {
     let hash = keccak256(account_id.as_bytes());
     let mut result = [0u8; 20];
     result.copy_from_slice(&hash[12..32]);
@@ -199,7 +199,7 @@ fn validate_tx_relayer_data(
     let to_equals_target = target_as_address.map(|target| to == target).unwrap_or(false);
 
     // Only valid targets satisfy `to == target` or `to == hash(target)`
-    if !to_equals_target && to != hash_to_address(target) {
+    if !to_equals_target && to != account_id_to_address(target) {
         return Err(Error::Relayer(RelayerError::InvalidTarget));
     }
 
@@ -254,4 +254,12 @@ fn validate_tx_value(
 #[test]
 fn test_value_max() {
     assert_eq!(VALUE_MAX, U256::from(u128::MAX / 1_000_000));
+}
+
+#[test]
+fn test_account_id_to_address() {
+    let account_id: AccountId = "aurora".parse().unwrap();
+    let address =
+        Address::from_slice(&hex::decode("4444588443c3a91288c5002483449aba1054192b").unwrap());
+    assert_eq!(account_id_to_address(&account_id), address);
 }

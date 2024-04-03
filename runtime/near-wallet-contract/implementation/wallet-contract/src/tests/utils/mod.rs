@@ -1,5 +1,5 @@
 use crate::{
-    internal::{hash_to_address, CHAIN_ID},
+    internal::{account_id_to_address, CHAIN_ID},
     tests::utils::test_context::WalletContract,
     types::Action,
 };
@@ -53,7 +53,7 @@ pub fn create_signed_transaction(
         nonce: nonce.into(),
         gas_price: 0.into(),
         gas_limit: 0.into(),
-        to: Some(Address::new(hash_to_address(&target.as_str().parse().unwrap()))),
+        to: Some(Address::new(account_id_to_address(&target.as_str().parse().unwrap()))),
         value,
         data: codec::abi_encode(action),
         chain_id: CHAIN_ID,
