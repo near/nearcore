@@ -1186,7 +1186,7 @@ fn test_shard_layout_upgrade_gc_v3() {
 }
 
 #[test]
-#[cfg(feature = "nightly")]
+#[cfg(feature = "nightly_resharding")]
 fn test_shard_layout_upgrade_gc_nightly() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::NIGHTLY, 42);
 }

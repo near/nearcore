@@ -89,6 +89,9 @@ protocol_feature_reject_blocks_with_outdated_protocol_version = [
 protocol_feature_nonrefundable_transfer_nep491 = [
   "near-primitives/protocol_feature_nonrefundable_transfer_nep491",
 ]
+nightly_resharding = [
+  "near-primitives-core/nightly_resharding",
+]
 
 nightly = [
   "near-actix-test-utils/nightly",
@@ -115,6 +118,7 @@ nightly = [
   "near-wallet-contract/nightly",
   "nearcore/nightly",
   "nightly_protocol",
+  "nightly_resharding",
   "node-runtime/nightly",
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_nonrefundable_transfer_nep491",

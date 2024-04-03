@@ -199,7 +199,10 @@ impl ProtocolFeature {
             ProtocolFeature::SimpleNightshadeV3 => 65,
 
             // StatelessNet features
+            #[cfg(not(feature = "nightly_resharding"))]
             ProtocolFeature::StatelessValidationV0 => 80,
+            #[cfg(feature = "nightly_resharding")] // stateless validation breaks resharding
+            ProtocolFeature::StatelessValidationV0 => 999,
             ProtocolFeature::LowerValidatorKickoutPercentForDebugging => 81,
             ProtocolFeature::SingleShardTracking => 82,
             ProtocolFeature::StateWitnessSizeLimit => 83,
