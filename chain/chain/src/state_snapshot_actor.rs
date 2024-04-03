@@ -134,7 +134,7 @@ pub struct SnapshotCallbacks {
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
@@ -162,7 +162,7 @@ pub fn get_make_snapshot_callback(
 
 /// Sends a request to delete a state snapshot.
 pub fn get_delete_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
 ) -> DeleteSnapshotCallback {
     Arc::new(move || {
         tracing::info!(
