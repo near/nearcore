@@ -16,8 +16,8 @@ use near_o11y::WithSpanContextExt;
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceiptEnum};
 use near_primitives::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteKeyAction, SignedTransaction, StakeAction,
-    Transaction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
+    SignedTransaction, StakeAction, Transaction,
 };
 use near_primitives::types::{
     AccountId, BlockHeight, BlockReference, Finality, TransactionOrReceiptId,
@@ -1033,6 +1033,15 @@ impl<T: ChainAccess> TxMirror<T> {
                     account_created = true;
                     actions.push(action.clone());
                 }
+                Action::DeleteAccount(d) => {
+                    actions.push(Action::DeleteAccount(DeleteAccountAction {
+                        beneficiary_id: crate::key_mapping::map_account(
+                            &d.beneficiary_id,
+                            self.secret.as_ref(),
+                        ),
+                    }));
+                }
+                // TODO: handle delegate actions
                 _ => actions.push(action.clone()),
             };
         }
