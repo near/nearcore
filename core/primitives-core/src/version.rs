@@ -145,6 +145,8 @@ pub enum ProtocolFeature {
     // Stateless validation: in statelessnet, shuffle shard assignments for chunk producers every
     // epoch.
     StatelessnetShuffleShardAssignmentsForChunkProducers,
+
+    NightlyProtocol,
 }
 
 impl ProtocolFeature {
@@ -215,6 +217,9 @@ impl ProtocolFeature {
             ProtocolFeature::NonrefundableStorage => 140,
             #[cfg(feature = "statelessnet_protocol")]
             ProtocolFeature::SimpleNightshadeV3 => 141,
+
+            // Pick big enough version to support all features.
+            ProtocolFeature::NightlyProtocol => 142,
         }
     }
 }
@@ -229,8 +234,7 @@ pub const PROTOCOL_VERSION: ProtocolVersion = if cfg!(feature = "statelessnet_pr
     // Current StatelessNet protocol version.
     84
 } else if cfg!(feature = "nightly_protocol") {
-    // On nightly, pick big enough version to support all features.
-    140
+    ProtocolFeature::NightlyProtocol.protocol_version()
 } else {
     // Enable all stable features.
     STABLE_PROTOCOL_VERSION
