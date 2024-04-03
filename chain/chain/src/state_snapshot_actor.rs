@@ -1,4 +1,4 @@
-use actix::{AsyncContext, Context};
+use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
 use near_async::messaging::CanSend;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
@@ -22,12 +22,18 @@ pub struct StateSnapshotActor {
 }
 
 impl StateSnapshotActor {
-    pub fn new(
+    pub fn spawn(
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
-    ) -> Self {
-        Self { flat_storage_manager, network_adapter, tries }
+    ) -> (Addr<Self>, ArbiterHandle) {
+        let arbiter = Arbiter::new().handle();
+        let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
+            flat_storage_manager,
+            network_adapter,
+            tries,
+        });
+        (addr, arbiter)
     }
 }
 
