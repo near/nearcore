@@ -11,7 +11,15 @@ pub struct LogConfig {
     /// Some("module") enables debug logging for "module".
     pub verbose_module: Option<String>,
     /// Verbosity level of collected traces.
-    pub opentelemetry_level: Option<String>,
+    ///
+    /// This is similar to `rust_log` but rather than
+    /// [`EnvFilter`](tracing_subscriber::filter::EnvFilter) it uses a simpler
+    /// [`Targets`](tracing_subscriber::filter::targets::Targets) filter.
+    ///
+    /// You can use the usual `debug` or `info` to set the same level for all spans, or customize
+    /// individual spans with something like `debug,store::trie=trace` to have specific targets be
+    /// more verbose than the default.
+    pub opentelemetry: Option<String>,
 }
 
 impl LogConfig {

@@ -86,7 +86,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
         reload(
             config.rust_log.as_deref(),
             config.verbose_module.as_deref(),
-            config.opentelemetry_level.as_deref(),
+            config.opentelemetry.as_deref(),
         )
     } else {
         // When the LOG_CONFIG_FILENAME is not available, reset to the tracing and logging config
@@ -118,7 +118,7 @@ pub fn reload_log_config(config: Option<&log_config::LogConfig>) {
 pub fn reload(
     rust_log: Option<&str>,
     verbose_module: Option<&str>,
-    opentelemetry_level: Option<&str>,
+    opentelemetry: Option<&str>,
 ) -> Result<(), Vec<ReloadError>> {
     let log_reload_result = LOG_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoLogReloadHandle),
@@ -139,7 +139,7 @@ pub fn reload(
         },
     );
 
-    let opentelemetry_level = opentelemetry_level
+    let opentelemetry_filter = opentelemetry
         .map(|f| Targets::from_str(f).map_err(ReloadError::ParseOpentelemetry))
         .unwrap_or_else(|| {
             Ok(get_opentelemetry_filter(
@@ -149,10 +149,10 @@ pub fn reload(
     let opentelemetry_reload_result = OTLP_LAYER_RELOAD_HANDLE.get().map_or(
         Err(ReloadError::NoOpentelemetryReloadHandle),
         |reload_handle| {
-            let opentelemetry_level = opentelemetry_level?;
+            let opentelemetry_filter = opentelemetry_filter?;
             reload_handle
                 .modify(|otlp_filter| {
-                    *otlp_filter = opentelemetry_level;
+                    *otlp_filter = opentelemetry_filter;
                 })
                 .map_err(ReloadError::ReloadOpentelemetryLayer)?;
             Ok(())
