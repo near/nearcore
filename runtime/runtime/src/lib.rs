@@ -1284,7 +1284,10 @@ impl Runtime {
     /// receivers) and incoming action receipts.
     #[instrument(target = "runtime", level = "debug", "apply", skip_all, fields(
         protocol_version = apply_state.current_protocol_version,
-        num_transactions = transactions.len(),
+        transactions.len = transactions.len(),
+        incoming_receipts.len = incoming_receipts.len(),
+        local_receipts.len = tracing::field::Empty,
+        delayed_receipts.len = tracing::field::Empty,
         gas_burnt = tracing::field::Empty,
         compute_usage = tracing::field::Empty,
     ))]
@@ -1480,6 +1483,7 @@ impl Runtime {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
         }
+        total.span.record("local_receipts.len", local_receipts.len());
         metrics.local_receipts_done(total.gas, total.compute);
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
@@ -1523,6 +1527,7 @@ impl Runtime {
             process_receipt(&receipt, &mut state_update, &mut total)?;
             processed_delayed_receipts.push(receipt);
         }
+        total.span.record("delayed_receipts.len", processed_delayed_receipts.len());
         metrics.delayed_receipts_done(total.gas, total.compute);
 
         // And then we process the new incoming receipts. These are receipts from other shards.
