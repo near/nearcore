@@ -293,7 +293,7 @@ fn cold_store_migration(
             Ok(ColdStoreMigrationResult::SuccessfulMigration)
         }
         CopyAllDataToColdStatus::Interrupted => {
-            tracing::info!(target: "cold_store", "Genesis population was interrupted");
+            tracing::info!(target: "cold_store", "Cold storage population was interrupted");
             Ok(ColdStoreMigrationResult::MigrationInterrupted)
         }
     }
