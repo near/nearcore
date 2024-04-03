@@ -101,6 +101,7 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
+            let is_refund = receipt.predecessor_id == "system";
             match &receipt.receipt {
                 ReceiptEnum::Action(action_receipt) => {
                     let account_id = receipt.receiver_id.clone();
@@ -109,6 +110,16 @@ impl TriePrefetcher {
                     if self.prefetch_api.enable_receipt_prefetching {
                         let trie_key = TrieKey::Account { account_id: account_id.clone() };
                         self.prefetch_trie_key(trie_key)?;
+                        if is_refund {
+                            let trie_key = TrieKey::AccessKey { account_id: account_id.clone(), public_key: action_receipt.signer_public_key.clone() };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        for action in &action_receipt.actions {
+                            if let Action::Delegate(delegate_action) = action {
+                                let trie_key = TrieKey::AccessKey { account_id: delegate_action.delegate_action.sender_id.clone(), public_key: delegate_action.delegate_action.public_key.clone() };
+                                self.prefetch_trie_key(trie_key)?;
+                            }
+                        }
                     }
 
                     for action in &action_receipt.actions {
