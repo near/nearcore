@@ -12,7 +12,7 @@ use base64::Engine;
 use ethabi::{ethereum_types::U256, Address};
 use near_sdk::{AccountId, NearToken};
 
-// TODO: Decide on chain id.
+// TODO(eth-implicit): Decide on chain id.
 pub const CHAIN_ID: u64 = 0x4ea7;
 const U64_MAX: U256 = U256([u64::MAX, 0, 0, 0]);
 /// Only up to this amount of yoctoNear can be directly mentioned in an action,
@@ -69,7 +69,11 @@ pub fn parse_rlp_tx_to_action(
 pub fn extract_address(current_account_id: &AccountId) -> Result<Address, Error> {
     let hex_str = current_account_id.as_bytes();
 
-    // TODO: in production be strict about account ID is exactly 42 bytes.
+    // The length must be at least 42 characters because it begins with
+    // `0x` and then a 20-byte hex-encoded string. In production it will
+    // be exactly 42 characters because eth-implicit accounts will always
+    // be top-level, but for testing we may have them be sub-accounts.
+    // In this case then the length will be longer than 42 characters.
     if hex_str.len() < 42 {
         return Err(Error::AccountId(AccountIdError::AccountIdTooShort));
     }
