@@ -95,9 +95,6 @@ pub(crate) fn apply_block(
 
         let mut storage_config =
             RuntimeStorageConfig::new(*chunk_inner.prev_state_root(), use_flat_storage);
-        if !use_flat_storage {
-            storage_config.source = StorageDataSource::DbTrieOnly;
-        }
 
         runtime
             .apply_chunk(
@@ -122,9 +119,6 @@ pub(crate) fn apply_block(
             chain_store.get_chunk_extra(block.header().prev_hash(), &shard_uid).unwrap();
         let mut storage_config =
             RuntimeStorageConfig::new(*chunk_extra.state_root(), use_flat_storage);
-        if !use_flat_storage {
-            storage_config.source = StorageDataSource::DbTrieOnly;
-        }
 
         runtime
             .apply_chunk(
