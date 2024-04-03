@@ -1,30 +1,20 @@
-//! Definition of `Action` for Near protocol.
+//! Partial definition of `Action` for Near protocol.
 //! Unfortunately we cannot use `near-primitives` directly in the contract
 //! because it uses dependencies that do not compile to Wasm (at least
 //! not without some extra feature flags that `near-primitives` currently
 //! does not include).
+//! Some variants of `near_primitives::Action` are intentionally left out
+//! because they are not possible to do with the wallet contract
+//! (e.g. `DeleteAccount`).
 
 use near_sdk::{AccountId, Gas, NearToken, PublicKey};
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum Action {
-    CreateAccount(CreateAccountAction),
-    DeployContract(DeployContractAction),
     FunctionCall(FunctionCallAction),
     Transfer(TransferAction),
-    Stake(StakeAction),
     AddKey(AddKeyAction),
     DeleteKey(DeleteKeyAction),
-    DeleteAccount(DeleteAccountAction),
-    Delegate(SignedDelegateAction),
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct CreateAccountAction {}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct DeployContractAction {
-    pub code: Vec<u8>,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -38,12 +28,6 @@ pub struct FunctionCallAction {
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct TransferAction {
     pub deposit: NearToken,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct StakeAction {
-    pub stake: NearToken,
-    pub public_key: PublicKey,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -75,13 +59,3 @@ pub struct FunctionCallPermission {
 pub struct DeleteKeyAction {
     pub public_key: PublicKey,
 }
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct DeleteAccountAction {
-    pub beneficiary_id: AccountId,
-}
-
-/// This is just a placeholder for now since Delegate actions will
-/// not be supported by the Wallet Contract in V1.
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct SignedDelegateAction;

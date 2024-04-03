@@ -208,9 +208,6 @@ fn action_to_promise(target: AccountId, action: near_action::Action) -> Result<P
             action.gas,
         )),
         near_action::Action::Transfer(action) => Ok(Promise::new(target).transfer(action.deposit)),
-        near_action::Action::Stake(action) => {
-            Ok(Promise::new(target).stake(action.stake, action.public_key))
-        }
         near_action::Action::AddKey(action) => match action.access_key.permission {
             near_action::AccessKeyPermission::FullAccess => {
                 Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::AddFullAccessKey)))
@@ -226,18 +223,6 @@ fn action_to_promise(target: AccountId, action: near_action::Action) -> Result<P
         },
         near_action::Action::DeleteKey(action) => {
             Ok(Promise::new(target).delete_key(action.public_key))
-        }
-        near_action::Action::CreateAccount(_) => {
-            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::CreateAccount)))
-        }
-        near_action::Action::DeployContract(_) => {
-            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::DeployContract)))
-        }
-        near_action::Action::DeleteAccount(_) => {
-            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::DeleteAccount)))
-        }
-        near_action::Action::Delegate(_) => {
-            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::Delegate)))
         }
     }
 }
