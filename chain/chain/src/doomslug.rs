@@ -251,6 +251,8 @@ impl DoomslugApprovalsTracker {
         let next_threshold = self.total_stake_next_epoch * nominator / denominator;
         let next_ok = self.approved_stake_next_epoch > next_threshold;
 
+        tracing::debug!(target: "doomslug", ?this_ok, ?next_ok, next_zero=self.total_stake_next_epoch == 0, "get_block_production_readiness");
+
         if (this_ok && (next_ok || self.total_stake_next_epoch == 0))
             || self.threshold_mode == DoomslugThresholdMode::NoApprovals
         {
