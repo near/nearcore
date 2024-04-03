@@ -5,6 +5,7 @@ use std::str::FromStr;
 ///
 /// TODO: Deduplicate this enum with `ExtCosts` and `ActionCosts`.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, PartialOrd, Ord, clap::ValueEnum)]
+#[clap(rename_all = "PascalCase")]
 #[repr(u8)]
 pub enum Cost {
     // Every set of actions in a transaction needs to be transformed into a
