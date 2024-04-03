@@ -4923,10 +4923,10 @@ you set up your nodes, you can use the explore page to verify that the traces ar
 <p><img src="practices/workflows/../../images/explore-traces.png" alt="Image displaying the Grafana explore page interacting with the grafana-nearinc-traces data source, with Service Name filter set to =~&quot;neard:mocknet-mainnet-94194484-nagisa-10402-test-vzx2.near|neard:mocknet-mainnet-94194484-nagisa-10402-test-xdwp.near&quot; and showing some traces having been found" /></p>
 <p>If the traces are not coming through quite yet, consider using the ability to set logging
 configuration at runtime. Create <code>$NEARD_HOME/log_config.json</code> file with the following contents:</p>
-<pre><code class="language-json">{ &quot;opentelemetry_level&quot;: &quot;INFO&quot; }
+<pre><code class="language-json">{ &quot;opentelemetry&quot;: &quot;info&quot; }
 </code></pre>
 <p>Or optionally with <code>rust_log</code> setting to reduce logging on stdout:</p>
-<pre><code class="language-json">{ &quot;opentelemetry_level&quot;: &quot;INFO&quot;, &quot;rust_log&quot;: &quot;WARN&quot; }
+<pre><code class="language-json">{ &quot;opentelemetry&quot;: &quot;info&quot;, &quot;rust_log&quot;: &quot;WARN&quot; }
 </code></pre>
 <p>and invoke <code>sudo pkill -HUP neard</code>. Double check that the collector is running as well.</p>
 <blockquote style="background: rgba(255, 200, 0, 0.1); border: 5px solid rgba(255, 200, 0, 0.4);">
