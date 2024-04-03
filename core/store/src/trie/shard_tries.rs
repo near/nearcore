@@ -445,7 +445,7 @@ impl ShardTries {
 
     /// Retrieves the in-memory tries for the shard.
     pub fn get_mem_tries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
-        let guard = self.0.mem_tries.write().unwrap();
+        let guard = self.0.mem_tries.read().unwrap();
         guard.get(&shard_uid).cloned()
     }
 
