@@ -36,6 +36,7 @@ const MAX_HISTORY_SIZE: usize = 1000;
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum DoomslugThresholdMode {
     NoApprovals,
+    Half,
     TwoThirds,
 }
 
@@ -236,9 +237,21 @@ impl DoomslugApprovalsTracker {
     /// `ReadySince` if the block has enough approvals to pass the threshold, and since when it
     ///     does
     fn get_block_production_readiness(&mut self) -> DoomslugBlockProductionReadiness {
-        if (self.approved_stake_this_epoch > self.total_stake_this_epoch * 2 / 3
-            && (self.approved_stake_next_epoch > self.total_stake_next_epoch * 2 / 3
-                || self.total_stake_next_epoch == 0))
+        let (nominator, denominator) = match self.threshold_mode {
+            DoomslugThresholdMode::Half => (1, 2),
+            DoomslugThresholdMode::TwoThirds => (2, 3),
+            // This is not correct because of strict comparisons but it doesn't
+            // matter for statelessnet.
+            DoomslugThresholdMode::NoApprovals => (0, 1),
+        };
+
+        let this_threshold = self.total_stake_this_epoch * nominator / denominator;
+        let this_ok = self.approved_stake_this_epoch > this_threshold;
+
+        let next_threshold = self.total_stake_next_epoch * nominator / denominator;
+        let next_ok = self.approved_stake_next_epoch > next_threshold;
+
+        if (this_ok && (next_ok || self.total_stake_next_epoch == 0))
             || self.threshold_mode == DoomslugThresholdMode::NoApprovals
         {
             if self.time_passed_threshold == None {
@@ -555,12 +568,16 @@ impl Doomslug {
         approvals: &[Option<Box<Signature>>],
         stakes: &[(Balance, Balance, bool)],
     ) -> bool {
-        if mode == DoomslugThresholdMode::NoApprovals {
-            return true;
-        }
+        let (nominator, denominator) = match mode {
+            DoomslugThresholdMode::Half => (1, 2),
+            DoomslugThresholdMode::TwoThirds => (2, 3),
+            DoomslugThresholdMode::NoApprovals => return true,
+        };
 
-        let threshold1 = stakes.iter().map(|(x, _, _)| x).sum::<Balance>() * 2 / 3;
-        let threshold2 = stakes.iter().map(|(_, x, _)| x).sum::<Balance>() * 2 / 3;
+        let threshold1 =
+            stakes.iter().map(|(x, _, _)| x).sum::<Balance>() * nominator / denominator;
+        let threshold2 =
+            stakes.iter().map(|(_, x, _)| x).sum::<Balance>() * nominator / denominator;
 
         let approved_stake1 = approvals
             .iter()
@@ -576,8 +593,15 @@ impl Doomslug {
             .map(|(approval, (_, stake, _))| if approval.is_some() { *stake } else { 0 })
             .sum::<Balance>();
 
-        (approved_stake1 > threshold1 || threshold1 == 0)
-            && (approved_stake2 > threshold2 || threshold2 == 0)
+        let this_ok = approved_stake1 > threshold1;
+        let next_ok = approved_stake2 > threshold2;
+
+        tracing::debug!(target: "doomslug", ?this_ok, this_zero=threshold1 == 0, ?next_ok, next_zero=threshold2 == 0, "can_approved_block_be_produced");
+
+        (this_ok || threshold1 == 0) && (next_ok || threshold2 == 0)
+
+        // (approved_stake1 > threshold1 || threshold1 == 0)
+        //     && (approved_stake2 > threshold2 || threshold2 == 0)
     }
 
     pub fn get_witness(

@@ -133,14 +133,21 @@ impl ViewClientActor {
         request_manager: Arc<RwLock<ViewClientRequestManager>>,
         adv: crate::adversarial::Controls,
     ) -> Result<Self, Error> {
-        // TODO: should we create shared ChainStore that is passed to both Client and ViewClient?
+        // TODO: should we create shared ChainStore that is passed to both
+        // Client and ViewClient?
+
+        #[cfg(not(feature = "statelessnet_protocol"))]
+        let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
+        #[cfg(feature = "statelessnet_protocol")]
+        let doomslug_threshold_mode = DoomslugThresholdMode::Half;
+
         let chain = Chain::new_for_view_client(
             clock.clone(),
             epoch_manager.clone(),
             shard_tracker.clone(),
             runtime.clone(),
             chain_genesis,
-            DoomslugThresholdMode::TwoThirds,
+            doomslug_threshold_mode,
             config.save_trie_changes,
         )?;
         Ok(ViewClientActor {

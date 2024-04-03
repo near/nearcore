@@ -251,16 +251,21 @@ impl Client {
         network_adapter: PeerManagerAdapter,
         shards_manager_adapter: Sender<ShardsManagerRequestFromClient>,
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
-        enable_doomslug: bool,
+        _enable_doomslug: bool,
         rng_seed: RngSeed,
         snapshot_callbacks: Option<SnapshotCallbacks>,
         async_computation_spawner: Arc<dyn AsyncComputationSpawner>,
     ) -> Result<Self, Error> {
-        let doomslug_threshold_mode = if enable_doomslug {
+        #[cfg(not(feature = "statelessnet_protocol"))]
+        let doomslug_threshold_mode = if _enable_doomslug {
             DoomslugThresholdMode::TwoThirds
         } else {
             DoomslugThresholdMode::NoApprovals
         };
+
+        #[cfg(feature = "statelessnet_protocol")]
+        let doomslug_threshold_mode = DoomslugThresholdMode::Half;
+
         let chain_config = ChainConfig {
             save_trie_changes: config.save_trie_changes,
             background_migration_threads: config.client_background_migration_threads,

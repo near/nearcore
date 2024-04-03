@@ -67,6 +67,11 @@ pub fn spawn_state_sync_dump(
         },
     };
 
+    #[cfg(not(feature = "statelessnet_protocol"))]
+    let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
+    #[cfg(feature = "statelessnet_protocol")]
+    let doomslug_threshold_mode = DoomslugThresholdMode::Half;
+
     // Determine how many threads to start.
     // TODO: Handle the case of changing the shard layout.
     let shard_ids = {
@@ -77,12 +82,17 @@ pub fn spawn_state_sync_dump(
             shard_tracker.clone(),
             runtime.clone(),
             &chain_genesis,
-            DoomslugThresholdMode::TwoThirds,
+            doomslug_threshold_mode,
             false,
         )?;
         let epoch_id = chain.head()?.epoch_id;
         epoch_manager.shard_ids(&epoch_id)
     }?;
+
+    #[cfg(not(feature = "statelessnet_protocol"))]
+    let doomslug_threshold_mode = DoomslugThresholdMode::TwoThirds;
+    #[cfg(feature = "statelessnet_protocol")]
+    let doomslug_threshold_mode = DoomslugThresholdMode::Half;
 
     let chain_id = client_config.chain_id.clone();
     let keep_running = Arc::new(AtomicBool::new(true));
@@ -98,7 +108,7 @@ pub fn spawn_state_sync_dump(
                 shard_tracker.clone(),
                 runtime.clone(),
                 &chain_genesis,
-                DoomslugThresholdMode::TwoThirds,
+                doomslug_threshold_mode,
                 false,
             )
             .unwrap();
