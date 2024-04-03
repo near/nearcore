@@ -48,13 +48,13 @@ cargo run --release -p runtime-params-estimator --features required -- \
 ```
 
 You might also want to run a hardware-agnostic estimation using the following
-command. It uses `docker` and `qemu` under the hood, so it will be quite a bit
-slower. You will need to install `docker` to run this command.
+command. It uses `podman` and `qemu` under the hood, so it will be quite a bit
+slower. You will need to install `podman` to run this command.
 
 ```bash
 cargo run --release -p runtime-params-estimator --features required -- \
     --accounts-num 20000 --additional-accounts-num 2000000 \
-    --iters 3 --warmup-iters 1 --metric icount --docker \
+    --iters 3 --warmup-iters 1 --metric icount --containerize \
     --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase
 ```
 
