@@ -15,11 +15,7 @@ use near_workspaces::types::{KeyType, SecretKey};
 // there is no native EVM bytecode interpreter on Near.
 #[tokio::test]
 async fn test_evm_deploy() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 0.into(),
@@ -33,15 +29,10 @@ async fn test_evm_deploy() -> anyhow::Result<()> {
     };
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
-    let result = wallet_contract
-        .rlp_execute("aurora", &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute("aurora", &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::EvmDeployDisallowed).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::EvmDeployDisallowed).to_string()));
 
     Ok(())
 }
@@ -51,17 +42,10 @@ async fn test_evm_deploy() -> anyhow::Result<()> {
 // `u128::MAX // 1e6`.
 #[tokio::test]
 async fn test_value_too_large() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let account_id = "aurora";
-    let action = Action::Transfer {
-        receiver_id: account_id.into(),
-        yocto_near: 0,
-    };
+    let action = Action::Transfer { receiver_id: account_id.into(), yocto_near: 0 };
     let signed_transaction = utils::create_signed_transaction(
         0,
         &account_id.parse().unwrap(),
@@ -70,15 +54,10 @@ async fn test_value_too_large() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::ValueTooLarge).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::ValueTooLarge).to_string()));
 
     Ok(())
 }
@@ -86,17 +65,10 @@ async fn test_value_too_large() -> anyhow::Result<()> {
 // Test case where `AddKey`/`DeleteKey` action contains an unknown public key kind
 #[tokio::test]
 async fn test_unknown_public_key_kind() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let account_id = "aurora";
-    let action = Action::DeleteKey {
-        public_key_kind: 2,
-        public_key: b"a_new_key_type".to_vec(),
-    };
+    let action = Action::DeleteKey { public_key_kind: 2, public_key: b"a_new_key_type".to_vec() };
     let signed_transaction = utils::create_signed_transaction(
         0,
         &account_id.parse().unwrap(),
@@ -105,15 +77,10 @@ async fn test_unknown_public_key_kind() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::UnknownPublicKeyKind).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::UnknownPublicKeyKind).to_string()));
 
     let action = Action::AddKey {
         public_key_kind: 2,
@@ -133,15 +100,10 @@ async fn test_unknown_public_key_kind() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::UnknownPublicKeyKind).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::UnknownPublicKeyKind).to_string()));
 
     Ok(())
 }
@@ -160,10 +122,7 @@ async fn test_invalid_public_key() -> anyhow::Result<()> {
 
         let nonce = wallet_contract.get_nonce().await?;
         let account_id = "aurora";
-        let action = Action::DeleteKey {
-            public_key_kind,
-            public_key: public_key.clone(),
-        };
+        let action = Action::DeleteKey { public_key_kind, public_key: public_key.clone() };
         let signed_transaction = utils::create_signed_transaction(
             nonce,
             &account_id.parse().unwrap(),
@@ -172,15 +131,10 @@ async fn test_invalid_public_key() -> anyhow::Result<()> {
             wallet_sk,
         );
 
-        let result = wallet_contract
-            .rlp_execute(account_id, &signed_transaction)
-            .await?;
+        let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
         assert!(!result.success);
-        assert_eq!(
-            result.error,
-            Some(Error::User(expected_error.clone()).to_string())
-        );
+        assert_eq!(result.error, Some(Error::User(expected_error.clone()).to_string()));
 
         let action = Action::AddKey {
             public_key_kind,
@@ -200,9 +154,7 @@ async fn test_invalid_public_key() -> anyhow::Result<()> {
             wallet_sk,
         );
 
-        let result = wallet_contract
-            .rlp_execute(account_id, &signed_transaction)
-            .await?;
+        let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
         assert!(!result.success);
         assert_eq!(result.error, Some(Error::User(expected_error).to_string()));
@@ -213,22 +165,10 @@ async fn test_invalid_public_key() -> anyhow::Result<()> {
     let ctx = TestContext::new().await?;
 
     assert_invalid_pk(&ctx, 0, Vec::new(), UserError::InvalidEd25519Key).await?;
-    assert_invalid_pk(
-        &ctx,
-        0,
-        b"wrong_length".to_vec(),
-        UserError::InvalidEd25519Key,
-    )
-    .await?;
+    assert_invalid_pk(&ctx, 0, b"wrong_length".to_vec(), UserError::InvalidEd25519Key).await?;
 
     assert_invalid_pk(&ctx, 1, Vec::new(), UserError::InvalidSecp256k1Key).await?;
-    assert_invalid_pk(
-        &ctx,
-        1,
-        b"wrong_length".to_vec(),
-        UserError::InvalidSecp256k1Key,
-    )
-    .await?;
+    assert_invalid_pk(&ctx, 1, b"wrong_length".to_vec(), UserError::InvalidSecp256k1Key).await?;
 
     Ok(())
 }
@@ -236,11 +176,7 @@ async fn test_invalid_public_key() -> anyhow::Result<()> {
 // Tests case where we try to add an access key with an invalid `receiver_id`
 #[tokio::test]
 async fn test_invalid_public_key_account_id() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let key = SecretKey::from_random(KeyType::ED25519);
     let account_id = "aurora";
@@ -263,15 +199,10 @@ async fn test_invalid_public_key_account_id() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::InvalidAccessKeyAccountId).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::InvalidAccessKeyAccountId).to_string()));
 
     Ok(())
 }
@@ -281,11 +212,7 @@ async fn test_invalid_public_key_account_id() -> anyhow::Result<()> {
 // such as deploying a different contract to an Eth implicit address.
 #[tokio::test]
 async fn test_cannot_add_full_access_key() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let key = SecretKey::from_random(KeyType::ED25519);
     let action = Action::AddKey {
@@ -314,10 +241,8 @@ async fn test_cannot_add_full_access_key() -> anyhow::Result<()> {
     assert_eq!(
         result.error,
         Some(
-            Error::User(UserError::UnsupportedAction(
-                UnsupportedAction::AddFullAccessKey
-            ))
-            .to_string()
+            Error::User(UserError::UnsupportedAction(UnsupportedAction::AddFullAccessKey))
+                .to_string()
         )
     );
 
@@ -328,11 +253,7 @@ async fn test_cannot_add_full_access_key() -> anyhow::Result<()> {
 // Action or emulated Ethereum standard.
 #[tokio::test]
 async fn test_bad_data() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let account_id = "aurora";
     let to = Address::new(hash_to_address(&account_id.parse().unwrap()));
@@ -348,15 +269,10 @@ async fn test_bad_data() -> anyhow::Result<()> {
     };
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::UnknownFunctionSelector).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::UnknownFunctionSelector).to_string()));
 
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 1.into(),
@@ -375,15 +291,10 @@ async fn test_bad_data() -> anyhow::Result<()> {
     };
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::InvalidAbiEncodedData).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::InvalidAbiEncodedData).to_string()));
 
     let transaction = aurora_engine_transactions::eip_2930::Transaction2930 {
         nonce: 2.into(),
@@ -397,15 +308,10 @@ async fn test_bad_data() -> anyhow::Result<()> {
     };
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::InvalidAbiEncodedData).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::InvalidAbiEncodedData).to_string()));
 
     Ok(())
 }
@@ -413,11 +319,7 @@ async fn test_bad_data() -> anyhow::Result<()> {
 // Test case where the action contains more than 1_000_000 yocotoNear directly.
 #[tokio::test]
 async fn test_excess_yocto() -> anyhow::Result<()> {
-    let TestContext {
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let account_id = "aurora";
     let action = Action::Transfer {
@@ -432,15 +334,10 @@ async fn test_excess_yocto() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(account_id, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(account_id, &signed_transaction).await?;
 
     assert!(!result.success);
-    assert_eq!(
-        result.error,
-        Some(Error::User(UserError::ExcessYoctoNear).to_string())
-    );
+    assert_eq!(result.error, Some(Error::User(UserError::ExcessYoctoNear).to_string()));
 
     Ok(())
 }

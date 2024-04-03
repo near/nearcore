@@ -20,12 +20,7 @@ use near_workspaces::types::NearToken;
 // cost of that transaction (including any attached $NEAR).
 #[tokio::test]
 async fn test_insufficient_value() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let external_account = worker.dev_create_account().await?;
 
@@ -58,10 +53,7 @@ async fn test_insufficient_value() -> anyhow::Result<()> {
 
     // Try again with a transaction that has some attached Wei
     let transfer_amount = NearToken::from_near(1).as_yoctonear();
-    let action = Action::Transfer {
-        receiver_id: account_id.into(),
-        yocto_near: 0,
-    };
+    let action = Action::Transfer { receiver_id: account_id.into(), yocto_near: 0 };
     let signed_transaction = utils::create_signed_transaction(
         1,
         &account_id.parse().unwrap(),
@@ -81,16 +73,8 @@ async fn test_insufficient_value() -> anyhow::Result<()> {
 
     // It works if we attach the right amount of Near and does not
     // spend any tokens from the Wallet Contract.
-    let initial_wallet_balance = wallet_contract
-        .inner
-        .as_account()
-        .view_account()
-        .await?
-        .balance;
-    let action = Action::Transfer {
-        receiver_id: external_account.id().to_string(),
-        yocto_near: 0,
-    };
+    let initial_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
+    let action = Action::Transfer { receiver_id: external_account.id().to_string(), yocto_near: 0 };
     let signed_transaction = utils::create_signed_transaction(
         2,
         external_account.id(),
@@ -113,12 +97,7 @@ async fn test_insufficient_value() -> anyhow::Result<()> {
 
     assert!(result.success);
 
-    let final_wallet_balance = wallet_contract
-        .inner
-        .as_account()
-        .view_account()
-        .await?
-        .balance;
+    let final_wallet_balance = wallet_contract.inner.as_account().view_account().await?.balance;
 
     assert!(final_wallet_balance >= initial_wallet_balance);
 

@@ -122,11 +122,7 @@ impl WalletContract {
                 PromiseResult::Successful(value) => success_value = Some(value),
             }
         }
-        ExecuteResponse {
-            success: true,
-            success_value,
-            error: None,
-        }
+        ExecuteResponse { success: true, success_value, error: None }
     }
 
     #[private]
@@ -172,9 +168,7 @@ fn inner_rlp_execute(
                 ext_registrar::ext(account_id).with_static_gas(Gas::from_tgas(5))
             };
             let address = format!("0x{}", hex::encode(address));
-            address_registrar
-                .lookup(address)
-                .then(ext.address_check_callback(target, action))
+            address_registrar.lookup(address).then(ext.address_check_callback(target, action))
         }
     };
     Ok(promise)
@@ -193,16 +187,13 @@ fn action_to_promise(target: AccountId, action: near_action::Action) -> Result<P
             Ok(Promise::new(target).stake(action.stake, action.public_key))
         }
         near_action::Action::AddKey(action) => match action.access_key.permission {
-            near_action::AccessKeyPermission::FullAccess => Err(Error::User(
-                UserError::UnsupportedAction(UnsupportedAction::AddFullAccessKey),
-            )),
+            near_action::AccessKeyPermission::FullAccess => {
+                Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::AddFullAccessKey)))
+            }
             near_action::AccessKeyPermission::FunctionCall(access) => Ok(Promise::new(target)
                 .add_access_key_allowance_with_nonce(
                     action.public_key,
-                    access
-                        .allowance
-                        .and_then(Allowance::limited)
-                        .unwrap_or(Allowance::Unlimited),
+                    access.allowance.and_then(Allowance::limited).unwrap_or(Allowance::Unlimited),
                     access.receiver_id,
                     access.method_names.join(","),
                     action.access_key.nonce,
@@ -211,32 +202,30 @@ fn action_to_promise(target: AccountId, action: near_action::Action) -> Result<P
         near_action::Action::DeleteKey(action) => {
             Ok(Promise::new(target).delete_key(action.public_key))
         }
-        near_action::Action::CreateAccount(_) => Err(Error::User(UserError::UnsupportedAction(
-            UnsupportedAction::CreateAccount,
-        ))),
-        near_action::Action::DeployContract(_) => Err(Error::User(UserError::UnsupportedAction(
-            UnsupportedAction::DeployContract,
-        ))),
-        near_action::Action::DeleteAccount(_) => Err(Error::User(UserError::UnsupportedAction(
-            UnsupportedAction::DeleteAccount,
-        ))),
-        near_action::Action::Delegate(_) => Err(Error::User(UserError::UnsupportedAction(
-            UnsupportedAction::Delegate,
-        ))),
+        near_action::Action::CreateAccount(_) => {
+            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::CreateAccount)))
+        }
+        near_action::Action::DeployContract(_) => {
+            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::DeployContract)))
+        }
+        near_action::Action::DeleteAccount(_) => {
+            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::DeleteAccount)))
+        }
+        near_action::Action::Delegate(_) => {
+            Err(Error::User(UserError::UnsupportedAction(UnsupportedAction::Delegate)))
+        }
     }
 }
 
 fn create_ban_relayer_promise(current_account_id: AccountId) -> Promise {
     let pk = env::signer_account_pk();
-    Promise::new(current_account_id)
-        .delete_key(pk)
-        .function_call_weight(
-            "ban_relayer".into(),
-            Vec::new(),
-            NearToken::from_yoctonear(0),
-            Gas::from_tgas(1),
-            GasWeight(1),
-        )
+    Promise::new(current_account_id).delete_key(pk).function_call_weight(
+        "ban_relayer".into(),
+        Vec::new(),
+        NearToken::from_yoctonear(0),
+        Gas::from_tgas(1),
+        GasWeight(1),
+    )
 }
 
 #[near_sdk::ext_contract(ext_registrar)]

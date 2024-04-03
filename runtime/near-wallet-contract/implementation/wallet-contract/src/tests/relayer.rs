@@ -22,26 +22,14 @@ use near_workspaces::{
 // behalf while the user covers the gas costs.
 #[tokio::test]
 async fn test_register_relayer() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        mut wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, mut wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let relayer_pk = wallet_contract.register_relayer(&worker).await?;
-    let key = wallet_contract
-        .inner
-        .as_account()
-        .view_access_key(&relayer_pk)
-        .await?;
+    let key = wallet_contract.inner.as_account().view_access_key(&relayer_pk).await?;
     match &key.permission {
         AccessKeyPermission::FunctionCall(access) => {
             assert_eq!(access.allowance, None);
-            assert_eq!(
-                access.receiver_id.as_str(),
-                wallet_contract.inner.id().as_str()
-            );
+            assert_eq!(access.receiver_id.as_str(), wallet_contract.inner.id().as_str());
             assert_eq!(&access.method_names, &[RLP_EXECUTE]);
         }
         _ => panic!("Unexpected full access key"),
@@ -64,11 +52,7 @@ async fn test_register_relayer() -> anyhow::Result<()> {
 // If the relayer sends garbage data to the Wallet Contract then it is banned.
 #[tokio::test]
 async fn test_relayer_invalid_tx_data() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        mut wallet_contract,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, mut wallet_contract, .. } = TestContext::new().await?;
 
     async fn new_relayer(
         worker: &Worker<Sandbox>,
@@ -119,10 +103,7 @@ async fn test_relayer_invalid_tx_data() -> anyhow::Result<()> {
     };
 
     for (input, sk) in inputs.into_iter().zip(relayer_keys) {
-        wallet_contract
-            .inner
-            .as_account_mut()
-            .set_secret_key(sk.clone());
+        wallet_contract.inner.as_account_mut().set_secret_key(sk.clone());
         rlp_execute(&sk, &wallet_contract, input).await?;
     }
 
@@ -132,24 +113,14 @@ async fn test_relayer_invalid_tx_data() -> anyhow::Result<()> {
 // Tests case where relayer sends a transaction signed by the wrong account.
 #[tokio::test]
 async fn test_relayer_invalid_sender() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        mut wallet_contract,
-        wallet_contract_bytes,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, mut wallet_contract, wallet_contract_bytes, .. } =
+        TestContext::new().await?;
 
-    let wrong_wallet_sk = TestContext::deploy_wallet(&worker, &wallet_contract_bytes)
-        .await?
-        .0
-        .sk;
+    let wrong_wallet_sk = TestContext::deploy_wallet(&worker, &wallet_contract_bytes).await?.0.sk;
     let relayer_pk = wallet_contract.register_relayer(&worker).await?;
 
     let target = "aurora";
-    let action = Action::Transfer {
-        receiver_id: target.into(),
-        yocto_near: 0,
-    };
+    let action = Action::Transfer { receiver_id: target.into(), yocto_near: 0 };
     // Transaction signed by wrong secret key
     let signed_transaction = utils::create_signed_transaction(
         0,
@@ -159,9 +130,7 @@ async fn test_relayer_invalid_sender() -> anyhow::Result<()> {
         &wrong_wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(target, &signed_transaction)
-        .await?;
+    let result = wallet_contract.rlp_execute(target, &signed_transaction).await?;
 
     assert!(!result.success);
     assert_eq!(result.error.as_deref(), Some("Error: faulty relayer"));
@@ -175,20 +144,12 @@ async fn test_relayer_invalid_sender() -> anyhow::Result<()> {
 // hash to the `to` field of the user's signed Ethereum transaction.
 #[tokio::test]
 async fn test_relayer_invalid_target() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        mut wallet_contract,
-        wallet_sk,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, mut wallet_contract, wallet_sk, .. } = TestContext::new().await?;
 
     let relayer_pk = wallet_contract.register_relayer(&worker).await?;
 
     let real_target = "aurora";
-    let action = Action::Transfer {
-        receiver_id: real_target.into(),
-        yocto_near: 0,
-    };
+    let action = Action::Transfer { receiver_id: real_target.into(), yocto_near: 0 };
     let signed_transaction = utils::create_signed_transaction(
         0,
         &real_target.parse().unwrap(),
@@ -197,9 +158,8 @@ async fn test_relayer_invalid_target() -> anyhow::Result<()> {
         &wallet_sk,
     );
 
-    let result = wallet_contract
-        .rlp_execute(&format!("other.{real_target}"), &signed_transaction)
-        .await?;
+    let result =
+        wallet_contract.rlp_execute(&format!("other.{real_target}"), &signed_transaction).await?;
 
     assert!(!result.success);
     assert_eq!(result.error.as_deref(), Some("Error: faulty relayer"));
@@ -235,15 +195,10 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
         .transact()
         .await?
         .json()?;
-    let token_address: [u8; 20] = hex::decode(
-        register_output
-            .as_ref()
-            .unwrap()
-            .strip_prefix("0x")
-            .unwrap(),
-    )?
-    .try_into()
-    .unwrap();
+    let token_address: [u8; 20] =
+        hex::decode(register_output.as_ref().unwrap().strip_prefix("0x").unwrap())?
+            .try_into()
+            .unwrap();
     assert_eq!(
         token_address,
         hash_to_address(&token_contract.contract.id().as_str().parse().unwrap(),).0
@@ -270,9 +225,8 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
     let signed_transaction = crypto::sign_transaction(transaction, &wallet_sk);
 
     // Relayer fails to set `target` correctly
-    let result = wallet_contract
-        .rlp_execute(register_output.unwrap().as_str(), &signed_transaction)
-        .await?;
+    let result =
+        wallet_contract.rlp_execute(register_output.unwrap().as_str(), &signed_transaction).await?;
 
     assert!(!result.success);
     assert_eq!(result.error.as_deref(), Some("Error: faulty relayer"));
@@ -285,13 +239,8 @@ async fn test_relayer_invalid_address_target() -> anyhow::Result<()> {
 // A relayer sending a transaction signed with the wrong chain id is a ban-worthy offense.
 #[tokio::test]
 async fn test_relayer_wrong_chain_id() -> anyhow::Result<()> {
-    let TestContext {
-        worker,
-        mut wallet_contract,
-        wallet_sk,
-        wallet_address,
-        ..
-    } = TestContext::new().await?;
+    let TestContext { worker, mut wallet_contract, wallet_sk, wallet_address, .. } =
+        TestContext::new().await?;
 
     let relayer_pk = wallet_contract.register_relayer(&worker).await?;
 
@@ -327,10 +276,7 @@ async fn assert_revoked_key(
     wallet_contract: &Contract,
     relayer_pk: &near_workspaces::types::PublicKey,
 ) {
-    let key_query = wallet_contract
-        .as_account()
-        .view_access_key(relayer_pk)
-        .await;
+    let key_query = wallet_contract.as_account().view_access_key(relayer_pk).await;
 
     let error_message = format!("{:?}", key_query.unwrap_err());
     assert!(error_message.contains("UnknownAccessKey"));

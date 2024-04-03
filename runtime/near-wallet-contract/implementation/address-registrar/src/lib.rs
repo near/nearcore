@@ -24,9 +24,7 @@ pub struct AddressRegistrar {
 impl AddressRegistrar {
     #[init]
     pub fn new() -> Self {
-        Self {
-            addresses: LookupMap::new(StorageKey::Addresses),
-        }
+        Self { addresses: LookupMap::new(StorageKey::Addresses) }
     }
 
     pub fn register(&mut self, account_id: AccountId) -> Option<String> {

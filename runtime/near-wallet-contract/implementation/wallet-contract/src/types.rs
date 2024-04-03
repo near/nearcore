@@ -59,11 +59,7 @@ pub struct ExecuteResponse {
 
 impl From<Error> for ExecuteResponse {
     fn from(value: Error) -> Self {
-        Self {
-            success: false,
-            success_value: None,
-            error: Some(format!("{value}")),
-        }
+        Self { success: false, success_value: None, error: Some(format!("{value}")) }
     }
 }
 
@@ -86,12 +82,7 @@ impl ExecutionContext {
         attached_deposit: NearToken,
     ) -> Result<Self, Error> {
         let current_address = crate::internal::extract_address(&current_account_id)?;
-        Ok(Self {
-            current_address,
-            attached_deposit,
-            predecessor_account_id,
-            current_account_id,
-        })
+        Ok(Self { current_address, attached_deposit, predecessor_account_id, current_account_id })
     }
 }
 
@@ -150,13 +141,7 @@ impl Action {
         additional_value: u128,
     ) -> Result<near_action::Action, Error> {
         let action = match self {
-            Action::FunctionCall {
-                receiver_id: _,
-                method_name,
-                args,
-                gas,
-                yocto_near,
-            } => {
+            Action::FunctionCall { receiver_id: _, method_name, args, gas, yocto_near } => {
                 let action = FunctionCallAction {
                     method_name,
                     args,
@@ -167,10 +152,7 @@ impl Action {
                 };
                 near_action::Action::FunctionCall(action)
             }
-            Action::Transfer {
-                receiver_id: _,
-                yocto_near,
-            } => {
+            Action::Transfer { receiver_id: _, yocto_near } => {
                 let action = TransferAction {
                     deposit: NearToken::from_yoctonear(
                         additional_value.saturating_add(yocto_near.into()),
@@ -190,16 +172,9 @@ impl Action {
             } => {
                 let public_key = construct_public_key(public_key_kind, &public_key)?;
                 let access_key = if is_full_access {
-                    AccessKey {
-                        nonce,
-                        permission: AccessKeyPermission::FullAccess,
-                    }
+                    AccessKey { nonce, permission: AccessKeyPermission::FullAccess }
                 } else {
-                    let allowance = if is_limited_allowance {
-                        Some(allowance)
-                    } else {
-                        None
-                    };
+                    let allowance = if is_limited_allowance { Some(allowance) } else { None };
                     AccessKey {
                         nonce,
                         permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
@@ -211,16 +186,10 @@ impl Action {
                         }),
                     }
                 };
-                let action = AddKeyAction {
-                    public_key,
-                    access_key,
-                };
+                let action = AddKeyAction { public_key, access_key };
                 near_action::Action::AddKey(action)
             }
-            Action::DeleteKey {
-                public_key_kind,
-                public_key,
-            } => {
+            Action::DeleteKey { public_key_kind, public_key } => {
                 let action = DeleteKeyAction {
                     public_key: construct_public_key(public_key_kind, &public_key)?,
                 };

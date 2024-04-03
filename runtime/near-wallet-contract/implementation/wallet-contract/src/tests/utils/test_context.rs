@@ -118,11 +118,7 @@ impl WalletContract {
             .into_result()?
             .json()?;
 
-        assert!(
-            result.success,
-            "Adding Relayer's key failed: {:?}",
-            result.error
-        );
+        assert!(result.success, "Adding Relayer's key failed: {:?}", result.error);
 
         // Tell near-workspaces to use this new key instead when
         // signing transactions from the Wallet Contract
@@ -151,17 +147,11 @@ impl TestContext {
         // Restore address registrar account id file
         let output = Command::new("git")
             .current_dir(BASE_DIR)
-            .args([
-                OsStr::new("checkout"),
-                address_registrar_account_id_path(".").as_os_str(),
-            ])
+            .args([OsStr::new("checkout"), address_registrar_account_id_path(".").as_os_str()])
             .output()
             .await?;
         if !output.status.success() {
-            anyhow::bail!(
-                "git checkout failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            anyhow::bail!("git checkout failed: {}", String::from_utf8_lossy(&output.stderr));
         }
 
         let (wallet_contract, wallet_address) =
@@ -179,28 +169,16 @@ impl TestContext {
     }
 
     async fn deploy_address_registrar(worker: &Worker<Sandbox>) -> anyhow::Result<Contract> {
-        let base_dir = Path::new(BASE_DIR)
-            .parent()
-            .unwrap()
-            .join("address-registrar");
+        let base_dir = Path::new(BASE_DIR).parent().unwrap().join("address-registrar");
         let contract_bytes = build_contract(base_dir, "eth-address-registrar").await?;
         let contract = worker.dev_deploy(&contract_bytes).await?;
 
         // Initialize the contract
-        contract
-            .call("new")
-            .transact()
-            .await
-            .unwrap()
-            .into_result()
-            .unwrap();
+        contract.call("new").transact().await.unwrap().into_result().unwrap();
 
         // Update the file where the Wallet Contract gets the address registrar account id from
-        tokio::fs::write(
-            address_registrar_account_id_path(BASE_DIR),
-            contract.id().as_bytes(),
-        )
-        .await?;
+        tokio::fs::write(address_registrar_account_id_path(BASE_DIR), contract.id().as_bytes())
+            .await?;
 
         Ok(contract)
     }
@@ -261,7 +239,5 @@ async fn build_contract<P: AsRef<Path>>(
 }
 
 fn address_registrar_account_id_path(base_dir: &str) -> PathBuf {
-    Path::new(base_dir)
-        .join("src")
-        .join("ADDRESS_REGISTRAR_ACCOUNT_ID")
+    Path::new(base_dir).join("src").join("ADDRESS_REGISTRAR_ACCOUNT_ID")
 }

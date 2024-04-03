@@ -40,11 +40,7 @@ pub fn try_emulation(
         ERC20_BALANCE_OF_SELECTOR => {
             let (address,): (Address,) =
                 ethabi_utils::abi_decode(&ERC20_BALANCE_OF_SIGNATURE, &tx.data[4..])?;
-            let args = format!(
-                r#"{{"account_id": "0x{}{}"}}"#,
-                hex::encode(address),
-                suffix
-            );
+            let args = format!(r#"{{"account_id": "0x{}{}"}}"#, hex::encode(address), suffix);
             Ok(Action::FunctionCall {
                 receiver_id: target.to_string(),
                 method_name: "ft_balance_of".into(),

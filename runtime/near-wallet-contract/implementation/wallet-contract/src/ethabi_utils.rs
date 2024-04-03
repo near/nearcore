@@ -44,11 +44,7 @@ where
 {
     fn try_from_token(tokens: [Token; 3]) -> Result<Self, Error> {
         let (t1, t2, t3) = tokens.into();
-        Ok((
-            T1::try_from_token(t1)?,
-            T2::try_from_token(t2)?,
-            T3::try_from_token(t3)?,
-        ))
+        Ok((T1::try_from_token(t1)?, T2::try_from_token(t2)?, T3::try_from_token(t3)?))
     }
 }
 

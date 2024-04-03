@@ -44,31 +44,21 @@ pub fn parse_rlp_tx_to_action(
     // If the transaction is valid then increment the nonce to prevent replay
     *expected_nonce = expected_nonce.saturating_add(1);
 
-    let to = tx
-        .to
-        .ok_or(Error::User(UserError::EvmDeployDisallowed))?
-        .raw();
+    let to = tx.to.ok_or(Error::User(UserError::EvmDeployDisallowed))?.raw();
     let action = if to != context.current_address
         && extract_address(target).map(|a| a == to).unwrap_or(false)
     {
         // If target is another Ethereum implicit account then the action
         // must be a transfer (because EOAs are not contracts on Ethereum).
-        Action::Transfer {
-            receiver_id: target.to_string(),
-            yocto_near: 0,
-        }
+        Action::Transfer { receiver_id: target.to_string(), yocto_near: 0 }
     } else {
         parse_tx_data(target, &tx, context)?
     };
     validate_tx_value(&tx, context, &action)?;
 
     // Call to `low_u128` here is safe because of the validation done in `validate_tx_value`
-    let near_action = action.try_into_near_action(
-        tx.value
-            .raw()
-            .low_u128()
-            .saturating_mul(MAX_YOCTO_NEAR.into()),
-    )?;
+    let near_action = action
+        .try_into_near_action(tx.value.raw().low_u128().saturating_mul(MAX_YOCTO_NEAR.into()))?;
 
     Ok((near_action, validation_outcome))
 }
@@ -98,9 +88,7 @@ pub fn extract_address(current_account_id: &AccountId) -> Result<Address, Error>
 /// Decode a base-64 encoded string into raw bytes.
 fn decode_b64(input: &str) -> Result<Vec<u8>, Error> {
     let engine = base64::engine::general_purpose::STANDARD;
-    engine
-        .decode(input)
-        .map_err(|_| Error::Relayer(RelayerError::InvalidBase64))
+    engine.decode(input).map_err(|_| Error::Relayer(RelayerError::InvalidBase64))
 }
 
 /// Coverts any Near account ID into a 20-byte address by taking the last 20 bytes
@@ -142,13 +130,7 @@ fn parse_tx_data(
             if yocto_near > MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
-            Ok(Action::FunctionCall {
-                receiver_id,
-                method_name,
-                args,
-                gas,
-                yocto_near,
-            })
+            Ok(Action::FunctionCall { receiver_id, method_name, args, gas, yocto_near })
         }
         TRANSFER_SELECTOR => {
             let (receiver_id, yocto_near): (String, u32) =
@@ -159,10 +141,7 @@ fn parse_tx_data(
             if yocto_near > MAX_YOCTO_NEAR {
                 return Err(Error::User(UserError::ExcessYoctoNear));
             }
-            Ok(Action::Transfer {
-                receiver_id,
-                yocto_near,
-            })
+            Ok(Action::Transfer { receiver_id, yocto_near })
         }
         ADD_KEY_SELECTOR => {
             let (
@@ -189,10 +168,7 @@ fn parse_tx_data(
         DELETE_KEY_SELECTOR => {
             let (public_key_kind, public_key) =
                 ethabi_utils::abi_decode(&DELETE_KEY_SIGNATURE, &tx.data[4..])?;
-            Ok(Action::DeleteKey {
-                public_key_kind,
-                public_key,
-            })
+            Ok(Action::DeleteKey { public_key_kind, public_key })
         }
         _ => eth_emulation::try_emulation(target, tx, context),
     }
@@ -218,14 +194,9 @@ fn validate_tx_relayer_data(
         return Err(Error::Relayer(RelayerError::InvalidChainId));
     }
 
-    let to = tx
-        .to
-        .ok_or(Error::User(UserError::EvmDeployDisallowed))?
-        .raw();
+    let to = tx.to.ok_or(Error::User(UserError::EvmDeployDisallowed))?.raw();
     let target_as_address = extract_address(target).ok();
-    let to_equals_target = target_as_address
-        .map(|target| to == target)
-        .unwrap_or(false);
+    let to_equals_target = target_as_address.map(|target| to == target).unwrap_or(false);
 
     // Only valid targets satisfy `to == target` or `to == hash(target)`
     if !to_equals_target && to != hash_to_address(target) {

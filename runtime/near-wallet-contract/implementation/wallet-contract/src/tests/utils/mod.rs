@@ -32,9 +32,8 @@ pub async fn deploy_and_call_hello(
     let signed_transaction =
         create_signed_transaction(nonce, hello_contract.id(), Wei::zero(), action, wallet_sk);
 
-    let result = wallet_contract
-        .rlp_execute(hello_contract.id().as_str(), &signed_transaction)
-        .await?;
+    let result =
+        wallet_contract.rlp_execute(hello_contract.id().as_str(), &signed_transaction).await?;
 
     if result.success_value.as_deref() != Some(br#""Hello, Aurora!""#.as_slice()) {
         anyhow::bail!("Call to hello contract failed: {:?}", result.error);
@@ -54,9 +53,7 @@ pub fn create_signed_transaction(
         nonce: nonce.into(),
         gas_price: 0.into(),
         gas_limit: 0.into(),
-        to: Some(Address::new(hash_to_address(
-            &target.as_str().parse().unwrap(),
-        ))),
+        to: Some(Address::new(hash_to_address(&target.as_str().parse().unwrap()))),
         value,
         data: codec::abi_encode(action),
         chain_id: CHAIN_ID,

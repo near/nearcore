@@ -4,13 +4,7 @@ use aurora_engine_transactions::EthTransactionKind;
 pub fn abi_encode(action: Action) -> Vec<u8> {
     let mut buf = Vec::new();
     match action {
-        Action::FunctionCall {
-            receiver_id,
-            method_name,
-            args,
-            gas,
-            yocto_near,
-        } => {
+        Action::FunctionCall { receiver_id, method_name, args, gas, yocto_near } => {
             buf.extend_from_slice(crate::types::FUNCTION_CALL_SELECTOR);
             let tokens = &[
                 ethabi::Token::String(receiver_id),
@@ -21,15 +15,10 @@ pub fn abi_encode(action: Action) -> Vec<u8> {
             ];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
-        Action::Transfer {
-            receiver_id,
-            yocto_near,
-        } => {
+        Action::Transfer { receiver_id, yocto_near } => {
             buf.extend_from_slice(crate::types::TRANSFER_SELECTOR);
-            let tokens = &[
-                ethabi::Token::String(receiver_id),
-                ethabi::Token::Uint(yocto_near.into()),
-            ];
+            let tokens =
+                &[ethabi::Token::String(receiver_id), ethabi::Token::Uint(yocto_near.into())];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
         Action::AddKey {
@@ -51,24 +40,14 @@ pub fn abi_encode(action: Action) -> Vec<u8> {
                 ethabi::Token::Bool(is_limited_allowance),
                 ethabi::Token::Uint(allowance.into()),
                 ethabi::Token::String(receiver_id),
-                ethabi::Token::Array(
-                    method_names
-                        .into_iter()
-                        .map(ethabi::Token::String)
-                        .collect(),
-                ),
+                ethabi::Token::Array(method_names.into_iter().map(ethabi::Token::String).collect()),
             ];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
-        Action::DeleteKey {
-            public_key_kind,
-            public_key,
-        } => {
+        Action::DeleteKey { public_key_kind, public_key } => {
             buf.extend_from_slice(crate::types::DELETE_KEY_SELECTOR);
-            let tokens = &[
-                ethabi::Token::Uint(public_key_kind.into()),
-                ethabi::Token::Bytes(public_key),
-            ];
+            let tokens =
+                &[ethabi::Token::Uint(public_key_kind.into()), ethabi::Token::Bytes(public_key)];
             buf.extend_from_slice(&ethabi::encode(tokens));
         }
     };
