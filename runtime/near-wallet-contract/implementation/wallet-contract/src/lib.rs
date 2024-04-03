@@ -33,10 +33,35 @@ pub struct WalletContract {
 
 #[near_bindgen]
 impl WalletContract {
+    /// Return the nonce value currently stored in the contract.
+    /// Following the Ethereum protocol, only transactions with nonce equal
+    /// to the current value will be accepted.
+    /// Additionally, the Ethereum protocol requires the nonce of an account increment
+    /// by 1 each time a transaction with the correct nonce and a valid signature
+    /// is submitted (even if that transaction eventually fails). In this way, each
+    /// nonce value can only be used once (hence the name "nonce") and thus transaction
+    /// replay is prevented.
     pub fn get_nonce(&self) -> U64 {
         U64(self.nonce)
     }
 
+    /// This is the main entry point into this contract. It accepts an RLP-encoded
+    /// Ethereum transaction signed by the private key associated with the address
+    /// for the account where this contract is deployed. RLP is a binary format,
+    /// so the argument is actually passed as a base64-encoded string.
+    /// The Ethereum transaction represents a Near action the owner of the address
+    /// wants to perform. This method decodes that action from the Ethereum transaction
+    /// and crates a promise to perform that action.
+    /// Actions on Near are sent to a particular account ID where they are supposed to
+    /// be executed (for example, a `FunctionCall` action is sent to the contract
+    /// which will execute the method). In the Ethereum transaction only the address
+    /// of the target can be specified because it does not have a notion of named accounts
+    /// like Near has. The `target` field of this method gives the actual account ID
+    /// that the action will be sent to. The `target` must itself be an eth-implicit
+    /// account and match the `to` address of the Ethereum transaction; or `target`
+    /// must hash to the address given in the `to` field of the Ethereum transaction.
+    /// The output of this function is an `ExecuteResponse` which gives the output
+    /// of the Near action or an error message if there was a problem during the execution.
     #[payable]
     pub fn rlp_execute(
         &mut self,

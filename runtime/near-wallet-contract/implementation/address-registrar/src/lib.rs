@@ -27,6 +27,12 @@ impl AddressRegistrar {
         Self { addresses: LookupMap::new(StorageKey::Addresses) }
     }
 
+    /// Computes the address associated with the given `account_id` and
+    /// attempts to store the mapping `address -> account_id`. If there is
+    /// a collision where the given `account_id` has the same address as a
+    /// previously registered one then the mapping is NOT updated and `None`
+    /// is returned. Otherwise, the mapping is stored and the address is
+    /// returned as a hex-encoded string with `0x` prefix.
     pub fn register(&mut self, account_id: AccountId) -> Option<String> {
         let address = account_id_to_address(&account_id);
 
@@ -50,6 +56,12 @@ impl AddressRegistrar {
         }
     }
 
+    /// Attempt to look up the account ID associated with the given address.
+    /// If an entry for that address is found then the associated account id
+    /// is returned, otherwise `None` is returned. Use the `register` method
+    /// to add entries to the map.
+    /// This function will panic if the given address is not the hex-encoding
+    /// of a 20-byte array. The `0x` prefix is optional.
     pub fn lookup(&self, address: String) -> Option<AccountId> {
         let address = {
             let mut buf = [0u8; 20];
@@ -60,6 +72,10 @@ impl AddressRegistrar {
         self.addresses.get(&address).cloned()
     }
 
+    /// Computes the address associated with the given `account_id` and
+    /// returns it as a hex-encoded string with `0x` prefix. This function
+    /// does not update the mapping stored in this contract. If you want
+    /// to register an account ID use the `register` method.
     pub fn get_address(&self, account_id: AccountId) -> String {
         let address = account_id_to_address(&account_id);
         format!("0x{}", hex::encode(address))
