@@ -563,7 +563,7 @@ pub struct ApplyStatePartResult {
 }
 
 enum NodeOrValue {
-    Node(Box<RawTrieNodeWithSize>),
+    Node,
     Value(std::sync::Arc<[u8]>),
 }
 
@@ -666,6 +666,7 @@ impl Trie {
             self.flat_storage_chunk_view.clone(),
         );
         trie.recorder = Some(RefCell::new(TrieRecorder::new()));
+        trie.charge_gas_for_trie_node_access = self.charge_gas_for_trie_node_access;
         trie
     }
 
@@ -812,7 +813,7 @@ impl Trie {
         to: &Option<&AccountId>,
     ) {
         match self.debug_retrieve_raw_node_or_value(hash) {
-            Ok(NodeOrValue::Node(_)) => {
+            Ok(NodeOrValue::Node) => {
                 let mut prefix: Vec<u8> = Vec::new();
                 let mut limit = limit.unwrap_or(u32::MAX);
                 self.print_recursive_internal(
@@ -1115,7 +1116,7 @@ impl Trie {
     ) -> Result<NodeOrValue, StorageError> {
         let bytes = self.internal_retrieve_trie_node(hash, true)?;
         match RawTrieNodeWithSize::try_from_slice(&bytes) {
-            Ok(node) => Ok(NodeOrValue::Node(Box::new(node))),
+            Ok(_) => Ok(NodeOrValue::Node),
             Err(_) => Ok(NodeOrValue::Value(bytes)),
         }
     }

@@ -2772,8 +2772,7 @@ mod tests {
         let mut chain = get_chain(Clock::real());
         let genesis = chain.get_block_by_height(0).unwrap();
         let signer = Arc::new(create_test_signer("test1"));
-        let short_fork =
-            vec![TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
+        let short_fork = [TestBlockBuilder::new(Clock::real(), &genesis, signer.clone()).build()];
         let mut store_update = chain.mut_chain_store().store_update();
         store_update.save_block_header(short_fork[0].header().clone()).unwrap();
         store_update.commit().unwrap();

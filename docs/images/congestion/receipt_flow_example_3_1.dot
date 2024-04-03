@@ -1,0 +1,67 @@
+digraph G {
+    rankdir=LR;
+
+    // Invisible nodes for alignment
+    {
+        node [shape=point, width=0, height=0, label=""];
+        invisible_sink1;
+        invisible_sink2;
+    }
+
+    // Nodes
+    subgraph cluster_shard1 {
+        label = "Shard 1";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source1 [label="Source"];
+        Shard1 [label="Shard 1"];
+        Sink1 [label="Sink"];
+        Buffer1 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+
+
+        Sink1 -> invisible_sink1 [style=invis];
+        Buffer1 -> Sink1 [style=invis];
+    }
+
+    subgraph cluster_shard2 {
+        label = "Shard 2";
+        style=filled;
+        color=lightgrey;
+        node [shape=ellipse];
+
+        Source2 [label="Source"];
+        Shard2 [label="Shard 2"];
+        Sink2 [label="Sink"];
+        Buffer2 [label="Outgoing Buffer fills to max" shape=box color="red" penwidth=2];
+
+        invisible_sink1 -> invisible_sink2 [style=invis];
+        Source1 -> Source2 [style=invis];
+        Sink2 -> invisible_sink2 [style=invis];
+        Buffer2 -> Sink2 [style=invis];
+    }
+
+   
+    // Edges
+    Source1 -> Shard1 [label="blocked tx to shard 1+2" color="red" penwidth=3];
+    Source2 -> Shard2 [label="blocked tx to shard 1+2" color="red" penwidth=3];
+
+    Shard1 -> Sink1 [label="0 Tgas / 1000 Tgas (deadlock)"];
+    Shard2 -> Sink2 [label="0 Tgas / 1000 Tgas (deadlock)"];
+
+    Shard1 -> Buffer1 [label="backpressure" color="red" penwidth=2]
+    Buffer1 -> Shard2 [label="backpressure" color="red" penwidth=2];
+
+    Shard2 -> Buffer2 [label="backpressure" color="red" penwidth=2]
+    Buffer2 -> Shard1 [label="backpressure" color="red" penwidth=2];
+
+
+
+
+    // Aligning subgraphs
+    {rank=same; Source1; Source2;}
+    {rank=same; Shard1; Shard2;}
+    {rank=same; Buffer1; Buffer2;}
+    {rank=same; Sink1; Sink2; invisible_sink1; invisible_sink2;}
+}

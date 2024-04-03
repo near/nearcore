@@ -15,6 +15,7 @@ use near_epoch_manager::{EpochManagerAdapter, EpochManagerHandle};
 use near_parameters::{ActionCosts, ExtCosts, RuntimeConfigStore};
 use near_pool::types::TransactionGroupIterator;
 use near_primitives::account::{AccessKey, Account};
+use near_primitives::checked_feature;
 use near_primitives::errors::{InvalidTxError, RuntimeError, StorageError};
 use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
@@ -30,7 +31,7 @@ use near_primitives::types::{
     AccountId, Balance, BlockHeight, EpochHeight, EpochId, EpochInfoProvider, Gas, MerkleHash,
     ShardId, StateChangeCause, StateChangesForResharding, StateRoot, StateRootNode,
 };
-use near_primitives::version::ProtocolVersion;
+use near_primitives::version::{ProtocolVersion, PROTOCOL_VERSION};
 use near_primitives::views::{
     AccessKeyInfoView, CallResult, ContractCodeView, QueryRequest, QueryResponse,
     QueryResponseKind, ViewApplyState, ViewStateResult,
@@ -53,7 +54,7 @@ use node_runtime::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 pub mod errors;
 mod metrics;
@@ -241,6 +242,7 @@ impl NightshadeRuntime {
     }
 
     /// Processes state update.
+    #[instrument(target = "runtime", level = "debug", "process_state_update", skip_all)]
     fn process_state_update(
         &self,
         trie: Trie,
@@ -250,7 +252,6 @@ impl NightshadeRuntime {
         transactions: &[SignedTransaction],
         state_patch: SandboxStatePatch,
     ) -> Result<ApplyChunkResult, Error> {
-        let _span = tracing::debug_span!(target: "runtime", "process_state_update").entered();
         let ApplyChunkBlockContext {
             height: block_height,
             block_hash,
@@ -272,8 +273,7 @@ impl NightshadeRuntime {
             let epoch_manager = self.epoch_manager.read();
             let shard_layout = epoch_manager.get_shard_layout(&epoch_id)?;
             debug!(target: "runtime",
-                   "is next_block_epoch_start {}",
-                   epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
+                   next_block_epoch_start = epoch_manager.is_next_block_epoch_start(prev_block_hash).unwrap()
             );
 
             let mut slashing_info: HashMap<_, _> = challenges_result
@@ -351,7 +351,13 @@ impl NightshadeRuntime {
             self.epoch_manager.get_epoch_protocol_version(&prev_block_epoch_id)?;
         let is_first_block_of_version = current_protocol_version != prev_block_protocol_version;
 
-        debug!(target: "runtime", ?epoch_height, ?epoch_id, ?current_protocol_version, ?is_first_block_of_version);
+        debug!(
+            target: "runtime",
+            epoch_height,
+            ?epoch_id,
+            current_protocol_version,
+            is_first_block_of_version
+        );
 
         let apply_state = ApplyState {
             block_height,
@@ -704,7 +710,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
         let mut state_update = TrieUpdate::new(trie);
@@ -840,6 +848,7 @@ impl RuntimeAdapter for NightshadeRuntime {
         }
     }
 
+    #[instrument(target = "runtime", level = "info", skip_all, fields(shard_id = chunk.shard_id))]
     fn apply_chunk(
         &self,
         storage_config: RuntimeStorageConfig,
@@ -865,7 +874,9 @@ impl RuntimeAdapter for NightshadeRuntime {
                 storage_config.use_flat_storage,
             ),
         };
-        if storage_config.record_storage {
+        if checked_feature!("stable", StatelessValidationV0, PROTOCOL_VERSION)
+            || cfg!(feature = "shadow_chunk_validation")
+        {
             trie = trie.recording_reads();
         }
 
@@ -1219,6 +1230,8 @@ impl RuntimeAdapter for NightshadeRuntime {
             epoch_config.validator_selection_config.minimum_validators_per_shard;
         genesis_config.minimum_stake_ratio =
             epoch_config.validator_selection_config.minimum_stake_ratio;
+        genesis_config.shuffle_shard_assignment_for_chunk_producers =
+            epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers;
 
         let runtime_config =
             self.runtime_config_store.get_config(protocol_version).as_ref().clone();
@@ -1230,8 +1243,30 @@ impl RuntimeAdapter for NightshadeRuntime {
         Ok(epoch_manager.will_shard_layout_change(parent_hash)?)
     }
 
-    fn load_mem_tries_on_startup(&self, shard_uids: &[ShardUId]) -> Result<(), StorageError> {
-        self.tries.load_mem_tries_for_enabled_shards(shard_uids)
+    fn load_mem_tries_on_startup(&self, tracked_shards: &[ShardUId]) -> Result<(), StorageError> {
+        self.tries.load_mem_tries_for_enabled_shards(tracked_shards)
+    }
+
+    fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<(), StorageError> {
+        if !self.get_tries().trie_config().load_mem_tries_for_tracked_shards {
+            return Ok(());
+        }
+        // It should not happen that memtrie is already loaded for a shard
+        // for which we just did state sync.
+        debug_assert!(!self.tries.is_mem_trie_loaded(shard_uid));
+        self.tries.load_mem_trie(shard_uid, Some(*state_root))
+    }
+
+    fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
+        self.tries.retain_mem_tries(shard_uids)
+    }
+
+    fn unload_mem_trie(&self, shard_uid: &ShardUId) {
+        self.tries.unload_mem_trie(shard_uid)
     }
 }
 
