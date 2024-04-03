@@ -70,7 +70,7 @@ fn map_action_receipt(
 }
 
 // map any account IDs or keys referenced in the receipt
-fn map_receipt(
+pub fn map_receipt(
     receipt: &mut Receipt,
     secret: Option<&[u8; crate::secret::SECRET_LEN]>,
     default_key: &PublicKey,
@@ -88,7 +88,7 @@ fn map_receipt(
 /// Reads records, makes changes to them and writes them to a new file.
 /// `records_file_in` must be different from `records_file_out`.
 /// Writes a secret to `secret_file_out`.
-pub fn map_records<P: AsRef<Path>>(
+pub(crate) fn map_records<P: AsRef<Path>>(
     records_file_in: P,
     records_file_out: P,
     no_secret: bool,

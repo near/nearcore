@@ -41,7 +41,7 @@ use tokio::sync::mpsc;
 
 mod chain_tracker;
 pub mod cli;
-mod genesis;
+pub mod genesis;
 pub mod key_mapping;
 mod metrics;
 mod offline;
