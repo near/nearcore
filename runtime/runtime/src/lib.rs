@@ -1650,7 +1650,15 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+        near_store::trie::DURATIONS_PER_COLUMN.with_borrow_mut(|v| {
+            v.clear();
+        });
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+        near_store::trie::DURATIONS_PER_COLUMN.with_borrow(|v| {
+            for (col, duration) in v.iter() {
+                tracing::info!(target: "runtime", message="post-finalize durations", col, ?duration);
+            }
+        });
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.

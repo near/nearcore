@@ -1543,10 +1543,15 @@ impl Trie {
                 let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
                 for (key, value) in changes {
                     let key = NibbleSlice::new(&key);
+                    let start = std::time::Instant::now();
                     root_node = match value {
                         Some(arr) => self.insert(&mut memory, root_node, key, arr),
                         None => self.delete(&mut memory, root_node, key),
                     }?;
+                    DURATIONS_PER_COLUMN.with_borrow_mut(|v| {
+                        let accum = v.entry(key.at(0)).or_default();
+                        *accum += start.elapsed();
+                    });
                 }
 
                 #[cfg(test)]
@@ -1582,6 +1587,10 @@ impl Trie {
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.accounting_cache.borrow().get_trie_nodes_count()
     }
+}
+
+thread_local! {
+    pub static DURATIONS_PER_COLUMN: RefCell<HashMap<u8, std::time::Duration>> = RefCell::new(HashMap::new());
 }
 
 impl TrieAccess for Trie {
