@@ -859,6 +859,8 @@ pub fn setup_mock_all_validators(
                         NetworkRequests::ChunkStateWitness(_, _) => {
                             // TODO(#10265): Implement for integration tests.
                         },
+                        NetworkRequests::PartialEncodedStateWitness(_) => {},
+                        NetworkRequests::PartialEncodedStateWitnessForward(_) => {},
                         NetworkRequests::ChunkStateWitnessAck(_, _) => {
                             // TODO(#10790): Implement for integration tests.
                         },

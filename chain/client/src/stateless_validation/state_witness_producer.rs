@@ -1,8 +1,7 @@
-use near_async::messaging::{CanSend, IntoSender};
+use near_async::messaging::IntoSender;
 
 use near_chain::{BlockHeader, Chain, ChainStoreAccess};
 use near_chain_primitives::Error;
-use near_network::types::{NetworkRequests, PeerManagerMessageRequest};
 use near_o11y::log_assert_fail;
 use near_primitives::challenge::PartialState;
 use near_primitives::checked_feature;
@@ -17,6 +16,7 @@ use near_primitives::types::EpochId;
 use std::collections::HashMap;
 
 use crate::stateless_validation::chunk_validator::send_chunk_endorsement_to_block_producers;
+use crate::stateless_validation::state_witness_sender::send_chunk_witness_to_chunk_validators;
 use crate::{metrics, Client};
 
 impl Client {
@@ -46,7 +46,7 @@ impl Client {
             .ordered_chunk_validators();
 
         let my_signer = self.validator_signer.as_ref().ok_or(Error::NotAValidator)?.clone();
-        let (witness, witness_size) = {
+        let (witness, _witness_size) = {
             let witness_inner = self.create_state_witness_inner(
                 prev_block_header,
                 prev_chunk_header,
@@ -80,17 +80,21 @@ impl Client {
             chunk_validators,
         );
 
-        // Record the witness in order to match the incoming acks for measuring round-trip times.
-        // See process_chunk_state_witness_ack for the handling of the ack messages.
-        self.state_witness_tracker.record_witness_sent(
-            &witness,
-            witness_size,
-            chunk_validators.len(),
-        );
+        // New way to send state witness to chunk validators using ReedSolomon encoding.
+        // Do no send state_witness_tracker related messages
+        send_chunk_witness_to_chunk_validators(&witness, chunk_validators, &self.network_adapter)?;
 
-        self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
-            NetworkRequests::ChunkStateWitness(chunk_validators, witness),
-        ));
+        // // Record the witness in order to match the incoming acks for measuring round-trip times.
+        // // See process_chunk_state_witness_ack for the handling of the ack messages.
+        // self.state_witness_tracker.record_witness_sent(
+        //     &witness,
+        //     witness_size,
+        //     chunk_validators.len(),
+        // );
+
+        // self.network_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+        //     NetworkRequests::ChunkStateWitness(chunk_validators, witness),
+        // ));
         Ok(())
     }
 

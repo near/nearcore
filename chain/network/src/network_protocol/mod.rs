@@ -10,6 +10,7 @@ pub use edge::*;
 use near_primitives::stateless_validation::ChunkEndorsement;
 use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkStateWitnessAck;
+use near_primitives::stateless_validation::PartialEncodedStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -531,6 +532,8 @@ pub enum RoutedMessageBody {
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
     ChunkStateWitness(ChunkStateWitness),
+    PartialEncodedStateWitness(PartialEncodedStateWitness),
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     ChunkEndorsement(ChunkEndorsement),
     ChunkStateWitnessAck(ChunkStateWitnessAck),
 }
@@ -599,6 +602,12 @@ impl fmt::Debug for RoutedMessageBody {
             RoutedMessageBody::Pong(_) => write!(f, "Pong"),
             RoutedMessageBody::_UnusedVersionedStateResponse => write!(f, "VersionedStateResponse"),
             RoutedMessageBody::ChunkStateWitness(_) => write!(f, "ChunkStateWitness"),
+            RoutedMessageBody::PartialEncodedStateWitness(_) => {
+                write!(f, "PartialEncodedStateWitness")
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(_) => {
+                write!(f, "PartialEncodedStateWitnessForward")
+            }
             RoutedMessageBody::ChunkEndorsement(_) => write!(f, "ChunkEndorsement"),
             RoutedMessageBody::ChunkStateWitnessAck(ack, ..) => {
                 f.debug_tuple("ChunkStateWitnessAck").field(&ack.chunk_hash).finish()

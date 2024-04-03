@@ -1,5 +1,6 @@
 use actix::Message;
 use near_async::time::Instant;
+use near_primitives::stateless_validation::PartialEncodedStateWitness;
 use near_primitives::{hash::CryptoHash, sharding::PartialEncodedChunk};
 
 use crate::types::{
@@ -19,4 +20,6 @@ pub enum ShardsManagerRequestFromNetwork {
         partial_encoded_chunk_request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
     },
+    ProcessPartialEncodedStateWitnessRequest(PartialEncodedStateWitness),
+    ProcessPartialEncodedStateWitnessForwardRequest(PartialEncodedStateWitness),
 }

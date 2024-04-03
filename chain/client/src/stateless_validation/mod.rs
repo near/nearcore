@@ -3,4 +3,5 @@ pub mod chunk_validator;
 pub mod processing_tracker;
 mod shadow_validate;
 mod state_witness_producer;
+pub mod state_witness_sender;
 pub mod state_witness_tracker;

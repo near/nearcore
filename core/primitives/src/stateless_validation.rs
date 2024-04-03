@@ -9,6 +9,15 @@ use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
+pub struct PartialEncodedStateWitness {
+    pub part_ord: usize,
+    pub part: Box<[u8]>,
+    pub part_owner: AccountId,
+    pub forward_accounts: Vec<AccountId>,
+    pub witness_size: usize,
+}
+
 /// An arbitrary static string to make sure that this struct cannot be
 /// serialized to look identical to another serialized struct. For chunk
 /// production we are signing a chunk hash, so we need to make sure that

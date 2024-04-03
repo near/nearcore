@@ -20,7 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, PartialEncodedStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
@@ -219,23 +219,49 @@ impl From<NetworkResponses> for PeerManagerMessageResponse {
 #[allow(clippy::large_enum_variant)]
 pub enum NetworkRequests {
     /// Sends block, either when block was just produced or when requested.
-    Block { block: Block },
+    Block {
+        block: Block,
+    },
     /// Sends approval.
-    Approval { approval_message: ApprovalMessage },
+    Approval {
+        approval_message: ApprovalMessage,
+    },
     /// Request block with given hash from given peer.
-    BlockRequest { hash: CryptoHash, peer_id: PeerId },
+    BlockRequest {
+        hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request given block headers.
-    BlockHeadersRequest { hashes: Vec<CryptoHash>, peer_id: PeerId },
+    BlockHeadersRequest {
+        hashes: Vec<CryptoHash>,
+        peer_id: PeerId,
+    },
     /// Request state header for given shard at given state root.
-    StateRequestHeader { shard_id: ShardId, sync_hash: CryptoHash, peer_id: PeerId },
+    StateRequestHeader {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        peer_id: PeerId,
+    },
     /// Request state part for given shard at given state root.
-    StateRequestPart { shard_id: ShardId, sync_hash: CryptoHash, part_id: u64, peer_id: PeerId },
+    StateRequestPart {
+        shard_id: ShardId,
+        sync_hash: CryptoHash,
+        part_id: u64,
+        peer_id: PeerId,
+    },
     /// Ban given peer.
-    BanPeer { peer_id: PeerId, ban_reason: ReasonForBan },
+    BanPeer {
+        peer_id: PeerId,
+        ban_reason: ReasonForBan,
+    },
     /// Announce account
     AnnounceAccount(AnnounceAccount),
     /// Broadcast information about a hosted snapshot.
-    SnapshotHostInfo { sync_hash: CryptoHash, epoch_height: EpochHeight, shards: Vec<ShardId> },
+    SnapshotHostInfo {
+        sync_hash: CryptoHash,
+        epoch_height: EpochHeight,
+        shards: Vec<ShardId>,
+    },
 
     /// Request chunk parts and/or receipts
     PartialEncodedChunkRequest {
@@ -244,14 +270,20 @@ pub enum NetworkRequests {
         create_time: time::Instant,
     },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
-    PartialEncodedChunkResponse { route_back: CryptoHash, response: PartialEncodedChunkResponseMsg },
+    PartialEncodedChunkResponse {
+        route_back: CryptoHash,
+        response: PartialEncodedChunkResponseMsg,
+    },
     /// Information about chunk such as its header, some subset of parts and/or incoming receipts
     PartialEncodedChunkMessage {
         account_id: AccountId,
         partial_encoded_chunk: PartialEncodedChunkWithArcReceipts,
     },
     /// Forwarding a chunk part to a validator tracking the shard
-    PartialEncodedChunkForward { account_id: AccountId, forward: PartialEncodedChunkForwardMsg },
+    PartialEncodedChunkForward {
+        account_id: AccountId,
+        forward: PartialEncodedChunkForwardMsg,
+    },
     /// Valid transaction but since we are not validators we send this transaction to current validators.
     ForwardTx(AccountId, SignedTransaction),
     /// Query transaction status
@@ -260,6 +292,8 @@ pub enum NetworkRequests {
     Challenge(Challenge),
     /// A chunk's state witness.
     ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
+    PartialEncodedStateWitness(Vec<PartialEncodedStateWitness>),
+    PartialEncodedStateWitnessForward(PartialEncodedStateWitness),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.

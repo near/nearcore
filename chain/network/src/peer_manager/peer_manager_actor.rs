@@ -976,6 +976,32 @@ impl PeerManagerActor {
                 }
                 NetworkResponses::NoResponse
             }
+            NetworkRequests::PartialEncodedStateWitness(partial_encoded_state_witnesses) => {
+                // Send each of the partial encoded state witnesses to their part owner
+                for partial_encoded_state_witness in &partial_encoded_state_witnesses {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &partial_encoded_state_witness.part_owner,
+                        RoutedMessageBody::PartialEncodedStateWitness(
+                            partial_encoded_state_witness.clone(),
+                        ),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
+            NetworkRequests::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
+                // Once part owner receives the messages, they send it to all chunk_validators/forward_accounts
+                for chunk_validator in &partial_encoded_state_witness.forward_accounts {
+                    self.state.send_message_to_account(
+                        &self.clock,
+                        &chunk_validator,
+                        RoutedMessageBody::PartialEncodedStateWitnessForward(
+                            partial_encoded_state_witness.clone(),
+                        ),
+                    );
+                }
+                NetworkResponses::NoResponse
+            }
             NetworkRequests::ChunkStateWitnessAck(target, ack) => {
                 self.state.send_message_to_account(
                     &self.clock,

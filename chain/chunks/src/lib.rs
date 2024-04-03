@@ -116,6 +116,7 @@ use near_primitives::sharding::{
     PartialEncodedChunkPart, PartialEncodedChunkV2, ReceiptProof, ReedSolomonWrapper, ShardChunk,
     ShardChunkHeader, ShardProof,
 };
+use near_primitives::stateless_validation::PartialEncodedStateWitness;
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -127,6 +128,7 @@ use near_primitives::version::ProtocolVersion;
 use near_primitives::{checked_feature, unwrap_or_return};
 use rand::seq::IteratorRandom;
 use rand::Rng;
+use state_witness_manager::StateWitnessManager;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, warn};
@@ -137,6 +139,7 @@ pub mod client;
 pub mod logic;
 pub mod metrics;
 pub mod shards_manager_actor;
+pub mod state_witness_manager;
 pub mod test_loop;
 pub mod test_utils;
 
@@ -268,6 +271,8 @@ pub struct ShardsManager {
     // header_head is new, but we would only know that the older chunks are old because
     // header_head is much newer.
     chain_header_head: Tip,
+
+    state_witness_manager: StateWitnessManager,
 }
 
 impl ShardsManager {
@@ -304,6 +309,7 @@ impl ShardsManager {
             chunk_forwards_cache: lru::LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
+            state_witness_manager: StateWitnessManager::new(),
         }
     }
 
@@ -828,6 +834,24 @@ impl ShardsManager {
         self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedChunkResponse { route_back, response },
         ));
+    }
+
+    pub fn process_partial_encoded_state_witness_request(
+        &mut self,
+        witness: PartialEncodedStateWitness,
+    ) {
+        // Simply forward this to the chunk validators
+        self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
+            NetworkRequests::PartialEncodedStateWitnessForward(witness),
+        ));
+    }
+
+    pub fn process_partial_encoded_state_witness_forward_request(
+        &mut self,
+        witness: PartialEncodedStateWitness,
+    ) {
+        // state_witness_manager will handle all partial state witnesses
+        self.state_witness_manager.track_partial_encoded_state_witness(witness);
     }
 
     /// Finds the parts and receipt proofs asked for in the request, and returns a response
@@ -2145,6 +2169,14 @@ impl ShardsManager {
                     partial_encoded_chunk_request,
                     route_back,
                 );
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessRequest(witness) => {
+                self.process_partial_encoded_state_witness_request(witness);
+            }
+            ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessForwardRequest(
+                witness,
+            ) => {
+                self.process_partial_encoded_state_witness_forward_request(witness);
             }
         }
     }

@@ -1016,6 +1016,20 @@ impl PeerActor {
                 network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                 None
             }
+            RoutedMessageBody::PartialEncodedStateWitness(witness) => {
+                network_state.shards_manager_adapter.send(
+                    ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessRequest(
+                        witness,
+                    ),
+                );
+                None
+            }
+            RoutedMessageBody::PartialEncodedStateWitnessForward(witness) => {
+                network_state
+                    .shards_manager_adapter
+                    .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessForwardRequest(witness));
+                None
+            }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {
                 network_state.client.send_async(ChunkStateWitnessAckMessage(ack)).await.ok();
                 None
