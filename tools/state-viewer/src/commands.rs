@@ -1357,7 +1357,8 @@ impl MoveFlatHeadBackCmd {
             store.clone(),
             &near_config,
             epoch_manager.clone(),
-        );
+        )
+        .unwrap();
 
         let shard_id = self.shard_id;
         let shard_uid = ShardUId { version: self.version, shard_id: shard_id as u32 };
