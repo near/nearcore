@@ -885,7 +885,11 @@ class NeardRunner:
 
         backup_dir = self.home_path('backups', name)
         if os.path.exists(backup_dir):
-            logging.warn(f'{backup_dir} already exists, copying files anyway')
+            # we already checked that this backup ID didn't already exist, so if this path
+            # exists, someone probably manually added it. for now just set the state to ERROR
+            # and make the human intervene, but it shouldn't happen in practice
+            logging.warn(f'{backup_dir} already exists')
+            self.set_state(TestState.ERROR)
             return
         logging.info(f'copying data dir to {backup_dir}')
         shutil.copytree(self.target_near_home_path('data'),
