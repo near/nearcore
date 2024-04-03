@@ -81,6 +81,16 @@ impl TriePrefetcher {
         None
     }
 
+    pub (crate) fn prefetch_delayed_receipt_data(
+        &mut self,
+        index: u64,
+        receipt: &Receipt,
+    ) -> Result<(), PrefetchError> {
+        // Prefecth the receipt data for the next delayed receipt index.
+        self.prefetch_trie_key(TrieKey::DelayedReceipt { index: index + 1 })?;
+        self.prefetch_receipts_data(std::slice::from_ref(&receipt))
+    }
+
     /// Starts prefetching data for processing the receipts.
     ///
     /// Returns an error if prefetching for any receipt fails.

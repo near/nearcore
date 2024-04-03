@@ -1490,18 +1490,19 @@ impl Runtime {
             {
                 break;
             }
-            let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
+            let index = delayed_receipts_indices.first_index;
+            let key = TrieKey::DelayedReceipt { index };
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} should be in the state",
-                    delayed_receipts_indices.first_index
+                    index
                 ))
             })?;
 
             if let Some(prefetcher) = &mut prefetcher {
                 prefetcher.clear();
                 // Prefetcher is allowed to fail
-                _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
+                _ = prefetcher.prefetch_delayed_receipt_data(index, &receipt);
             }
 
             // Validating the delayed receipt. If it fails, it's likely the state is inconsistent.
@@ -1513,7 +1514,7 @@ impl Runtime {
             .map_err(|e| {
                 StorageError::StorageInconsistentState(format!(
                     "Delayed receipt #{} in the state is invalid: {}",
-                    delayed_receipts_indices.first_index, e
+                    index, e
                 ))
             })?;
 
