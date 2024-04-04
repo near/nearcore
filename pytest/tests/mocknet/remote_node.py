@@ -34,25 +34,27 @@ class RemoteNeardRunner:
         if remove_home_dir:
             cmd_utils.run_cmd(
                 self.node,
-                'rm -rf /home/ubuntu/neard-runner && mkdir -p /home/ubuntu/neard-runner'
+                'rm -rf /home/ubuntu/.near/neard-runner && mkdir -p /home/ubuntu/.near/neard-runner'
             )
         else:
-            cmd_utils.run_cmd(self.node, 'mkdir -p /home/ubuntu/neard-runner')
+            cmd_utils.run_cmd(self.node,
+                              'mkdir -p /home/ubuntu/.near/neard-runner')
 
     def upload_neard_runner(self):
         self.node.machine.upload('tests/mocknet/helpers/neard_runner.py',
-                                 '/home/ubuntu/neard-runner',
+                                 '/home/ubuntu/.near/neard-runner',
                                  switch_user='ubuntu')
         self.node.machine.upload('tests/mocknet/helpers/requirements.txt',
-                                 '/home/ubuntu/neard-runner',
+                                 '/home/ubuntu/.near/neard-runner',
                                  switch_user='ubuntu')
 
     def upload_neard_runner_config(self, config):
-        mocknet.upload_json(self.node, '/home/ubuntu/neard-runner/config.json',
+        mocknet.upload_json(self.node,
+                            '/home/ubuntu/.near/neard-runner/config.json',
                             config)
 
     def init_python(self):
-        cmd = 'cd /home/ubuntu/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
+        cmd = 'cd /home/ubuntu/.near/neard-runner && python3 -m virtualenv venv -p $(which python3)' \
         ' && ./venv/bin/pip install -r requirements.txt'
         cmd_utils.run_cmd(self.node, cmd)
 
@@ -64,8 +66,8 @@ class RemoteNeardRunner:
         )
 
     def start_neard_runner(self):
-        cmd_utils.run_in_background(self.node, f'/home/ubuntu/neard-runner/venv/bin/python /home/ubuntu/neard-runner/neard_runner.py ' \
-            '--home /home/ubuntu/neard-runner --neard-home /home/ubuntu/.near ' \
+        cmd_utils.run_in_background(self.node, f'/home/ubuntu/.near/neard-runner/venv/bin/python /home/ubuntu/.near/neard-runner/neard_runner.py ' \
+            '--home /home/ubuntu/.near/neard-runner --neard-home /home/ubuntu/.near ' \
             '--neard-logs /home/ubuntu/neard-logs --port 3000', 'neard-runner.txt')
 
     def neard_runner_post(self, body):

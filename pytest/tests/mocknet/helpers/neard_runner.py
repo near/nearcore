@@ -2,6 +2,7 @@
 # python script to handle neard process management.
 
 import argparse
+import datetime
 from enum import Enum
 import fcntl
 import json
@@ -9,6 +10,7 @@ import jsonrpc
 import logging
 import os
 import psutil
+import re
 import requests
 import shutil
 import signal
@@ -61,6 +63,10 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         self.dispatcher.add_method(server.neard_runner.do_reset, name="reset")
         self.dispatcher.add_method(server.neard_runner.do_update_binaries,
                                    name="update_binaries")
+        self.dispatcher.add_method(server.neard_runner.do_make_backup,
+                                   name="make_backup")
+        self.dispatcher.add_method(server.neard_runner.do_ls_backups,
+                                   name="ls_backups")
         super().__init__(request, client_address, server)
 
     def do_GET(self):
@@ -108,6 +114,10 @@ class TestState(Enum):
     STOPPED = 6
     RESETTING = 7
     ERROR = 8
+    MAKING_BACKUP = 9
+
+
+backup_id_pattern = re.compile(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$')
 
 
 class NeardRunner:
@@ -140,6 +150,8 @@ class NeardRunner:
                 'neard_process': None,
                 'current_neard_path': None,
                 'state': TestState.NONE.value,
+                'backups': {},
+                'state_data': None,
             }
         # protects self.data, and its representation on disk,
         # because both the rpc server and the main loop touch them concurrently
@@ -190,9 +202,11 @@ class NeardRunner:
             })
         return binaries
 
+    def set_current_neard_path(self, path):
+        self.data['current_neard_path'] = path
+
     def reset_current_neard_path(self):
-        self.data['current_neard_path'] = self.data['binaries'][0][
-            'system_path']
+        self.set_current_neard_path(self.data['binaries'][0]['system_path'])
 
     # tries to download the binaries specified in config.json, saving them in $home/binaries/
     # if force is set to true all binaries will be downloaded, otherwise only the missing ones
@@ -355,6 +369,7 @@ class NeardRunner:
                 validator_account_id = None
                 validator_public_key = None
 
+            self.data['backups'] = {}
             self.set_state(TestState.AWAITING_NETWORK_INIT)
             self.save_data()
 
@@ -461,25 +476,54 @@ class NeardRunner:
                 self.set_state(TestState.STOPPED)
                 self.save_data()
 
-    def do_reset(self):
+    def do_reset(self, backup_id=None):
         with self.lock:
             state = self.get_state()
             logging.info(f"do_reset {state}")
-            if state == TestState.RUNNING:
-                self.kill_neard()
-                self.set_state(TestState.RESETTING)
-                self.reset_current_neard_path()
-                self.save_data()
-            elif state == TestState.STOPPED:
-                self.set_state(TestState.RESETTING)
-                self.reset_current_neard_path()
-                self.save_data()
-            else:
+            if state != TestState.RUNNING and state != TestState.STOPPED:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600,
-                    message=
-                    'Cannot reset node as test state has not been initialized yet'
-                )
+                    message='Cannot reset data dir as test state is not ready')
+
+            backups = self.data.get('backups', {})
+            if backup_id is not None and backup_id != 'start' and backup_id not in backups:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600, message=f'backup ID {backup_id} not known')
+
+            if backup_id is None or backup_id == 'start':
+                path = self.data['binaries'][0]['system_path']
+            else:
+                path = backups[backup_id]['neard_path']
+
+            if state == TestState.RUNNING:
+                self.kill_neard()
+            self.set_state(TestState.RESETTING, data=backup_id)
+            self.set_current_neard_path(path)
+            self.save_data()
+
+    def do_make_backup(self, backup_id, description=None):
+        with self.lock:
+            state = self.get_state()
+            if state != TestState.RUNNING and state != TestState.STOPPED:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600,
+                    message='Cannot make backup as test state is not ready')
+
+            if backup_id_pattern.match(backup_id) is None:
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600, message=f'invalid backup ID: {backup_id}')
+
+            if backup_id in self.data.get('backups', {}):
+                raise jsonrpc.exceptions.JSONRPCDispatchException(
+                    code=-32600, message=f'backup {backup_id} already exists')
+            if state == TestState.RUNNING:
+                self.kill_neard()
+            self.making_backup(backup_id, description)
+            self.save_data()
+
+    def do_ls_backups(self):
+        with self.lock:
+            return self.data.get('backups', {})
 
     def do_update_binaries(self):
         with self.lock:
@@ -690,14 +734,19 @@ class NeardRunner:
                 start_neard = True
 
         if start_neard:
-            self.data['current_neard_path'] = neard_path
+            self.set_current_neard_path(neard_path)
             self.start_neard()
 
     def get_state(self):
         return TestState(self.data['state'])
 
-    def set_state(self, state):
+    def set_state(self, state, data=None):
         self.data['state'] = state.value
+        self.data['state_data'] = data
+
+    def making_backup(self, backup_id, description=None):
+        backup_data = {'backup_id': backup_id, 'description': description}
+        self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
     def network_init(self):
         # wait til we get a network_init RPC
@@ -822,6 +871,41 @@ class NeardRunner:
                 self.set_state(TestState.STATE_ROOTS)
                 self.save_data()
 
+    def make_backup(self):
+        now = str(datetime.datetime.now())
+        backup_data = self.data['state_data']
+        name = backup_data['backup_id']
+        description = backup_data.get('description', None)
+
+        backup_dir = self.home_path('backups', name)
+        if os.path.exists(backup_dir):
+            # we already checked that this backup ID didn't already exist, so if this path
+            # exists, someone probably manually added it. for now just set the state to ERROR
+            # and make the human intervene, but it shouldn't happen in practice
+            logging.warn(f'{backup_dir} already exists')
+            self.set_state(TestState.ERROR)
+            return
+        logging.info(f'copying data dir to {backup_dir}')
+        shutil.copytree(self.target_near_home_path('data'),
+                        backup_dir,
+                        dirs_exist_ok=True)
+        logging.info(f'copied data dir to {backup_dir}')
+
+        backups = self.data.get('backups', {})
+        if name in backups:
+            # shouldn't happen if we check this in do_make_backups(), but fine to be paranoid and at least warn here
+            logging.warn(
+                f'backup {name} already existed in data.json, but it was not present before'
+            )
+        backups[name] = {
+            'time': now,
+            'description': description,
+            'neard_path': self.data['current_neard_path']
+        }
+        self.data['backups'] = backups
+        self.set_state(TestState.STOPPED)
+        self.save_data()
+
     def check_genesis_state(self):
         path, running, exit_code = self.poll_neard()
         if not running:
@@ -843,26 +927,31 @@ class NeardRunner:
                 except FileNotFoundError:
                     pass
                 os.mkdir(self.home_path('backups'))
-                # Right now we save the backup to backups/start and in the future
-                # it would be nice to support a feature that lets you stop all the nodes and
-                # make another backup to restore to
-                backup_dir = self.home_path('backups', 'start')
-                logging.info(f'copying data dir to {backup_dir}')
-                shutil.copytree(self.target_near_home_path('data'), backup_dir)
-                self.set_state(TestState.STOPPED)
+                self.making_backup(
+                    'start',
+                    description='initial test state after state root computation'
+                )
                 self.save_data()
+                self.make_backup()
         except requests.exceptions.ConnectionError:
             pass
 
     def reset_near_home(self):
+        backup_id = self.data['state_data']
+        if backup_id is None:
+            backup_id = 'start'
+        backup_path = self.home_path('backups', backup_id)
+        if not os.path.exists(backup_path):
+            logging.error(f'backup dir {backup_path} does not exist')
+            self.set_state(TestState.ERROR)
+            self.save_data()
         try:
             logging.info("removing the old directory")
             shutil.rmtree(self.target_near_home_path('data'))
         except FileNotFoundError:
             pass
-        logging.info('restoring data dir from backup')
-        shutil.copytree(self.home_path('backups', 'start'),
-                        self.target_near_home_path('data'))
+        logging.info(f'restoring data dir from backup at {backup_path}')
+        shutil.copytree(backup_path, self.target_near_home_path('data'))
         logging.info('data dir restored')
         self.set_state(TestState.STOPPED)
         self.save_data()
@@ -882,6 +971,8 @@ class NeardRunner:
                     self.check_upgrade_neard()
                 elif state == TestState.RESETTING:
                     self.reset_near_home()
+                elif state == TestState.MAKING_BACKUP:
+                    self.make_backup()
             time.sleep(10)
 
     def serve(self, port):
