@@ -54,7 +54,8 @@ enum SubCommand {
     /// Trie is traversed using DFS with randomly shuffled kids for every node.
     CheckStateRoot(CheckStateRootCmd),
     /// Modifies cold db from config to be considered not initialised.
-    MakeColdGarbage(MakeColdGarbageCmd),
+    /// Doesn't actually delete any data, except for HEAD and COLD_HEAD in BlockMisc.
+    ResetCold(ResetColdCmd),
 }
 
 impl ColdStoreCommand {
@@ -89,7 +90,7 @@ impl ColdStoreCommand {
             }
             SubCommand::PrepareHot(cmd) => cmd.run(&storage, &home_dir, &near_config),
             SubCommand::CheckStateRoot(cmd) => cmd.run(&storage),
-            SubCommand::MakeColdGarbage(cmd) => cmd.run(&storage),
+            SubCommand::ResetCold(cmd) => cmd.run(&storage),
         }
     }
 
@@ -657,9 +658,9 @@ impl CheckStateRootCmd {
 }
 
 #[derive(clap::Args)]
-struct MakeColdGarbageCmd {}
+struct ResetColdCmd {}
 
-impl MakeColdGarbageCmd {
+impl ResetColdCmd {
     pub fn run(self, storage: &NodeStorage) -> anyhow::Result<()> {
         let cold_store = storage
             .get_cold_store()

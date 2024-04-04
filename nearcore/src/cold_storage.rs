@@ -231,10 +231,12 @@ enum ColdStoreMigrationResult {
 /// New head is determined based on hot storage DBKind.
 /// - If hot storage is of type `Archive`, we need to perform initial migration from legacy archival node.
 ///   This process will take a long time. Cold head will be set to hot final head BEFORE the migration started.
-/// - If hot storage is of type `Hot`, this node was just created with split storage,
-///   and we need to perform migration of genesis data to cold storage.
+/// - If hot storage is of type `Hot`, this node was just created in split storage mode from genesis.
+///   Genesis data is written to hot storage before node can join the chain. Cold storage remains empty during that time.
+///   Thus, when cold loop is spawned, we need to perform migration of genesis data to cold storage.
 ///   Cold head will be set to genesis height.
 /// - Other kinds of hot storage are indicative of configuration error.
+/// New cold head is written only after the migration is fully finished.
 ///
 /// After cold head is determined this function
 /// 1. performs migration
@@ -278,7 +280,7 @@ fn cold_store_migration(
                 .height
         }
         Some(kind) => {
-            tracing::error!(target: "cold_store", "Hot store DBKind not {kind:?}.");
+            tracing::error!(target: "cold_store", ?kind, "Hot store DbKind not supported.");
             return Err(anyhow::anyhow!(format!("Hot store DBKind not {kind:?}.")));
         }
     };
@@ -327,13 +329,18 @@ fn cold_store_migration_loop(
             // We can either stop the cold store thread or hope that next time migration will not fail.
             // Here we pick the second option.
             Err(err) => {
-                let dur = split_storage_config.cold_store_initial_migration_loop_sleep_duration;
-                tracing::error!(target: "cold_store", "migration failed with error {}, sleeping {}s and trying again", err, dur.whole_seconds());
-                std::thread::sleep(dur.unsigned_abs());
+                let sleep_duration = split_storage_config
+                    .cold_store_initial_migration_loop_sleep_duration
+                    .unsigned_abs();
+                let sleep_duration_in_secs = split_storage_config
+                    .cold_store_initial_migration_loop_sleep_duration
+                    .whole_seconds();
+                tracing::error!(target: "cold_store", ?err, ?sleep_duration_in_secs, "Migration failed. Sleeping and trying again.", );
+                std::thread::sleep(sleep_duration);
             }
             // Any Ok status from `cold_store_initial_migration` function means that we can proceed to regular run.
-            Ok(status) => {
-                tracing::info!(target: "cold_store", "migration status: {:?}. Moving on.", status);
+            Ok(migration_status) => {
+                tracing::info!(target: "cold_store", ?migration_status, "Moving on.");
                 break;
             }
         }
