@@ -1,12 +1,11 @@
 use derive_enum_from_into::{EnumFrom, EnumTryInto};
 use near_async::messaging::{noop, IntoMultiSender, IntoSender, MessageWithCallback, SendAsync};
 use near_async::test_loop::adhoc::{handle_adhoc_events, AdhocEvent, AdhocEventSender};
-use near_async::test_loop::event_handler::{
-    ignore_events, LoopEventHandler, LoopHandlerContext, TryIntoOrSelf,
-};
+use near_async::test_loop::delay_sender::DelaySender;
+use near_async::test_loop::event_handler::{ignore_events, LoopEventHandler, TryIntoOrSelf};
 use near_async::test_loop::futures::{
-    drive_async_computations, drive_delayed_action_runners, drive_futures,
-    TestLoopAsyncComputationEvent, TestLoopDelayedActionEvent, TestLoopTask,
+    drive_async_computations, drive_futures, TestLoopAsyncComputationEvent,
+    TestLoopDelayedActionEvent, TestLoopTask,
 };
 use near_async::test_loop::TestLoopBuilder;
 use near_async::time::Duration;
@@ -319,12 +318,8 @@ fn test_client_with_multi_test_loop() {
         test.register_handler(drive_async_computations().widen().for_index(idx));
 
         // Delayed actions.
-        test.register_handler(
-            drive_delayed_action_runners::<ClientActions>().widen().for_index(idx),
-        );
-        test.register_handler(
-            drive_delayed_action_runners::<ShardsManager>().widen().for_index(idx),
-        );
+        test.register_delayed_action_handler_for_index::<ClientActions>(idx);
+        test.register_delayed_action_handler_for_index::<ShardsManager>(idx);
 
         // Messages to the client.
         test.register_handler(
@@ -358,8 +353,12 @@ fn test_client_with_multi_test_loop() {
     }
     // Handles network routing. Outgoing messages are handled by emitting incoming messages to the
     // appropriate component of the appropriate node index.
-    test.register_handler(route_network_messages_to_client(NETWORK_DELAY));
-    test.register_handler(route_shards_manager_network_messages(NETWORK_DELAY));
+    test.register_handler(route_network_messages_to_client(test.sender(), NETWORK_DELAY));
+    test.register_handler(route_shards_manager_network_messages(
+        test.sender(),
+        test.clock(),
+        NETWORK_DELAY,
+    ));
 
     // Bootstrap the test by starting the components.
     // We use adhoc events for these, just so that the visualizer can see these as events rather
@@ -367,14 +366,16 @@ fn test_client_with_multi_test_loop() {
     // the send_adhoc_event part and the test would still work.
     for idx in 0..NUM_CLIENTS {
         let sender = test.sender().for_index(idx);
+        let shutting_down = test.shutting_down();
         test.sender().for_index(idx).send_adhoc_event("start_client", move |data| {
-            data.client.start(&mut sender.into_delayed_action_runner());
+            data.client.start(&mut sender.into_delayed_action_runner(shutting_down));
         });
 
         let sender = test.sender().for_index(idx);
+        let shutting_down = test.shutting_down();
         test.sender().for_index(idx).send_adhoc_event("start_shards_manager", move |data| {
             data.shards_manager.periodically_resend_chunk_requests(
-                &mut sender.into_delayed_action_runner(),
+                &mut sender.into_delayed_action_runner(shutting_down),
                 Duration::milliseconds(100),
             );
         })
@@ -443,7 +444,7 @@ fn test_client_with_multi_test_loop() {
 
     // Give the test a chance to finish off remaining important events in the event loop, which can
     // be important for properly shutting down the nodes.
-    test.finish_remaining_events(Duration::seconds(1));
+    test.shutdown_and_drain_remaining_events(Duration::seconds(1));
 }
 
 /// Handles outgoing network messages, and turns them into incoming client messages.
@@ -453,112 +454,107 @@ pub fn route_network_messages_to_client<
         + From<PeerManagerMessageRequest>
         + From<ClientSenderForNetworkMessage>,
 >(
+    sender: DelaySender<(usize, Event)>,
     network_delay: Duration,
 ) -> LoopEventHandler<Data, (usize, Event)> {
     // let mut route_back_lookup: HashMap<CryptoHash, usize> = HashMap::new();
     // let mut next_hash: u64 = 0;
-    LoopEventHandler::new(
-        move |event: (usize, Event),
-              data: &mut Data,
-              context: &LoopHandlerContext<(usize, Event)>| {
-            let (idx, event) = event;
-            let message = event.try_into_or_self().map_err(|event| (idx, event.into()))?;
-            let PeerManagerMessageRequest::NetworkRequests(request) = message else {
-                return Err((idx, message.into()));
-            };
+    LoopEventHandler::new(move |event: (usize, Event), data: &mut Data| {
+        let (idx, event) = event;
+        let message = event.try_into_or_self().map_err(|event| (idx, event.into()))?;
+        let PeerManagerMessageRequest::NetworkRequests(request) = message else {
+            return Err((idx, message.into()));
+        };
 
-            let client_senders = (0..data.num_accounts())
+        let client_senders = (0..data.num_accounts())
                 .map(|idx| {
-                    context
-                        .sender
+                    sender
                         .with_additional_delay(network_delay)
                         .for_index(idx)
                         .into_wrapped_multi_sender::<ClientSenderForNetworkMessage, ClientSenderForNetwork>()
                 })
                 .collect::<Vec<_>>();
 
-            match request {
-                NetworkRequests::Block { block } => {
-                    for other_idx in 0..data.num_accounts() {
-                        if other_idx != idx {
-                            drop(client_senders[other_idx].send_async(BlockResponse {
-                                block: block.clone(),
-                                peer_id: PeerId::random(),
-                                was_requested: false,
-                            }));
-                        }
+        match request {
+            NetworkRequests::Block { block } => {
+                for other_idx in 0..data.num_accounts() {
+                    if other_idx != idx {
+                        drop(client_senders[other_idx].send_async(BlockResponse {
+                            block: block.clone(),
+                            peer_id: PeerId::random(),
+                            was_requested: false,
+                        }));
                     }
                 }
-                NetworkRequests::Approval { approval_message } => {
-                    let other_idx = data.index_for_account(&approval_message.target);
-                    if other_idx != idx {
-                        drop(client_senders[other_idx].send_async(BlockApproval(
-                            approval_message.approval,
-                            PeerId::random(),
-                        )));
-                    } else {
-                        tracing::warn!("Dropping message to self");
-                    }
+            }
+            NetworkRequests::Approval { approval_message } => {
+                let other_idx = data.index_for_account(&approval_message.target);
+                if other_idx != idx {
+                    drop(
+                        client_senders[other_idx]
+                            .send_async(BlockApproval(approval_message.approval, PeerId::random())),
+                    );
+                } else {
+                    tracing::warn!("Dropping message to self");
                 }
-                NetworkRequests::ForwardTx(account, transaction) => {
-                    let other_idx = data.index_for_account(&account);
-                    if other_idx != idx {
-                        drop(client_senders[other_idx].send_async(ProcessTxRequest {
-                            transaction,
-                            is_forwarded: true,
-                            check_only: false,
-                        }))
-                    } else {
-                        tracing::warn!("Dropping message to self");
-                    }
+            }
+            NetworkRequests::ForwardTx(account, transaction) => {
+                let other_idx = data.index_for_account(&account);
+                if other_idx != idx {
+                    drop(client_senders[other_idx].send_async(ProcessTxRequest {
+                        transaction,
+                        is_forwarded: true,
+                        check_only: false,
+                    }))
+                } else {
+                    tracing::warn!("Dropping message to self");
                 }
-                NetworkRequests::ChunkEndorsement(target, endorsement) => {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
+            }
+            NetworkRequests::ChunkEndorsement(target, endorsement) => {
+                let other_idx = data.index_for_account(&target);
+                if other_idx != idx {
+                    drop(
+                        client_senders[other_idx].send_async(ChunkEndorsementMessage(endorsement)),
+                    );
+                } else {
+                    tracing::warn!("Dropping message to self");
+                }
+            }
+            NetworkRequests::ChunkStateWitness(targets, witness) => {
+                let other_idxes = targets
+                    .iter()
+                    .map(|account| data.index_for_account(account))
+                    .collect::<Vec<_>>();
+                for other_idx in &other_idxes {
+                    if *other_idx != idx {
                         drop(
-                            client_senders[other_idx]
-                                .send_async(ChunkEndorsementMessage(endorsement)),
+                            client_senders[*other_idx]
+                                .send_async(ChunkStateWitnessMessage(witness.clone())),
                         );
                     } else {
-                        tracing::warn!("Dropping message to self");
-                    }
-                }
-                NetworkRequests::ChunkStateWitness(targets, witness) => {
-                    let other_idxes = targets
-                        .iter()
-                        .map(|account| data.index_for_account(account))
-                        .collect::<Vec<_>>();
-                    for other_idx in &other_idxes {
-                        if *other_idx != idx {
-                            drop(
-                                client_senders[*other_idx]
-                                    .send_async(ChunkStateWitnessMessage(witness.clone())),
-                            );
-                        } else {
-                            tracing::warn!(
+                        tracing::warn!(
                                 "ChunkStateWitness asked to send to nodes {:?}, but {} is ourselves, so skipping that",
                                 other_idxes, idx);
-                        }
                     }
                 }
-                NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
-                    let other_idx = data.index_for_account(&target);
-                    if other_idx != idx {
-                        drop(
-                            client_senders[other_idx]
-                                .send_async(ChunkStateWitnessAckMessage(witness_ack)),
-                        );
-                    } else {
-                        tracing::warn!("Dropping state-witness-ack message to self");
-                    }
-                }
-                // TODO: Support more network message types as we expand the test.
-                _ => return Err((idx, PeerManagerMessageRequest::NetworkRequests(request).into())),
             }
+            NetworkRequests::ChunkStateWitnessAck(target, witness_ack) => {
+                let other_idx = data.index_for_account(&target);
+                if other_idx != idx {
+                    drop(
+                        client_senders[other_idx]
+                            .send_async(ChunkStateWitnessAckMessage(witness_ack)),
+                    );
+                } else {
+                    tracing::warn!("Dropping state-witness-ack message to self");
+                }
+            }
+            // TODO: Support more network message types as we expand the test.
+            _ => return Err((idx, PeerManagerMessageRequest::NetworkRequests(request).into())),
+        }
 
-            Ok(())
-        },
-    )
+        Ok(())
+    })
 }
 
 // TODO: This would be a good starting point for turning this into a test util.

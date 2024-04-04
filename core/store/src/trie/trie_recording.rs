@@ -251,7 +251,25 @@ mod trie_recording_tests {
                 partial_storage.nodes.len(),
                 data_in_trie.len()
             );
-            let trie = Trie::from_recorded_storage(partial_storage, state_root, false);
+            let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root, false);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            for key in &keys_to_get {
+                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+            }
+            for key in &keys_to_get_ref {
+                assert_eq!(
+                    trie.get_optimized_ref(key, crate::KeyLookupMode::Trie)
+                        .unwrap()
+                        .map(|value| value.into_value_ref()),
+                    data_in_trie.get(key).map(|value| ValueRef::new(&value))
+                );
+            }
+            assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
+
+            // Build a Trie using recorded storage and enable recording_reads on this Trie
+            let trie =
+                Trie::from_recorded_storage(partial_storage, state_root, false).recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
@@ -420,7 +438,25 @@ mod trie_recording_tests {
                 partial_storage.nodes.len(),
                 data_in_trie.len()
             );
-            let trie = Trie::from_recorded_storage(partial_storage, state_root, true);
+            let trie = Trie::from_recorded_storage(partial_storage.clone(), state_root, true);
+            trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
+            for key in &keys_to_get {
+                assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());
+            }
+            for key in &keys_to_get_ref {
+                assert_eq!(
+                    trie.get_optimized_ref(key, crate::KeyLookupMode::FlatStorage)
+                        .unwrap()
+                        .map(|value| value.into_value_ref()),
+                    data_in_trie.get(key).map(|value| ValueRef::new(&value))
+                );
+            }
+            assert_eq!(trie.get_trie_nodes_count(), baseline_trie_nodes_count);
+            trie.update(updates.iter().cloned()).unwrap();
+
+            // Build a Trie using recorded storage and enable recording_reads on this Trie
+            let trie =
+                Trie::from_recorded_storage(partial_storage, state_root, true).recording_reads();
             trie.accounting_cache.borrow_mut().set_enabled(enable_accounting_cache);
             for key in &keys_to_get {
                 assert_eq!(trie.get(key).unwrap(), data_in_trie.get(key).cloned());

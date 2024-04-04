@@ -262,7 +262,6 @@ pub(crate) fn pre_validate_chunk_state_witness(
                 nodes: state_witness.new_transactions_validation_state.clone(),
             }),
             state_patch: Default::default(),
-            record_storage: false,
         };
 
         match validate_prepared_transactions(
@@ -314,7 +313,6 @@ pub(crate) fn pre_validate_chunk_state_witness(
                     nodes: state_witness.main_state_transition.base_state.clone(),
                 }),
                 state_patch: Default::default(),
-                record_storage: false,
             },
         })
     };
@@ -529,7 +527,6 @@ pub(crate) fn validate_chunk_state_witness(
                     nodes: transition.base_state,
                 }),
                 state_patch: Default::default(),
-                record_storage: false,
             },
         };
         let OldChunkResult { apply_result, .. } = apply_old_chunk(
