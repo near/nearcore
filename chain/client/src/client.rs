@@ -1001,18 +1001,11 @@ impl Client {
         let prepared_transactions = if let Some(mut iter) =
             sharded_tx_pool.get_pool_iterator(shard_uid)
         {
-            let me = self
-                .validator_signer
-                .as_ref()
-                .map(|validator_signer| validator_signer.validator_id().clone());
-            let record_storage = chain
-                .should_produce_state_witness_for_this_or_next_epoch(&me, &prev_block_header)?;
             let storage_config = RuntimeStorageConfig {
                 state_root: *chunk_extra.state_root(),
                 use_flat_storage: true,
                 source: StorageDataSource::Db,
                 state_patch: Default::default(),
-                record_storage,
             };
             runtime.prepare_transactions(
                 storage_config,

@@ -115,7 +115,6 @@ pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
-    pub record_storage: bool,
 }
 
 /// Processes shard update with given block and shard.
@@ -185,7 +184,6 @@ pub fn apply_new_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -247,7 +245,6 @@ pub fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,

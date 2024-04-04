@@ -57,7 +57,6 @@ impl Client {
             use_flat_storage: true,
             source: StorageDataSource::Db,
             state_patch: Default::default(),
-            record_storage: true,
         };
 
         // We call `validate_prepared_transactions()` here because we need storage proof for transactions validation.
