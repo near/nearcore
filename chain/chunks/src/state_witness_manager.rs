@@ -47,18 +47,13 @@ impl StateWitnessManager {
             entry.num_parts += 1;
             entry.parts[partial_witness.part_ord] = Some(partial_witness.part);
         }
-        if let Some(witness) = reconstruct_state_witness(
-            partial_witness.chunk_hash,
-            partial_witness.witness_size,
-            entry,
-        ) {
+        if let Some(witness) = reconstruct_state_witness(partial_witness.witness_size, entry) {
             self.client_adapter.send(ChunkStateWitnessMessage(witness));
         }
     }
 }
 
 fn reconstruct_state_witness(
-    chunk_hash: ChunkHash,
     witness_size: usize,
     entry: &mut CacheEntry,
 ) -> Option<ChunkStateWitness> {

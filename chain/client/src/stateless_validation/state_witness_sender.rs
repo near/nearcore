@@ -32,7 +32,7 @@ fn encode_state_witness(
     assert!(chunk_validators.len() >= 3);
     let total_parts = chunk_validators.len();
     let data_parts = total_parts * 2 / 3;
-    let rs = ReedSolomonWrapper::new(data_parts, total_parts - data_parts);
+    let mut rs = ReedSolomonWrapper::new(data_parts, total_parts - data_parts);
 
     let mut bytes = borsh::to_vec(chunk_witness).unwrap();
     let encoded_length = bytes.len();
@@ -52,6 +52,8 @@ fn encode_state_witness(
     for _ in data_parts..total_parts {
         parts.push(None);
     }
+
+    rs.reconstruct(parts.as_mut_slice()).unwrap();
 
     Ok((parts, encoded_length))
 }

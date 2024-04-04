@@ -320,6 +320,7 @@ pub fn start_with_config_and_synchronization(
     let network_adapter = LateBoundSender::new();
     let shards_manager_adapter = LateBoundSender::new();
     let client_adapter_for_shards_manager = LateBoundSender::new();
+    let client_adapter_for_state_witness = LateBoundSender::new();
     let adv = near_client::adversarial::Controls::new(config.client_config.archive);
 
     let view_client = start_view_client(
@@ -366,11 +367,13 @@ pub fn start_with_config_and_synchronization(
         client_adapter_for_sync.bind(client_actor.clone().with_auto_span_context())
     };
     client_adapter_for_shards_manager.bind(client_actor.clone().with_auto_span_context());
+    client_adapter_for_state_witness.bind(client_actor.clone().with_auto_span_context());
     let (shards_manager_actor, shards_manager_arbiter_handle) = start_shards_manager(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.as_sender(),
         client_adapter_for_shards_manager.as_sender(),
+        client_adapter_for_state_witness.as_sender(),
         config.validator_signer.as_ref().map(|signer| signer.validator_id().clone()),
         split_store.unwrap_or_else(|| storage.get_hot_store()),
         config.client_config.chunk_request_retry_period,

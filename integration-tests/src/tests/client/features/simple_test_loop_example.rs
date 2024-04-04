@@ -30,7 +30,7 @@ use near_client::test_utils::{MAX_BLOCK_PROD_TIME, MIN_BLOCK_PROD_TIME};
 use near_client::{Client, SyncAdapter, SyncMessage};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
-use near_network::client::ClientSenderForNetworkMessage;
+use near_network::client::{ChunkStateWitnessMessage, ClientSenderForNetworkMessage};
 use near_primitives::network::PeerId;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
@@ -75,6 +75,7 @@ enum TestEvent {
     SyncJobsEventFromSyncJobs(SyncJobsSenderForSyncJobsMessage),
     ShardsManagerRequestFromClient(ShardsManagerRequestFromClient),
     ClientEventFromStateSyncAdapter(SyncMessage),
+    ShardsManagerToClientStateWitness(ChunkStateWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -196,6 +197,7 @@ fn test_client_with_simple_test_loop() {
         epoch_manager,
         shard_tracker,
         noop().into_sender(),
+        builder.sender().into_sender(),
         builder.sender().into_sender(),
         ReadOnlyChunksStore::new(store),
         client.chain.head().unwrap(),

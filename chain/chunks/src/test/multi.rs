@@ -22,8 +22,8 @@ use near_async::{
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::{
-    shards_manager::ShardsManagerRequestFromNetwork, test_loop::SupportsRoutingLookup,
-    types::PeerManagerMessageRequest,
+    client::ChunkStateWitnessMessage, shards_manager::ShardsManagerRequestFromNetwork,
+    test_loop::SupportsRoutingLookup, types::PeerManagerMessageRequest,
 };
 use near_primitives::{
     checked_feature,
@@ -53,6 +53,7 @@ enum TestEvent {
     ClientToShardsManager(ShardsManagerRequestFromClient),
     NetworkToShardsManager(ShardsManagerRequestFromNetwork),
     ShardsManagerToClient(ShardsManagerResponse),
+    ShardsManagerToClientStateWitness(ChunkStateWitnessMessage),
     OutboundNetwork(PeerManagerMessageRequest),
 }
 
@@ -93,6 +94,7 @@ fn basic_setup(config: BasicSetupConfig) -> ShardsManagerTestLoop {
                 Some(account.clone()),
                 chain.epoch_manager.clone(),
                 chain.shard_tracker.clone(),
+                builder.sender().for_index(idx).into_sender(),
                 builder.sender().for_index(idx).into_sender(),
                 builder.sender().for_index(idx).into_sender(),
                 ReadOnlyChunksStore::new(store),

@@ -22,6 +22,7 @@ use near_async::{
 use near_chain::chunks_store::ReadOnlyChunksStore;
 use near_epoch_manager::test_utils::hash_range;
 use near_network::{
+    client::ChunkStateWitnessMessage,
     shards_manager::ShardsManagerRequestFromNetwork,
     types::{NetworkRequests, PeerManagerMessageRequest},
 };
@@ -60,6 +61,7 @@ enum TestEvent {
     ShardsManagerToNetwork(PeerManagerMessageRequest),
     Adhoc(AdhocEvent<TestData>),
     ShardsManagerDelayedActions(TestLoopDelayedActionEvent<ShardsManager>),
+    ShardsManagerToClientStateWitness(ChunkStateWitnessMessage),
 }
 
 type ShardsManagerTestLoopBuilder = near_async::test_loop::TestLoopBuilder<TestEvent>;
@@ -93,6 +95,7 @@ fn test_basic_receive_complete_chunk() {
         chain.epoch_manager.clone(),
         chain.shard_tracker.clone(),
         noop().into_sender(),
+        builder.sender().into_sender(),
         builder.sender().into_sender(),
         ReadOnlyChunksStore::new(store),
         default_tip(),
@@ -169,6 +172,7 @@ fn test_chunk_forward() {
         Some(block_producers[0].clone()),
         chain.epoch_manager.clone(),
         chain.shard_tracker.clone(),
+        builder.sender().into_sender(),
         builder.sender().into_sender(),
         builder.sender().into_sender(),
         ReadOnlyChunksStore::new(store),

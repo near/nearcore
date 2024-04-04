@@ -120,6 +120,7 @@ fn setup_network_node(
         shard_tracker,
         network_adapter.as_sender(),
         client_actor.clone().with_auto_span_context().into_sender(),
+        client_actor.clone().with_auto_span_context().into_sender(),
         Some(signer.validator_id().clone()),
         runtime.store().clone(),
         client_config.chunk_request_retry_period,

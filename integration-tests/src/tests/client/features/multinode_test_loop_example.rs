@@ -133,6 +133,7 @@ enum TestEvent {
     ),
     /// Calls to the network component to set chain info.
     SetChainInfo(SetChainInfo),
+    ShardsManagerToClientStateWitness(ChunkStateWitnessMessage),
 }
 
 const ONE_NEAR: u128 = 1_000_000_000_000_000_000_000_000;
@@ -270,6 +271,7 @@ fn test_client_with_multi_test_loop() {
             Some(accounts[idx].clone()),
             epoch_manager,
             shard_tracker,
+            builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
             builder.sender().for_index(idx).into_sender(),
             ReadOnlyChunksStore::new(store),
