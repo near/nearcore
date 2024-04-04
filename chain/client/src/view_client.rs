@@ -504,12 +504,12 @@ impl ViewClientActor {
             target_shard_id,
             true,
         ) {
-            match self.chain.get_transaction_result_for_rpc(&tx_hash) {
+            match self.chain.get_partial_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
-                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
+                            self.chain.get_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
