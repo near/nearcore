@@ -1,8 +1,7 @@
 use chrono::Utc;
 use clap::Parser;
 use congestion_model::strategy::{
-    FancyGlobalTransactionStop, GlobalTxStopShard, NewTxLast, NoQueueShard, SimpleBackpressure,
-    TrafficLight,
+    GlobalTxStopShard, NepStrategy, NewTxLast, NoQueueShard, SimpleBackpressure, TrafficLight,
 };
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
@@ -11,6 +10,8 @@ use congestion_model::{
     summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS,
 };
 use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{self, Layer};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -47,6 +48,11 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    let filter = tracing_subscriber::EnvFilter::from_default_env();
+    let layer = tracing_subscriber::fmt::layer().with_filter(filter);
+    let subscriber = tracing_subscriber::registry().with(layer);
+    tracing::subscriber::set_global_default(subscriber).expect("could not set a global subscriber");
 
     summary_table::print_summary_header();
 
@@ -161,9 +167,10 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "No queues" => Box::new(NoQueueShard {}) as Box<dyn CongestionStrategy>,
             "Global TX stop" => Box::<GlobalTxStopShard>::default(),
             "Simple backpressure" => Box::<SimpleBackpressure>::default(),
-            "Fancy Global Transaction Stop" => Box::<FancyGlobalTransactionStop>::default(),
+            "Fancy Global Transaction Stop" => Box::<NepStrategy>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
+            "NEP" => Box::<NepStrategy>::default(),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -204,6 +211,7 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "Fancy Global Transaction Stop".to_string(),
         "New TX last".to_string(),
         "Traffic Light".to_string(),
+        "NEP".to_string(),
     ];
 
     if strategy_name == "all" {
