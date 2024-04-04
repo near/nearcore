@@ -843,16 +843,16 @@ fn call_promise() {
 /// the contents of which should match the function's input.
 ///
 /// Used as the yield callback in tests of yield create / yield resume.
+/// Returns double the first byte of the payload, if there is one.
 #[no_mangle]
-unsafe fn check_promise_result() {
+unsafe fn check_promise_result_return_value() {
     input(0);
     let expected_result_len = register_len(0) as usize;
     let expected = vec![0u8; expected_result_len];
     read_register(0, expected.as_ptr() as u64);
 
     assert_eq!(promise_results_count(), 1);
-
-    let status = match promise_result(0, 0) {
+    match promise_result(0, 0) {
         1 => {
             let mut result = vec![0; register_len(0) as usize];
             read_register(0, result.as_ptr() as *const u64 as u64);
@@ -862,12 +862,38 @@ unsafe fn check_promise_result() {
             // Used in tests to verify that this function's return value is handled as expected.
             result[0] *= 2;
             value_return(1u64, result.as_ptr() as u64);
+        }
+        2 => {
+            assert_eq!(expected_result_len, 0);
+            let result = vec![23u8];
+            value_return(1u64, result.as_ptr() as u64);
+        }
+        _ => unreachable!(),
+    };
+}
 
+/// Function which expects to receive exactly one promise result,
+/// the contents of which should match the function's input.
+///
+/// Used as the yield callback in tests of yield create / yield resume.
+/// Writes the status of the promise result to storage.
+#[no_mangle]
+unsafe fn check_promise_result_write_status() {
+    input(0);
+    let expected_result_len = register_len(0) as usize;
+    let expected = vec![0u8; expected_result_len];
+    read_register(0, expected.as_ptr() as u64);
+
+    assert_eq!(promise_results_count(), 1);
+    let status = match promise_result(0, 0) {
+        1 => {
+            let result = vec![0; register_len(0) as usize];
+            read_register(0, result.as_ptr() as *const u64 as u64);
+            assert_eq!(expected, result);
             "Resumed "
         }
         2 => {
             assert_eq!(expected_result_len, 0);
-
             "Timeout "
         }
         _ => unreachable!(),
@@ -887,16 +913,46 @@ unsafe fn check_promise_result() {
 
 /// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
 /// Given input is passed as the argument to the `check_promise_result` function call.
+/// Sets the yield callback's output as the return value.
 #[cfg(feature = "nightly")]
 #[no_mangle]
-pub unsafe fn call_yield_create() {
+pub unsafe fn call_yield_create_return_promise() {
     input(0);
     let payload = vec![0u8; register_len(0) as usize];
     read_register(0, payload.as_ptr() as u64);
 
     // Create a promise yield with callback `check_promise_result`,
     // passing the expected payload as an argument to the function.
-    let method_name = "check_promise_result";
+    let method_name = "check_promise_result_return_value";
+    let gas_fixed = 0;
+    let gas_weight = 1;
+    let data_id_register = 0;
+    let promise_index = promise_yield_create(
+        method_name.len() as u64,
+        method_name.as_ptr() as u64,
+        payload.len() as u64,
+        payload.as_ptr() as u64,
+        gas_fixed,
+        gas_weight,
+        data_id_register,
+    );
+
+    promise_return(promise_index);
+}
+
+/// Call promise_yield_create, specifying `check_promise_result` as the yield callback.
+/// Given input is passed as the argument to the `check_promise_result` function call.
+/// Returns the data id produced by promise_yield_create.
+#[cfg(feature = "nightly")]
+#[no_mangle]
+pub unsafe fn call_yield_create_return_data_id() {
+    input(0);
+    let payload = vec![0u8; register_len(0) as usize];
+    read_register(0, payload.as_ptr() as u64);
+
+    // Create a promise yield with callback `check_promise_result`,
+    // passing the expected payload as an argument to the function.
+    let method_name = "check_promise_result_write_status";
     let gas_fixed = 0;
     let gas_weight = 1;
     let data_id_register = 0;
@@ -951,7 +1007,7 @@ pub unsafe fn call_yield_create_and_resume() {
 
     // Create a promise yield with callback `check_promise_result`,
     // passing the expected payload as an argument to the function.
-    let method_name = "check_promise_result";
+    let method_name = "check_promise_result_return_value";
     let gas_fixed = 0;
     let gas_weight = 1;
     let data_id_register = 0;

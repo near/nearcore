@@ -41,8 +41,11 @@ impl RuntimeConfig {
 
     pub fn test() -> Self {
         let config_store = super::config_store::RuntimeConfigStore::new(None);
-        let wasm_config =
+        let mut wasm_config =
             crate::vm::Config::clone(&config_store.get_config(PROTOCOL_VERSION).wasm_config);
+        // Lower the yield timeout length so that we can observe timeouts in integration tests.
+        wasm_config.limit_config.yield_timeout_length_in_blocks = 10;
+
         RuntimeConfig {
             fees: RuntimeFeesConfig::test(),
             wasm_config,

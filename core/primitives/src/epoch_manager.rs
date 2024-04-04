@@ -14,6 +14,9 @@ use near_primitives_core::types::BlockHeight;
 use smart_default::SmartDefault;
 use std::collections::{BTreeMap, HashMap};
 
+#[cfg(feature = "nightly")]
+use crate::version::ProtocolFeature;
+
 pub type RngSeed = [u8; 32];
 
 pub const AGGREGATOR_KEY: &[u8] = b"AGGREGATOR";
@@ -177,6 +180,17 @@ impl AllEpochConfig {
     }
 
     fn config_nightshade(config: &mut EpochConfig, protocol_version: ProtocolVersion) {
+        // Unlike the other checks, this one is for strict equality. The testonly nightshade layout
+        // is specifically used in resharding tests, not for any other protocol versions.
+        #[cfg(feature = "nightly")]
+        if protocol_version == ProtocolFeature::SimpleNightshadeTestonly.protocol_version() {
+            Self::config_nightshade_impl(
+                config,
+                ShardLayout::get_simple_nightshade_layout_testonly(),
+            );
+            return;
+        }
+
         if checked_feature!("stable", SimpleNightshadeV3, protocol_version) {
             Self::config_nightshade_impl(config, ShardLayout::get_simple_nightshade_layout_v3());
             return;
