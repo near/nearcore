@@ -316,7 +316,7 @@ async fn test_bad_data() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Test case where the action contains more than 1_000_000 yocotoNear directly.
+// Test case where the action contains more than 1_000_000 yoctoNear directly.
 #[tokio::test]
 async fn test_excess_yocto() -> anyhow::Result<()> {
     let TestContext { wallet_contract, wallet_sk, .. } = TestContext::new().await?;
