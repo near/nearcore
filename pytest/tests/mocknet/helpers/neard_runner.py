@@ -219,12 +219,12 @@ class NeardRunner:
             pass
 
         if force:
-            # always start from 0 and download all binaries
-            start_index = 0
-        else:
-            # start at the index of the first missing binary
-            # typically it's all or nothing
-            start_index = len(self.data['binaries'])
+            # always start from start_index = 0 and download all binaries
+            self.data['binaries'] = []
+
+        # start at the index of the first missing binary
+        # typically it's all or nothing
+        start_index = len(self.data['binaries'])
 
         # for now we assume that the binaries recorded in data.json as having been
         # dowloaded are still valid and were not touched. Also this assumes that their
