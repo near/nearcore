@@ -1,9 +1,9 @@
 use crate::accounts_data::AccountDataError;
 use crate::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ChunkStateWitnessMessage,
-    ProcessTxRequest, RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse,
-    TxStatusRequest, TxStatusResponse,
+    BlockResponse, ChunkEndorsementMessage, ChunkStateWitnessAckMessage, ProcessTxRequest,
+    RecvChallenge, StateRequestHeader, StateRequestPart, StateResponse, TxStatusRequest,
+    TxStatusResponse,
 };
 use crate::concurrency::atomic_cell::AtomicCell;
 use crate::concurrency::demux;
@@ -1012,8 +1012,9 @@ impl PeerActor {
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
-            RoutedMessageBody::ChunkStateWitness(witness) => {
-                network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
+            RoutedMessageBody::ChunkStateWitness(_witness) => {
+                // We no longer accept ChunkStateWitness network messages
+                // network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                 None
             }
             RoutedMessageBody::PartialEncodedStateWitness(witness) => {

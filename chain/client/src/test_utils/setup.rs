@@ -28,7 +28,7 @@ use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManagerAdapter;
 use near_network::client::{
     AnnounceAccountRequest, BlockApproval, BlockHeadersRequest, BlockHeadersResponse, BlockRequest,
-    BlockResponse, SetNetworkInfo, StateRequestHeader, StateRequestPart,
+    BlockResponse, ChunkStateWitnessMessage, SetNetworkInfo, StateRequestHeader, StateRequestPart,
 };
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{BlockInfo, PeerChainInfo};
@@ -161,6 +161,7 @@ pub fn setup(
         epoch_manager.clone(),
         shard_tracker.clone(),
         network_adapter.clone().into_sender(),
+        ctx.address().with_auto_span_context().into_sender(),
         ctx.address().with_auto_span_context().into_sender(),
         Some(account_id),
         store,
@@ -1006,6 +1007,7 @@ pub fn setup_synchronous_shards_manager(
     clock: Clock,
     account_id: Option<AccountId>,
     client_adapter: Sender<ShardsManagerResponse>,
+    client_adapter_for_state_witness: Sender<ChunkStateWitnessMessage>,
     network_adapter: PeerManagerAdapter,
     epoch_manager: Arc<dyn EpochManagerAdapter>,
     shard_tracker: ShardTracker,
@@ -1046,6 +1048,7 @@ pub fn setup_synchronous_shards_manager(
         shard_tracker,
         network_adapter.request_sender,
         client_adapter,
+        client_adapter_for_state_witness,
         chain.chain_store().new_read_only_chunks_store(),
         chain_head,
         chain_header_head,

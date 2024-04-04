@@ -3,7 +3,7 @@ use itertools::Itertools;
 use near_async::messaging::CanSend;
 use near_chain_primitives::Error;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
-use near_primitives::sharding::ReedSolomonWrapper;
+use near_primitives::sharding::{ChunkHash, ReedSolomonWrapper};
 use near_primitives::stateless_validation::{ChunkStateWitness, PartialEncodedStateWitness};
 use near_primitives::types::AccountId;
 
@@ -13,8 +13,12 @@ pub fn send_chunk_witness_to_chunk_validators(
     peer_manager_adapter: &PeerManagerAdapter,
 ) -> Result<(), Error> {
     let (parts, state_witness_size) = encode_state_witness(chunk_witness, &chunk_validators)?;
-    let partial_encoded_state_witnesses =
-        parts_to_partial_encoded_state_witness(&chunk_validators, parts, state_witness_size);
+    let partial_encoded_state_witnesses = parts_to_partial_encoded_state_witness(
+        &chunk_validators,
+        parts,
+        chunk_witness.inner.chunk_header.chunk_hash(),
+        state_witness_size,
+    );
     peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
         NetworkRequests::PartialEncodedStateWitness(partial_encoded_state_witnesses),
     ));
@@ -55,11 +59,13 @@ fn encode_state_witness(
 fn parts_to_partial_encoded_state_witness(
     chunk_validators: &Vec<AccountId>,
     parts: Vec<Option<Box<[u8]>>>,
+    chunk_hash: ChunkHash,
     witness_size: usize,
 ) -> Vec<PartialEncodedStateWitness> {
     let mut partial_encoded_state_witnesses = Vec::with_capacity(chunk_validators.len());
     for (part_ord, (account_id, part)) in chunk_validators.iter().zip_eq(parts).enumerate() {
         let partial_encoded_state_witness = PartialEncodedStateWitness {
+            chunk_hash: chunk_hash.clone(),
             part_ord,
             part: part.unwrap(),
             part_owner: account_id.clone(),
@@ -96,6 +102,7 @@ mod test {
         data[3] = None;
         // data[4] = None;
 
+        let mut rs = ReedSolomonWrapper::new(data_shards, parity_shards);
         rs.reconstruct(data.as_mut_slice()).unwrap();
         // Cool stuff!!
         assert!(data[0].is_some());

@@ -6,6 +6,7 @@ use near_async::messaging::Sender;
 use near_async::time::{Clock, Duration};
 use near_chain::{chunks_store::ReadOnlyChunksStore, types::Tip};
 use near_epoch_manager::{shard_tracker::ShardTracker, EpochManagerAdapter};
+use near_network::client::ChunkStateWitnessMessage;
 use near_network::{
     shards_manager::ShardsManagerRequestFromNetwork, types::PeerManagerMessageRequest,
 };
@@ -82,6 +83,7 @@ pub fn start_shards_manager(
     shard_tracker: ShardTracker,
     network_adapter: Sender<PeerManagerMessageRequest>,
     client_adapter_for_shards_manager: Sender<ShardsManagerResponse>,
+    client_adapter_for_state_witness: Sender<ChunkStateWitnessMessage>,
     me: Option<AccountId>,
     store: Store,
     chunk_request_retry_period: Duration,
@@ -105,6 +107,7 @@ pub fn start_shards_manager(
         shard_tracker,
         network_adapter,
         client_adapter_for_shards_manager,
+        client_adapter_for_state_witness,
         chunks_store,
         chain_head,
         chain_header_head,

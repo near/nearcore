@@ -4,6 +4,7 @@ use near_chain::{Chain, ChainStore};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::test_utils::setup_epoch_manager_with_block_and_chunk_producers;
 use near_epoch_manager::EpochManagerHandle;
+use near_network::client::ChunkStateWitnessMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::test_utils::MockPeerManagerAdapter;
 use near_primitives::hash::CryptoHash;
@@ -266,6 +267,12 @@ pub struct MockClientAdapterForShardsManager {
 impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
     fn send(&self, msg: ShardsManagerResponse) {
         self.requests.write().unwrap().push_back(msg);
+    }
+}
+
+impl CanSend<ChunkStateWitnessMessage> for MockClientAdapterForShardsManager {
+    fn send(&self, _msg: ChunkStateWitnessMessage) {
+        // TODO: Maybe add here something for testing?
     }
 }
 

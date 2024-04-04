@@ -11,6 +11,7 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 
 #[derive(BorshSerialize, BorshDeserialize, Clone, Debug, Eq, PartialEq)]
 pub struct PartialEncodedStateWitness {
+    pub chunk_hash: ChunkHash,
     pub part_ord: usize,
     pub part: Box<[u8]>,
     pub part_owner: AccountId,

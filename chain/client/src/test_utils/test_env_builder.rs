@@ -526,6 +526,7 @@ impl TestEnvBuilder {
                     clock,
                     Some(clients[i].clone()),
                     client_adapter.as_sender(),
+                    client_adapter.as_sender(),
                     network_adapter.as_multi_sender(),
                     epoch_manager.into_adapter(),
                     shard_tracker,
