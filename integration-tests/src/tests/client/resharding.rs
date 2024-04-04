@@ -8,7 +8,6 @@ use near_client::test_utils::{run_catchup, TestEnv};
 use near_client::{Client, ProcessTxResponse};
 use near_crypto::{InMemorySigner, KeyType, Signer};
 use near_o11y::testonly::init_test_logger;
-use near_parameters::RuntimeConfig;
 use near_primitives::account::id::AccountId;
 use near_primitives::block::{Block, Tip};
 use near_primitives::epoch_manager::{AllEpochConfig, AllEpochConfigTestOverrides, EpochConfig};
@@ -39,6 +38,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
 
+#[cfg(feature = "nightly")]
+use near_parameters::RuntimeConfig;
+
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
@@ -48,6 +50,10 @@ const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
 #[cfg(not(feature = "statelessnet_protocol"))]
 const SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV3.protocol_version();
+
+#[cfg(feature = "nightly")]
+const SIMPLE_NIGHTSHADE_TESTONLY_PROTOCOL_VERSION: ProtocolVersion =
+    ProtocolFeature::SimpleNightshadeTestonly.protocol_version();
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -60,6 +66,9 @@ enum ReshardingType {
     // In the V2->V3 resharding outgoing receipts are reassigned to lowest index child.
     #[cfg(not(feature = "statelessnet_protocol"))]
     V3,
+    // In V3->TESTONLY resharding outgoing receipts are reassigned to lowest index child.
+    #[cfg(feature = "nightly")]
+    TESTONLY,
 }
 
 fn get_target_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
@@ -68,16 +77,13 @@ fn get_target_protocol_version(resharding_type: &ReshardingType) -> ProtocolVers
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION,
         #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION,
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => SIMPLE_NIGHTSHADE_TESTONLY_PROTOCOL_VERSION,
     }
 }
 
 fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
-    match resharding_type {
-        ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
-        ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
-        #[cfg(not(feature = "statelessnet_protocol"))]
-        ReshardingType::V3 => SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION - 1,
-    }
+    get_target_protocol_version(resharding_type) - 1
 }
 
 fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
@@ -86,6 +92,8 @@ fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
         ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout(),
         #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => ShardLayout::get_simple_nightshade_layout_v2(),
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => ShardLayout::get_simple_nightshade_layout_v3(),
     };
     shard_layout.shard_uids().collect()
 }
@@ -102,6 +110,8 @@ fn get_expected_shards_num(
             ReshardingType::V2 => 4,
             #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 5,
+            #[cfg(feature = "nightly")]
+            ReshardingType::TESTONLY => 6,
         }
     } else {
         match resharding_type {
@@ -109,6 +119,8 @@ fn get_expected_shards_num(
             ReshardingType::V2 => 5,
             #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 6,
+            #[cfg(feature = "nightly")]
+            ReshardingType::TESTONLY => 7,
         }
     }
 }
@@ -829,6 +841,17 @@ fn check_outgoing_receipts_reassigned_impl(
                 assert!(outgoing_receipts.is_empty());
             }
         }
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => {
+            // In V3->TESTONLY resharding the outgoing receipts should be reassigned
+            // to the lowest index child of the parent shard.
+            // We can't directly check that here but we can check that the
+            // non-lowest-index shards are not assigned any receipts.
+            // We check elsewhere that no receipts are lost so this should be sufficient.
+            if shard_id == 5 {
+                assert!(outgoing_receipts.is_empty());
+            }
+        }
     }
 }
 
@@ -1488,6 +1511,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
 }
 
+#[cfg(feature = "nightly")]
 fn generate_yield_create_tx(
     account_id: &AccountId,
     callback_method_name: String,
@@ -1512,6 +1536,7 @@ fn generate_yield_create_tx(
     )
 }
 
+#[cfg(feature = "nightly")]
 fn setup_test_env_with_promise_yield_txs(
     test_env: &mut TestReshardingEnv,
     epoch_length: u64,
@@ -1583,6 +1608,7 @@ fn setup_test_env_with_promise_yield_txs(
 }
 
 // Test delivery of promise yield timeouts
+#[cfg(feature = "nightly")]
 fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType, rng_seed: u64) {
     init_test_logger();
 
@@ -1620,20 +1646,10 @@ fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType,
     test_env.check_resharding_artifacts(0);
 }
 
+#[cfg(feature = "nightly")]
 #[test]
-fn test_shard_layout_upgrade_promise_yield_v1() {
-    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V1, 42);
-}
-
-#[test]
-fn test_shard_layout_upgrade_promise_yield_v2() {
-    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V2, 42);
-}
-
-#[cfg(not(feature = "statelessnet_protocol"))]
-#[test]
-fn test_shard_layout_upgrade_promise_yield_v3() {
-    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::V3, 42);
+fn test_shard_layout_upgrade_promise_yield() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::TESTONLY, 42);
 }
 
 fn test_shard_layout_upgrade_incoming_receipts_impl(
@@ -1965,13 +1981,13 @@ fn test_shard_layout_upgrade_error_handling_impl(
         }
 
         // corrupt the state snapshot if available to make resharding fail
-        currupt_state_snapshot(&test_env);
+        corrupt_state_snapshot(&test_env);
     }
 
     assert!(false, "no error was recorded, something is wrong in error handling");
 }
 
-fn currupt_state_snapshot(test_env: &TestReshardingEnv) {
+fn corrupt_state_snapshot(test_env: &TestReshardingEnv) {
     let tries = test_env.env.clients[0].runtime_adapter.get_tries();
     let Ok(snapshot_hash) = tries.get_state_snapshot_hash() else { return };
     let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
