@@ -991,6 +991,7 @@ impl PeerManagerActor {
             }
             NetworkRequests::PartialEncodedStateWitnessForward(partial_encoded_state_witness) => {
                 // Once part owner receives the messages, they send it to all chunk_validators/forward_accounts
+                // Note that forwarding network message to ourselves doesn't work, so we need to process our part separately
                 for chunk_validator in &partial_encoded_state_witness.forward_accounts {
                     self.state.send_message_to_account(
                         &self.clock,

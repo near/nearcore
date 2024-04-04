@@ -100,6 +100,7 @@ use near_chain::near_chain_primitives::error::Error::DBNotFoundErr;
 use near_chain::types::EpochManagerAdapter;
 pub use near_chunks_primitives::Error;
 use near_epoch_manager::shard_tracker::ShardTracker;
+use near_network::client::ChunkStateWitnessMessage;
 use near_network::shards_manager::ShardsManagerRequestFromNetwork;
 use near_network::types::{
     AccountIdOrPeerTrackingShard, PartialEncodedChunkForwardMsg, PartialEncodedChunkRequestMsg,
@@ -283,6 +284,7 @@ impl ShardsManager {
         shard_tracker: ShardTracker,
         network_adapter: Sender<PeerManagerMessageRequest>,
         client_adapter: Sender<ShardsManagerResponse>,
+        client_adapter_for_state_witness: Sender<ChunkStateWitnessMessage>,
         store: ReadOnlyChunksStore,
         initial_chain_head: Tip,
         initial_chain_header_head: Tip,
@@ -309,7 +311,7 @@ impl ShardsManager {
             chunk_forwards_cache: lru::LruCache::new(CHUNK_FORWARD_CACHE_SIZE),
             chain_head: initial_chain_head,
             chain_header_head: initial_chain_header_head,
-            state_witness_manager: StateWitnessManager::new(),
+            state_witness_manager: StateWitnessManager::new(client_adapter_for_state_witness),
         }
     }
 
@@ -840,6 +842,8 @@ impl ShardsManager {
         &mut self,
         witness: PartialEncodedStateWitness,
     ) {
+        // [bypass] We can not forward part to ourselves over network, so process that separately
+        self.process_partial_encoded_state_witness_forward_request(witness.clone());
         // Simply forward this to the chunk validators
         self.peer_manager_adapter.send(PeerManagerMessageRequest::NetworkRequests(
             NetworkRequests::PartialEncodedStateWitnessForward(witness),
@@ -2260,6 +2264,7 @@ mod test {
             shard_tracker,
             network_adapter.as_sender(),
             client_adapter.as_sender(),
+            client_adapter.as_sender(),
             ReadOnlyChunksStore::new(store),
             mock_tip.clone(),
             mock_tip,
@@ -2302,6 +2307,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2375,6 +2381,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2402,6 +2409,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2470,6 +2478,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2559,6 +2568,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2628,6 +2638,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2689,6 +2700,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2723,6 +2735,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2753,6 +2766,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2786,6 +2800,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2818,6 +2833,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2857,6 +2873,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -2903,6 +2920,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2944,6 +2962,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2968,6 +2987,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -2991,6 +3011,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
@@ -3026,6 +3047,7 @@ mod test {
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
             fixture.mock_client_adapter.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
             fixture.mock_chain_head.clone(),
@@ -3057,6 +3079,7 @@ mod test {
             Arc::new(fixture.epoch_manager.clone()),
             fixture.shard_tracker.clone(),
             fixture.mock_network.as_sender(),
+            fixture.mock_client_adapter.as_sender(),
             fixture.mock_client_adapter.as_sender(),
             fixture.chain_store.new_read_only_chunks_store(),
             fixture.mock_chain_head.clone(),
