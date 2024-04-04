@@ -1542,6 +1542,7 @@ impl Trie {
                 let mut memory = NodesStorage::new();
                 let mut root_node = self.move_node_to_mutable(&mut memory, &self.root)?;
                 for (key, value) in changes {
+                    let first_byte = key.get(0).copied().unwrap_or(0xff);
                     let key = NibbleSlice::new(&key);
                     let start = std::time::Instant::now();
                     root_node = match value {
@@ -1549,7 +1550,7 @@ impl Trie {
                         None => self.delete(&mut memory, root_node, key),
                     }?;
                     DURATIONS_PER_COLUMN.with_borrow_mut(|v| {
-                        let accum = v.entry(key.at(0)).or_default();
+                        let accum = v.entry(first_byte).or_default();
                         *accum += start.elapsed();
                     });
                 }
