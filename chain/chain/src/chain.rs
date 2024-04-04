@@ -91,12 +91,14 @@ use near_primitives::views::{
 };
 use near_store::config::StateSnapshotType;
 use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
-use near_store::get_genesis_state_roots;
 use near_store::DBCol;
+use near_store::{get_delayed_receipt_indices, get_genesis_state_roots};
 use once_cell::sync::OnceCell;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, debug_span, error, info, warn, Span};
@@ -1841,6 +1843,33 @@ impl Chain {
                 .as_secs_f64(),
         );
         self.blocks_delay_tracker.finish_block_processing(&block_hash, new_head.clone());
+
+        let filename = "/tmp/delayed-receipts-queue-size.log";
+        let mut file = OpenOptions::new().create(true).append(true).open(filename).unwrap();
+
+        for chunk_header in block.chunks().iter() {
+            let shard_id = chunk_header.shard_id();
+            let trie_update = self
+                .runtime_adapter
+                .get_trie_for_shard(
+                    shard_id,
+                    block.header().prev_hash(),
+                    chunk_header.prev_state_root(),
+                    true,
+                )
+                .unwrap();
+            let delayed_recipt_indices = get_delayed_receipt_indices(&trie_update).unwrap();
+            file.write_all(
+                format!(
+                    "block_id={} shard_id={} len={}",
+                    block.header().height(),
+                    shard_id,
+                    delayed_recipt_indices.len()
+                )
+                .as_bytes(),
+            )
+            .unwrap();
+        }
 
         timer.observe_duration();
         let _timer = CryptoHashTimer::new_with_start(*block.hash(), block_start_processing_time);
