@@ -207,6 +207,8 @@ def test_upgrade() -> None:
     # Successfully created a new account on transfer to hex
     assert 'error' not in res, res
     assert 'Failure' not in res['result']['status'], res
+    print(res)
+    assert False, "that was the plan"
 
     hex_account_balance = int(
         nodes[0].get_account(hex_account_id)['result']['amount'])
