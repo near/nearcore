@@ -419,7 +419,7 @@ impl NightshadeRuntime {
         metrics::DELAYED_RECEIPTS_COUNT
             .with_label_values(&[&shard_label])
             .set(apply_result.delayed_receipts_count as i64);
-        if let Some(metrics) = apply_result.metrics {
+        if let Some(mut metrics) = apply_result.metrics {
             metrics.report(&shard_label);
         }
 

@@ -1465,6 +1465,7 @@ impl Runtime {
             };
 
         // We first process local receipts. They contain staking, local contract calls, etc.
+        let local_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
             // Prefetcher is allowed to fail
@@ -1482,9 +1483,16 @@ impl Runtime {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
         }
-        metrics.local_receipts_done(total.gas, total.compute);
+        metrics.local_receipts_done(
+            local_receipts.len() as u64,
+            local_processing_start.elapsed(),
+            total.gas,
+            total.compute,
+        );
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
+        let delayed_processing_start = std::time::Instant::now();
+        let mut delayed_receipt_count = 0;
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total.compute >= compute_limit
                 || proof_size_limit
@@ -1492,6 +1500,7 @@ impl Runtime {
             {
                 break;
             }
+            delayed_receipt_count += 1;
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
@@ -1525,9 +1534,15 @@ impl Runtime {
             process_receipt(&receipt, &mut state_update, &mut total)?;
             processed_delayed_receipts.push(receipt);
         }
-        metrics.delayed_receipts_done(total.gas, total.compute);
+        metrics.delayed_receipts_done(
+            delayed_receipt_count,
+            delayed_processing_start.elapsed(),
+            total.gas,
+            total.compute,
+        );
 
         // And then we process the new incoming receipts. These are receipts from other shards.
+        let incoming_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
             prefetcher.clear();
             // Prefetcher is allowed to fail
@@ -1551,7 +1566,12 @@ impl Runtime {
                 process_receipt(receipt, &mut state_update, &mut total)?;
             }
         }
-        metrics.incoming_receipts_done(total.gas, total.compute);
+        metrics.incoming_receipts_done(
+            incoming_receipts.len() as u64,
+            incoming_processing_start.elapsed(),
+            total.gas,
+            total.compute,
+        );
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
@@ -1566,6 +1586,7 @@ impl Runtime {
 
         let mut processed_yield_timeouts = vec![];
         let mut timeout_receipts = vec![];
+        let yield_processing_start = std::time::Instant::now();
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total.compute >= compute_limit
                 || proof_size_limit
@@ -1630,7 +1651,12 @@ impl Runtime {
             // Math checked above: first_index is less than next_available_index
             promise_yield_indices.first_index += 1;
         }
-        metrics.yield_timeouts_done(total.gas, total.compute);
+        metrics.yield_timeouts_done(
+            processed_yield_timeouts.len() as u64,
+            yield_processing_start.elapsed(),
+            total.gas,
+            total.compute,
+        );
 
         let _span = tracing::debug_span!(target: "runtime", "apply_commit").entered();
         if delayed_receipts_indices != initial_delayed_receipt_indices {
