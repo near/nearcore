@@ -485,10 +485,7 @@ class NeardRunner:
                     code=-32600,
                     message='Cannot reset data dir as test state is not ready')
 
-            try:
-                backups = self.data['backups']
-            except KeyError:
-                backups = {}
+            backups = self.data.get('backups', {})
             if backup_id is not None and backup_id != 'start' and backup_id not in backups:
                 raise jsonrpc.exceptions.JSONRPCDispatchException(
                     code=-32600, message=f'backup ID {backup_id} not known')
@@ -748,11 +745,8 @@ class NeardRunner:
         self.data['state_data'] = data
 
     def making_backup(self, backup_id, description=None):
-        self.set_state(TestState.MAKING_BACKUP,
-                       data={
-                           'backup_id': backup_id,
-                           'description': description
-                       })
+        backup_data = {'backup_id': backup_id, 'description': description}
+        self.set_state(TestState.MAKING_BACKUP, data=backup_data)
 
     def network_init(self):
         # wait til we get a network_init RPC

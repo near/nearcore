@@ -257,11 +257,11 @@ def make_backup_cmd(args, traffic_generator, nodes):
         args.backup_id = sys.stdin.readline().strip()
         if re.match(r'^[0-9a-zA-Z.][0-9a-zA-Z_\-.]+$', args.backup_id) is None:
             sys.exit('invalid backup ID')
-    if args.description is None:
-        print('please enter a description (enter nothing to skip):')
-        description = sys.stdin.readline().strip()
-        if len(description) > 0:
-            args.description = description
+        if args.description is None:
+            print('please enter a description (enter nothing to skip):')
+            description = sys.stdin.readline().strip()
+            if len(description) > 0:
+                args.description = description
 
     all_nodes = nodes + [traffic_generator]
     pmap(
