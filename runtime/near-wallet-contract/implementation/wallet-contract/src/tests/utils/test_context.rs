@@ -14,10 +14,7 @@ use near_workspaces::{
     types::{KeyType, NearToken, PublicKey, SecretKey},
     Account, Contract, Worker,
 };
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use tokio::{process::Command, sync::Mutex};
 
 const BASE_DIR: &str = std::env!("CARGO_MANIFEST_DIR");
@@ -142,17 +139,12 @@ impl TestContext {
         let _guard = LOCK.lock().await;
         let worker = near_workspaces::sandbox().await?;
 
+        let registrar_id_path = address_registrar_account_id_path(BASE_DIR);
+        let original_registrar_id = tokio::fs::read(&registrar_id_path).await?;
         let address_registrar = Self::deploy_address_registrar(&worker).await?;
         let wallet_contract_bytes = build_contract(BASE_DIR, PACKAGE_NAME).await?;
         // Restore address registrar account id file
-        let output = Command::new("git")
-            .current_dir(BASE_DIR)
-            .args([OsStr::new("checkout"), address_registrar_account_id_path(".").as_os_str()])
-            .output()
-            .await?;
-        if !output.status.success() {
-            anyhow::bail!("git checkout failed: {}", String::from_utf8_lossy(&output.stderr));
-        }
+        tokio::fs::write(registrar_id_path, &original_registrar_id).await?;
 
         let (wallet_contract, wallet_address) =
             Self::deploy_wallet(&worker, &wallet_contract_bytes).await?;
