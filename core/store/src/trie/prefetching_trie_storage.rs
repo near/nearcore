@@ -494,8 +494,12 @@ impl PrefetchApi {
     ///
     /// Queued up work will not be finished. But trie keys that are already
     /// being fetched will finish.
-    pub fn clear_queue(&self) {
-        while let Ok(_dropped) = self.work_queue_rx.try_recv() {}
+    pub fn clear_queue(&self) -> usize {
+        let mut count = 0;
+        while let Ok(_dropped) = self.work_queue_rx.try_recv() {
+            count += 1;
+        }
+        count
     }
 
     /// Clear prefetched staging area from data that has not been picked up by the main thread.
