@@ -1339,6 +1339,7 @@ impl Runtime {
         let compute_limit = apply_state.gas_limit.unwrap_or(Gas::max_value());
 
         // We first process local receipts. They contain staking, local contract calls, etc.
+        let local_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
@@ -1357,13 +1358,21 @@ impl Runtime {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
-        metrics.local_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.local_receipts_done(
+            local_receipts.len() as u64,
+            local_processing_start.elapsed(),
+            total_gas_burnt,
+            total_compute_usage,
+        );
 
         // Then we process the delayed receipts. It's a backlog of receipts from the past blocks.
+        let delayed_processing_start = std::time::Instant::now();
+        let mut delayed_receipt_count = 0;
         while delayed_receipts_indices.first_index < delayed_receipts_indices.next_available_index {
             if total_compute_usage >= compute_limit {
                 break;
             }
+            delayed_receipt_count += 1;
             let key = TrieKey::DelayedReceipt { index: delayed_receipts_indices.first_index };
             let receipt: Receipt = get(&state_update, &key)?.ok_or_else(|| {
                 StorageError::StorageInconsistentState(format!(
@@ -1401,9 +1410,15 @@ impl Runtime {
             )?;
             processed_delayed_receipts.push(receipt);
         }
-        metrics.delayed_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.delayed_receipts_done(
+            delayed_receipt_count,
+            delayed_processing_start.elapsed(),
+            total_gas_burnt,
+            total_compute_usage,
+        );
 
         // And then we process the new incoming receipts. These are receipts from other shards.
+        let incoming_processing_start = std::time::Instant::now();
         if let Some(prefetcher) = &mut prefetcher {
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
@@ -1428,7 +1443,12 @@ impl Runtime {
                 set_delayed_receipt(&mut state_update, &mut delayed_receipts_indices, receipt);
             }
         }
-        metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
+        metrics.incoming_receipts_done(
+            incoming_receipts.len() as u64,
+            incoming_processing_start.elapsed(),
+            total_gas_burnt,
+            total_compute_usage,
+        );
 
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
