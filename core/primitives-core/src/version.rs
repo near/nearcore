@@ -98,6 +98,8 @@ pub enum ProtocolFeature {
     ///
     /// Compute Costs NEP-455: https://github.com/near/NEPs/blob/master/neps/nep-0455.md
     ComputeCosts,
+    /// Decrease the cost of function call action. Only affects the execution cost.
+    DecreaseFunctionCallBaseCost,
     /// Enable flat storage for reads, reducing number of DB accesses from `2 * key.len()` in
     /// the worst case to 2.
     ///
@@ -179,6 +181,7 @@ impl ProtocolFeature {
             | ProtocolFeature::TestnetFewerBlockProducers
             | ProtocolFeature::SimpleNightshadeV2 => 64,
             ProtocolFeature::SimpleNightshadeV3 => 65,
+            ProtocolFeature::DecreaseFunctionCallBaseCost => 66,
 
             // Nightly features
             #[cfg(feature = "protocol_feature_fix_staking_threshold")]
