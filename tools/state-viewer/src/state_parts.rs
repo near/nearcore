@@ -123,6 +123,7 @@ impl StatePartsSubCommand {
             &chain_genesis,
             DoomslugThresholdMode::TwoThirds,
             false,
+            false,
         )
         .unwrap();
         let chain_id = &near_config.genesis.config.chain_id;

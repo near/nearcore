@@ -454,6 +454,8 @@ pub struct ChainStore {
     /// - archive is true, cold_store is configured and migration to split_storage is finished - node
     /// working in split storage mode needs trie changes in order to do garbage collection on hot.
     save_trie_changes: bool,
+    /// Save only the data necessary for validation.
+    validator_minimal_store: bool,
 }
 
 fn option_to_not_found<T, F>(res: io::Result<Option<T>>, field_name: F) -> Result<T, Error>
@@ -468,7 +470,12 @@ where
 }
 
 impl ChainStore {
-    pub fn new(store: Store, genesis_height: BlockHeight, save_trie_changes: bool) -> ChainStore {
+    pub fn new(
+        store: Store,
+        genesis_height: BlockHeight,
+        save_trie_changes: bool,
+        validator_minimal_store: bool,
+    ) -> ChainStore {
         ChainStore {
             store,
             genesis_height,
@@ -496,6 +503,7 @@ impl ChainStore {
             block_ordinal_to_hash: CellLruCache::new(CACHE_SIZE),
             processed_block_heights: CellLruCache::new(CACHE_SIZE),
             save_trie_changes,
+            validator_minimal_store,
         }
     }
 
@@ -2423,24 +2431,26 @@ impl<'a> ChainStoreUpdate<'a> {
                 }
             };
 
-            // Increase transaction refcounts for all included txs
-            for tx in chunk.transactions().iter() {
-                let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
-                store_update.increment_refcount(
-                    DBCol::Transactions,
-                    tx.get_hash().as_ref(),
-                    &bytes,
-                );
-            }
+            if !self.chain_store.validator_minimal_store {
+                // Increase transaction refcounts for all included txs
+                for tx in chunk.transactions().iter() {
+                    let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
+                    store_update.increment_refcount(
+                        DBCol::Transactions,
+                        tx.get_hash().as_ref(),
+                        &bytes,
+                    );
+                }
 
-            // Increase receipt refcounts for all included receipts
-            for receipt in chunk.prev_outgoing_receipts().iter() {
-                let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
-                store_update.increment_refcount(
-                    DBCol::Receipts,
-                    receipt.get_hash().as_ref(),
-                    &bytes,
-                );
+                // Increase receipt refcounts for all included receipts
+                for receipt in chunk.prev_outgoing_receipts().iter() {
+                    let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
+                    store_update.increment_refcount(
+                        DBCol::Receipts,
+                        receipt.get_hash().as_ref(),
+                        &bytes,
+                    );
+                }
             }
 
             store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
@@ -2488,14 +2498,16 @@ impl<'a> ChainStoreUpdate<'a> {
                 receipt,
             )?;
         }
-        for ((outcome_id, block_hash), outcome_with_proof) in
-            self.chain_store_cache_update.outcomes.iter()
-        {
-            store_update.insert_ser(
-                DBCol::TransactionResultForBlock,
-                &get_outcome_id_block_hash(outcome_id, block_hash),
-                &outcome_with_proof,
-            )?;
+        if !self.chain_store.validator_minimal_store {
+            for ((outcome_id, block_hash), outcome_with_proof) in
+                self.chain_store_cache_update.outcomes.iter()
+            {
+                store_update.insert_ser(
+                    DBCol::TransactionResultForBlock,
+                    &get_outcome_id_block_hash(outcome_id, block_hash),
+                    &outcome_with_proof,
+                )?;
+            }
         }
         for ((block_hash, shard_id), ids) in self.chain_store_cache_update.outcome_ids.iter() {
             store_update.set_ser(

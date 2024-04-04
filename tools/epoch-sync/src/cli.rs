@@ -99,7 +99,7 @@ impl ValidateEpochSyncInfoCmd {
         let epoch_ids = get_all_epoch_ids(storage)?;
 
         let mut chain_store =
-            ChainStore::new(store.clone(), config.genesis.config.genesis_height, false);
+            ChainStore::new(store.clone(), config.genesis.config.genesis_height, false, false);
         let header_head_hash = chain_store.header_head()?.last_block_hash;
         let hash_to_next_hash = get_hash_to_next_hash(&hash_to_prev_hash, &header_head_hash)?;
 

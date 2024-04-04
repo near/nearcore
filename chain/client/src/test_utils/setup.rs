@@ -113,6 +113,7 @@ pub fn setup(
         doomslug_threshold_mode,
         ChainConfig {
             save_trie_changes: true,
+            validator_minimal_store: false,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -252,6 +253,7 @@ pub fn setup_only_view(
         doomslug_threshold_mode,
         ChainConfig {
             save_trie_changes: true,
+            validator_minimal_store: false,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
@@ -1024,6 +1026,7 @@ pub fn setup_synchronous_shards_manager(
         DoomslugThresholdMode::TwoThirds, // irrelevant
         ChainConfig {
             save_trie_changes: true,
+            validator_minimal_store: false,
             background_migration_threads: 1,
             resharding_config: MutableConfigValue::new(
                 ReshardingConfig::default(),
