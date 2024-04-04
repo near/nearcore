@@ -1099,6 +1099,24 @@ fn test_shard_layout_upgrade_simple_v3_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 44, false);
 }
 
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_42() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 42, false);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_43() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 43, false);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_44() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 44, false);
+}
+
 fn test_resharding_with_different_db_kind_impl(resharding_type: ReshardingType) {
     init_test_logger();
 
@@ -1142,6 +1160,12 @@ fn test_resharding_with_different_db_kind_v2() {
 #[test]
 fn test_resharding_with_different_db_kind_v3() {
     test_resharding_with_different_db_kind_impl(ReshardingType::V3);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_resharding_with_different_db_kind_testonly() {
+    test_resharding_with_different_db_kind_impl(ReshardingType::TESTONLY);
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
@@ -1196,6 +1220,12 @@ fn test_shard_layout_upgrade_gc_v2() {
 #[test]
 fn test_shard_layout_upgrade_gc_v3() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V3, 44);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_gc_testonly() {
+    test_shard_layout_upgrade_gc_impl(ReshardingType::TESTONLY, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -1474,7 +1504,6 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_42() {
 
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
-#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_43() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V2, 43);
@@ -1509,6 +1538,30 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_43() {
 #[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_42() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 42);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_43() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 43);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_44() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 44);
 }
 
 #[cfg(feature = "nightly")]
@@ -1738,6 +1791,24 @@ fn test_shard_layout_upgrade_incoming_receipts_v3_seed_43() {
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 44);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_42() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 42);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_43() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 43);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_44() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 44);
 }
 
 // Test cross contract calls
