@@ -184,6 +184,24 @@ impl TestEnv {
                         self.shards_manager(&account_id).send(message);
                         None
                     }
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedStateWitness(witnesses),
+                    ) => {
+                        for witness in &witnesses {
+                            let message = ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessRequest(witness.clone());
+                            self.shards_manager(&witness.part_owner).send(message);
+                        }
+                        None
+                    }
+                    PeerManagerMessageRequest::NetworkRequests(
+                        NetworkRequests::PartialEncodedStateWitnessForward(witness),
+                    ) => {
+                        for chunk_validator in &witness.forward_accounts {
+                            let message = ShardsManagerRequestFromNetwork::ProcessPartialEncodedStateWitnessForwardRequest(witness.clone());
+                            self.shards_manager(chunk_validator).send(message);
+                        }
+                        None
+                    }
                     _ => Some(request),
                 });
             }
@@ -277,6 +295,20 @@ impl TestEnv {
             }
             any_processed = true;
         }
+
+        let mut witness_processing_done_waiters: Vec<ProcessingDoneWaiter> = Vec::new();
+        while let Some(msg) = self.client_adapters[id].pop_state_witness() {
+            let processing_done_tracker = ProcessingDoneTracker::new();
+            witness_processing_done_waiters.push(processing_done_tracker.make_waiter());
+            self.clients[id]
+                .process_chunk_state_witness(msg.0, Some(processing_done_tracker))
+                .unwrap();
+        }
+        // Wait for all state witnesses to be processed before returning.
+        for processing_done_waiter in witness_processing_done_waiters {
+            processing_done_waiter.wait();
+        }
+
         any_processed
     }
 

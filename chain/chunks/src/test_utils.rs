@@ -262,6 +262,7 @@ pub fn default_tip() -> Tip {
 #[derive(Default)]
 pub struct MockClientAdapterForShardsManager {
     pub requests: Arc<RwLock<VecDeque<ShardsManagerResponse>>>,
+    pub requests_state_witness: Arc<RwLock<VecDeque<ChunkStateWitnessMessage>>>,
 }
 
 impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
@@ -271,8 +272,8 @@ impl CanSend<ShardsManagerResponse> for MockClientAdapterForShardsManager {
 }
 
 impl CanSend<ChunkStateWitnessMessage> for MockClientAdapterForShardsManager {
-    fn send(&self, _msg: ChunkStateWitnessMessage) {
-        // TODO: Maybe add here something for testing?
+    fn send(&self, msg: ChunkStateWitnessMessage) {
+        self.requests_state_witness.write().unwrap().push_back(msg);
     }
 }
 
@@ -282,6 +283,9 @@ impl MockClientAdapterForShardsManager {
     }
     pub fn pop_most_recent(&self) -> Option<ShardsManagerResponse> {
         self.requests.write().unwrap().pop_back()
+    }
+    pub fn pop_state_witness(&self) -> Option<ChunkStateWitnessMessage> {
+        self.requests_state_witness.write().unwrap().pop_front()
     }
 }
 
