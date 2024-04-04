@@ -1,3 +1,4 @@
+use borsh::BorshDeserialize;
 use lru::LruCache;
 
 use near_async::messaging::Sender;
@@ -46,7 +47,11 @@ impl StateWitnessManager {
             entry.num_parts += 1;
             entry.parts[partial_witness.part_ord] = Some(partial_witness.part);
         }
-        if let Some(witness) = reconstruct_state_witness(partial_witness.chunk_hash, entry) {
+        if let Some(witness) = reconstruct_state_witness(
+            partial_witness.chunk_hash,
+            partial_witness.witness_size,
+            entry,
+        ) {
             self.client_adapter.send(ChunkStateWitnessMessage(witness));
         }
     }
@@ -54,6 +59,7 @@ impl StateWitnessManager {
 
 fn reconstruct_state_witness(
     chunk_hash: ChunkHash,
+    witness_size: usize,
     entry: &mut CacheEntry,
 ) -> Option<ChunkStateWitness> {
     if !entry.can_process() {
@@ -66,6 +72,13 @@ fn reconstruct_state_witness(
     let mut rs = ReedSolomonWrapper::new(data_parts, total_parts - data_parts);
     rs.reconstruct(entry.parts.as_mut_slice()).unwrap();
 
-    // TODO: Reconstruct the witness from the parts and return it.
-    None
+    // Reconstruct the witness from the parts and return it.
+    let encoded_data = entry
+        .parts
+        .iter()
+        .flat_map(|option| option.as_ref().unwrap().iter())
+        .cloned()
+        .take(witness_size)
+        .collect::<Vec<u8>>();
+    Some(ChunkStateWitness::try_from_slice(&encoded_data).unwrap())
 }
