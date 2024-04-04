@@ -1430,7 +1430,6 @@ impl Runtime {
         }
         metrics.incoming_receipts_done(total_gas_burnt, total_compute_usage);
 
-<<<<<<< HEAD
         // No more receipts are executed on this trie, stop any pending prefetches on it.
         if let Some(prefetcher) = &prefetcher {
             prefetcher.clear();
