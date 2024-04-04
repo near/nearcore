@@ -44,7 +44,10 @@ impl EncodedChunkStateWitness {
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct SignedChunkStateWitness {
+    /// The content of the witness. It is convenient have it as bytes in order
+    /// to perform signature verification along with decoding.
     pub witness_bytes: EncodedChunkStateWitness,
+    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
     pub signature: Signature,
 }
 
