@@ -197,6 +197,13 @@ impl ApplyChunkCmd {
     }
 }
 
+#[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ApplyRangeMode {
+    Sequential,
+    Parallel,
+    Benchmarking,
+}
+
 #[derive(clap::Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
@@ -212,14 +219,15 @@ pub struct ApplyRangeCmd {
     #[clap(long)]
     only_contracts: bool,
     #[clap(long)]
-    sequential: bool,
-    #[clap(long)]
     use_flat_storage: bool,
+    #[clap(subcommand)]
+    mode: ApplyRangeMode,
 }
 
 impl ApplyRangeCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         apply_range(
+            self.mode,
             self.start_index,
             self.end_index,
             self.shard_id,
@@ -229,7 +237,6 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
-            self.sequential,
             self.use_flat_storage,
         );
     }
