@@ -1466,7 +1466,6 @@ impl Runtime {
 
         // We first process local receipts. They contain staking, local contract calls, etc.
         if let Some(prefetcher) = &mut prefetcher {
-            prefetcher.clear();
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&local_receipts);
         }
@@ -1501,7 +1500,6 @@ impl Runtime {
             })?;
 
             if let Some(prefetcher) = &mut prefetcher {
-                prefetcher.clear();
                 // Prefetcher is allowed to fail
                 _ = prefetcher.prefetch_receipts_data(std::slice::from_ref(&receipt));
             }
@@ -1529,7 +1527,6 @@ impl Runtime {
 
         // And then we process the new incoming receipts. These are receipts from other shards.
         if let Some(prefetcher) = &mut prefetcher {
-            prefetcher.clear();
             // Prefetcher is allowed to fail
             _ = prefetcher.prefetch_receipts_data(&incoming_receipts);
         }
@@ -1552,11 +1549,6 @@ impl Runtime {
             }
         }
         metrics.incoming_receipts_done(total.gas, total.compute);
-
-        // No more receipts are executed on this trie, stop any pending prefetches on it.
-        if let Some(prefetcher) = &prefetcher {
-            prefetcher.clear();
-        }
 
         // Resolve timed-out PromiseYield receipts
         let mut promise_yield_indices: PromiseYieldIndices =
@@ -1655,6 +1647,20 @@ impl Runtime {
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
+        if let Some(prefetcher) = &prefetcher {
+            // Only clear the prefetcher queue after finalize is done because as part of receipt
+            // processing we also prefetch account data and access keys that are accessed in
+            // finalize. This data can take a very long time otherwise if not prefetched.
+            //
+            // (This probably results in more data being accessed than strictly necessary and
+            // prefetcher may touch data that is no longer relevant as a result but...)
+            //
+            // In the future it may make sense to have prefetcher have a mode where it has two
+            // queues: one for data that is going to be required soon, and the other that it would
+            // only work when otherwise idle.
+            let discarded_prefetch_requests = prefetcher.clear();
+            tracing::debug!(target: "runtime", discarded_prefetch_requests);
+        }
 
         // Dedup proposals from the same account.
         // The order is deterministically changed.
