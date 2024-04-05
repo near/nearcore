@@ -335,7 +335,7 @@ fn apply_block_from_range(
                 block: BlockInfo {
                     hash: block_hash,
                     height: block.header().height(),
-                    prev_hash: block.header().prev_hash().clone(),
+                    prev_hash: *block.header().prev_hash(),
                 },
                 prev_block_with_changes: None,
             },
