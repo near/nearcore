@@ -593,8 +593,7 @@ impl RunCmd {
             .await;
             actix::System::current().stop();
             // Disable the subscriber to properly shutdown the tracer.
-            near_o11y::reload(Some("error"), None, Some(near_o11y::OpenTelemetryLevel::OFF))
-                .unwrap();
+            near_o11y::reload(Some("error"), None, Some("off")).unwrap();
         });
         sys.run().unwrap();
         info!(target: "neard", "Waiting for RocksDB to gracefully shutdown");

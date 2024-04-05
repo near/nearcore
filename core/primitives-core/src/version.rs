@@ -135,6 +135,11 @@ pub enum ProtocolFeature {
     /// Enables stateless validation which is introduced in https://github.com/near/NEPs/pull/509
     StatelessValidationV0,
     EthImplicitAccounts,
+    /// Enables yield execution which is introduced in https://github.com/near/NEPs/pull/519
+    YieldExecution,
+
+    /// Protocol version reserved for use in resharding tests.
+    SimpleNightshadeTestonly,
 
     // Stateless validation: lower block and chunk validator kickout percent from 90 to 50.
     LowerValidatorKickoutPercentForDebugging,
@@ -195,6 +200,14 @@ impl ProtocolFeature {
             // TODO(resharding) clean up after stake wars is over.
             #[cfg(not(feature = "statelessnet_protocol"))]
             ProtocolFeature::SimpleNightshadeV3 => 65,
+
+            // Nightly features which should be tested for compatibility with resharding
+            ProtocolFeature::YieldExecution => 78,
+
+            // This protocol version is reserved for use in resharding tests. An extra resharding
+            // is simulated on top of the latest shard layout in production. Note that later
+            // protocol versions will still have the production layout.
+            ProtocolFeature::SimpleNightshadeTestonly => 79,
 
             // StatelessNet features
             ProtocolFeature::StatelessValidationV0 => 80,

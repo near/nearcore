@@ -157,6 +157,7 @@ pub struct ApplyResult {
     pub state_changes: Vec<RawStateChangesWithTrieKey>,
     pub stats: ApplyStats,
     pub processed_delayed_receipts: Vec<Receipt>,
+    pub processed_yield_timeouts: Vec<PromiseYieldTimeout>,
     pub proof: Option<PartialStorage>,
     pub delayed_receipts_count: u64,
     pub metrics: Option<metrics::ApplyMetrics>,
@@ -1364,6 +1365,7 @@ impl Runtime {
                 state_changes,
                 stats,
                 processed_delayed_receipts: vec![],
+                processed_yield_timeouts: vec![],
                 proof,
                 delayed_receipts_count: delayed_receipts_indices.len(),
                 metrics: None,
@@ -1562,6 +1564,7 @@ impl Runtime {
         let initial_promise_yield_indices = promise_yield_indices.clone();
         let mut new_receipt_index: usize = 0;
 
+        let mut processed_yield_timeouts = vec![];
         let mut timeout_receipts = vec![];
         while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
             if total.compute >= compute_limit
@@ -1588,11 +1591,11 @@ impl Runtime {
             }
 
             // Check if the yielded promise still needs to be resolved
-            let yielded_promise_key = TrieKey::PromiseYieldReceipt {
+            let promise_yield_key = TrieKey::PromiseYieldReceipt {
                 receiver_id: queue_entry.account_id.clone(),
                 data_id: queue_entry.data_id,
             };
-            if state_update.contains_key(&yielded_promise_key)? {
+            if state_update.contains_key(&promise_yield_key)? {
                 let new_receipt_id = create_receipt_id_from_receipt_id(
                     protocol_version,
                     &queue_entry.data_id,
@@ -1622,6 +1625,7 @@ impl Runtime {
                 timeout_receipts.push(resume_receipt);
             }
 
+            processed_yield_timeouts.push(queue_entry);
             state_update.remove(queue_entry_key);
             // Math checked above: first_index is less than next_available_index
             promise_yield_indices.first_index += 1;
@@ -1675,6 +1679,7 @@ impl Runtime {
             state_changes,
             stats,
             processed_delayed_receipts,
+            processed_yield_timeouts,
             proof,
             delayed_receipts_count: delayed_receipts_indices.len(),
             metrics: Some(metrics),

@@ -1,10 +1,13 @@
 use crate::flat::FlatStateChanges;
-use crate::{get, get_delayed_receipt_indices, set, ShardTries, StoreUpdate, Trie, TrieUpdate};
+use crate::{
+    get, get_delayed_receipt_indices, get_promise_yield_indices, set, ShardTries, StoreUpdate,
+    Trie, TrieUpdate,
+};
 use borsh::BorshDeserialize;
 use bytesize::ByteSize;
 use near_primitives::account::id::AccountId;
 use near_primitives::errors::StorageError;
-use near_primitives::receipt::Receipt;
+use near_primitives::receipt::{PromiseYieldTimeout, Receipt};
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state_part::PartId;
 use near_primitives::trie_key::trie_key_parsers::parse_account_id_from_raw_key;
@@ -39,7 +42,8 @@ impl ShardTries {
         account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<HashMap<ShardUId, TrieUpdate>, StorageError> {
         let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
-        let mut insert_receipts = Vec::new();
+        let mut inserted_receipts = Vec::new();
+        let mut inserted_timeouts = Vec::new();
         for ConsolidatedStateChange { trie_key, value } in changes.changes {
             match &trie_key {
                 TrieKey::DelayedReceiptIndices => {}
@@ -51,13 +55,36 @@ impl ShardTries {
                                 value, err,
                             ))
                         })?;
-                        insert_receipts.push((*index, receipt));
+                        // Accumulate insertions so that they can be sorted by index and applied to
+                        // the child tries in the correct order.
+                        inserted_receipts.push((*index, receipt));
                     }
-                    None => {}
+                    None => {
+                        // For DelayedReceipt deletions we cannot infer the account information
+                        // from the state change. Instead, the erased receipts are passed directly
+                        // in `changes.processed_delayed_receipts`.
+                    }
                 },
                 TrieKey::PromiseYieldIndices => {}
-                TrieKey::PromiseYieldTimeout { .. } => todo!(),
-                TrieKey::PromiseYieldReceipt { .. } => todo!(),
+                TrieKey::PromiseYieldTimeout { index } => match value {
+                    Some(value) => {
+                        let timeout =
+                            PromiseYieldTimeout::try_from_slice(&value).map_err(|err| {
+                                StorageError::StorageInconsistentState(format!(
+                                    "invalid PromiseYield queue entry {:?}, err: {}",
+                                    value, err,
+                                ))
+                            })?;
+                        // Accumulate insertions so that they can be sorted by index and applied to
+                        // the child tries in the correct order.
+                        inserted_timeouts.push((*index, timeout));
+                    }
+                    None => {
+                        // For PromiseYieldTimeout deletions we cannot infer the account information
+                        // from the state change. Instead, the erased timeouts are passed directly
+                        // in `changes.processed_yield_timeouts`.
+                    }
+                },
                 TrieKey::Account { account_id }
                 | TrieKey::ContractCode { account_id }
                 | TrieKey::AccessKey { account_id, .. }
@@ -65,6 +92,7 @@ impl ShardTries {
                 | TrieKey::PostponedReceiptId { receiver_id: account_id, .. }
                 | TrieKey::PendingDataCount { receiver_id: account_id, .. }
                 | TrieKey::PostponedReceipt { receiver_id: account_id, .. }
+                | TrieKey::PromiseYieldReceipt { receiver_id: account_id, .. }
                 | TrieKey::ContractData { account_id, .. } => {
                     let new_shard_uid = account_id_to_shard_uid(account_id);
                     // we can safely unwrap here because the caller of this function guarantees trie_updates
@@ -84,15 +112,23 @@ impl ShardTries {
             update.commit(StateChangeCause::Resharding);
         }
 
-        insert_receipts.sort_by_key(|it| it.0);
-
-        let insert_receipts: Vec<_> =
-            insert_receipts.into_iter().map(|(_, receipt)| receipt).collect();
-
+        inserted_receipts.sort_by_key(|it| it.0);
+        let inserted_receipts: Vec<_> =
+            inserted_receipts.into_iter().map(|(_, receipt)| receipt).collect();
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
-            &insert_receipts,
+            &inserted_receipts,
             &changes.processed_delayed_receipts,
+            account_id_to_shard_uid,
+        )?;
+
+        inserted_timeouts.sort_by_key(|it| it.0);
+        let inserted_timeouts: Vec<_> =
+            inserted_timeouts.into_iter().map(|(_, timeout)| timeout).collect();
+        apply_promise_yield_timeouts_to_children_states_impl(
+            &mut trie_updates,
+            &inserted_timeouts,
+            &changes.processed_yield_timeouts,
             account_id_to_shard_uid,
         )?;
 
@@ -112,10 +148,10 @@ impl ShardTries {
         account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
     ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
         self.add_values_to_children_states_impl(state_roots, values, &|raw_key| {
-            // Here changes on DelayedReceipts or DelayedReceiptsIndices will be excluded
-            // This is because we cannot migrate delayed receipts part by part. They have to be
-            // reconstructed in the new states after all DelayedReceipts are ready in the original
-            // shard.
+            // Here changes on DelayedReceipt, DelayedReceiptIndices, PromiseYieldTimeout, and
+            // PromiseYieldIndices will be excluded. Both the delayed receipts and the yield
+            // timeouts are organized in queues; they cannot be handled part by part because
+            // they need to be re-indexed contiguously when migrated to the child shards.
             if let Some(account_id) = parse_account_id_from_raw_key(raw_key).map_err(|e| {
                 let err = format!("error parsing account id from trie key {:?}: {:?}", raw_key, e);
                 StorageError::StorageInconsistentState(err)
@@ -176,6 +212,22 @@ impl ShardTries {
         apply_delayed_receipts_to_children_states_impl(
             &mut trie_updates,
             receipts,
+            &[],
+            account_id_to_shard_uid,
+        )?;
+        self.finalize_and_apply_trie_updates(trie_updates)
+    }
+
+    pub fn apply_promise_yield_timeouts_to_children_states(
+        &self,
+        state_roots: &HashMap<ShardUId, StateRoot>,
+        timeouts: &[PromiseYieldTimeout],
+        account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+    ) -> Result<(StoreUpdate, HashMap<ShardUId, StateRoot>), StorageError> {
+        let mut trie_updates: HashMap<_, _> = self.get_trie_updates(state_roots);
+        apply_promise_yield_timeouts_to_children_states_impl(
+            &mut trie_updates,
+            timeouts,
             &[],
             account_id_to_shard_uid,
         )?;
@@ -279,8 +331,97 @@ fn apply_delayed_receipts_to_children_states_impl(
     Ok(())
 }
 
-/// Retrieve delayed receipts starting with `start_index` until `memory_limit` is hit
-/// return None if there is no delayed receipts with index >= start_index
+fn apply_promise_yield_timeouts_to_children_states_impl(
+    trie_updates: &mut HashMap<ShardUId, TrieUpdate>,
+    insert_timeouts: &[PromiseYieldTimeout],
+    delete_timeouts: &[PromiseYieldTimeout],
+    account_id_to_shard_uid: &dyn Fn(&AccountId) -> ShardUId,
+) -> Result<(), StorageError> {
+    // TODO: we can remove this check once yield execution is stabilized.
+    // For now it prevents populating promise yield indices for the child shards with default
+    // values if the feature has not been enabled.
+    if insert_timeouts.is_empty() && delete_timeouts.is_empty() {
+        return Ok(());
+    }
+
+    let mut promise_yield_indices_by_shard = HashMap::new();
+    for (shard_uid, update) in trie_updates.iter() {
+        promise_yield_indices_by_shard.insert(*shard_uid, get_promise_yield_indices(update)?);
+    }
+
+    for timeout in insert_timeouts {
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&timeout.account_id);
+        if !trie_updates.contains_key(&new_shard_uid) {
+            let err = format!(
+                "Account {} is in new shard {:?} but state_roots only contains {:?}",
+                timeout.account_id,
+                new_shard_uid,
+                trie_updates.keys(),
+            );
+            return Err(StorageError::StorageInconsistentState(err));
+        }
+        // we already checked that new_shard_uid is in trie_updates and
+        // promise_yield_indices_by_shard so we can safely unwrap here
+        let promise_yield_indices = promise_yield_indices_by_shard.get_mut(&new_shard_uid).unwrap();
+        set(
+            trie_updates.get_mut(&new_shard_uid).unwrap(),
+            TrieKey::PromiseYieldTimeout { index: promise_yield_indices.next_available_index },
+            timeout,
+        );
+        promise_yield_indices.next_available_index =
+            promise_yield_indices.next_available_index.checked_add(1).ok_or_else(|| {
+                StorageError::StorageInconsistentState(
+                    "Next available index for PromiseYield timeout exceeded the integer limit"
+                        .to_string(),
+                )
+            })?;
+    }
+
+    for timeout in delete_timeouts {
+        let new_shard_uid: ShardUId = account_id_to_shard_uid(&timeout.account_id);
+        if !trie_updates.contains_key(&new_shard_uid) {
+            let err = format!(
+                "Account {} is in new shard {:?} but state_roots only contains {:?}",
+                timeout.account_id,
+                new_shard_uid,
+                trie_updates.keys(),
+            );
+            return Err(StorageError::StorageInconsistentState(err));
+        }
+        let promise_yield_indices = promise_yield_indices_by_shard.get_mut(&new_shard_uid).unwrap();
+
+        let trie_update = trie_updates.get_mut(&new_shard_uid).unwrap();
+        let trie_key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+
+        let stored_timeout = get::<PromiseYieldTimeout>(trie_update, &trie_key)?
+            .expect("removed PromiseYield timeout does not exist in new state");
+        // check that the timeout to remove is at the front of the timeout queue
+        assert_eq!(&stored_timeout, timeout);
+        trie_update.remove(trie_key);
+        promise_yield_indices.first_index += 1;
+    }
+
+    // commit the trie_updates and update state_roots
+    for (shard_uid, trie_update) in trie_updates {
+        set(
+            trie_update,
+            TrieKey::PromiseYieldIndices,
+            promise_yield_indices_by_shard.get(shard_uid).unwrap(),
+        );
+        // StateChangeCause should always be Resharding for processing resharding.
+        // We do not want to commit the state_changes from resharding as they are already handled while
+        // processing parent shard
+        trie_update.commit(StateChangeCause::Resharding);
+    }
+    Ok(())
+}
+
+/// Retrieve delayed receipts starting with `start_index` until `memory_limit` is hit.
+///
+/// Returns an updated start_index (the first index which was not read in this batch)
+/// and a vec of delayed receipts which were read.
+///
+/// Returns None if there are no delayed receipts with index >= start_index.
 pub fn get_delayed_receipts(
     state_update: &TrieUpdate,
     start_index: Option<u64>,
@@ -317,18 +458,67 @@ pub fn get_delayed_receipts(
     Ok(Some((delayed_receipt_indices.first_index, receipts)))
 }
 
+/// Retrieve PromiseYield timeouts starting with `start_index` until `memory_limit` is hit.
+///
+/// Returns an updated start_index (the first index which was not read in this batch)
+/// and a vec of timeouts which were read.
+///
+/// Returns None if there are no timeouts with index >= start_index.
+pub fn get_promise_yield_timeouts(
+    state_update: &TrieUpdate,
+    start_index: Option<u64>,
+    memory_limit: ByteSize,
+) -> Result<Option<(u64, Vec<PromiseYieldTimeout>)>, StorageError> {
+    let mut promise_yield_indices = get_promise_yield_indices(state_update)?;
+    if let Some(start_index) = start_index {
+        if start_index >= promise_yield_indices.next_available_index {
+            return Ok(None);
+        }
+        promise_yield_indices.first_index = start_index.max(promise_yield_indices.first_index);
+    }
+    let mut used_memory = 0;
+    let mut timeouts = vec![];
+
+    while used_memory < memory_limit.as_u64()
+        && promise_yield_indices.first_index < promise_yield_indices.next_available_index
+    {
+        let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+        let data = state_update.get(&key)?.ok_or_else(|| {
+            StorageError::StorageInconsistentState(format!(
+                "PromiseYield timeout #{} should be in the state",
+                promise_yield_indices.first_index
+            ))
+        })?;
+        used_memory += data.len() as u64;
+        promise_yield_indices.first_index += 1;
+
+        let timeout = PromiseYieldTimeout::try_from_slice(&data).map_err(|_| {
+            StorageError::StorageInconsistentState("Failed to deserialize".to_string())
+        })?;
+        timeouts.push(timeout);
+    }
+    Ok(Some((promise_yield_indices.first_index, timeouts)))
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::resharding::{apply_delayed_receipts_to_children_states_impl, get_delayed_receipts};
+    use crate::resharding::{
+        apply_delayed_receipts_to_children_states_impl,
+        apply_promise_yield_timeouts_to_children_states_impl, get_delayed_receipts,
+        get_promise_yield_timeouts,
+    };
     use crate::test_utils::{
-        gen_changes, gen_receipts, get_all_delayed_receipts, test_populate_trie, TestTriesBuilder,
+        gen_changes, gen_receipts, gen_timeouts, get_all_delayed_receipts,
+        get_all_promise_yield_timeouts, test_populate_trie, TestTriesBuilder,
     };
 
     use crate::{set, ShardTries, ShardUId, Trie};
     use near_primitives::account::id::AccountId;
 
     use near_primitives::hash::hash;
-    use near_primitives::receipt::{DelayedReceiptIndices, Receipt};
+    use near_primitives::receipt::{
+        DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt,
+    };
     use near_primitives::trie_key::TrieKey;
     use near_primitives::types::{NumShards, StateChangeCause, StateRoot};
     use rand::Rng;
@@ -434,6 +624,61 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_get_promise_yield_timeouts() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..20 {
+            let memory_limit = bytesize::ByteSize::b(rng.gen_range(200..1000));
+            let all_timeouts = gen_timeouts(&mut rng, 200);
+
+            // push timeouts to trie
+            let tries = TestTriesBuilder::new().build();
+            let mut trie_update = tries.new_trie_update(ShardUId::single_shard(), Trie::EMPTY_ROOT);
+            let mut promise_yield_indices = PromiseYieldIndices::default();
+
+            for (i, timeout) in all_timeouts.iter().enumerate() {
+                set(&mut trie_update, TrieKey::PromiseYieldTimeout { index: i as u64 }, timeout);
+            }
+            promise_yield_indices.next_available_index = all_timeouts.len() as u64;
+            set(&mut trie_update, TrieKey::PromiseYieldIndices, &promise_yield_indices);
+            trie_update.commit(StateChangeCause::Resharding);
+            let (_, trie_changes, _) = trie_update.finalize().unwrap();
+            let mut store_update = tries.store_update();
+            let state_root =
+                tries.apply_all(&trie_changes, ShardUId::single_shard(), &mut store_update);
+            store_update.commit().unwrap();
+
+            assert_eq!(
+                all_timeouts,
+                get_all_promise_yield_timeouts(&tries, &ShardUId::single_shard(), &state_root)
+            );
+            let mut start_index = 0;
+
+            let trie_update = tries.new_trie_update(ShardUId::single_shard(), state_root);
+            while let Some((next_index, timeouts)) =
+                get_promise_yield_timeouts(&trie_update, Some(start_index), memory_limit).unwrap()
+            {
+                assert_eq!(timeouts, all_timeouts[start_index as usize..next_index as usize]);
+                start_index = next_index;
+
+                let total_memory_use: u64 = timeouts
+                    .iter()
+                    .map(|timeout| borsh::object_length(&timeout).unwrap() as u64)
+                    .sum();
+                let memory_use_without_last_timeout: u64 = timeouts[..timeouts.len() - 1]
+                    .iter()
+                    .map(|timeout| borsh::object_length(&timeout).unwrap() as u64)
+                    .sum();
+
+                assert!(
+                    total_memory_use >= memory_limit.as_u64()
+                        || next_index == all_timeouts.len() as u64
+                );
+                assert!(memory_use_without_last_timeout < memory_limit.as_u64());
+            }
+        }
+    }
+
     fn test_apply_delayed_receipts(
         tries: &ShardTries,
         new_receipts: &[Receipt],
@@ -496,6 +741,80 @@ mod tests {
                     &receipts,
                     &all_receipts[start_index..new_start_index],
                     &all_receipts[new_start_index..],
+                    state_roots,
+                    &|account_id| ShardUId {
+                        shard_id: (hash(account_id.as_bytes()).0[0] as NumShards % num_shards)
+                            as u32,
+                        version: 1,
+                    },
+                );
+                start_index = new_start_index;
+            }
+        }
+    }
+
+    fn test_apply_promise_yield_timeouts(
+        tries: &ShardTries,
+        new_timeouts: &[PromiseYieldTimeout],
+        delete_timeouts: &[PromiseYieldTimeout],
+        expected_all_timeouts: &[PromiseYieldTimeout],
+        state_roots: HashMap<ShardUId, StateRoot>,
+        account_id_to_shard_id: &dyn Fn(&AccountId) -> ShardUId,
+    ) -> HashMap<ShardUId, StateRoot> {
+        let mut trie_updates: HashMap<_, _> = tries.get_trie_updates(&state_roots);
+        apply_promise_yield_timeouts_to_children_states_impl(
+            &mut trie_updates,
+            new_timeouts,
+            delete_timeouts,
+            account_id_to_shard_id,
+        )
+        .unwrap();
+        let (state_update, new_state_roots) =
+            tries.finalize_and_apply_trie_updates(trie_updates).unwrap();
+        state_update.commit().unwrap();
+
+        let timeouts_by_shard: HashMap<_, _> = new_state_roots
+            .iter()
+            .map(|(shard_uid, state_root)| {
+                let timeouts = get_all_promise_yield_timeouts(tries, shard_uid, state_root);
+                (shard_uid, timeouts)
+            })
+            .collect();
+
+        let mut expected_timeouts_by_shard: HashMap<_, _> =
+            state_roots.iter().map(|(shard_uid, _)| (shard_uid, vec![])).collect();
+        for timeout in expected_all_timeouts {
+            let shard_uid = account_id_to_shard_id(&timeout.account_id);
+            expected_timeouts_by_shard.get_mut(&shard_uid).unwrap().push(timeout.clone());
+        }
+        assert_eq!(expected_timeouts_by_shard, timeouts_by_shard);
+
+        new_state_roots
+    }
+
+    #[test]
+    fn test_apply_promise_yield_timeouts_to_new_states() {
+        let mut rng = rand::thread_rng();
+
+        let tries = TestTriesBuilder::new().build();
+        let num_shards = 4;
+
+        for _ in 0..10 {
+            let mut state_roots: HashMap<_, _> = (0..num_shards)
+                .map(|x| (ShardUId { version: 1, shard_id: x as u32 }, Trie::EMPTY_ROOT))
+                .collect();
+            let mut all_timeouts = vec![];
+            let mut start_index = 0;
+            for _ in 0..10 {
+                let timeouts = gen_timeouts(&mut rng, 100);
+                let new_start_index = rng.gen_range(start_index..all_timeouts.len() + 1);
+
+                all_timeouts.extend_from_slice(&timeouts);
+                state_roots = test_apply_promise_yield_timeouts(
+                    &tries,
+                    &timeouts,
+                    &all_timeouts[start_index..new_start_index],
+                    &all_timeouts[new_start_index..],
                     state_roots,
                     &|account_id| ShardUId {
                         shard_id: (hash(account_id.as_bytes()).0[0] as NumShards % num_shards)
