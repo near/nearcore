@@ -10,8 +10,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
-    SignedEncodedChunkStateWitness, StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
+    StoredChunkStateTransitionData,
 };
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashMap;

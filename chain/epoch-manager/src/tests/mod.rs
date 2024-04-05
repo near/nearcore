@@ -18,8 +18,7 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
-    SignedEncodedChunkStateWitness,
+    ChunkStateTransition, ChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
