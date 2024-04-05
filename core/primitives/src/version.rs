@@ -44,8 +44,12 @@ pub const DELETE_KEY_STORAGE_USAGE_PROTOCOL_VERSION: ProtocolVersion = 40;
 
 pub const SHARD_CHUNK_HEADER_UPGRADE_VERSION: ProtocolVersion = 41;
 
-/// Updates the way receipt ID is constructed to use current block hash instead of last block hash
+/// Updates the way receipt ID is constructed to use current block hash instead of last block hash.
 pub const CREATE_RECEIPT_ID_SWITCH_TO_CURRENT_BLOCK_VERSION: ProtocolVersion = 42;
+
+/// Pessimistic gas price estimation uses a fixed value of `minimum_new_receipt_gas` to stop being
+/// tied to the function call base cost.
+pub const FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION: ProtocolVersion = 66;
 
 /// The points in time after which the voting for the latest protocol version
 /// should start.
