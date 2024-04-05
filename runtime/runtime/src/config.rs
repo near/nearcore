@@ -2,6 +2,8 @@
 
 use near_primitives::account::AccessKeyPermission;
 use near_primitives::errors::IntegerOverflowError;
+use near_primitives::version::FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION;
+use near_primitives_core::types::ProtocolVersion;
 use num_bigint::BigUint;
 use num_traits::cast::ToPrimitive;
 use num_traits::pow::Pow;
@@ -248,6 +250,7 @@ pub fn tx_cost(
     transaction: &Transaction,
     gas_price: Balance,
     sender_is_receiver: bool,
+    protocol_version: ProtocolVersion,
 ) -> Result<TransactionCost, IntegerOverflowError> {
     let fees = &config.fees;
     let mut gas_burnt: Gas = fees.fee(ActionCosts::new_action_receipt).send_fee(sender_is_receiver);
@@ -267,7 +270,15 @@ pub fn tx_cost(
     // If signer is equals to receiver the receipt will be processed at the same block as this
     // transaction. Otherwise it will processed in the next block and the gas might be inflated.
     let initial_receipt_hop = if transaction.signer_id == transaction.receiver_id { 0 } else { 1 };
-    let minimum_new_receipt_gas = fees.min_receipt_with_function_call_gas();
+    let minimum_new_receipt_gas = if protocol_version < FIXED_MINIMUM_NEW_RECEIPT_GAS_VERSION {
+        fees.min_receipt_with_function_call_gas()
+    } else {
+        // The pessimistic gas pricing is a best-effort limit which can be breached in case of
+        // congestion when receipts are delayed before they execute. Hence there is not much
+        // value to tie this limit to the function call base cost. Making it constant limits
+        // overcharging to 6x, which was the value before the cost increase.
+        4_855_842_000_000 // 4.855TGas.
+    };
     // In case the config is free, we don't care about the maximum depth.
     let receipt_gas_price = if gas_price == 0 {
         0

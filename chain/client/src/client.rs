@@ -2388,7 +2388,7 @@ impl Client {
                     .iter()
                     .map(|id| self.epoch_manager.shard_id_to_uid(*id, &epoch_id).unwrap())
                     .collect();
-                self.runtime_adapter.retain_mem_tries(&shard_uids);
+                self.runtime_adapter.get_tries().retain_mem_tries(&shard_uids);
 
                 for &shard_id in &tracking_shards {
                     let shard_uid = ShardUId::from_shard_id_and_layout(shard_id, &shard_layout);

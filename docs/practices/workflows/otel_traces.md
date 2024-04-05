@@ -64,13 +64,13 @@ If the traces are not coming through quite yet, consider using the ability to se
 configuration at runtime. Create `$NEARD_HOME/log_config.json` file with the following contents:
 
 ```json
-{ "opentelemetry_level": "INFO" }
+{ "opentelemetry": "info" }
 ```
 
 Or optionally with `rust_log` setting to reduce logging on stdout:
 
 ```json
-{ "opentelemetry_level": "INFO", "rust_log": "WARN" }
+{ "opentelemetry": "info", "rust_log": "WARN" }
 ```
 
 and invoke `sudo pkill -HUP neard`. Double check that the collector is running as well.

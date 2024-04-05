@@ -128,7 +128,7 @@ pub fn validate_transaction(
 
     let sender_is_receiver = &transaction.receiver_id == signer_id;
 
-    tx_cost(&config, transaction, gas_price, sender_is_receiver)
+    tx_cost(&config, transaction, gas_price, sender_is_receiver, current_protocol_version)
         .map_err(|_| InvalidTxError::CostOverflow.into())
 }
 

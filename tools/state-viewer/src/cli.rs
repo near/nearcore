@@ -197,6 +197,25 @@ impl ApplyChunkCmd {
     }
 }
 
+#[derive(clap::Parser, Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ApplyRangeMode {
+    /// Applies chunks one after another in order of increasing heights.
+    /// TODO(#8741): doesn't work. Remove dependency on flat storage
+    /// by simulating correct costs. Consider reintroducing DbTrieOnly
+    /// read mode removed at #10490.
+    Sequential,
+    /// Applies chunks in parallel.
+    /// Useful for quick correctness check of applying chunks by comparing
+    /// results with `ChunkExtra`s.
+    /// TODO(#8741): doesn't work, same as above.
+    Parallel,
+    /// Sequentially applies chunks from flat storage head until chain
+    /// final head, moving flat head forward. Use in combination with
+    /// `MoveFlatHeadCmd` and `MoveFlatHeadMode::Back`.
+    /// Useful for benchmarking.
+    Benchmarking,
+}
+
 #[derive(clap::Parser)]
 pub struct ApplyRangeCmd {
     #[clap(long)]
@@ -212,14 +231,15 @@ pub struct ApplyRangeCmd {
     #[clap(long)]
     only_contracts: bool,
     #[clap(long)]
-    sequential: bool,
-    #[clap(long)]
     use_flat_storage: bool,
+    #[clap(subcommand)]
+    mode: ApplyRangeMode,
 }
 
 impl ApplyRangeCmd {
     pub fn run(self, home_dir: &Path, near_config: NearConfig, store: Store) {
         apply_range(
+            self.mode,
             self.start_index,
             self.end_index,
             self.shard_id,
@@ -229,7 +249,6 @@ impl ApplyRangeCmd {
             near_config,
             store,
             self.only_contracts,
-            self.sequential,
             self.use_flat_storage,
         );
     }

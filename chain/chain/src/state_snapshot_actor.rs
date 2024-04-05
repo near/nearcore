@@ -1,4 +1,4 @@
-use actix::{AsyncContext, Context};
+use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
 use near_async::messaging::CanSend;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
@@ -22,12 +22,18 @@ pub struct StateSnapshotActor {
 }
 
 impl StateSnapshotActor {
-    pub fn new(
+    pub fn spawn(
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
-    ) -> Self {
-        Self { flat_storage_manager, network_adapter, tries }
+    ) -> (Addr<Self>, ArbiterHandle) {
+        let arbiter = Arbiter::new().handle();
+        let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
+            flat_storage_manager,
+            network_adapter,
+            tries,
+        });
+        (addr, arbiter)
     }
 }
 
@@ -134,7 +140,7 @@ pub struct SnapshotCallbacks {
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
@@ -162,7 +168,7 @@ pub fn get_make_snapshot_callback(
 
 /// Sends a request to delete a state snapshot.
 pub fn get_delete_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
 ) -> DeleteSnapshotCallback {
     Arc::new(move || {
         tracing::info!(

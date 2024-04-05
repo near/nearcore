@@ -62,7 +62,7 @@ use near_primitives::views::{
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{error, info, warn};
@@ -436,27 +436,56 @@ impl ViewClientActor {
             return Ok(TxExecutionStatus::None);
         }
 
+        let mut awaiting_receipt_ids: HashSet<&CryptoHash> =
+            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
+        awaiting_receipt_ids.extend(
+            execution_outcome
+                .receipts_outcome
+                .iter()
+                .flat_map(|outcome| &outcome.outcome.receipt_ids),
+        );
+
+        // refund receipt == last receipt in outcome.receipt_ids
+        let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
+            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
+        awaiting_non_refund_receipt_ids.extend(execution_outcome.receipts_outcome.iter().flat_map(
+            |outcome| {
+                outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
+            },
+        ));
+
+        let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
+            .receipts_outcome
+            .iter()
+            .filter_map(|outcome| {
+                if outcome.outcome.status == ExecutionStatusView::Unknown {
+                    None
+                } else {
+                    Some(&outcome.id)
+                }
+            })
+            .collect();
+
+        let executed_ignoring_refunds =
+            awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
+        let executed_including_refunds = awaiting_receipt_ids.is_subset(&executed_receipt_ids);
+
         if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
             .chain
             .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
         {
-            return if execution_outcome
-                .receipts_outcome
-                .iter()
-                .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
-            {
+            return if executed_ignoring_refunds {
                 Ok(TxExecutionStatus::ExecutedOptimistic)
             } else {
                 Ok(TxExecutionStatus::Included)
             };
         }
 
-        if execution_outcome
-            .receipts_outcome
-            .iter()
-            .any(|e| e.outcome.status == ExecutionStatusView::Unknown)
-        {
+        if !executed_ignoring_refunds {
             return Ok(TxExecutionStatus::IncludedFinal);
+        }
+        if !executed_including_refunds {
+            return Ok(TxExecutionStatus::Executed);
         }
 
         let block_hashes: BTreeSet<CryptoHash> =
@@ -507,12 +536,12 @@ impl ViewClientActor {
             target_shard_id,
             true,
         ) {
-            match self.chain.get_final_transaction_result(&tx_hash) {
+            match self.chain.get_partial_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
-                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
+                            self.chain.get_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )

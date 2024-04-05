@@ -47,8 +47,8 @@ use near_primitives::views::{
 use near_primitives::{checked_feature, shard_layout};
 use near_store::test_utils::TestTriesBuilder;
 use near_store::{
-    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, StorageError, Store, StoreUpdate,
-    Trie, TrieChanges, WrappedTrieChanges,
+    set_genesis_hash, set_genesis_state_roots, DBCol, ShardTries, Store, StoreUpdate, Trie,
+    TrieChanges, WrappedTrieChanges,
 };
 use num_rational::Ratio;
 use std::cmp::Ordering;
@@ -1269,6 +1269,7 @@ impl RuntimeAdapter for KeyValueRuntime {
             total_balance_burnt: 0,
             proof: storage_proof,
             processed_delayed_receipts: vec![],
+            processed_yield_timeouts: vec![],
             applied_receipts_hash: hash(&borsh::to_vec(receipts).unwrap()),
         })
     }
@@ -1461,20 +1462,4 @@ impl RuntimeAdapter for KeyValueRuntime {
     ) -> Result<Vec<ApplyResultForResharding>, Error> {
         Ok(vec![])
     }
-
-    fn load_mem_tries_on_startup(&self, _tracked_shards: &[ShardUId]) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    fn load_mem_trie_on_catchup(
-        &self,
-        _shard_uid: &ShardUId,
-        _state_root: &StateRoot,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    fn retain_mem_tries(&self, _shard_uids: &[ShardUId]) {}
-
-    fn unload_mem_trie(&self, _shard_uid: &ShardUId) {}
 }

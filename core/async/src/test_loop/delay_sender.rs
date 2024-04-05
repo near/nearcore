@@ -7,6 +7,7 @@ use crate::test_loop::futures::{
 };
 use crate::time;
 use crate::time::Duration;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use super::futures::{TestLoopFutureSpawner, TestLoopTask};
@@ -70,11 +71,14 @@ impl<Event> DelaySender<Event> {
         self.into_sender().break_apart().into_multi_sender()
     }
 
-    pub fn into_delayed_action_runner<InnerData>(self) -> TestLoopDelayedActionRunner<InnerData>
+    pub fn into_delayed_action_runner<InnerData>(
+        self,
+        shutting_down: Arc<AtomicBool>,
+    ) -> TestLoopDelayedActionRunner<InnerData>
     where
         Event: From<TestLoopDelayedActionEvent<InnerData>> + 'static,
     {
-        TestLoopDelayedActionRunner { sender: self.narrow() }
+        TestLoopDelayedActionRunner { sender: self.narrow(), shutting_down }
     }
 
     /// Returns a FutureSpawner that can be used to spawn futures into the loop.

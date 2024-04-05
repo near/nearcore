@@ -238,7 +238,7 @@ fn format_block_misc_value<'a>(key: &'a [u8], value: &'a [u8]) -> Box<dyn Debug 
         Box::new(BlockHeight::try_from_slice(value).unwrap())
     } else if key == near_store::LATEST_KNOWN_KEY {
         Box::new(LatestKnown::try_from_slice(value).unwrap())
-    } else if key == near_store::GENESIS_JSON_HASH_KEY {
+    } else if key == near_store::GENESIS_JSON_HASH_KEY || key == near_store::STATE_SNAPSHOT_KEY {
         Box::new(CryptoHash::try_from(value).unwrap())
     } else if key == near_store::GENESIS_STATE_ROOTS_KEY {
         Box::new(Vec::<StateRoot>::try_from_slice(value).unwrap())
