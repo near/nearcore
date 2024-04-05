@@ -14,7 +14,7 @@ use near_primitives::sharding::{
     ShardProof,
 };
 use near_primitives::stateless_validation::EncodedChunkStateWitness;
-use near_primitives::stateless_validation::SignedChunkStateWitness;
+use near_primitives::stateless_validation::SignedEncodedChunkStateWitness;
 use near_primitives::types::AccountId;
 use near_primitives_core::checked_feature;
 use near_primitives_core::version::PROTOCOL_VERSION;
@@ -24,7 +24,7 @@ struct OrphanWitnessTestEnv {
     env: TestEnv,
     block1: Block,
     block2: Block,
-    signed_witness: SignedChunkStateWitness,
+    signed_witness: SignedEncodedChunkStateWitness,
     excluded_validator: AccountId,
     excluded_validator_idx: usize,
     chunk_producer: AccountId,
@@ -408,7 +408,7 @@ fn test_orphan_witness_not_fully_validated() {
 }
 
 fn modify_witness_header_inner(
-    signed_witness: &mut SignedChunkStateWitness,
+    signed_witness: &mut SignedEncodedChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderInnerV2),
 ) {
     let mut witness = signed_witness.witness_bytes.decode().unwrap();
@@ -422,7 +422,7 @@ fn modify_witness_header_inner(
     signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness);
 }
 
-fn resign_witness(witness: &mut SignedChunkStateWitness, signer: &Client) {
+fn resign_witness(witness: &mut SignedEncodedChunkStateWitness, signer: &Client) {
     witness.signature =
         signer.validator_signer.as_ref().unwrap().sign_chunk_state_witness(&witness.witness_bytes);
 }

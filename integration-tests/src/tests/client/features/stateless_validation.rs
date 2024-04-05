@@ -1,6 +1,6 @@
 use near_epoch_manager::{EpochManager, EpochManagerAdapter};
 use near_primitives::stateless_validation::{
-    ChunkStateWitness, EncodedChunkStateWitness, SignedChunkStateWitness,
+    ChunkStateWitness, EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_store::test_utils::create_test_store;
 use rand::rngs::StdRng;
@@ -333,7 +333,7 @@ fn test_chunk_state_witness_bad_shard_id() {
     let previous_block = env.clients[0].chain.head().unwrap().prev_block_hash;
     let invalid_shard_id = 1000000000;
     let witness = ChunkStateWitness::new_dummy(upper_height, invalid_shard_id, previous_block);
-    let signed_witness = SignedChunkStateWitness {
+    let signed_witness = SignedEncodedChunkStateWitness {
         witness_bytes: EncodedChunkStateWitness::encode(&witness),
         signature: Default::default(),
     };

@@ -27,7 +27,7 @@ use near_primitives::merkle::merklize;
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, SignedChunkStateWitness,
+    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::chunk_extra::ChunkExtra;
@@ -621,7 +621,7 @@ impl Client {
     /// you can use the `processing_done_tracker` argument (but it's optional, it's safe to pass None there).
     pub fn process_chunk_state_witness(
         &mut self,
-        signed_witness: SignedChunkStateWitness,
+        signed_witness: SignedEncodedChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
         let witness = self.partially_validate_state_witness_in_epoch(&signed_witness)?;
@@ -680,7 +680,7 @@ impl Client {
     /// epoch_id actually corresponds to the chunk's previous block.
     fn partially_validate_state_witness_in_epoch(
         &self,
-        signed_witness: &SignedChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
     ) -> Result<ChunkStateWitness, Error> {
         let witness = signed_witness.witness_bytes.decode()?;
         let chunk_header = &witness.chunk_header;

@@ -11,7 +11,7 @@ use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
     ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
-    SignedChunkStateWitness, StoredChunkStateTransitionData,
+    SignedEncodedChunkStateWitness, StoredChunkStateTransitionData,
 };
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashMap;
@@ -59,7 +59,7 @@ impl Client {
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&chunk_header.shard_id().to_string()])
             .observe(witness_size as f64);
-        let signed_witness = SignedChunkStateWitness { witness_bytes, signature };
+        let signed_witness = SignedEncodedChunkStateWitness { witness_bytes, signature };
 
         if chunk_validators.contains(my_signer.validator_id()) {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.

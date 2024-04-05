@@ -18,7 +18,7 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness, SignedChunkStateWitness,
+    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -2931,7 +2931,7 @@ fn test_verify_chunk_state_witness() {
 
     // Check chunk state witness validity.
     let mut chunk_state_witness =
-        SignedChunkStateWitness { witness_bytes: witness_bytes.clone().into(), signature };
+        SignedEncodedChunkStateWitness { witness_bytes: witness_bytes.clone().into(), signature };
     assert!(epoch_manager
         .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
         .unwrap());

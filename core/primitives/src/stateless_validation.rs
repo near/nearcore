@@ -43,7 +43,7 @@ impl EncodedChunkStateWitness {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct SignedChunkStateWitness {
+pub struct SignedEncodedChunkStateWitness {
     /// The content of the witness. It is convenient have it as bytes in order
     /// to perform signature verification along with decoding.
     pub witness_bytes: EncodedChunkStateWitness,

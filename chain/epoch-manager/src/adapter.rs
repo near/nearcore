@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkValidatorAssignments, SignedChunkStateWitness,
+    ChunkEndorsement, ChunkValidatorAssignments, SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -413,7 +413,7 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        signed_witness: &SignedChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
         chunk_producer: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<bool, Error>;
@@ -1059,7 +1059,7 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        signed_witness: &SignedChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
         chunk_producer: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<bool, Error> {

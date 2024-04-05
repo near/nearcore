@@ -28,7 +28,7 @@ use near_primitives::shard_layout::{ShardLayout, ShardUId};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::state_part::PartId;
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkValidatorAssignments, SignedChunkStateWitness,
+    ChunkEndorsement, ChunkValidatorAssignments, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::{
     Action, ExecutionMetadata, ExecutionOutcome, ExecutionOutcomeWithId, ExecutionStatus,
@@ -950,7 +950,7 @@ impl EpochManagerAdapter for MockEpochManager {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        _signed_witness: &SignedChunkStateWitness,
+        _signed_witness: &SignedEncodedChunkStateWitness,
         _chunk_producer: &AccountId,
         _epoch_id: &EpochId,
     ) -> Result<bool, Error> {
