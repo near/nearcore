@@ -105,10 +105,7 @@ impl NepStrategy {
         let max_gas = 500 * TGAS;
         let memory_congestion_limit = 0.5;
 
-        // TODO - we get the incoming congestion of self from the previous
-        // round, it would be better to re-compute it
-        let CongestedShardsInfo { incoming_congestion, .. } = self.get_info(ctx, &self.shard_id());
-
+        let incoming_congestion = self.get_incoming_congestion(ctx);
         let tx_limit = mix(max_gas, min_gas, incoming_congestion);
 
         while ctx.gas_burnt() < tx_limit {
@@ -154,20 +151,8 @@ impl NepStrategy {
 
     // Step 6: Compute own congestion information for the next block
     fn update_block_info(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        let max_congestion_incoming_gas = (100 * PGAS) as f64;
-        let max_congestion_memory_consumption = 500_000_000 as f64;
-
-        let gas_backlog = ctx.incoming_receipts().attached_gas() as f64;
-        let incoming_congestion = f64::clamp(gas_backlog / max_congestion_incoming_gas, 0.0, 1.0);
-
-        let mut memory_consumption = 0;
-        memory_consumption += ctx.incoming_receipts().size();
-        for (_, queue_id) in &self.outgoing_queues {
-            memory_consumption += ctx.queue(*queue_id).size();
-        }
-
-        let memory_congestion = memory_consumption as f64 / max_congestion_memory_consumption;
-        let memory_congestion = f64::clamp(memory_congestion, 0.0, 1.0);
+        let incoming_congestion = self.get_incoming_congestion(ctx);
+        let memory_congestion = self.get_memory_congestion(ctx);
 
         tracing::debug!(
             target: "model",
@@ -179,6 +164,25 @@ impl NepStrategy {
 
         let info = CongestedShardsInfo { incoming_congestion, memory_congestion };
         ctx.current_block_info().insert(info);
+    }
+
+    fn get_incoming_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        let max_congestion_incoming_gas = (100 * PGAS) as f64;
+        let gas_backlog = ctx.incoming_receipts().attached_gas() as f64;
+        f64::clamp(gas_backlog / max_congestion_incoming_gas, 0.0, 1.0)
+    }
+
+    fn get_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        let max_congestion_memory_consumption = 500_000_000 as f64;
+
+        let mut memory_consumption = 0;
+        memory_consumption += ctx.incoming_receipts().size();
+        for (_, queue_id) in &self.outgoing_queues {
+            memory_consumption += ctx.queue(*queue_id).size();
+        }
+
+        let memory_congestion = memory_consumption as f64 / max_congestion_memory_consumption;
+        f64::clamp(memory_congestion, 0.0, 1.0)
     }
 
     // Forward or buffer a receipt.
