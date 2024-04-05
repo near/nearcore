@@ -327,6 +327,7 @@ fn apply_block_from_range(
     progress_reporter.inc_and_report_progress(apply_result.total_gas_burnt);
 
     if mode == ApplyRangeMode::Benchmarking {
+        // Compute delta and immediately apply to flat storage.
         let changes =
             FlatStateChanges::from_state_changes(apply_result.trie_changes.state_changes());
         let delta = near_store::flat::FlatStateDelta {
@@ -347,6 +348,7 @@ fn apply_block_from_range(
         store_update.commit().unwrap();
         flat_storage.update_flat_head(&block_hash, true).unwrap();
 
+        // Apply trie changes to trie node caches.
         let mut fake_store_update = store.store_update();
         apply_result.trie_changes.insertions_into(&mut fake_store_update);
         apply_result.trie_changes.deletions_into(&mut fake_store_update);
@@ -380,6 +382,8 @@ pub fn apply_chain_range(
     let chain_store = ChainStore::new(store.clone(), genesis.config.genesis_height, false);
     let (start_height, end_height) = match mode {
         ApplyRangeMode::Benchmarking => {
+            // Benchmarking mode requires flat storage and retrieves start and
+            // end heights from flat storage and chain.
             assert!(use_flat_storage);
             assert!(start_height.is_none());
             assert!(end_height.is_none());
@@ -401,6 +405,9 @@ pub fn apply_chain_range(
             };
             let flat_storage_manager = runtime_adapter.get_flat_storage_manager();
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+
+            // Note that first height to apply is the first one after flat
+            // head.
             (flat_head.height + 1, final_head.height)
         }
         _ => (
@@ -422,7 +429,7 @@ pub fn apply_chain_range(
     let progress_reporter = ProgressReporter {
         cnt: AtomicU64::new(0),
         ts: AtomicU64::new(timestamp_ms()),
-        all: end_height - start_height,
+        all: (end_height + 1).saturating_sub(start_height),
         skipped: AtomicU64::new(0),
         empty_blocks: AtomicU64::new(0),
         non_empty_blocks: AtomicU64::new(0),
