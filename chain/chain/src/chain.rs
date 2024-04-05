@@ -521,7 +521,7 @@ impl Chain {
             })
             .cloned()
             .collect();
-        runtime_adapter.load_mem_tries_on_startup(&tracked_shards)?;
+        runtime_adapter.get_tries().load_mem_tries_for_enabled_shards(&tracked_shards)?;
 
         info!(target: "chain", "Init: header head @ #{} {}; block head @ #{} {}",
               header_head.height, header_head.last_block_hash,
@@ -2784,7 +2784,9 @@ impl Chain {
             store_update.commit()?;
             flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
             // Flat storage is ready, load memtrie if it is enabled.
-            self.runtime_adapter.load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
+            self.runtime_adapter
+                .get_tries()
+                .load_mem_trie_on_catchup(&shard_uid, &chunk.prev_state_root())?;
         }
 
         let mut height = shard_state_header.chunk_height_included();
