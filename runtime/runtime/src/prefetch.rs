@@ -48,7 +48,6 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
-use near_primitives_core::hash::hash;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
@@ -92,6 +91,7 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
+            let is_refund = receipt.predecessor_id.is_system();
             let action_receipt = match &receipt.receipt {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     action_receipt
@@ -106,6 +106,39 @@ impl TriePrefetcher {
             if self.prefetch_api.enable_receipt_prefetching {
                 let trie_key = TrieKey::Account { account_id: account_id.clone() };
                 self.prefetch_trie_key(trie_key)?;
+                if is_refund {
+                    let trie_key = TrieKey::AccessKey {
+                        account_id: account_id.clone(),
+                        public_key: action_receipt.signer_public_key.clone(),
+                    };
+                    self.prefetch_trie_key(trie_key)?;
+                }
+                for action in &action_receipt.actions {
+                    match action {
+                        Action::Delegate(delegate_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: delegate_action.delegate_action.sender_id.clone(),
+                                public_key: delegate_action.delegate_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        Action::AddKey(add_key_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: account_id.clone(),
+                                public_key: add_key_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        Action::DeleteKey(delete_key_action) => {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: account_id.clone(),
+                                public_key: delete_key_action.public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        _ => {}
+                    }
+                }
             }
 
             for action in &action_receipt.actions {
