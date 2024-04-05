@@ -91,6 +91,7 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
+            let is_refund = receipt.predecessor_id.is_system();
             match &receipt.receipt {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     let account_id = receipt.receiver_id.clone();
@@ -99,6 +100,45 @@ impl TriePrefetcher {
                     if self.prefetch_api.enable_receipt_prefetching {
                         let trie_key = TrieKey::Account { account_id: account_id.clone() };
                         self.prefetch_trie_key(trie_key)?;
+                        if is_refund {
+                            let trie_key = TrieKey::AccessKey {
+                                account_id: account_id.clone(),
+                                public_key: action_receipt.signer_public_key.clone(),
+                            };
+                            self.prefetch_trie_key(trie_key)?;
+                        }
+                        for action in &action_receipt.actions {
+                            match action {
+                                Action::Delegate(delegate_action) => {
+                                    let trie_key = TrieKey::AccessKey {
+                                        account_id: delegate_action
+                                            .delegate_action
+                                            .sender_id
+                                            .clone(),
+                                        public_key: delegate_action
+                                            .delegate_action
+                                            .public_key
+                                            .clone(),
+                                    };
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                                Action::AddKey(add_key_action) => {
+                                    let trie_key = TrieKey::AccessKey {
+                                        account_id: account_id.clone(),
+                                        public_key: add_key_action.public_key.clone(),
+                                    };
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                                Action::DeleteKey(delete_key_action) => {
+                                    let trie_key = TrieKey::AccessKey {
+                                        account_id: account_id.clone(),
+                                        public_key: delete_key_action.public_key.clone(),
+                                    };
+                                    self.prefetch_trie_key(trie_key)?;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
 
                     // SWEAT specific argument prefetcher
@@ -164,9 +204,13 @@ impl TriePrefetcher {
     /// at the same time. They share a prefetcher, so they will clean each others
     /// data. Handling this is a bit more involved. Failing to do so makes prefetching
     /// less effective in those cases but crucially nothing breaks.
-    pub(crate) fn clear(&self) {
-        self.prefetch_api.clear_queue();
+    ///
+    /// Returns the number of prefetch requests that have been removed from the prefetch queue.
+    /// If this number is large, the prefetches aren't actually getting executed before cancelling.
+    pub(crate) fn clear(&self) -> usize {
+        let ret = self.prefetch_api.clear_queue();
         self.prefetch_api.clear_data();
+        ret
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {

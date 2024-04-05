@@ -208,10 +208,6 @@ impl ShardTries {
         &self.0.state_snapshot_config
     }
 
-    pub fn trie_config(&self) -> &TrieConfig {
-        &self.0.trie_config
-    }
-
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
         &self.0.state_snapshot
     }
@@ -383,7 +379,8 @@ impl ShardTries {
         remove_all_state_values(store_update, shard_uid);
     }
 
-    /// Remove trie from memory for shards not included in the given list.
+    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
+    /// in the given list. Should be called to unload obsolete tries from memory.
     pub fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
         info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
             self.0.mem_tries.read().unwrap().keys(), shard_uids);
@@ -411,12 +408,25 @@ impl ShardTries {
         Ok(())
     }
 
-    /// Returns whether mem-trie is loaded for the given shard.
-    pub fn is_mem_trie_loaded(&self, shard_uid: &ShardUId) -> bool {
-        self.0.mem_tries.read().unwrap().contains_key(shard_uid)
+    /// Loads in-memory trie upon catchup, if it is enabled.
+    /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
+    pub fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<(), StorageError> {
+        if !self.0.trie_config.load_mem_tries_for_tracked_shards {
+            return Ok(());
+        }
+        // It should not happen that memtrie is already loaded for a shard
+        // for which we just did state sync.
+        debug_assert!(!self.0.mem_tries.read().unwrap().contains_key(shard_uid));
+        self.load_mem_trie(shard_uid, Some(*state_root))
     }
 
-    /// Should be called upon startup to load in-memory tries for enabled shards.
+    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
+    /// but which exact shards to load depends on configuration. This may only be called when flat
+    /// storage is ready.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
