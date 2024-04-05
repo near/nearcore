@@ -85,4 +85,13 @@ impl TrieConfig {
     pub fn deletions_queue_capacity(&self) -> usize {
         self.shard_cache_config.shard_cache_deletions_queue_capacity
     }
+
+    /// Checks if any of prefetching related configs was enabled.  
+    pub fn prefetch_enabled(&self) -> bool {
+        self.enable_receipt_prefetching
+            || (!self.sweat_prefetch_receivers.is_empty()
+                && !self.sweat_prefetch_senders.is_empty())
+            || !self.claim_sweat_prefetch_config.is_empty()
+            || !self.kaiching_prefetch_config.is_empty()
+    }
 }
