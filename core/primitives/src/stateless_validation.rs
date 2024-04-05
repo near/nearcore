@@ -51,6 +51,14 @@ pub struct SignedEncodedChunkStateWitness {
     pub signature: Signature,
 }
 
+impl SignedEncodedChunkStateWitness {
+    pub fn new(witness: &ChunkStateWitness, signer: &dyn ValidatorSigner) -> Self {
+        let witness_bytes = EncodedChunkStateWitness::encode(witness);
+        let signature = signer.sign_chunk_state_witness(&witness_bytes);
+        Self { witness_bytes, signature }
+    }
+}
+
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
 /// the originator of the witness (chunk producer).
 ///

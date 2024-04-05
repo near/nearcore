@@ -53,13 +53,10 @@ impl Client {
             chunk,
             transactions_storage_proof,
         )?;
-        let witness_bytes = EncodedChunkStateWitness::encode(&witness);
-        let witness_size = witness_bytes.size_bytes();
-        let signature = my_signer.sign_chunk_state_witness(&witness_bytes);
+        let signed_witness = SignedEncodedChunkStateWitness::new(&witness, my_signer.as_ref());
         metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
             .with_label_values(&[&chunk_header.shard_id().to_string()])
-            .observe(witness_size as f64);
-        let signed_witness = SignedEncodedChunkStateWitness { witness_bytes, signature };
+            .observe(signed_witness.witness_bytes.size_bytes() as f64);
 
         if chunk_validators.contains(my_signer.validator_id()) {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.
@@ -85,7 +82,7 @@ impl Client {
         // See process_chunk_state_witness_ack for the handling of the ack messages.
         self.state_witness_tracker.record_witness_sent(
             &witness,
-            witness_size,
+            signed_witness.witness_bytes.size_bytes(),
             chunk_validators.len(),
         );
 

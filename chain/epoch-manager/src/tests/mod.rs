@@ -18,7 +18,8 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness, SignedEncodedChunkStateWitness,
+    ChunkStateTransition, ChunkStateWitness, EncodedChunkStateWitness,
+    SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -2926,12 +2927,8 @@ fn test_verify_chunk_state_witness() {
         vec![],
         Default::default(),
     );
-    let witness_bytes = EncodedChunkStateWitness::encode(&witness);
-    let signature = signer.sign_chunk_state_witness(&witness_bytes);
-
     // Check chunk state witness validity.
-    let mut chunk_state_witness =
-        SignedEncodedChunkStateWitness { witness_bytes: witness_bytes.clone().into(), signature };
+    let mut chunk_state_witness = SignedEncodedChunkStateWitness::new(&witness, signer.as_ref());
     assert!(epoch_manager
         .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
         .unwrap());
@@ -2944,7 +2941,8 @@ fn test_verify_chunk_state_witness() {
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
-    chunk_state_witness.signature = bad_signer.sign_chunk_state_witness(&witness_bytes);
+    chunk_state_witness.signature =
+        bad_signer.sign_chunk_state_witness(&chunk_state_witness.witness_bytes);
     assert!(!epoch_manager
         .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
         .unwrap());
