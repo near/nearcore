@@ -624,7 +624,7 @@ impl Client {
         signed_witness: SignedEncodedChunkStateWitness,
         processing_done_tracker: Option<ProcessingDoneTracker>,
     ) -> Result<(), Error> {
-        let witness = self.partially_validate_state_witness_in_epoch(&signed_witness)?;
+        let witness = self.partially_validate_state_witness(&signed_witness)?;
 
         // Send the acknowledgement for the state witness back to the chunk producer.
         // This is currently used for network roundtrip time measurement, so we do not need to
@@ -678,7 +678,7 @@ impl Client {
     /// Performs state witness decoding and partial validation without requiring the previous block.
     /// Here we rely on epoch_id provided as part of the state witness. Later we verify that this
     /// epoch_id actually corresponds to the chunk's previous block.
-    fn partially_validate_state_witness_in_epoch(
+    fn partially_validate_state_witness(
         &self,
         signed_witness: &SignedEncodedChunkStateWitness,
     ) -> Result<ChunkStateWitness, Error> {
