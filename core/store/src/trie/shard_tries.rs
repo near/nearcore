@@ -111,10 +111,7 @@ impl ShardTries {
         // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
         //    If you want to enable it for view calls, at least make sure they don't share
         //    the `PrefetchApi` instances with the normal calls.
-        let prefetch_enabled = !is_view
-            && (self.0.trie_config.enable_receipt_prefetching
-                || (!self.0.trie_config.sweat_prefetch_receivers.is_empty()
-                    && !self.0.trie_config.sweat_prefetch_senders.is_empty()));
+        let prefetch_enabled = !is_view && self.0.trie_config.prefetch_enabled();
         let prefetch_api = prefetch_enabled.then(|| {
             self.0
                 .prefetchers
@@ -715,11 +712,7 @@ mod test {
         let trie_config = TrieConfig {
             shard_cache_config: trie_cache_config.clone(),
             view_shard_cache_config: trie_cache_config,
-            enable_receipt_prefetching: false,
-            sweat_prefetch_receivers: Vec::new(),
-            sweat_prefetch_senders: Vec::new(),
-            load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_tracked_shards: false,
+            ..TrieConfig::default()
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
@@ -835,11 +828,7 @@ mod test {
         let trie_config = TrieConfig {
             shard_cache_config: trie_cache_config.clone(),
             view_shard_cache_config: trie_cache_config,
-            enable_receipt_prefetching: false,
-            sweat_prefetch_receivers: Vec::new(),
-            sweat_prefetch_senders: Vec::new(),
-            load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_tracked_shards: false,
+            ..TrieConfig::default()
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
         let shard_uid = *shard_uids.first().unwrap();
