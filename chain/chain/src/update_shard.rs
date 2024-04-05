@@ -115,7 +115,6 @@ pub struct StorageContext {
     /// Data source used for processing shard update.
     pub storage_data_source: StorageDataSource,
     pub state_patch: SandboxStatePatch,
-    pub record_storage: bool,
 }
 
 /// Processes shard update with given block and shard.
@@ -185,7 +184,6 @@ pub fn apply_new_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -247,7 +245,6 @@ pub fn apply_old_chunk(
         use_flat_storage: true,
         source: storage_context.storage_data_source,
         state_patch: storage_context.state_patch,
-        record_storage: storage_context.record_storage,
     };
     match runtime.apply_chunk(
         storage_config,
@@ -332,6 +329,7 @@ fn apply_resharding_state_changes(
     let state_changes = StateChangesForResharding::from_raw_state_changes(
         apply_result.trie_changes.state_changes(),
         apply_result.processed_delayed_receipts.clone(),
+        apply_result.processed_yield_timeouts.clone(),
     );
     let next_epoch_id = epoch_manager.get_next_epoch_id_from_prev_block(&block.prev_block_hash)?;
     let next_shard_layout = epoch_manager.get_shard_layout(&next_epoch_id)?;

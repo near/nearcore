@@ -9,6 +9,7 @@ use near_primitives::types::{
 };
 use near_primitives::validator_mandates::{ValidatorMandates, ValidatorMandatesConfig};
 use num_rational::Ratio;
+use rand::seq::SliceRandom;
 use std::cmp::{self, Ordering};
 use std::collections::hash_map;
 use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
@@ -149,6 +150,12 @@ pub fn proposals_to_epoch_info(
                 }
             }
         }
+
+        if epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers {
+            chunk_producers_settlement
+                .shuffle(&mut EpochInfo::shard_assignment_shuffling_rng(&rng_seed));
+        }
+
         chunk_producers_settlement
     } else {
         if chunk_producers.is_empty() {
@@ -447,6 +454,7 @@ mod tests {
                 num_chunk_only_producer_seats: num_cp_seats,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
+                shuffle_shard_assignment_for_chunk_producers: false,
             },
         );
         let prev_epoch_height = 3;
@@ -529,6 +537,130 @@ mod tests {
         );
     }
 
+    // Test that the chunk validators' shard assignments will be shuffled or not shuffled
+    // depending on the `shuffle_shard_assignment_for_chunk_producers` flag.
+    #[test]
+    fn test_validator_assignment_with_chunk_only_producers_with_shard_shuffling() {
+        let num_bp_seats = 10;
+        let num_cp_seats = 30;
+        let mut epoch_config = create_epoch_config(
+            6,
+            num_bp_seats,
+            // purposely set the fishermen threshold high so that none become fishermen
+            10_000,
+            ValidatorSelectionConfig {
+                num_chunk_only_producer_seats: num_cp_seats,
+                minimum_validators_per_shard: 1,
+                minimum_stake_ratio: Ratio::new(160, 1_000_000),
+                shuffle_shard_assignment_for_chunk_producers: false,
+            },
+        );
+        let prev_epoch_height = 3;
+        let prev_epoch_info = create_prev_epoch_info::<&str>(prev_epoch_height, &[], &[]);
+        let proposals = create_proposals((2..(2 * num_bp_seats + num_cp_seats)).map(|i| {
+            (
+                format!("test{}", i),
+                2000u128 + (i as u128),
+                if i <= num_cp_seats {
+                    Proposal::ChunkOnlyProducer
+                } else {
+                    Proposal::BlockProducer
+                },
+            )
+        }));
+        let epoch_info_no_shuffling = proposals_to_epoch_info(
+            &epoch_config,
+            [1; 32],
+            &prev_epoch_info,
+            proposals.clone(),
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        let epoch_info_no_shuffling_different_seed = proposals_to_epoch_info(
+            &epoch_config,
+            [2; 32],
+            &prev_epoch_info,
+            proposals.clone(),
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+
+        epoch_config.validator_selection_config.shuffle_shard_assignment_for_chunk_producers = true;
+        let epoch_info_with_shuffling = proposals_to_epoch_info(
+            &epoch_config,
+            [1; 32],
+            &prev_epoch_info,
+            proposals.clone(),
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+        let epoch_info_with_shuffling_different_seed = proposals_to_epoch_info(
+            &epoch_config,
+            [2; 32],
+            &prev_epoch_info,
+            proposals,
+            Default::default(),
+            Default::default(),
+            0,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+        )
+        .unwrap();
+
+        assert_eq!(
+            epoch_info_no_shuffling.chunk_producers_settlement(),
+            vec![
+                vec![0, 10, 11, 12, 13, 14, 15],
+                vec![1, 16, 17, 18, 19, 20, 21],
+                vec![2, 9, 22, 23, 24, 25, 26],
+                vec![3, 8, 27, 28, 29, 30, 31],
+                vec![4, 7, 32, 33, 34, 35],
+                vec![5, 6, 36, 37, 38, 39],
+            ],
+        );
+
+        assert_eq!(
+            epoch_info_no_shuffling.chunk_producers_settlement(),
+            epoch_info_no_shuffling_different_seed.chunk_producers_settlement()
+        );
+
+        assert_eq!(
+            epoch_info_with_shuffling.chunk_producers_settlement(),
+            vec![
+                vec![4, 7, 32, 33, 34, 35],
+                vec![2, 9, 22, 23, 24, 25, 26],
+                vec![1, 16, 17, 18, 19, 20, 21],
+                vec![0, 10, 11, 12, 13, 14, 15],
+                vec![5, 6, 36, 37, 38, 39],
+                vec![3, 8, 27, 28, 29, 30, 31],
+            ],
+        );
+
+        assert_eq!(
+            epoch_info_with_shuffling_different_seed.chunk_producers_settlement(),
+            vec![
+                vec![3, 8, 27, 28, 29, 30, 31],
+                vec![1, 16, 17, 18, 19, 20, 21],
+                vec![0, 10, 11, 12, 13, 14, 15],
+                vec![2, 9, 22, 23, 24, 25, 26],
+                vec![5, 6, 36, 37, 38, 39],
+                vec![4, 7, 32, 33, 34, 35],
+            ],
+        );
+    }
+
     #[test]
     fn test_block_producer_sampling() {
         let num_shards = 4;
@@ -540,6 +672,7 @@ mod tests {
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
+                shuffle_shard_assignment_for_chunk_producers: false,
             },
         );
         let prev_epoch_height = 7;
@@ -581,6 +714,7 @@ mod tests {
                 num_chunk_only_producer_seats: 0,
                 minimum_validators_per_shard: 1,
                 minimum_stake_ratio: Ratio::new(160, 1_000_000),
+                shuffle_shard_assignment_for_chunk_producers: false,
             },
         );
         let prev_epoch_height = 7;
@@ -655,6 +789,7 @@ mod tests {
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
                 minimum_stake_ratio: Ratio::new(1, 10),
+                shuffle_shard_assignment_for_chunk_producers: false,
             },
         );
         let prev_epoch_height = 7;
@@ -735,6 +870,7 @@ mod tests {
                 minimum_validators_per_shard: 1,
                 // for example purposes, we choose a higher ratio than in production
                 minimum_stake_ratio: Ratio::new(1, 10),
+                shuffle_shard_assignment_for_chunk_producers: false,
             },
         );
         let prev_epoch_height = 7;

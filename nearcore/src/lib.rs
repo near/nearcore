@@ -271,7 +271,8 @@ pub fn start_with_config_and_synchronization(
         storage.get_hot_store(),
         &config,
         epoch_manager.clone(),
-    );
+    )
+    .context("could not create the transaction runtime")?;
 
     // Get the split store. If split store is some then create a new set of structures for
     // the view client. Otherwise just re-use the existing ones.
@@ -289,7 +290,8 @@ pub fn start_with_config_and_synchronization(
                 split_store.clone(),
                 &config,
                 view_epoch_manager.clone(),
-            );
+            )
+            .context("could not create the transaction runtime")?;
             (view_epoch_manager, view_shard_tracker, view_runtime)
         } else {
             (epoch_manager.clone(), shard_tracker.clone(), runtime.clone())
@@ -332,13 +334,10 @@ pub fn start_with_config_and_synchronization(
         adv.clone(),
     );
 
-    let state_snapshot_actor = Arc::new(
-        StateSnapshotActor::new(
-            runtime.get_flat_storage_manager(),
-            network_adapter.as_multi_sender(),
-            runtime.get_tries(),
-        )
-        .start(),
+    let (state_snapshot_actor, state_snapshot_arbiter) = StateSnapshotActor::spawn(
+        runtime.get_flat_storage_manager(),
+        network_adapter.as_multi_sender(),
+        runtime.get_tries(),
     );
     let delete_snapshot_callback = get_delete_snapshot_callback(state_snapshot_actor.clone());
     let make_snapshot_callback =
@@ -445,8 +444,12 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters =
-        vec![client_arbiter_handle, shards_manager_arbiter_handle, trie_metrics_arbiter];
+    let mut arbiters = vec![
+        client_arbiter_handle,
+        shards_manager_arbiter_handle,
+        trie_metrics_arbiter,
+        state_snapshot_arbiter,
+    ];
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

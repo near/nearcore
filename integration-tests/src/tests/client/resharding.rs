@@ -21,7 +21,9 @@ use near_primitives::types::{BlockHeight, NumShards, ProtocolVersion, ShardId};
 use near_primitives::utils::MaybeValidated;
 use near_primitives::version::ProtocolFeature;
 use near_primitives::version::PROTOCOL_VERSION;
-use near_primitives::views::{ExecutionStatusView, FinalExecutionStatus, QueryRequest};
+use near_primitives::views::{
+    ExecutionStatusView, FinalExecutionOutcomeView, FinalExecutionStatus, QueryRequest,
+};
 use near_primitives_core::num_rational::Rational32;
 use near_store::flat::FlatStorageStatus;
 use near_store::metadata::DbKind;
@@ -36,14 +38,22 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
 
+#[cfg(feature = "nightly")]
+use near_parameters::RuntimeConfig;
+
 const SIMPLE_NIGHTSHADE_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshade.protocol_version();
 
 const SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV2.protocol_version();
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 const SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION: ProtocolVersion =
     ProtocolFeature::SimpleNightshadeV3.protocol_version();
+
+#[cfg(feature = "nightly")]
+const SIMPLE_NIGHTSHADE_TESTONLY_PROTOCOL_VERSION: ProtocolVersion =
+    ProtocolFeature::SimpleNightshadeTestonly.protocol_version();
 
 const P_CATCHUP: f64 = 0.2;
 
@@ -54,30 +64,36 @@ enum ReshardingType {
     // In the V1->V2 resharding outgoing receipts are reassigned to lowest index child.
     V2,
     // In the V2->V3 resharding outgoing receipts are reassigned to lowest index child.
+    #[cfg(not(feature = "statelessnet_protocol"))]
     V3,
+    // In V3->TESTONLY resharding outgoing receipts are reassigned to lowest index child.
+    #[cfg(feature = "nightly")]
+    TESTONLY,
 }
 
 fn get_target_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
     match resharding_type {
         ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION,
         ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION,
+        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION,
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => SIMPLE_NIGHTSHADE_TESTONLY_PROTOCOL_VERSION,
     }
 }
 
 fn get_genesis_protocol_version(resharding_type: &ReshardingType) -> ProtocolVersion {
-    match resharding_type {
-        ReshardingType::V1 => SIMPLE_NIGHTSHADE_PROTOCOL_VERSION - 1,
-        ReshardingType::V2 => SIMPLE_NIGHTSHADE_V2_PROTOCOL_VERSION - 1,
-        ReshardingType::V3 => SIMPLE_NIGHTSHADE_V3_PROTOCOL_VERSION - 1,
-    }
+    get_target_protocol_version(resharding_type) - 1
 }
 
 fn get_parent_shard_uids(resharding_type: &ReshardingType) -> Vec<ShardUId> {
     let shard_layout = match resharding_type {
         ReshardingType::V1 => ShardLayout::v0_single_shard(),
         ReshardingType::V2 => ShardLayout::get_simple_nightshade_layout(),
+        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => ShardLayout::get_simple_nightshade_layout_v2(),
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => ShardLayout::get_simple_nightshade_layout_v3(),
     };
     shard_layout.shard_uids().collect()
 }
@@ -92,13 +108,19 @@ fn get_expected_shards_num(
         match resharding_type {
             ReshardingType::V1 => 1,
             ReshardingType::V2 => 4,
+            #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 5,
+            #[cfg(feature = "nightly")]
+            ReshardingType::TESTONLY => 6,
         }
     } else {
         match resharding_type {
             ReshardingType::V1 => 4,
             ReshardingType::V2 => 5,
+            #[cfg(not(feature = "statelessnet_protocol"))]
             ReshardingType::V3 => 6,
+            #[cfg(feature = "nightly")]
+            ReshardingType::TESTONLY => 7,
         }
     }
 }
@@ -504,8 +526,11 @@ impl TestReshardingEnv {
     /// This functions checks that the outcomes of all transactions and associated receipts
     /// have successful status
     /// If `allow_not_started` is true, allow transactions status to be NotStarted
-    /// Return successful transaction hashes
-    fn check_tx_outcomes(&mut self, allow_not_started: bool) -> Vec<CryptoHash> {
+    /// Returns a map from successful transaction hashes to the transaction outcomes
+    fn check_tx_outcomes(
+        &mut self,
+        allow_not_started: bool,
+    ) -> HashMap<CryptoHash, FinalExecutionOutcomeView> {
         tracing::debug!(target: "test", "checking tx outcomes");
         let env = &mut self.env;
         let head = env.clients[0].chain.head().unwrap();
@@ -521,7 +546,7 @@ impl TestReshardingEnv {
             txs_to_check.extend(txs);
         }
 
-        let mut successful_txs = Vec::new();
+        let mut successful_txs = HashMap::new();
         for tx in txs_to_check {
             let id = &tx.get_hash();
 
@@ -549,19 +574,24 @@ impl TestReshardingEnv {
                     continue;
                 }
                 let final_outcome = client.chain.get_final_transaction_result(id).unwrap();
+                for outcome in &final_outcome.receipts_outcome {
+                    assert_matches!(
+                        outcome.outcome.status,
+                        ExecutionStatusView::SuccessValue(_)
+                            | ExecutionStatusView::SuccessReceiptId(_)
+                    );
+                }
 
                 let outcome_status = final_outcome.status.clone();
                 if matches!(outcome_status, FinalExecutionStatus::SuccessValue(_)) {
-                    successful_txs.push(tx.get_hash());
+                    successful_txs.insert(tx.get_hash(), final_outcome);
                 } else {
                     tracing::error!(target: "test", tx=?id, client=i, "tx failed");
                     panic!("tx failed {:?}", final_outcome);
                 }
-                for outcome in final_outcome.receipts_outcome {
-                    assert_matches!(outcome.outcome.status, ExecutionStatusView::SuccessValue(_));
-                }
             }
         }
+
         successful_txs
     }
 
@@ -800,6 +830,7 @@ fn check_outgoing_receipts_reassigned_impl(
                 assert!(outgoing_receipts.is_empty());
             }
         }
+        #[cfg(not(feature = "statelessnet_protocol"))]
         ReshardingType::V3 => {
             // In V2->V3 resharding the outgoing receipts should be reassigned
             // to the lowest index child of the parent shard.
@@ -807,6 +838,17 @@ fn check_outgoing_receipts_reassigned_impl(
             // non-lowest-index shards are not assigned any receipts.
             // We check elsewhere that no receipts are lost so this should be sufficient.
             if shard_id == 3 {
+                assert!(outgoing_receipts.is_empty());
+            }
+        }
+        #[cfg(feature = "nightly")]
+        ReshardingType::TESTONLY => {
+            // In V3->TESTONLY resharding the outgoing receipts should be reassigned
+            // to the lowest index child of the parent shard.
+            // We can't directly check that here but we can check that the
+            // non-lowest-index shards are not assigned any receipts.
+            // We check elsewhere that no receipts are lost so this should be sufficient.
+            if shard_id == 5 {
                 assert!(outgoing_receipts.is_empty());
             }
         }
@@ -1039,19 +1081,40 @@ fn test_shard_layout_upgrade_simple_v2_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V2, 44, false);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_42() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 42, false);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_43() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 43, false);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_simple_v3_seed_44() {
     test_shard_layout_upgrade_simple_impl(ReshardingType::V3, 44, false);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_42() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 42, false);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_43() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 43, false);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_simple_testonly_seed_44() {
+    test_shard_layout_upgrade_simple_impl(ReshardingType::TESTONLY, 44, false);
 }
 
 fn test_resharding_with_different_db_kind_impl(resharding_type: ReshardingType) {
@@ -1093,9 +1156,16 @@ fn test_resharding_with_different_db_kind_v2() {
     test_resharding_with_different_db_kind_impl(ReshardingType::V2);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_resharding_with_different_db_kind_v3() {
     test_resharding_with_different_db_kind_impl(ReshardingType::V3);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_resharding_with_different_db_kind_testonly() {
+    test_resharding_with_different_db_kind_impl(ReshardingType::TESTONLY);
 }
 
 /// In this test we are checking whether we are properly deleting trie state and flat state
@@ -1146,9 +1216,16 @@ fn test_shard_layout_upgrade_gc_v2() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V2, 44);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_gc_v3() {
     test_shard_layout_upgrade_gc_impl(ReshardingType::V3, 44);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_gc_testonly() {
+    test_shard_layout_upgrade_gc_impl(ReshardingType::TESTONLY, 44);
 }
 
 const GAS_1: u64 = 300_000_000_000_000;
@@ -1404,7 +1481,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_impl(
 
     let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
 
@@ -1442,6 +1519,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_v2_seed_44() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
+#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_42() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 42);
 }
@@ -1449,6 +1527,7 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_42() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
+#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_43() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 43);
 }
@@ -1456,8 +1535,174 @@ fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_43() {
 // Test cross contract calls
 // This test case tests postponed receipts and delayed receipts
 #[test]
+#[cfg(not(feature = "statelessnet_protocol"))]
 fn test_shard_layout_upgrade_cross_contract_calls_v3_seed_44() {
     test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::V3, 44);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_42() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 42);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_43() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 43);
+}
+
+// Test cross contract calls
+// This test case tests postponed receipts and delayed receipts
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_cross_contract_calls_testonly_seed_44() {
+    test_shard_layout_upgrade_cross_contract_calls_impl(ReshardingType::TESTONLY, 44);
+}
+
+#[cfg(feature = "nightly")]
+fn generate_yield_create_tx(
+    account_id: &AccountId,
+    callback_method_name: String,
+    nonce: u64,
+    block_hash: &CryptoHash,
+) -> SignedTransaction {
+    let signer =
+        InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+
+    SignedTransaction::from_actions(
+        nonce,
+        account_id.clone(),
+        account_id.clone(),
+        &signer,
+        vec![Action::FunctionCall(Box::new(FunctionCallAction {
+            method_name: callback_method_name,
+            args: vec![],
+            gas: GAS_1,
+            deposit: 0,
+        }))],
+        *block_hash,
+    )
+}
+
+#[cfg(feature = "nightly")]
+fn setup_test_env_with_promise_yield_txs(
+    test_env: &mut TestReshardingEnv,
+    epoch_length: u64,
+) -> Vec<CryptoHash> {
+    let genesis_hash = *test_env.env.clients[0].chain.genesis_block().hash();
+
+    // Generates an account for each shard
+    let contract_accounts = gen_shard_accounts();
+
+    // Add transactions deploying nightly_rs_contract to each account
+    let mut init_txs = vec![];
+    for account_id in &contract_accounts {
+        let signer =
+            InMemorySigner::from_seed(account_id.clone(), KeyType::ED25519, account_id.as_ref());
+        let actions = vec![Action::DeployContract(DeployContractAction {
+            code: near_test_contracts::nightly_rs_contract().to_vec(),
+        })];
+        let init_tx = SignedTransaction::from_actions(
+            1,
+            account_id.clone(),
+            account_id.clone(),
+            &signer,
+            actions,
+            genesis_hash,
+        );
+        init_txs.push(init_tx);
+    }
+    test_env.set_init_tx(init_txs);
+
+    let mut yield_tx_hashes = vec![];
+    let mut nonce = 100;
+
+    // In these tests we set the epoch length equal to the yield timeout length.
+    assert!(
+        epoch_length
+            == RuntimeConfig::test().wasm_config.limit_config.yield_timeout_length_in_blocks,
+    );
+    // Add transactions invoking promise_yield_create near the epoch boundaries.
+    for height in [
+        epoch_length - 2, // create in first epoch, trigger timeout during resharding epoch
+        epoch_length - 1,
+        epoch_length,
+        2 * epoch_length - 2, // create during resharding epoch, trigger timeout on upgraded layout
+        2 * epoch_length - 1,
+        2 * epoch_length,
+        3 * epoch_length - 2, // both the create and the timeout will occur on upgraded layout
+        3 * epoch_length - 1,
+        3 * epoch_length,
+    ] {
+        let mut txs = vec![];
+        for account_id in &contract_accounts {
+            let tx = generate_yield_create_tx(
+                account_id,
+                "call_yield_create_return_promise".to_string(),
+                nonce,
+                &genesis_hash,
+            );
+
+            nonce += 1;
+
+            yield_tx_hashes.push(tx.get_hash());
+            txs.push(tx);
+        }
+
+        test_env.set_tx_at_height(height, txs);
+    }
+
+    yield_tx_hashes
+}
+
+// Test delivery of promise yield timeouts
+#[cfg(feature = "nightly")]
+fn test_shard_layout_upgrade_promise_yield_impl(resharding_type: ReshardingType, rng_seed: u64) {
+    init_test_logger();
+
+    // setup
+    let epoch_length =
+        RuntimeConfig::test().wasm_config.limit_config.yield_timeout_length_in_blocks;
+    let genesis_protocol_version = get_genesis_protocol_version(&resharding_type);
+    let target_protocol_version = get_target_protocol_version(&resharding_type);
+
+    // reuse the test env for cross contract calls
+    let mut test_env = create_test_env_for_cross_contract_test(
+        genesis_protocol_version,
+        epoch_length,
+        rng_seed,
+        Some(resharding_type),
+    );
+
+    let yield_tx_hashes = setup_test_env_with_promise_yield_txs(&mut test_env, epoch_length);
+
+    let drop_chunk_condition = DropChunkCondition::new();
+    for _ in 1..5 * epoch_length {
+        test_env.step(&drop_chunk_condition, target_protocol_version);
+        test_env.check_receipt_id_to_shard_id();
+    }
+
+    let tx_outcomes = test_env.check_tx_outcomes(false);
+    for tx_hash in yield_tx_hashes {
+        // The yield callback returns a specific value when it is invoked by timeout
+        assert_eq!(
+            tx_outcomes.get(&tx_hash).unwrap().status,
+            FinalExecutionStatus::SuccessValue(vec![23u8]),
+        );
+    }
+
+    test_env.check_resharding_artifacts(0);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_promise_yield() {
+    test_shard_layout_upgrade_promise_yield_impl(ReshardingType::TESTONLY, 42);
 }
 
 fn test_shard_layout_upgrade_incoming_receipts_impl(
@@ -1500,7 +1745,7 @@ fn test_shard_layout_upgrade_incoming_receipts_impl(
 
     let successful_txs = test_env.check_tx_outcomes(false);
     let new_accounts =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
 
     test_env.check_accounts(new_accounts);
     test_env.check_resharding_artifacts(0);
@@ -1530,19 +1775,40 @@ fn test_shard_layout_upgrade_incoming_receipts_v2_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V2, 44);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_42() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 42);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_43() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 43);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_incoming_receipts_v3_seed_44() {
     test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::V3, 44);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_42() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 42);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_43() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 43);
+}
+
+#[cfg(feature = "nightly")]
+#[test]
+fn test_shard_layout_upgrade_incoming_receipts_testonly_seed_44() {
+    test_shard_layout_upgrade_incoming_receipts_impl(ReshardingType::TESTONLY, 44);
 }
 
 // Test cross contract calls
@@ -1588,7 +1854,7 @@ fn test_missing_chunks(
 
     let successful_txs = test_env.check_tx_outcomes(true);
     let new_accounts: Vec<_> =
-        successful_txs.iter().flat_map(|tx_hash| new_accounts.get(tx_hash)).collect();
+        successful_txs.iter().flat_map(|(tx_hash, _)| new_accounts.get(tx_hash)).collect();
     test_env.check_accounts(new_accounts);
 
     test_env.check_resharding_artifacts(0);
@@ -1694,16 +1960,19 @@ fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v2_seed_44() {
 
 // V3 tests
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_low_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.1, 42);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_mid_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.5, 42);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_missing_chunks_high_missing_prob_v3() {
     test_shard_layout_upgrade_missing_chunks(ReshardingType::V3, 0.9, 42);
@@ -1783,13 +2052,13 @@ fn test_shard_layout_upgrade_error_handling_impl(
         }
 
         // corrupt the state snapshot if available to make resharding fail
-        currupt_state_snapshot(&test_env);
+        corrupt_state_snapshot(&test_env);
     }
 
     assert!(false, "no error was recorded, something is wrong in error handling");
 }
 
-fn currupt_state_snapshot(test_env: &TestReshardingEnv) {
+fn corrupt_state_snapshot(test_env: &TestReshardingEnv) {
     let tries = test_env.env.clients[0].runtime_adapter.get_tries();
     let Ok(snapshot_hash) = tries.get_state_snapshot_hash() else { return };
     let (store, flat_storage_manager) = tries.get_state_snapshot(&snapshot_hash).unwrap();
@@ -1811,6 +2080,7 @@ fn test_shard_layout_upgrade_error_handling_v2() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V2, 42, false);
 }
 
+#[cfg(not(feature = "statelessnet_protocol"))]
 #[test]
 fn test_shard_layout_upgrade_error_handling_v3() {
     test_shard_layout_upgrade_error_handling_impl(ReshardingType::V3, 42, false);

@@ -872,7 +872,7 @@ async fn max_num_peers_limit() {
     // The proper solution would be to:
     // 1. Make nearcore presubmit run tests with "[panic=abort]" (which is not supported with
     //    "cargo test"), so that the test actually stop if some thread panic.
-    // 2. Set some timeout on the test execution (with an enourmous heardoom), so that we actually get some logs
+    // 2. Set some timeout on the test execution (with an enormous heardoom), so that we actually get some logs
     //    if the presubmit times out (also not supported by "cargo test").
     drop(pm0);
     drop(pm1);

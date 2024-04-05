@@ -185,6 +185,27 @@ impl ShardLayout {
         )
     }
 
+    /// This layout is used only in resharding tests. It allows testing of any features which were
+    /// introduced after the last layout upgrade in production. Currently it is built on top of V3.
+    #[cfg(feature = "nightly")]
+    pub fn get_simple_nightshade_layout_testonly() -> ShardLayout {
+        ShardLayout::v1(
+            vec![
+                "aurora",
+                "aurora-0",
+                "game.hot.tg",
+                "kkuuue2akv_1630967379.near",
+                "nightly",
+                "tge-lockup.sweat",
+            ]
+            .into_iter()
+            .map(|s| s.parse().unwrap())
+            .collect(),
+            Some(vec![vec![0], vec![1], vec![2], vec![3], vec![4, 5], vec![6]]),
+            4,
+        )
+    }
+
     /// Given a parent shard id, return the shard uids for the shards in the current shard layout that
     /// are split from this parent shard. If this shard layout has no parent shard layout, return None
     pub fn get_children_shards_uids(&self, parent_shard_id: ShardId) -> Option<Vec<ShardUId>> {
@@ -429,7 +450,7 @@ impl<'de> serde::de::Visitor<'de> for ShardUIdVisitor {
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         write!(
             formatter,
-            "either string format of `ShardUId` like s0v1 for shard 0 version 1, or a map"
+            "either string format of `ShardUId` like 's0.v3' for shard 0 version 3, or a map"
         )
     }
 

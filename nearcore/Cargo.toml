@@ -18,6 +18,7 @@ actix.workspace = true
 anyhow.workspace = true
 awc.workspace = true
 borsh.workspace = true
+bytesize.workspace = true
 chrono.workspace = true
 cloud-storage.workspace = true
 dirs.workspace = true
@@ -127,7 +128,6 @@ yield_resume = [
   "near-primitives/yield_resume",
 ]
 
-serialize_all_state_changes = ["near-store/serialize_all_state_changes"]
 nightly = [
   "near-actix-test-utils/nightly",
   "near-async/nightly",
@@ -155,7 +155,6 @@ nightly = [
   "protocol_feature_fix_contract_loading_cost",
   "protocol_feature_fix_staking_threshold",
   "protocol_feature_nonrefundable_transfer_nep491",
-  "serialize_all_state_changes",
   "testlib/nightly",
   "yield_resume",
 ]

@@ -4,13 +4,13 @@ use crate::flat::{
 };
 use crate::metadata::{DbKind, DbVersion, DB_VERSION};
 use crate::{
-    get, get_delayed_receipt_indices, DBCol, NodeStorage, ShardTries, StateSnapshotConfig, Store,
-    TrieConfig,
+    get, get_delayed_receipt_indices, get_promise_yield_indices, DBCol, NodeStorage, ShardTries,
+    StateSnapshotConfig, Store, TrieConfig,
 };
 use itertools::Itertools;
 use near_primitives::account::id::AccountId;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{DataReceipt, PromiseYieldTimeout, Receipt, ReceiptEnum};
 use near_primitives::shard_layout::{ShardUId, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::trie_key::TrieKey;
@@ -113,7 +113,7 @@ impl TestTriesBuilder {
         let tries = ShardTries::new(
             store,
             TrieConfig {
-                load_mem_tries_for_all_shards: self.enable_in_memory_tries,
+                load_mem_tries_for_tracked_shards: self.enable_in_memory_tries,
                 ..Default::default()
             },
             &shard_uids,
@@ -162,6 +162,7 @@ pub fn test_populate_trie(
     let trie = tries.get_trie_for_shard(shard_uid, *root);
     let trie_changes = trie.update(changes.iter().cloned()).unwrap();
     let mut store_update = tries.store_update();
+    tries.apply_memtrie_changes(&trie_changes, shard_uid, 1); // TODO: don't hardcode block height
     let root = tries.apply_all(&trie_changes, shard_uid, &mut store_update);
     store_update.commit().unwrap();
     let deduped = simplify_changes(&changes);
@@ -274,6 +275,19 @@ pub fn gen_receipts(rng: &mut impl Rng, max_size: usize) -> Vec<Receipt> {
         .collect()
 }
 
+pub fn gen_timeouts(rng: &mut impl Rng, max_size: usize) -> Vec<PromiseYieldTimeout> {
+    let alphabet = gen_alphabet();
+    let accounts = gen_accounts_from_alphabet(rng, 1, max_size, &alphabet);
+    accounts
+        .iter()
+        .map(|account_id| PromiseYieldTimeout {
+            account_id: account_id.clone(),
+            data_id: CryptoHash::default(),
+            expires_at: 0,
+        })
+        .collect()
+}
+
 /// Generates up to max_size random sequence of changes: both insertion and deletions.
 /// Deletions are represented as (key, None).
 /// Keys are randomly constructed from alphabet, and they have max_length size.
@@ -351,4 +365,22 @@ pub fn get_all_delayed_receipts(
         receipts.push(receipt);
     }
     receipts
+}
+
+pub fn get_all_promise_yield_timeouts(
+    tries: &ShardTries,
+    shard_uid: &ShardUId,
+    state_root: &StateRoot,
+) -> Vec<PromiseYieldTimeout> {
+    let state_update = &tries.new_trie_update(*shard_uid, *state_root);
+    let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap();
+
+    let mut timeouts = vec![];
+    while promise_yield_indices.first_index < promise_yield_indices.next_available_index {
+        let key = TrieKey::PromiseYieldTimeout { index: promise_yield_indices.first_index };
+        let timeout = get(state_update, &key).unwrap().unwrap();
+        promise_yield_indices.first_index += 1;
+        timeouts.push(timeout);
+    }
+    timeouts
 }

@@ -1461,7 +1461,7 @@ fn check_trie_nodes_count(
             node_touches = receipt_hashes
                 .iter()
                 .map(|receipt_hash| {
-                    let result = node_user.get_transaction_result(receipt_hash);
+                    let result = node_user.get_transaction_result(receipt_hash).unwrap();
                     get_trie_nodes_count(&result.metadata, runtime_config)
                 })
                 .collect();

@@ -13,9 +13,7 @@ pub use crate::client::{Client, ProduceChunkResult};
 pub use crate::client_actions::NetworkAdversarialMessage;
 pub use crate::client_actor::{start_client, ClientActor};
 pub use crate::config_updater::ConfigUpdater;
-pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::{
-    HandleOrphanWitnessOutcome, MAX_ORPHAN_WITNESS_SIZE,
-};
+pub use crate::stateless_validation::chunk_validator::orphan_witness_handling::HandleOrphanWitnessOutcome;
 pub use crate::sync::adapter::{SyncAdapter, SyncMessage};
 pub use crate::view_client::{start_view_client, ViewClientActor};
 pub use near_client_primitives::debug::DebugStatus;

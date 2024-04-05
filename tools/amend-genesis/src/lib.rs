@@ -5,7 +5,7 @@ use near_crypto::PublicKey;
 use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::state_record::StateRecord;
-use near_primitives::types::{AccountId, AccountInfo};
+use near_primitives::types::{AccountId, AccountInfo, StorageUsage};
 use near_primitives::utils;
 use near_primitives::version::ProtocolVersion;
 use near_primitives_core::account::{AccessKey, Account};
@@ -51,11 +51,11 @@ impl AccountRecords {
     fn new(
         amount: Balance,
         locked: Balance,
-        nonrefundable: Balance,
+        permanent_storage_bytes: StorageUsage,
         num_bytes_account: u64,
     ) -> Self {
         let mut ret = Self::default();
-        ret.set_account(amount, locked, nonrefundable, num_bytes_account);
+        ret.set_account(amount, locked, permanent_storage_bytes, num_bytes_account);
         ret
     }
 
@@ -70,14 +70,14 @@ impl AccountRecords {
         &mut self,
         amount: Balance,
         locked: Balance,
-        nonrefundable: Balance,
+        permanent_storage_bytes: StorageUsage,
         num_bytes_account: u64,
     ) {
         assert!(self.account.is_none());
         let account = Account::new(
             amount,
             locked,
-            nonrefundable,
+            permanent_storage_bytes,
             CryptoHash::default(),
             num_bytes_account,
             PROTOCOL_VERSION,
@@ -200,7 +200,7 @@ fn parse_extra_records(
                         let r = AccountRecords::new(
                             account.amount(),
                             account.locked(),
-                            account.nonrefundable(),
+                            account.permanent_storage_bytes(),
                             num_bytes_account,
                         );
                         e.insert(r);
@@ -217,7 +217,7 @@ fn parse_extra_records(
                         r.set_account(
                             account.amount(),
                             account.locked(),
-                            account.nonrefundable(),
+                            account.permanent_storage_bytes(),
                             num_bytes_account,
                         );
                     }
@@ -472,12 +472,12 @@ mod test {
         fn parse(&self) -> StateRecord {
             match &self {
                 Self::Account { account_id, amount, locked, storage_usage } => {
-                    // `nonrefundable_balance` can be implemented if this is required in state records.
-                    let nonrefundable_balance = 0;
+                    // `permanent_storage_bytes` can be implemented if this is required in state records.
+                    let permanent_storage_bytes = 0;
                     let account = Account::new(
                         *amount,
                         *locked,
-                        nonrefundable_balance,
+                        permanent_storage_bytes,
                         CryptoHash::default(),
                         *storage_usage,
                         PROTOCOL_VERSION,

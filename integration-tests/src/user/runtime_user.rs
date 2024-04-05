@@ -174,7 +174,13 @@ impl RuntimeUser {
         &self,
         hash: &CryptoHash,
     ) -> Vec<ExecutionOutcomeWithIdView> {
-        let outcome = self.get_transaction_result(hash);
+        let outcome = match self.get_transaction_result(hash) {
+            Some(outcome) => outcome,
+            None => {
+                return vec![];
+            }
+        };
+
         let receipt_ids = outcome.receipt_ids.clone();
         let mut transactions = vec![ExecutionOutcomeWithIdView {
             id: *hash,
@@ -188,6 +194,7 @@ impl RuntimeUser {
         transactions
     }
 
+    // TODO(#10942) get rid of copy pasted code, it's outdated comparing to the original
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = *hash;
@@ -341,8 +348,8 @@ impl User for RuntimeUser {
         unimplemented!("get_chunk should not be implemented for RuntimeUser");
     }
 
-    fn get_transaction_result(&self, hash: &CryptoHash) -> ExecutionOutcomeView {
-        self.transaction_results.borrow().get(hash).cloned().unwrap()
+    fn get_transaction_result(&self, hash: &CryptoHash) -> Option<ExecutionOutcomeView> {
+        self.transaction_results.borrow().get(hash).cloned()
     }
 
     fn get_transaction_final_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {

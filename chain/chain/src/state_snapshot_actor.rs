@@ -1,4 +1,4 @@
-use actix::{AsyncContext, Context};
+use actix::{Actor, Addr, Arbiter, ArbiterHandle, AsyncContext, Context};
 use near_async::messaging::CanSend;
 use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessageRequest};
 use near_o11y::{handler_debug_span, WithSpanContext, WithSpanContextExt};
@@ -13,9 +13,8 @@ use std::sync::Arc;
 
 /// Runs tasks related to state snapshots.
 /// There are three main handlers in StateSnapshotActor and they are called in sequence
-/// 1. DeleteSnapshotRequest: deletes a snapshot and optionally calls CreateSnapshotRequest.
-/// 2. CreateSnapshotRequest: creates a new snapshot and optionally calls CompactSnapshotRequest based on config.
-/// 3. CompactSnapshotRequest: compacts a snapshot store.
+/// 1. [`DeleteAndMaybeCreateSnapshotRequest`]: deletes a snapshot and optionally calls CreateSnapshotRequest.
+/// 2. [`CreateSnapshotRequest`]: creates a new snapshot.
 pub struct StateSnapshotActor {
     flat_storage_manager: FlatStorageManager,
     network_adapter: PeerManagerAdapter,
@@ -23,12 +22,18 @@ pub struct StateSnapshotActor {
 }
 
 impl StateSnapshotActor {
-    pub fn new(
+    pub fn spawn(
         flat_storage_manager: FlatStorageManager,
         network_adapter: PeerManagerAdapter,
         tries: ShardTries,
-    ) -> Self {
-        Self { flat_storage_manager, network_adapter, tries }
+    ) -> (Addr<Self>, ArbiterHandle) {
+        let arbiter = Arbiter::new().handle();
+        let addr = Self::start_in_arbiter(&arbiter, |_ctx| Self {
+            flat_storage_manager,
+            network_adapter,
+            tries,
+        });
+        (addr, arbiter)
     }
 }
 
@@ -55,10 +60,6 @@ struct CreateSnapshotRequest {
     /// Last block of the prev epoch.
     block: Block,
 }
-
-#[derive(actix::Message, Debug)]
-#[rtype(result = "()")]
-struct CompactSnapshotRequest {}
 
 impl actix::Handler<WithSpanContext<DeleteAndMaybeCreateSnapshotRequest>> for StateSnapshotActor {
     type Result = ();
@@ -87,7 +88,11 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
     type Result = ();
 
     #[perf]
-    fn handle(&mut self, msg: WithSpanContext<CreateSnapshotRequest>, context: &mut Context<Self>) {
+    fn handle(
+        &mut self,
+        msg: WithSpanContext<CreateSnapshotRequest>,
+        _context: &mut Context<Self>,
+    ) {
         let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
         tracing::debug!(target: "state_snapshot", ?msg);
 
@@ -113,33 +118,12 @@ impl actix::Handler<WithSpanContext<CreateSnapshotRequest>> for StateSnapshotAct
                         },
                     ));
                 }
-
-                if self.tries.state_snapshot_config().compaction_enabled {
-                    context.address().do_send(CompactSnapshotRequest {}.with_span_context());
-                } else {
-                    tracing::info!(target: "state_snapshot", "State snapshot ready, not running compaction.");
-                }
             }
             Err(err) => {
-                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed")
+                tracing::error!(target: "state_snapshot", ?err, "State snapshot creation failed.\
+                State snapshot is needed for correct node performance if it is required by config.");
+                panic!("State snapshot creation failed")
             }
-        }
-    }
-}
-
-/// Runs compaction of the snapshot store.
-impl actix::Handler<WithSpanContext<CompactSnapshotRequest>> for StateSnapshotActor {
-    type Result = ();
-
-    #[perf]
-    fn handle(&mut self, msg: WithSpanContext<CompactSnapshotRequest>, _: &mut Context<Self>) {
-        let (_span, msg) = handler_debug_span!(target: "state_snapshot", msg);
-        tracing::debug!(target: "state_snapshot", ?msg);
-
-        if let Err(err) = self.tries.compact_state_snapshot() {
-            tracing::error!(target: "state_snapshot", ?err, "State snapshot compaction failed");
-        } else {
-            tracing::info!(target: "state_snapshot", "State snapshot compaction succeeded");
         }
     }
 }
@@ -156,7 +140,7 @@ pub struct SnapshotCallbacks {
 
 /// Sends a request to make a state snapshot.
 pub fn get_make_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
     flat_storage_manager: FlatStorageManager,
 ) -> MakeSnapshotCallback {
     Arc::new(move |prev_block_hash, epoch_height, shard_uids, block| {
@@ -184,7 +168,7 @@ pub fn get_make_snapshot_callback(
 
 /// Sends a request to delete a state snapshot.
 pub fn get_delete_snapshot_callback(
-    state_snapshot_addr: Arc<actix::Addr<StateSnapshotActor>>,
+    state_snapshot_addr: actix::Addr<StateSnapshotActor>,
 ) -> DeleteSnapshotCallback {
     Arc::new(move || {
         tracing::info!(

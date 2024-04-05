@@ -208,6 +208,10 @@ impl ShardTries {
         &self.0.state_snapshot_config
     }
 
+    pub fn trie_config(&self) -> &TrieConfig {
+        &self.0.trie_config
+    }
+
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
         &self.0.state_snapshot
     }
@@ -379,33 +383,58 @@ impl ShardTries {
         remove_all_state_values(store_update, shard_uid);
     }
 
+    /// Remove trie from memory for shards not included in the given list.
+    pub fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
+        info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
+            self.0.mem_tries.read().unwrap().keys(), shard_uids);
+        self.0.mem_tries.write().unwrap().retain(|shard_uid, _| shard_uids.contains(shard_uid));
+        info!(target: "memtrie", "Memtries retaining complete for shards {:?}", shard_uids);
+    }
+
+    /// Remove trie from memory for given shard.
+    pub fn unload_mem_trie(&self, shard_uid: &ShardUId) {
+        info!(target: "memtrie", "Unloading trie from memory for shard {:?}...", shard_uid);
+        self.0.mem_tries.write().unwrap().remove(shard_uid);
+        info!(target: "memtrie", "Memtrie unloading complete for shard {:?}", shard_uid);
+    }
+
+    /// Loads in-memory-trie for given shard and state root (if given).
+    pub fn load_mem_trie(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: Option<StateRoot>,
+    ) -> Result<(), StorageError> {
+        info!(target: "memtrie", "Loading trie to memory for shard {:?}...", shard_uid);
+        let mem_tries = load_trie_from_flat_state_and_delta(&self.0.store, *shard_uid, state_root)?;
+        self.0.mem_tries.write().unwrap().insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
+        info!(target: "memtrie", "Memtrie loading complete for shard {:?}", shard_uid);
+        Ok(())
+    }
+
+    /// Returns whether mem-trie is loaded for the given shard.
+    pub fn is_mem_trie_loaded(&self, shard_uid: &ShardUId) -> bool {
+        self.0.mem_tries.read().unwrap().contains_key(shard_uid)
+    }
+
     /// Should be called upon startup to load in-memory tries for enabled shards.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
-        shard_uids: &[ShardUId],
+        tracked_shards: &[ShardUId],
     ) -> Result<(), StorageError> {
         let trie_config = &self.0.trie_config;
-        let shard_uids_to_load = shard_uids
+        let shard_uids_to_load = tracked_shards
             .iter()
             .copied()
             .filter(|shard_uid| {
-                trie_config.load_mem_tries_for_all_shards
+                trie_config.load_mem_tries_for_tracked_shards
                     || trie_config.load_mem_tries_for_shards.contains(shard_uid)
             })
             .collect::<Vec<_>>();
-        let store = self.0.store.clone();
+
         info!(target: "memtrie", "Loading tries to memory for shards {:?}...", shard_uids_to_load);
         shard_uids_to_load
             .par_iter()
-            .map(|shard_uid| -> Result<(), StorageError> {
-                let mem_tries = load_trie_from_flat_state_and_delta(&store, *shard_uid)?;
-                self.0
-                    .mem_tries
-                    .write()
-                    .unwrap()
-                    .insert(*shard_uid, Arc::new(RwLock::new(mem_tries)));
-                Ok(())
-            })
+            .map(|shard_uid| self.load_mem_trie(shard_uid, None))
             .collect::<Vec<Result<_, _>>>()
             .into_iter()
             .collect::<Result<_, _>>()?;
@@ -416,7 +445,7 @@ impl ShardTries {
 
     /// Retrieves the in-memory tries for the shard.
     pub fn get_mem_tries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
-        let guard = self.0.mem_tries.write().unwrap();
+        let guard = self.0.mem_tries.read().unwrap();
         guard.get(&shard_uid).cloned()
     }
 
@@ -512,40 +541,18 @@ impl WrappedTrieChanges {
                 continue;
             }
 
-            let storage_key = if cfg!(feature = "serialize_all_state_changes") {
-                // Serialize all kinds of state changes without any filtering.
-                // Without this it's not possible to replay state changes to get an identical state root.
-
-                // This branch will become the default in the near future.
-
-                match change_with_trie_key.trie_key.get_account_id() {
-                    // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
-                    None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
-                        &self.block_hash,
-                        &change_with_trie_key.trie_key,
-                        &self.shard_uid,
-                    ),
-                    // TrieKey has enough information to identify the shard it comes from.
-                    _ => KeyForStateChanges::from_trie_key(
-                        &self.block_hash,
-                        &change_with_trie_key.trie_key,
-                    ),
-                }
-            } else {
-                // This branch is the current neard behavior.
-                // Only a subset of state changes get serialized.
-
-                // Filtering trie keys for user facing RPC reporting.
-                // NOTE: If the trie key is not one of the account specific, it may cause key conflict
-                // when the node tracks multiple shards. See #2563.
-                match &change_with_trie_key.trie_key {
-                    TrieKey::Account { .. }
-                    | TrieKey::ContractCode { .. }
-                    | TrieKey::AccessKey { .. }
-                    | TrieKey::ContractData { .. } => {}
-                    _ => continue,
-                };
-                KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key)
+            let storage_key = match change_with_trie_key.trie_key.get_account_id() {
+                // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
+                None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
+                    &self.block_hash,
+                    &change_with_trie_key.trie_key,
+                    &self.shard_uid,
+                ),
+                // TrieKey has enough information to identify the shard it comes from.
+                _ => KeyForStateChanges::from_trie_key(
+                    &self.block_hash,
+                    &change_with_trie_key.trie_key,
+                ),
             };
 
             store_update.set(
@@ -702,7 +709,7 @@ mod test {
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_all_shards: false,
+            load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId::single_shard()]);
         ShardTries::new(
@@ -822,7 +829,7 @@ mod test {
             sweat_prefetch_receivers: Vec::new(),
             sweat_prefetch_senders: Vec::new(),
             load_mem_tries_for_shards: Vec::new(),
-            load_mem_tries_for_all_shards: false,
+            load_mem_tries_for_tracked_shards: false,
         };
         let shard_uids = Vec::from([ShardUId { shard_id: 0, version: 0 }]);
         let shard_uid = *shard_uids.first().unwrap();

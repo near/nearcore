@@ -63,8 +63,8 @@ pub struct StoreConfig {
     /// TODO(#9511): This does not automatically survive resharding. We may need to figure out a
     /// strategy for that.
     pub load_mem_tries_for_shards: Vec<ShardUId>,
-    /// If true, load mem tries for all shards; this has priority over `load_mem_tries_for_shards`.
-    pub load_mem_tries_for_all_shards: bool,
+    /// If true, load mem trie for each shard being tracked; this has priority over `load_mem_tries_for_shards`.
+    pub load_mem_tries_for_tracked_shards: bool,
 
     /// Path where to create RocksDB checkpoints during database migrations or
     /// `false` to disable that feature.
@@ -95,9 +95,6 @@ pub struct StoreConfig {
 
     // TODO (#9989): To be phased out in favor of state_snapshot_config
     pub state_snapshot_enabled: bool,
-
-    // TODO (#9989): To be phased out in favor of state_snapshot_config
-    pub state_snapshot_compaction_enabled: bool,
 }
 
 /// Config used to control state snapshot creation. This is used for state sync and resharding.
@@ -105,11 +102,6 @@ pub struct StoreConfig {
 #[serde(default)]
 pub struct StateSnapshotConfig {
     pub state_snapshot_type: StateSnapshotType,
-    /// State Snapshot compaction usually is a good thing but is heavy on IO and can take considerable
-    /// amount of time.
-    /// It makes state snapshots tiny (10GB) over the course of an epoch.
-    /// We may want to disable it for archival nodes during resharding
-    pub compaction_enabled: bool,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -266,7 +258,7 @@ impl Default for StoreConfig {
             // It will speed up processing of shards where it is enabled, but
             // requires more RAM and takes several minutes on startup.
             load_mem_tries_for_shards: Default::default(),
-            load_mem_tries_for_all_shards: false,
+            load_mem_tries_for_tracked_shards: false,
 
             migration_snapshot: Default::default(),
 
@@ -274,9 +266,6 @@ impl Default for StoreConfig {
 
             // TODO: To be phased out in favor of state_snapshot_config
             state_snapshot_enabled: false,
-
-            // TODO: To be phased out in favor of state_snapshot_config
-            state_snapshot_compaction_enabled: false,
         }
     }
 }

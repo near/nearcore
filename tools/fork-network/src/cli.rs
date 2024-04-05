@@ -1,5 +1,6 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
+use anyhow::Context;
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
@@ -13,7 +14,6 @@ use near_primitives::account::id::AccountType;
 use near_primitives::account::{AccessKey, AccessKeyPermission, Account};
 use near_primitives::borsh;
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::Receipt;
 use near_primitives::serialize::dec_format;
 use near_primitives::shard_layout::ShardUId;
 use near_primitives::state::FlatStateValue;
@@ -302,7 +302,7 @@ impl ForkNetworkCommand {
         home_dir: &Path,
     ) -> anyhow::Result<Vec<StateRoot>> {
         // Open storage with migration
-        near_config.config.store.load_mem_tries_for_all_shards = true;
+        near_config.config.store.load_mem_tries_for_tracked_shards = true;
         let storage = open_storage(&home_dir, near_config).unwrap();
         let store = storage.get_hot_store();
 
@@ -317,7 +317,8 @@ impl ForkNetworkCommand {
             .map(|shard_id| epoch_manager.shard_id_to_uid(shard_id as ShardId, &epoch_id).unwrap())
             .collect();
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager);
+            NightshadeRuntime::from_config(home_dir, store.clone(), &near_config, epoch_manager)
+                .context("could not create the transaction runtime")?;
         runtime.load_mem_tries_on_startup(&all_shard_uids).unwrap();
 
         let make_storage_mutator: MakeSingleShardStorageMutatorFn =
@@ -359,7 +360,8 @@ impl ForkNetworkCommand {
             EpochManager::new_arc_handle(store.clone(), &near_config.genesis.config);
 
         let runtime =
-            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone());
+            NightshadeRuntime::from_config(home_dir, store, &near_config, epoch_manager.clone())
+                .context("could not create the transaction runtime")?;
 
         let runtime_config_store = RuntimeConfigStore::new(None);
         let runtime_config = runtime_config_store.get_config(PROTOCOL_VERSION);
@@ -477,6 +479,8 @@ impl ForkNetworkCommand {
         tracing::info!(?shard_uid);
         let mut storage_mutator: SingleShardStorageMutator = make_storage_mutator(prev_state_root)?;
 
+        // TODO: allow mutating the state with a secret, so this can be used to prepare a public test network
+        let default_key = near_mirror::key_mapping::default_extra_key(None).public_key();
         // Keeps track of accounts that have a full access key.
         let mut has_full_key = HashSet::new();
         // Lets us lookup large values in the `State` columns.
@@ -492,7 +496,6 @@ impl ForkNetworkCommand {
         let mut contract_data_updated = 0;
         let mut contract_code_updated = 0;
         let mut postponed_receipts_updated = 0;
-        let mut delayed_receipts_updated = 0;
         let mut received_data_updated = 0;
         let mut fake_block_height = block_height + 1;
         for item in store_helper::iter_flat_state_entries(shard_uid, &store, None, None) {
@@ -551,23 +554,11 @@ impl ForkNetworkCommand {
                             contract_code_updated += 1;
                         }
                     }
-                    StateRecord::PostponedReceipt(receipt) => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if receipt.predecessor_id.get_account_type()
-                            == AccountType::NearImplicitAccount
-                            || receipt.receiver_id.get_account_type()
-                                == AccountType::NearImplicitAccount
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt.clone(),
-                            };
-                            storage_mutator.delete_postponed_receipt(receipt)?;
-                            storage_mutator.set_postponed_receipt(&new_receipt)?;
-                            postponed_receipts_updated += 1;
-                        }
+                    StateRecord::PostponedReceipt(mut receipt) => {
+                        storage_mutator.delete_postponed_receipt(&receipt)?;
+                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
+                        storage_mutator.set_postponed_receipt(&receipt)?;
+                        postponed_receipts_updated += 1;
                     }
                     StateRecord::ReceivedData { account_id, data_id, data } => {
                         // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
@@ -578,24 +569,10 @@ impl ForkNetworkCommand {
                             received_data_updated += 1;
                         }
                     }
-                    StateRecord::DelayedReceipt(receipt) => {
-                        // TODO(eth-implicit) Change back to is_implicit() when ETH-implicit accounts are supported.
-                        if receipt.predecessor_id.get_account_type()
-                            == AccountType::NearImplicitAccount
-                            || receipt.receiver_id.get_account_type()
-                                == AccountType::NearImplicitAccount
-                        {
-                            let new_receipt = Receipt {
-                                predecessor_id: map_account(&receipt.predecessor_id, None),
-                                receiver_id: map_account(&receipt.receiver_id, None),
-                                receipt_id: receipt.receipt_id,
-                                receipt: receipt.receipt,
-                            };
-                            storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
-                            storage_mutator
-                                .set_delayed_receipt(index_delayed_receipt, &new_receipt)?;
-                            delayed_receipts_updated += 1;
-                        }
+                    StateRecord::DelayedReceipt(mut receipt) => {
+                        storage_mutator.delete_delayed_receipt(index_delayed_receipt)?;
+                        near_mirror::genesis::map_receipt(&mut receipt, None, &default_key);
+                        storage_mutator.set_delayed_receipt(index_delayed_receipt, &receipt)?;
                         index_delayed_receipt += 1;
                     }
                 }
@@ -613,7 +590,7 @@ impl ForkNetworkCommand {
                         + contract_data_updated
                         + contract_code_updated
                         + postponed_receipts_updated
-                        + delayed_receipts_updated
+                        + index_delayed_receipt
                         + received_data_updated,
                 );
                 let state_root = storage_mutator.commit(&shard_uid, fake_block_height)?;
@@ -632,7 +609,7 @@ impl ForkNetworkCommand {
             contract_code_updated,
             contract_data_updated,
             postponed_receipts_updated,
-            delayed_receipts_updated,
+            delayed_receipts_updated = index_delayed_receipt,
             received_data_updated,
             num_has_full_key = has_full_key.len(),
             "Pass 1 done"
@@ -663,7 +640,7 @@ impl ForkNetworkCommand {
                     }
                     storage_mutator.set_access_key(
                         account_id,
-                        near_mirror::key_mapping::default_extra_key(None).public_key(),
+                        default_key.clone(),
                         AccessKey::full_access(),
                     )?;
                     num_added += 1;
@@ -803,6 +780,9 @@ impl ForkNetworkCommand {
                 .validator_selection_config
                 .minimum_validators_per_shard,
             minimum_stake_ratio: epoch_config.validator_selection_config.minimum_stake_ratio,
+            shuffle_shard_assignment_for_chunk_producers: epoch_config
+                .validator_selection_config
+                .shuffle_shard_assignment_for_chunk_producers,
             dynamic_resharding: false,
             protocol_version: epoch_info.protocol_version(),
             validators: new_validator_accounts,

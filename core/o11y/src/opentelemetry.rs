@@ -6,12 +6,13 @@ use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing::level_filters::LevelFilter;
+use tracing_subscriber::filter::targets::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::{reload, Layer};
 
 // Doesn't define WARN and ERROR, because the highest verbosity of spans is INFO.
-#[derive(Copy, Clone, Debug, Default, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, Debug, Default, clap::ValueEnum)]
 pub enum OpenTelemetryLevel {
     #[default]
     OFF,
@@ -30,12 +31,12 @@ pub(crate) async fn add_opentelemetry_layer<S>(
     node_public_key: PublicKey,
     account_id: Option<AccountId>,
     subscriber: S,
-) -> (TracingLayer<S>, reload::Handle<LevelFilter, S>)
+) -> (TracingLayer<S>, reload::Handle<Targets, S>)
 where
     S: tracing::Subscriber + for<'span> LookupSpan<'span> + Send + Sync,
 {
     let filter = get_opentelemetry_filter(opentelemetry_level);
-    let (filter, handle) = reload::Layer::<LevelFilter, S>::new(filter);
+    let (filter, handle) = reload::Layer::<Targets, S>::new(filter);
 
     let mut resource = vec![
         KeyValue::new("chain_id", chain_id),
@@ -66,11 +67,11 @@ where
     (subscriber.with(layer), handle)
 }
 
-pub(crate) fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> LevelFilter {
-    match opentelemetry_level {
+pub(crate) fn get_opentelemetry_filter(opentelemetry_level: OpenTelemetryLevel) -> Targets {
+    Targets::new().with_default(match opentelemetry_level {
         OpenTelemetryLevel::OFF => LevelFilter::OFF,
         OpenTelemetryLevel::INFO => LevelFilter::INFO,
         OpenTelemetryLevel::DEBUG => LevelFilter::DEBUG,
         OpenTelemetryLevel::TRACE => LevelFilter::TRACE,
-    }
+    })
 }

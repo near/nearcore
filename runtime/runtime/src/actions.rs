@@ -21,7 +21,7 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
-    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, TrieCacheMode,
+    AccountId, Balance, BlockHeight, EpochInfoProvider, Gas, StorageUsage, TrieCacheMode,
 };
 use near_primitives::utils::{account_is_implicit, create_random_seed};
 use near_primitives::version::{
@@ -29,12 +29,12 @@ use near_primitives::version::{
 };
 use near_primitives_core::account::id::AccountType;
 use near_store::{
-    enqueue_yielded_promise_timeout, get_access_key, get_code, get_yielded_promise_indices,
-    remove_access_key, remove_account, set_access_key, set_code, set_yielded_promise_indices,
+    enqueue_promise_yield_timeout, get_access_key, get_code, get_promise_yield_indices,
+    remove_access_key, remove_account, set_access_key, set_code, set_promise_yield_indices,
     StorageError, TrieUpdate,
 };
 use near_vm_runner::logic::errors::{
-    CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
+    CacheError, CompilationError, FunctionCallError, InconsistentStateError, VMRunnerError,
 };
 use near_vm_runner::logic::types::PromiseResult;
 use near_vm_runner::logic::{VMContext, VMOutcome};
@@ -79,19 +79,6 @@ pub(crate) fn execute_function_call(
 ) -> Result<VMOutcome, RuntimeError> {
     let account_id = runtime_ext.account_id();
     tracing::debug!(target: "runtime", %account_id, "Calling the contract");
-    let code = match get_contract_code(&runtime_ext, account, apply_state.current_protocol_version)
-    {
-        Ok(Some(code)) => code,
-        Ok(None) => {
-            let error = FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
-                account_id: account_id.as_str().into(),
-            });
-            return Ok(VMOutcome::nop_outcome(error));
-        }
-        Err(e) => {
-            return Err(RuntimeError::StorageError(e));
-        }
-    };
     // Output data receipts are ignored if the function call is not the last action in the batch.
     let output_data_receivers: Vec<_> = if is_last_action {
         action_receipt.output_data_receivers.iter().map(|r| r.receiver_id.clone()).collect()
@@ -131,16 +118,58 @@ pub(crate) fn execute_function_call(
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
     }
-    let result = near_vm_runner::run(
-        &code,
+    let result_from_cache = near_vm_runner::run(
+        account,
+        None,
         &function_call.method_name,
         runtime_ext,
-        context,
+        &context,
         &config.wasm_config,
         &config.fees,
         promise_results,
         apply_state.cache.as_deref(),
     );
+    let result = match result_from_cache {
+        Err(VMRunnerError::CacheError(CacheError::ReadError(err)))
+            if err.kind() == std::io::ErrorKind::NotFound =>
+        {
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
+            }
+            let code = match get_contract_code(
+                &runtime_ext,
+                account,
+                apply_state.current_protocol_version,
+            ) {
+                Ok(Some(code)) => code,
+                Ok(None) => {
+                    let error =
+                        FunctionCallError::CompilationError(CompilationError::CodeDoesNotExist {
+                            account_id: account_id.as_str().into(),
+                        });
+                    return Ok(VMOutcome::nop_outcome(error));
+                }
+                Err(e) => {
+                    return Err(RuntimeError::StorageError(e));
+                }
+            };
+            if checked_feature!("stable", ChunkNodesCache, protocol_version) {
+                runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingChunk);
+            }
+            near_vm_runner::run(
+                account,
+                Some(&code),
+                &function_call.method_name,
+                runtime_ext,
+                &context,
+                &config.wasm_config,
+                &config.fees,
+                promise_results,
+                apply_state.cache.as_deref(),
+            )
+        }
+        res => res,
+    };
 
     if checked_feature!("stable", ChunkNodesCache, protocol_version) {
         runtime_ext.set_trie_cache_mode(TrieCacheMode::CachingShard);
@@ -290,10 +319,9 @@ pub(crate) fn action_function_call(
     result.logs.extend(outcome.logs);
     result.profile.merge(&outcome.profile);
     if execution_succeeded {
-        // Fetch metadata for yielded promises queue
-        let mut yielded_promise_indices =
-            get_yielded_promise_indices(state_update).unwrap_or_default();
-        let initial_yielded_promise_indices = yielded_promise_indices.clone();
+        // Fetch metadata for PromiseYield timeout queue
+        let mut promise_yield_indices = get_promise_yield_indices(state_update).unwrap_or_default();
+        let initial_promse_yield_indices = promise_yield_indices.clone();
 
         let mut new_receipts: Vec<_> = receipt_manager
             .action_receipts
@@ -301,9 +329,9 @@ pub(crate) fn action_function_call(
             .map(|receipt| {
                 // If the newly created receipt is a PromiseYield, enqueue a timeout for it
                 if receipt.is_promise_yield {
-                    enqueue_yielded_promise_timeout(
+                    enqueue_promise_yield_timeout(
                         state_update,
-                        &mut yielded_promise_indices,
+                        &mut promise_yield_indices,
                         account_id.clone(),
                         receipt.input_data_ids[0],
                         apply_state.block_height
@@ -354,8 +382,8 @@ pub(crate) fn action_function_call(
         }));
 
         // Commit metadata for yielded promises queue
-        if yielded_promise_indices != initial_yielded_promise_indices {
-            set_yielded_promise_indices(state_update, &yielded_promise_indices);
+        if promise_yield_indices != initial_promse_yield_indices {
+            set_promise_yield_indices(state_update, &promise_yield_indices);
         }
 
         account.set_amount(outcome.balance);
@@ -458,12 +486,18 @@ pub(crate) fn action_transfer(account: &mut Account, deposit: Balance) -> Result
 pub(crate) fn action_nonrefundable_storage_transfer(
     account: &mut Account,
     deposit: Balance,
+    storage_amount_per_byte: Balance,
 ) -> Result<(), StorageError> {
-    account.set_nonrefundable(account.nonrefundable().checked_add(deposit).ok_or_else(|| {
-        StorageError::StorageInconsistentState(
-            "non-refundable account balance integer overflow".to_string(),
-        )
-    })?);
+    let permanent_storage_bytes = (deposit / storage_amount_per_byte) as StorageUsage;
+    account.set_permanent_storage_bytes(
+        account.permanent_storage_bytes().checked_add(permanent_storage_bytes).ok_or_else(
+            || {
+                StorageError::StorageInconsistentState(
+                    "permanent_storage_bytes integer overflow".to_string(),
+                )
+            },
+        )?,
+    );
     Ok(())
 }
 
@@ -526,12 +560,17 @@ pub(crate) fn action_implicit_account_creation_transfer(
     deposit: Balance,
     block_height: BlockHeight,
     current_protocol_version: ProtocolVersion,
-    nonrefundable: bool,
+    nonrefundable_storage_transfer: bool,
 ) {
     *actor_id = account_id.clone();
 
-    let (refundable_balance, nonrefundable_balance) =
-        if nonrefundable { (0, deposit) } else { (deposit, 0) };
+    let (amount, permanent_storage_bytes) = if nonrefundable_storage_transfer {
+        let permanent_storage_bytes =
+            (deposit / apply_state.config.storage_amount_per_byte()) as StorageUsage;
+        (0, permanent_storage_bytes)
+    } else {
+        (deposit, 0)
+    };
 
     match account_id.get_account_type() {
         AccountType::NearImplicitAccount => {
@@ -551,9 +590,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
             let public_key = PublicKey::from_near_implicit_account(account_id).unwrap();
 
             *account = Some(Account::new(
-                refundable_balance,
+                amount,
                 0,
-                nonrefundable_balance,
+                permanent_storage_bytes,
                 CryptoHash::default(),
                 fee_config.storage_usage_config.num_bytes_account
                     + public_key.len() as u64
@@ -578,9 +617,9 @@ pub(crate) fn action_implicit_account_creation_transfer(
                     + fee_config.storage_usage_config.num_extra_bytes_record;
 
                 *account = Some(Account::new(
-                    refundable_balance,
+                    amount,
                     0,
-                    nonrefundable_balance,
+                    permanent_storage_bytes,
                     *magic_bytes.hash(),
                     storage_usage,
                     current_protocol_version,
@@ -1078,7 +1117,7 @@ pub(crate) fn check_account_existence(
                 // purpose.
                 // For implicit accounts creation with non-refundable storage
                 // we require that this is the only action in the receipt.
-                return Err(ActionErrorKind::NonRefundableBalanceToExistingAccount {
+                return Err(ActionErrorKind::NonRefundableTransferToExistingAccount {
                     account_id: account_id.clone(),
                 }
                 .into());
