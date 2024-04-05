@@ -676,6 +676,8 @@ impl Client {
     }
 
     /// Performs state witness decoding and partial validation without requiring the previous block.
+    /// Here we rely on epoch_id provided as part of the state witness. Later we verify that this
+    /// epoch_id actually corresponds to the chunk's previous block.
     fn partially_validate_state_witness_in_epoch(
         &self,
         signed_witness: &SignedChunkStateWitness,
