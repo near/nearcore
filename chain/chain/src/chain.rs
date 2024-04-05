@@ -3085,6 +3085,9 @@ impl Chain {
         outcomes: &[ExecutionOutcomeWithIdView],
         transaction_hash: &CryptoHash,
     ) -> FinalExecutionStatus {
+        if outcomes.is_empty() {
+            return FinalExecutionStatus::NotStarted;
+        }
         let mut looking_for_id = *transaction_hash;
         let num_outcomes = outcomes.len();
         outcomes
@@ -3111,7 +3114,7 @@ impl Chain {
                     None
                 }
             })
-            .expect("results should resolve to a final outcome")
+            .unwrap_or_else(|| FinalExecutionStatus::Started)
     }
 
     /// Collect all the execution outcomes existing at the current moment
