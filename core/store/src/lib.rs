@@ -251,7 +251,7 @@ impl NodeStorage {
         Ok(match metadata::DbMetadata::read(self.hot_storage.as_ref())?.kind.unwrap() {
             metadata::DbKind::RPC => false,
             metadata::DbKind::Archive => true,
-            metadata::DbKind::Hot | metadata::DbKind::Cold => todo!(),
+            metadata::DbKind::Hot | metadata::DbKind::Cold => true,
         })
     }
 
