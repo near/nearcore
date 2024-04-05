@@ -91,7 +91,7 @@ impl TriePrefetcher {
         receipts: &[Receipt],
     ) -> Result<(), PrefetchError> {
         for receipt in receipts.iter() {
-            let is_refund = receipt.predecessor_id == "system";
+            let is_refund = receipt.predecessor_id.is_system();
             match &receipt.receipt {
                 ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                     let account_id = receipt.receiver_id.clone();
