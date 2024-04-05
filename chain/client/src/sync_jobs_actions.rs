@@ -82,7 +82,7 @@ impl SyncJobsActions {
 
     pub fn handle_apply_state_parts_request(&mut self, msg: ApplyStatePartsRequest) {
         // Unload mem-trie (in case it is still loaded) before we apply state parts.
-        msg.runtime_adapter.unload_mem_trie(&msg.shard_uid);
+        msg.runtime_adapter.get_tries().unload_mem_trie(&msg.shard_uid);
 
         let shard_id = msg.shard_uid.shard_id as ShardId;
         match self.clear_flat_state(&msg) {
