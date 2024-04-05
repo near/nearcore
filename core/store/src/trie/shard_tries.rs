@@ -205,10 +205,6 @@ impl ShardTries {
         &self.0.state_snapshot_config
     }
 
-    pub fn trie_config(&self) -> &TrieConfig {
-        &self.0.trie_config
-    }
-
     pub(crate) fn state_snapshot(&self) -> &Arc<RwLock<Option<StateSnapshot>>> {
         &self.0.state_snapshot
     }
@@ -380,7 +376,8 @@ impl ShardTries {
         remove_all_state_values(store_update, shard_uid);
     }
 
-    /// Remove trie from memory for shards not included in the given list.
+    /// Retains in-memory tries for given shards, i.e. unload tries from memory for shards that are NOT
+    /// in the given list. Should be called to unload obsolete tries from memory.
     pub fn retain_mem_tries(&self, shard_uids: &[ShardUId]) {
         info!(target: "memtrie", "Current memtries: {:?}. Keeping memtries for shards {:?}...",
             self.0.mem_tries.read().unwrap().keys(), shard_uids);
@@ -408,12 +405,25 @@ impl ShardTries {
         Ok(())
     }
 
-    /// Returns whether mem-trie is loaded for the given shard.
-    pub fn is_mem_trie_loaded(&self, shard_uid: &ShardUId) -> bool {
-        self.0.mem_tries.read().unwrap().contains_key(shard_uid)
+    /// Loads in-memory trie upon catchup, if it is enabled.
+    /// Requires state root because `ChunkExtra` is not available at the time mem-trie is being loaded.
+    pub fn load_mem_trie_on_catchup(
+        &self,
+        shard_uid: &ShardUId,
+        state_root: &StateRoot,
+    ) -> Result<(), StorageError> {
+        if !self.0.trie_config.load_mem_tries_for_tracked_shards {
+            return Ok(());
+        }
+        // It should not happen that memtrie is already loaded for a shard
+        // for which we just did state sync.
+        debug_assert!(!self.0.mem_tries.read().unwrap().contains_key(shard_uid));
+        self.load_mem_trie(shard_uid, Some(*state_root))
     }
 
-    /// Should be called upon startup to load in-memory tries for enabled shards.
+    /// Loads in-memory tries upon startup. The given shard_uids are possible candidates to load,
+    /// but which exact shards to load depends on configuration. This may only be called when flat
+    /// storage is ready.
     pub fn load_mem_tries_for_enabled_shards(
         &self,
         tracked_shards: &[ShardUId],
@@ -442,7 +452,7 @@ impl ShardTries {
 
     /// Retrieves the in-memory tries for the shard.
     pub fn get_mem_tries(&self, shard_uid: ShardUId) -> Option<Arc<RwLock<MemTries>>> {
-        let guard = self.0.mem_tries.write().unwrap();
+        let guard = self.0.mem_tries.read().unwrap();
         guard.get(&shard_uid).cloned()
     }
 
@@ -538,40 +548,18 @@ impl WrappedTrieChanges {
                 continue;
             }
 
-            let storage_key = if cfg!(feature = "serialize_all_state_changes") {
-                // Serialize all kinds of state changes without any filtering.
-                // Without this it's not possible to replay state changes to get an identical state root.
-
-                // This branch will become the default in the near future.
-
-                match change_with_trie_key.trie_key.get_account_id() {
-                    // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
-                    None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
-                        &self.block_hash,
-                        &change_with_trie_key.trie_key,
-                        &self.shard_uid,
-                    ),
-                    // TrieKey has enough information to identify the shard it comes from.
-                    _ => KeyForStateChanges::from_trie_key(
-                        &self.block_hash,
-                        &change_with_trie_key.trie_key,
-                    ),
-                }
-            } else {
-                // This branch is the current neard behavior.
-                // Only a subset of state changes get serialized.
-
-                // Filtering trie keys for user facing RPC reporting.
-                // NOTE: If the trie key is not one of the account specific, it may cause key conflict
-                // when the node tracks multiple shards. See #2563.
-                match &change_with_trie_key.trie_key {
-                    TrieKey::Account { .. }
-                    | TrieKey::ContractCode { .. }
-                    | TrieKey::AccessKey { .. }
-                    | TrieKey::ContractData { .. } => {}
-                    _ => continue,
-                };
-                KeyForStateChanges::from_trie_key(&self.block_hash, &change_with_trie_key.trie_key)
+            let storage_key = match change_with_trie_key.trie_key.get_account_id() {
+                // If a TrieKey itself doesn't identify the Shard, then we need to add shard id to the row key.
+                None => KeyForStateChanges::delayed_receipt_key_from_trie_key(
+                    &self.block_hash,
+                    &change_with_trie_key.trie_key,
+                    &self.shard_uid,
+                ),
+                // TrieKey has enough information to identify the shard it comes from.
+                _ => KeyForStateChanges::from_trie_key(
+                    &self.block_hash,
+                    &change_with_trie_key.trie_key,
+                ),
             };
 
             store_update.set(

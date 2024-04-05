@@ -178,9 +178,13 @@ impl TriePrefetcher {
     /// at the same time. They share a prefetcher, so they will clean each others
     /// data. Handling this is a bit more involved. Failing to do so makes prefetching
     /// less effective in those cases but crucially nothing breaks.
-    pub(crate) fn clear(&self) {
-        self.prefetch_api.clear_queue();
+    ///
+    /// Returns the number of prefetch requests that have been removed from the prefetch queue.
+    /// If this number is large, the prefetches aren't actually getting executed before cancelling.
+    pub(crate) fn clear(&self) -> usize {
+        let ret = self.prefetch_api.clear_queue();
         self.prefetch_api.clear_data();
+        ret
     }
 
     fn prefetch_trie_key(&self, trie_key: TrieKey) -> Result<(), PrefetchError> {
