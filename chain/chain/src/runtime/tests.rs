@@ -59,6 +59,7 @@ fn stake(
         vec![Action::Stake(Box::new(StakeAction { stake, public_key: sender.public_key() }))],
         // runtime does not validate block history
         CryptoHash::default(),
+        0
     )
 }
 
@@ -338,7 +339,7 @@ impl TestEnv {
         let shard_layout = self.epoch_manager.get_shard_layout_from_prev_block(&new_hash).unwrap();
         let mut new_receipts = HashMap::<_, Vec<Receipt>>::new();
         for receipt in all_receipts {
-            let shard_id = account_id_to_shard_id(&receipt.receiver_id, &shard_layout);
+            let shard_id = account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
             new_receipts.entry(shard_id).or_default().push(receipt);
         }
         self.last_receipts = new_receipts;
@@ -1385,6 +1386,7 @@ fn test_delete_account_after_unstake() {
         })],
         // runtime does not validate block history
         CryptoHash::default(),
+        0
     );
     env.step_default(vec![delete_account_transaction]);
     for _ in 15..=17 {
@@ -1476,6 +1478,7 @@ fn test_trie_and_flat_state_equality() {
         vec![Action::Transfer(TransferAction { deposit: 10 })],
         // runtime does not validate block history
         CryptoHash::default(),
+        0,
     );
     env.step_default(vec![transfer_tx]);
     for _ in 1..=5 {
@@ -1643,7 +1646,7 @@ fn prepare_transactions(
                 .chain_store()
                 .check_transaction_validity_period(
                     &chain.get_block_header(&env.head.prev_block_hash).unwrap(),
-                    &tx.transaction.block_hash,
+                    tx.transaction.block_hash(),
                     chain.transaction_validity_period,
                 )
                 .is_ok()

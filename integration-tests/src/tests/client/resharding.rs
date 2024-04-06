@@ -551,7 +551,7 @@ impl TestReshardingEnv {
         for tx in txs_to_check {
             let id = &tx.get_hash();
 
-            let signer_account_id = &tx.transaction.signer_id;
+            let signer_account_id = tx.transaction.signer_id();
             let shard_uid = account_id_to_shard_uid(signer_account_id, &shard_layout);
 
             tracing::trace!(target: "test", tx=?id, ?signer_account_id, ?shard_uid, "checking tx");
@@ -633,10 +633,10 @@ impl TestReshardingEnv {
                     .clone();
                 for receipt in outgoing_receipts.iter() {
                     let target_shard_id =
-                        client.chain.get_shard_id_for_receipt_id(&receipt.receipt_id).unwrap();
+                        client.chain.get_shard_id_for_receipt_id(receipt.receipt_id()).unwrap();
                     assert_eq!(
                         target_shard_id,
-                        account_id_to_shard_id(&receipt.receiver_id, &shard_layout)
+                        account_id_to_shard_id(receipt.receiver_id(), &shard_layout)
                     );
                 }
             }
@@ -816,8 +816,7 @@ fn check_outgoing_receipts_reassigned_impl(
             // In V0->V1 resharding the outgoing receipts should be reassigned
             // to the receipt receiver's shard id.
             for receipt in outgoing_receipts {
-                let receiver = receipt.receiver_id;
-                let receiver_shard_id = account_id_to_shard_id(&receiver, &shard_layout);
+                let receiver_shard_id = account_id_to_shard_id(receipt.receiver_id(), &shard_layout);
                 assert_eq!(receiver_shard_id, shard_id);
             }
         }
@@ -1276,6 +1275,7 @@ fn setup_test_env_with_cross_contract_txs(
             &signer,
             actions,
             genesis_hash,
+            0
         );
         init_txs.push(tx);
     }
@@ -1449,6 +1449,7 @@ fn gen_cross_contract_tx_impl(
             deposit: 0,
         }))],
         *block_hash,
+        0
     )
 }
 

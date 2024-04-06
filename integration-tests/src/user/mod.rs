@@ -106,6 +106,7 @@ pub trait User {
             &*self.signer(),
             actions,
             block_hash,
+            0
         );
         self.commit_transaction(signed_transaction)
     }

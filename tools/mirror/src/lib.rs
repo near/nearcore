@@ -261,28 +261,28 @@ impl SourceTransaction {
 
     fn public_key(&self) -> &PublicKey {
         match self {
-            Self::Tx(tx) => &tx.transaction.public_key,
+            Self::Tx(tx) => tx.transaction.public_key(),
             Self::TxView(tx) => &tx.public_key,
         }
     }
 
     fn signer_id(&self) -> &AccountId {
         match self {
-            Self::Tx(tx) => &tx.transaction.signer_id,
+            Self::Tx(tx) => tx.transaction.signer_id(),
             Self::TxView(tx) => &tx.signer_id,
         }
     }
 
     fn receiver_id(&self) -> &AccountId {
         match self {
-            Self::Tx(tx) => &tx.transaction.receiver_id,
+            Self::Tx(tx) => tx.transaction.receiver_id(),
             Self::TxView(tx) => &tx.receiver_id,
         }
     }
 
     fn actions<'a>(&'a self) -> Cow<'a, [Action]> {
         match self {
-            Self::Tx(tx) => Cow::Borrowed(&tx.transaction.actions),
+            Self::Tx(tx) => Cow::Borrowed(tx.transaction.actions()),
             Self::TxView(tx) => {
                 Cow::Owned(tx.actions.iter().map(|a| a.clone().try_into().unwrap()).collect())
             }
@@ -587,8 +587,8 @@ impl TxAwaitingNonce {
         nonce_updates: HashSet<(AccountId, PublicKey)>,
     ) -> Self {
         let mut target_tx =
-            Transaction::new(target_signer_id, target_public_key, target_receiver_id, 0, *ref_hash);
-        target_tx.actions = actions;
+            Transaction::new(target_signer_id, target_public_key, target_receiver_id, 0, *ref_hash, 0);
+        *target_tx.actions_mut() = actions;
         Self {
             source_signer_id,
             source_receiver_id,
@@ -634,8 +634,9 @@ impl MappedTx {
             target_receiver_id,
             nonce,
             *ref_hash,
+            0
         );
-        target_tx.actions = actions;
+        *target_tx.actions_mut() = actions;
         let target_tx = SignedTransaction::new(
             target_secret_key.sign(&target_tx.get_hash_and_size().0.as_ref()),
             target_tx,
@@ -652,7 +653,7 @@ impl MappedTx {
 
     fn inc_nonce(&mut self, target_secret_key: &SecretKey) {
         let mut tx = self.target_tx.transaction.clone();
-        tx.nonce += 1;
+        *tx.nonce_mut() += 1;
         self.target_tx =
             SignedTransaction::new(target_secret_key.sign(&tx.get_hash_and_size().0.as_ref()), tx);
     }
@@ -668,7 +669,7 @@ impl TargetChainTx {
     fn set_nonce(&mut self, nonce: Nonce) {
         match self {
             Self::AwaitingNonce(t) => {
-                t.target_tx.nonce = nonce;
+                *t.target_tx.nonce_mut() = nonce;
                 let target_tx = SignedTransaction::new(
                     t.target_secret_key.sign(&t.target_tx.get_hash_and_size().0.as_ref()),
                     t.target_tx.clone(),
@@ -758,7 +759,7 @@ impl TargetChainTx {
     fn target_nonce(&self) -> TargetNonce {
         match self {
             Self::Ready(t) => TargetNonce {
-                nonce: Some(t.target_tx.transaction.nonce),
+                nonce: Some(t.target_tx.transaction.nonce()),
                 pending_outcomes: HashSet::new(),
             },
             Self::AwaitingNonce(t) => t.target_nonce.clone(),
@@ -925,7 +926,7 @@ impl<T: ChainAccess> TxMirror<T> {
                             // only once instance of this code will run, but this is the place to detect if that's not the case.
                             tracing::error!(
                                 target: "mirror", "Tried to send an invalid tx for ({}, {:?}) from {}: {:?}",
-                                &tx.target_tx.transaction.signer_id, &tx.target_tx.transaction.public_key, &tx.provenance, e
+                                tx.target_tx.transaction.signer_id(), tx.target_tx.transaction.public_key(), &tx.provenance, e
                             );
                             crate::metrics::TRANSACTIONS_SENT.with_label_values(&["invalid"]).inc();
                         }
@@ -944,7 +945,7 @@ impl<T: ChainAccess> TxMirror<T> {
                     // TODO: here we should just save this transaction for later and send it when it's known
                     tracing::warn!(
                         target: "mirror", "skipped sending transaction for ({}, {:?}) because valid target chain nonce not known",
-                        &tx.target_tx.signer_id, &tx.target_tx.public_key
+                        tx.target_tx.signer_id(), tx.target_tx.public_key()
                     );
                 }
             }
@@ -1299,10 +1300,10 @@ impl<T: ChainAccess> TxMirror<T> {
                 Err(ChainError::Other(e)) => return Err(e),
             };
 
-            if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
-                if (provenance.is_create_account() && receipt.predecessor_id == receipt.receiver_id)
+            if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
+                if (provenance.is_create_account() && receipt.predecessor_id() == receipt.receiver_id())
                     || (!provenance.is_create_account()
-                        && receipt.predecessor_id != receipt.receiver_id)
+                        && receipt.predecessor_id() != receipt.receiver_id())
                 {
                     continue;
                 }
@@ -1328,19 +1329,19 @@ impl<T: ChainAccess> TxMirror<T> {
                     if account_created {
                         tracing::warn!(
                             target: "mirror", "for receipt {} predecessor and receiver are the same but there's a create account in the actions: {:?}",
-                            &receipt.receipt_id, &r.actions,
+                            receipt.receipt_id(), &r.actions,
                         );
                     }
                 }
                 let outcome = self
                     .source_chain_access
                     .get_outcome(TransactionOrReceiptId::Receipt {
-                        receipt_id: receipt.receipt_id,
-                        receiver_id: receipt.receiver_id.clone(),
+                        receipt_id: *receipt.receipt_id(),
+                        receiver_id: receipt.receiver_id().clone(),
                     })
                     .await
                     .with_context(|| {
-                        format!("failed fetching outcome for receipt {}", receipt.receipt_id)
+                        format!("failed fetching outcome for receipt {}", receipt.receipt_id())
                     })?;
                 if !execution_status_good(&outcome.outcome.status) {
                     continue;
@@ -1350,8 +1351,8 @@ impl<T: ChainAccess> TxMirror<T> {
                     tracker,
                     outcome.block_hash,
                     txs,
-                    receipt.predecessor_id.clone(),
-                    receipt.receiver_id.clone(),
+                    receipt.predecessor_id().clone(),
+                    receipt.receiver_id().clone(),
                     &r.actions,
                     ref_hash,
                     provenance,
@@ -1413,13 +1414,13 @@ impl<T: ChainAccess> TxMirror<T> {
         tracker: &mut crate::chain_tracker::TxTracker,
         txs: &mut Vec<TargetChainTx>,
     ) -> anyhow::Result<()> {
-        if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = &receipt.receipt {
+        if let ReceiptEnum::Action(r) | ReceiptEnum::PromiseYield(r) = receipt.receipt() {
             if r.actions.iter().any(|a| matches!(a, Action::FunctionCall(_))) {
                 self.add_function_call_keys(
                     tracker,
                     txs,
-                    &receipt.receipt_id,
-                    &receipt.receiver_id,
+                    receipt.receipt_id(),
+                    receipt.receiver_id(),
                     ref_hash,
                     provenance,
                     source_height,

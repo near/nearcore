@@ -9,9 +9,7 @@ use crate::merkle::PartialMerkleTree;
 use crate::num_rational::Ratio;
 use crate::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::{
-    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction,
-    DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction,
-    TransferAction,
+    Action, AddKeyAction, CreateAccountAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction, FunctionCallAction, SignedTransaction, StakeAction, Transaction, TransactionV1, TransferAction
 };
 use crate::types::{AccountId, Balance, EpochId, EpochInfoProvider, Gas, Nonce};
 use crate::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
@@ -36,8 +34,23 @@ impl Transaction {
         receiver_id: AccountId,
         nonce: Nonce,
         block_hash: CryptoHash,
+        priority_fee: u64
     ) -> Self {
-        Self { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![] }
+        Transaction::V1(TransactionV1 { signer_id, public_key, nonce, receiver_id, block_hash, actions: vec![], priority_fee })
+    }
+
+    pub fn actions_mut(&mut self) -> &mut Vec<Action> {
+        match self {
+            Transaction::V0(tx) => &mut tx.actions,
+            Transaction::V1(tx) => &mut tx.actions,
+        }
+    }
+
+    pub fn nonce_mut(&mut self) -> &mut Nonce {
+        match self {
+            Transaction::V0(tx) => &mut tx.nonce,
+            Transaction::V1(tx) => &mut tx.nonce,
+        }
     }
 
     pub fn sign(self, signer: &dyn Signer) -> SignedTransaction {
@@ -46,12 +59,12 @@ impl Transaction {
     }
 
     pub fn create_account(mut self) -> Self {
-        self.actions.push(Action::CreateAccount(CreateAccountAction {}));
+        self.actions_mut().push(Action::CreateAccount(CreateAccountAction {}));
         self
     }
 
     pub fn deploy_contract(mut self, code: Vec<u8>) -> Self {
-        self.actions.push(Action::DeployContract(DeployContractAction { code }));
+        self.actions_mut().push(Action::DeployContract(DeployContractAction { code }));
         self
     }
 
@@ -62,7 +75,7 @@ impl Transaction {
         gas: Gas,
         deposit: Balance,
     ) -> Self {
-        self.actions.push(Action::FunctionCall(Box::new(FunctionCallAction {
+        self.actions_mut().push(Action::FunctionCall(Box::new(FunctionCallAction {
             method_name,
             args,
             gas,
@@ -72,30 +85,32 @@ impl Transaction {
     }
 
     pub fn transfer(mut self, deposit: Balance) -> Self {
-        self.actions.push(Action::Transfer(TransferAction { deposit }));
+        self.actions_mut().push(Action::Transfer(TransferAction { deposit }));
         self
     }
 
     pub fn stake(mut self, stake: Balance, public_key: PublicKey) -> Self {
-        self.actions.push(Action::Stake(Box::new(StakeAction { stake, public_key })));
+        self.actions_mut().push(Action::Stake(Box::new(StakeAction { stake, public_key })));
         self
     }
     pub fn add_key(mut self, public_key: PublicKey, access_key: AccessKey) -> Self {
-        self.actions.push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
+        self.actions_mut().push(Action::AddKey(Box::new(AddKeyAction { public_key, access_key })));
         self
     }
 
     pub fn delete_key(mut self, public_key: PublicKey) -> Self {
-        self.actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
+        self.actions_mut().push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
         self
     }
 
     pub fn delete_account(mut self, beneficiary_id: AccountId) -> Self {
-        self.actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
+        self.actions_mut().push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
         self
     }
 }
 
+/// This block implements a set of helper functions to create transactions for testing purposes.
+/// Therefore, `TransactionV1` is used to create transactions.
 impl SignedTransaction {
     pub fn from_actions(
         nonce: Nonce,
@@ -104,15 +119,17 @@ impl SignedTransaction {
         signer: &dyn Signer,
         actions: Vec<Action>,
         block_hash: CryptoHash,
+        priority_fee: u64,
     ) -> Self {
-        Transaction {
+        Transaction::V1(TransactionV1 {
             nonce,
             signer_id,
             public_key: signer.public_key(),
             receiver_id,
             block_hash,
             actions,
-        }
+            priority_fee
+        })
         .sign(signer)
     }
 
@@ -131,6 +148,7 @@ impl SignedTransaction {
             signer,
             vec![Action::Transfer(TransferAction { deposit })],
             block_hash,
+            0
         )
     }
 
@@ -149,6 +167,7 @@ impl SignedTransaction {
             signer,
             vec![Action::Stake(Box::new(StakeAction { stake, public_key }))],
             block_hash,
+            0
         )
     }
 
@@ -175,6 +194,7 @@ impl SignedTransaction {
                 Action::Transfer(TransferAction { deposit: amount }),
             ],
             block_hash,
+            0
         )
     }
 
@@ -203,6 +223,7 @@ impl SignedTransaction {
                 Action::DeployContract(DeployContractAction { code }),
             ],
             block_hash,
+            0
         )
     }
 
@@ -229,6 +250,7 @@ impl SignedTransaction {
                 deposit,
             }))],
             block_hash,
+            0
         )
     }
 
@@ -247,6 +269,7 @@ impl SignedTransaction {
             signer,
             vec![Action::DeleteAccount(DeleteAccountAction { beneficiary_id })],
             block_hash,
+            0
         )
     }
 
@@ -258,6 +281,7 @@ impl SignedTransaction {
             &EmptySigner {},
             vec![],
             block_hash,
+            0
         )
     }
 }

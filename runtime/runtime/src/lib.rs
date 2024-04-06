@@ -20,8 +20,7 @@ use near_primitives::errors::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{
-    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout,
-    Receipt, ReceiptEnum, ReceivedData,
+    ActionReceipt, DataReceipt, DelayedReceiptIndices, PromiseYieldIndices, PromiseYieldTimeout, Receipt, ReceiptEnum, ReceiptV0, ReceivedData
 };
 use near_primitives::runtime::migration_data::{MigrationData, MigrationFlags};
 use near_primitives::sandbox::state_patch::SandboxStatePatch;
@@ -292,19 +291,19 @@ impl Runtime {
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                 );
-                let receipt = Receipt {
-                    predecessor_id: transaction.signer_id.clone(),
-                    receiver_id: transaction.receiver_id.clone(),
+                let receipt = Receipt::V0(ReceiptV0 {
+                    predecessor_id: transaction.signer_id().clone(),
+                    receiver_id: transaction.receiver_id().clone(),
                     receipt_id,
                     receipt: ReceiptEnum::Action(ActionReceipt {
-                        signer_id: transaction.signer_id.clone(),
-                        signer_public_key: transaction.public_key.clone(),
+                        signer_id: transaction.signer_id().clone(),
+                        signer_public_key: transaction.public_key().clone(),
                         gas_price: verification_result.receipt_gas_price,
                         output_data_receivers: vec![],
                         input_data_ids: vec![],
-                        actions: transaction.actions.clone(),
+                        actions: transaction.actions().to_vec(),
                     }),
-                };
+                });
                 stats.tx_burnt_amount =
                     safe_add_balance(stats.tx_burnt_amount, verification_result.burnt_amount)?;
                 let gas_burnt = verification_result.gas_burnt;
@@ -312,14 +311,14 @@ impl Runtime {
                 let outcome = ExecutionOutcomeWithId {
                     id: signed_transaction.get_hash(),
                     outcome: ExecutionOutcome {
-                        status: ExecutionStatus::SuccessReceiptId(receipt.receipt_id),
+                        status: ExecutionStatus::SuccessReceiptId(*receipt.receipt_id()),
                         logs: vec![],
-                        receipt_ids: vec![receipt.receipt_id],
+                        receipt_ids: vec![*receipt.receipt_id()],
                         gas_burnt,
                         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
                         compute_usage: Some(compute_usage),
                         tokens_burnt: verification_result.burnt_amount,
-                        executor_id: transaction.signer_id.clone(),
+                        executor_id: transaction.signer_id().clone(),
                         // TODO: profile data is only counted in apply_action, which only happened at process_receipt
                         // VerificationResult needs updates to incorporate profile data to support profile data of txns
                         metadata: ExecutionMetadata::V1,
@@ -352,14 +351,14 @@ impl Runtime {
         actions: &[Action],
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ActionResult, RuntimeError> {
-        let exec_fees = exec_fee(&apply_state.config, action, &receipt.receiver_id);
+        let exec_fees = exec_fee(&apply_state.config, action, receipt.receiver_id());
         let mut result = ActionResult::default();
         result.gas_used = exec_fees;
         result.gas_burnt = exec_fees;
         // TODO(#8806): Support compute costs for actions. For now they match burnt gas.
         result.compute_usage = exec_fees;
-        let account_id = &receipt.receiver_id;
-        let is_refund = receipt.predecessor_id.is_system();
+        let account_id = receipt.receiver_id();
+        let is_refund = receipt.predecessor_id().is_system();
         let is_the_only_action = actions.len() == 1;
         let implicit_account_creation_eligible = is_the_only_action && !is_refund;
 
@@ -390,8 +389,8 @@ impl Runtime {
                     &apply_state.config.account_creation_config,
                     account,
                     actor_id,
-                    &receipt.receiver_id,
-                    &receipt.predecessor_id,
+                    receipt.receiver_id(),
+                    receipt.predecessor_id(),
                     &mut result,
                     apply_state.current_protocol_version,
                 );
@@ -504,6 +503,7 @@ impl Runtime {
                     account_id,
                     signed_delegate_action,
                     &mut result,
+                    receipt.priority()
                 )?;
             }
         };
@@ -521,13 +521,13 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<ExecutionOutcomeWithId, RuntimeError> {
-        let action_receipt = match &receipt.receipt {
+        let action_receipt = match receipt.receipt() {
             ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
                 action_receipt
             }
             _ => unreachable!("given receipt should be an action receipt"),
         };
-        let account_id = &receipt.receiver_id;
+        let account_id = receipt.receiver_id();
         // Collecting input data and removing it from the state
         let promise_results = action_receipt
             .input_data_ids
@@ -557,7 +557,7 @@ impl Runtime {
         });
 
         let mut account = get_account(state_update, account_id)?;
-        let mut actor_id = receipt.predecessor_id.clone();
+        let mut actor_id = receipt.predecessor_id().clone();
         let mut result = ActionResult::default();
         let exec_fees = apply_state.config.fees.fee(ActionCosts::new_action_receipt).exec_fee();
         result.gas_used = exec_fees;
@@ -571,7 +571,7 @@ impl Runtime {
         for (action_index, action) in action_receipt.actions.iter().enumerate() {
             let action_hash = create_action_hash_from_receipt_id(
                 apply_state.current_protocol_version,
-                &receipt.receipt_id,
+                receipt.receipt_id(),
                 &apply_state.prev_block_hash,
                 &apply_state.block_hash,
                 action_index,
@@ -649,7 +649,7 @@ impl Runtime {
             }
         }
 
-        let gas_deficit_amount = if receipt.predecessor_id.is_system() {
+        let gas_deficit_amount = if receipt.predecessor_id().is_system() {
             // We will set gas_burnt for refund receipts to be 0 when we calculate tx_burnt_amount
             // Here we don't set result.gas_burnt to be zero if CountRefundReceiptsInGasLimit is
             // enabled because we want it to be counted in gas limit calculation later
@@ -705,7 +705,7 @@ impl Runtime {
         }
 
         // If the receipt is a refund, then we consider it free without burnt gas.
-        let gas_burnt: Gas = if receipt.predecessor_id.is_system() { 0 } else { result.gas_burnt };
+        let gas_burnt: Gas = if receipt.predecessor_id().is_system() { 0 } else { result.gas_burnt };
         // `gas_deficit_amount` is strictly less than `gas_price * gas_burnt`.
         let mut tx_burnt_amount =
             safe_gas_to_balance(apply_state.gas_price, gas_burnt)? - gas_deficit_amount;
@@ -751,7 +751,7 @@ impl Runtime {
                     .new_receipts
                     .get_mut(receipt_index as usize)
                     .expect("the receipt for the given receipt index should exist")
-                    .receipt
+                    .receipt_mut()
                 {
                     ReceiptEnum::Action(ref mut new_action_receipt)
                     | ReceiptEnum::PromiseYield(ref mut new_action_receipt) => new_action_receipt
@@ -766,7 +766,7 @@ impl Runtime {
                     Err(_) => None,
                 };
                 result.new_receipts.extend(action_receipt.output_data_receivers.iter().map(
-                    |data_receiver| Receipt {
+                    |data_receiver| Receipt::V0(ReceiptV0 {
                         predecessor_id: account_id.clone(),
                         receiver_id: data_receiver.receiver_id.clone(),
                         receipt_id: CryptoHash::default(),
@@ -774,7 +774,7 @@ impl Runtime {
                             data_id: data_receiver.data_id,
                             data: data.clone(),
                         }),
-                    },
+                    }),
                 ));
             };
         }
@@ -787,15 +787,15 @@ impl Runtime {
             .filter_map(|(receipt_index, mut new_receipt)| {
                 let receipt_id = create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    &receipt.receipt_id,
+                    receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index,
                 );
 
-                new_receipt.receipt_id = receipt_id;
+                new_receipt.set_receipt_id(receipt_id);
                 let is_action = matches!(
-                    &new_receipt.receipt,
+                    new_receipt.receipt(),
                     ReceiptEnum::Action(_) | ReceiptEnum::PromiseYield(_)
                 );
                 outgoing_receipts.push(new_receipt);
@@ -811,7 +811,7 @@ impl Runtime {
             Ok(ReturnData::ReceiptIndex(receipt_index)) => {
                 ExecutionStatus::SuccessReceiptId(create_receipt_id_from_receipt_id(
                     apply_state.current_protocol_version,
-                    &receipt.receipt_id,
+                    receipt.receipt_id(),
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                     receipt_index as usize,
@@ -825,7 +825,7 @@ impl Runtime {
         Self::print_log(&result.logs);
 
         Ok(ExecutionOutcomeWithId {
-            id: receipt.receipt_id,
+            id: *receipt.receipt_id(),
             outcome: ExecutionOutcome {
                 status,
                 logs: result.logs,
@@ -853,7 +853,7 @@ impl Runtime {
             total_prepaid_send_fees(config, &action_receipt.actions)?,
         )?;
         let prepaid_exec_gas = safe_add_gas(
-            total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
+            total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
             config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
         )?;
         let deposit_refund = if result.result.is_err() { total_deposit } else { 0 };
@@ -893,9 +893,11 @@ impl Runtime {
         }
 
         if deposit_refund > 0 {
-            result
-                .new_receipts
-                .push(Receipt::new_balance_refund(&receipt.predecessor_id, deposit_refund));
+            result.new_receipts.push(Receipt::new_balance_refund(
+                receipt.predecessor_id(),
+                deposit_refund,
+                receipt.priority(),
+            ));
         }
         if gas_balance_refund > 0 {
             // Gas refunds refund the allowance of the access key, so if the key exists on the
@@ -904,6 +906,7 @@ impl Runtime {
                 &action_receipt.signer_id,
                 gas_balance_refund,
                 action_receipt.signer_public_key.clone(),
+                receipt.priority(),
             ));
         }
         Ok(gas_deficit_amount)
@@ -919,8 +922,8 @@ impl Runtime {
         stats: &mut ApplyStats,
         epoch_info_provider: &dyn EpochInfoProvider,
     ) -> Result<Option<ExecutionOutcomeWithId>, RuntimeError> {
-        let account_id = &receipt.receiver_id;
-        match receipt.receipt {
+        let account_id = receipt.receiver_id();
+        match receipt.receipt() {
             ReceiptEnum::Data(ref data_receipt) => {
                 // Received a new data receipt.
                 // Saving the data into the state keyed by the data_id.
@@ -1024,7 +1027,7 @@ impl Runtime {
                                 receiver_id: account_id.clone(),
                                 data_id: *data_id,
                             },
-                            &receipt.receipt_id,
+                            receipt.receipt_id(),
                         )
                     }
                 }
@@ -1049,7 +1052,7 @@ impl Runtime {
                         state_update,
                         TrieKey::PendingDataCount {
                             receiver_id: account_id.clone(),
-                            receipt_id: receipt.receipt_id,
+                            receipt_id: *receipt.receipt_id(),
                         },
                         &pending_data_count,
                     );
@@ -1389,7 +1392,7 @@ impl Runtime {
                 signed_transaction,
                 &mut stats,
             )?;
-            if receipt.receiver_id == signed_transaction.transaction.signer_id {
+            if receipt.receiver_id() == signed_transaction.transaction.signer_id() {
                 local_receipts.push(receipt);
             } else {
                 outgoing_receipts.push(receipt);
@@ -1417,10 +1420,10 @@ impl Runtime {
             let span = tracing::debug_span!(
                 target: "runtime",
                 "process_receipt",
-                receipt_id = %receipt.receipt_id,
-                predecessor = %receipt.predecessor_id,
-                receiver = %receipt.receiver_id,
-                id = %receipt.receipt_id,
+                receipt_id = %receipt.receipt_id(),
+                predecessor = %receipt.predecessor_id(),
+                receiver = %receipt.receiver_id(),
+                id = %receipt.receipt_id(),
                 gas_burnt = tracing::field::Empty,
                 compute_usage = tracing::field::Empty,
             )
@@ -1648,7 +1651,7 @@ impl Runtime {
                 new_receipt_index += 1;
 
                 // Create a PromiseResume receipt to resolve the timed-out yield.
-                let resume_receipt = Receipt {
+                let resume_receipt = Receipt::V0(ReceiptV0 {
                     predecessor_id: queue_entry.account_id.clone(),
                     receiver_id: queue_entry.account_id.clone(),
                     receipt_id: new_receipt_id,
@@ -1656,7 +1659,7 @@ impl Runtime {
                         data_id: queue_entry.data_id,
                         data: None,
                     }),
-                };
+                });
 
                 // For yielded promises the sender is always the receiver. We can process
                 // the receipt directly because we know it is destined for the local shard.
@@ -1808,10 +1811,10 @@ fn action_transfer_or_implicit_account_creation(
             action_transfer(account, deposit)?;
         }
         // Check if this is a gas refund, then try to refund the access key allowance.
-        if is_refund && action_receipt.signer_id == receipt.receiver_id {
+        if is_refund && &action_receipt.signer_id == receipt.receiver_id() {
             try_refund_allowance(
                 state_update,
-                &receipt.receiver_id,
+                receipt.receiver_id(),
                 &action_receipt.signer_public_key,
                 deposit,
             )?;
@@ -1826,7 +1829,7 @@ fn action_transfer_or_implicit_account_creation(
             &apply_state.config.fees,
             account,
             actor_id,
-            &receipt.receiver_id,
+            receipt.receiver_id(),
             deposit,
             apply_state.block_height,
             apply_state.current_protocol_version,
@@ -1864,6 +1867,7 @@ mod tests {
     use near_parameters::{ExtCosts, ParameterCost, RuntimeConfig};
     use near_primitives::account::AccessKey;
     use near_primitives::hash::hash;
+    use near_primitives::receipt::ReceiptPriority;
     use near_primitives::shard_layout::ShardUId;
     use near_primitives::test_utils::{account_new, MockEpochInfoProvider};
     use near_primitives::transaction::{
@@ -1889,7 +1893,7 @@ mod tests {
         signer: Arc<InMemorySigner>,
         actions: Vec<Action>,
     ) -> Receipt {
-        Receipt {
+        Receipt::V0(ReceiptV0 {
             predecessor_id: account_id.clone(),
             receiver_id: account_id.clone(),
             receipt_id: CryptoHash::hash_borsh(actions.clone()),
@@ -1901,7 +1905,7 @@ mod tests {
                 input_data_ids: vec![],
                 actions,
             }),
-        }
+        })
     }
 
     #[test]
@@ -2031,7 +2035,7 @@ mod tests {
                 tries.get_trie_for_shard(ShardUId::single_shard(), root),
                 &Some(validator_accounts_update),
                 &apply_state,
-                &[Receipt::new_balance_refund(&alice_account(), small_refund)],
+                &[Receipt::new_balance_refund(&alice_account(), small_refund, ReceiptPriority::NoPriority)],
                 &[],
                 &epoch_info_provider,
                 Default::default(),
@@ -2254,7 +2258,7 @@ mod tests {
         (0..n)
             .map(|i| {
                 receipt_id = hash(receipt_id.as_ref());
-                Receipt {
+                Receipt::V0(ReceiptV0 {
                     predecessor_id: bob_account(),
                     receiver_id: alice_account(),
                     receipt_id,
@@ -2268,7 +2272,7 @@ mod tests {
                             deposit: small_transfer + Balance::from(i),
                         })],
                     }),
-                }
+                })
             })
             .collect()
     }
@@ -2278,7 +2282,7 @@ mod tests {
         (0..n)
             .map(|i| {
                 receipt_id = hash(receipt_id.as_ref());
-                Receipt::new_balance_refund(&alice_account(), small_transfer + Balance::from(i))
+                Receipt::new_balance_refund(&alice_account(), small_transfer + Balance::from(i), ReceiptPriority::NoPriority)
             })
             .collect()
     }
@@ -2407,7 +2411,7 @@ mod tests {
                     &apply_state.prev_block_hash,
                     &apply_state.block_hash,
                 ), // receipt for tx 3
-                receipts[0].receipt_id,           // receipt #0
+                *receipts[0].receipt_id(),           // receipt #0
             ],
             "STEP #2 failed",
         );
@@ -2490,8 +2494,8 @@ mod tests {
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
-                receipts[1].receipt_id, // receipt #1
-                receipts[2].receipt_id, // receipt #2
+                *receipts[1].receipt_id(), // receipt #1
+                *receipts[2].receipt_id(), // receipt #2
                 create_receipt_id_from_transaction(
                     PROTOCOL_VERSION,
                     &local_transactions[8],
@@ -2520,9 +2524,9 @@ mod tests {
         assert_eq!(
             apply_result.outcomes.iter().map(|o| o.id).collect::<Vec<_>>(),
             vec![
-                receipts[3].receipt_id, // receipt #3
-                receipts[4].receipt_id, // receipt #4
-                receipts[5].receipt_id, // receipt #5
+                *receipts[3].receipt_id(), // receipt #3
+                *receipts[4].receipt_id(), // receipt #4
+                *receipts[5].receipt_id(), // receipt #5
             ],
             "STEP #5 failed",
         );
@@ -2539,7 +2543,7 @@ mod tests {
 
         let n = 1;
         let mut receipts = generate_receipts(small_transfer, n);
-        if let ReceiptEnum::Action(action_receipt) = &mut receipts.get_mut(0).unwrap().receipt {
+        if let ReceiptEnum::Action(action_receipt) = receipts.get_mut(0).unwrap().receipt_mut() {
             action_receipt.gas_price = GAS_PRICE / 10;
         }
 
@@ -2579,7 +2583,7 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
-        let receipts = vec![Receipt {
+        let receipts = vec![Receipt::V0(ReceiptV0 {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
             receipt_id: CryptoHash::default(),
@@ -2591,7 +2595,7 @@ mod tests {
                 input_data_ids: vec![],
                 actions,
             }),
-        }];
+        })];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
         let expected_refund = total_receipt_cost - expected_gas_burnt_amount;
@@ -2610,7 +2614,7 @@ mod tests {
         // We used part of the prepaid gas to paying extra fees.
         assert_eq!(result.stats.gas_deficit_amount, 0);
         // The refund is less than the received amount.
-        match &result.outgoing_receipts[0].receipt {
+        match result.outgoing_receipts[0].receipt() {
             ReceiptEnum::Action(ActionReceipt { actions, .. }) => {
                 assert!(
                     matches!(actions[0], Action::Transfer(TransferAction { deposit }) if deposit == expected_refund)
@@ -2642,7 +2646,7 @@ mod tests {
             total_prepaid_exec_fees(&apply_state.config, &actions, &alice_account()).unwrap(),
         )
         .unwrap();
-        let receipts = vec![Receipt {
+        let receipts = vec![Receipt::V0(ReceiptV0 {
             predecessor_id: bob_account(),
             receiver_id: alice_account(),
             receipt_id: CryptoHash::default(),
@@ -2654,7 +2658,7 @@ mod tests {
                 input_data_ids: vec![],
                 actions,
             }),
-        }];
+        })];
         let total_receipt_cost = Balance::from(gas + expected_gas_burnt) * gas_price;
         let expected_gas_burnt_amount = Balance::from(expected_gas_burnt) * GAS_PRICE;
         let expected_deficit = expected_gas_burnt_amount - total_receipt_cost;
@@ -2881,10 +2885,10 @@ mod tests {
 
         // Only first two receipts should fit into the chunk due to the compute usage limit.
         assert_matches!(&apply_result.outcomes[..], [first, second] => {
-            assert_eq!(first.id, deploy_contract_receipt.receipt_id);
+            assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
             assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
 
-            assert_eq!(second.id, first_call_receipt.receipt_id);
+            assert_eq!(second.id, *first_call_receipt.receipt_id());
             assert_eq!(second.outcome.compute_usage.unwrap(), sha256_cost.compute);
             assert_matches!(second.outcome.status, ExecutionStatus::SuccessValue(_));
         });
@@ -2902,7 +2906,7 @@ mod tests {
             .unwrap();
 
         assert_matches!(&apply_result.outcomes[..], [ExecutionOutcomeWithId { id, outcome }] => {
-            assert_eq!(*id, second_call_receipt.receipt_id);
+            assert_eq!(id, second_call_receipt.receipt_id());
             assert_eq!(outcome.compute_usage.unwrap(), sha256_cost.compute);
             assert_matches!(outcome.status, ExecutionStatus::SuccessValue(_));
         });
@@ -2945,10 +2949,10 @@ mod tests {
             .unwrap();
 
         assert_matches!(&apply_result.outcomes[..], [first, second] => {
-            assert_eq!(first.id, deploy_contract_receipt.receipt_id);
+            assert_eq!(first.id, *deploy_contract_receipt.receipt_id());
             assert_matches!(first.outcome.status, ExecutionStatus::SuccessValue(_));
 
-            assert_eq!(second.id, first_call_receipt.receipt_id);
+            assert_eq!(second.id, *first_call_receipt.receipt_id());
             assert_matches!(second.outcome.status, ExecutionStatus::Failure(_));
         });
     }

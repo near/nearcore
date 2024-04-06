@@ -381,12 +381,12 @@ fn filter_incoming_receipts_for_shard(
         let ReceiptProof(receipts, shard_proof) = receipt_proof.clone();
         for receipt in receipts {
             let receiver_shard_id =
-                account_id_to_shard_id(&receipt.receiver_id, target_shard_layout);
+                account_id_to_shard_id(receipt.receiver_id(), target_shard_layout);
             if receiver_shard_id == target_shard_id {
-                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "including receipt");
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "including receipt");
                 filtered_receipts.push(receipt);
             } else {
-                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id, "excluding receipt");
+                tracing::trace!(target: "chain", receipt_id=?receipt.receipt_id(), "excluding receipt");
             }
         }
         // TODO(resharding) adjust the shard proof accordingly
@@ -687,7 +687,7 @@ impl ChainStore {
         shard_id: ShardId,
     ) -> Result<(), Error> {
         receipts.retain(|receipt| {
-            account_id_to_shard_id(&receipt.receiver_id, &shard_layout) == shard_id
+            account_id_to_shard_id(receipt.receiver_id(), &shard_layout) == shard_id
         });
         Ok(())
     }
@@ -1975,7 +1975,7 @@ impl<'a> ChainStoreUpdate<'a> {
         for receipt in chunk.prev_outgoing_receipts() {
             self.chain_store_cache_update
                 .receipts
-                .insert(receipt.receipt_id, Arc::new(receipt.clone()));
+                .insert(*receipt.receipt_id(), Arc::new(receipt.clone()));
         }
         self.chain_store_cache_update.chunks.insert(chunk.chunk_hash(), Arc::new(chunk));
     }

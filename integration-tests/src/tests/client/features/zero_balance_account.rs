@@ -192,6 +192,7 @@ fn test_zero_balance_account_add_key() {
         &new_signer,
         actions,
         *genesis_block.hash(),
+        0
     );
     assert_eq!(env.clients[0].process_tx(add_key_tx, false, false), ProcessTxResponse::ValidTx);
     for i in 5..10 {
@@ -222,6 +223,7 @@ fn test_zero_balance_account_add_key() {
             public_key: keys.last().unwrap().clone(),
         }))],
         *genesis_block.hash(),
+        0
     );
     assert_eq!(env.clients[0].process_tx(delete_key_tx, false, false), ProcessTxResponse::ValidTx);
     for i in 10..15 {

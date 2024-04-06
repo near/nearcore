@@ -313,6 +313,7 @@ fn produce_saturated_chunk(
             &signer,
             actions.clone(),
             tip.last_block_hash,
+            0
         );
         *nonce += 1;
         tx

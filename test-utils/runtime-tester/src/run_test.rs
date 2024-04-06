@@ -185,6 +185,7 @@ impl TransactionConfig {
             &self.signer,
             self.actions.clone(),
             *last_block.hash(),
+            0
         )
     }
 }

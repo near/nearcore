@@ -37,6 +37,7 @@ fn test_simple_func_call() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -83,6 +84,7 @@ fn test_single_promise_no_callback() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -149,6 +151,7 @@ fn test_single_promise_with_callback() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -233,6 +236,7 @@ fn test_two_promises_no_callbacks() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -327,6 +331,7 @@ fn test_two_promises_with_two_callbacks() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -418,6 +423,7 @@ fn test_single_promise_no_callback_batch() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -490,6 +496,7 @@ fn test_single_promise_with_callback_batch() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -564,6 +571,7 @@ fn test_simple_transfer() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -631,6 +639,7 @@ fn test_create_account_with_transfer_and_full_key() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -743,6 +752,7 @@ fn test_account_factory() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -889,6 +899,7 @@ fn test_create_account_add_key_call_delete_key_delete_account() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -983,6 +994,7 @@ fn test_transfer_64len_hex() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0,
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);
@@ -1049,6 +1061,7 @@ fn test_create_transfer_64len_hex_fail() {
             deposit: 0,
         }))],
         CryptoHash::default(),
+        0
     );
 
     let handles = RuntimeGroup::start_runtimes(group.clone(), vec![signed_transaction.clone()]);

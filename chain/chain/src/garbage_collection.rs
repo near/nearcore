@@ -854,7 +854,7 @@ impl<'a> ChainStoreUpdate<'a> {
         let mut store_update = self.store().store_update();
         match self
             .get_outgoing_receipts(block_hash, shard_id)
-            .map(|receipts| receipts.iter().map(|receipt| receipt.receipt_id).collect::<Vec<_>>())
+            .map(|receipts| receipts.iter().map(|receipt| *receipt.receipt_id()).collect::<Vec<_>>())
         {
             Ok(receipt_ids) => {
                 for receipt_id in receipt_ids {

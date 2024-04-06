@@ -39,13 +39,13 @@ fn receipt_cost(
     config: &RuntimeConfig,
     receipt: &Receipt,
 ) -> Result<Balance, IntegerOverflowError> {
-    Ok(match &receipt.receipt {
+    Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut total_cost = total_deposit(&action_receipt.actions)?;
-            if !receipt.predecessor_id.is_system() {
+            if !receipt.predecessor_id().is_system() {
                 let mut total_gas = safe_add_gas(
                     config.fees.fee(ActionCosts::new_action_receipt).exec_fee(),
-                    total_prepaid_exec_fees(config, &action_receipt.actions, &receipt.receiver_id)?,
+                    total_prepaid_exec_fees(config, &action_receipt.actions, receipt.receiver_id())?,
                 )?;
                 total_gas = safe_add_gas(total_gas, total_prepaid_gas(&action_receipt.actions)?)?;
                 total_gas = safe_add_gas(
@@ -159,10 +159,10 @@ pub(crate) fn check_balance(
     // Accounts
     let mut all_accounts_ids: HashSet<AccountId> = transactions
         .iter()
-        .map(|tx| tx.transaction.signer_id.clone())
-        .chain(incoming_receipts.iter().map(|r| r.receiver_id.clone()))
-        .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id.clone()))
-        .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id.clone()))
+        .map(|tx| tx.transaction.signer_id().clone())
+        .chain(incoming_receipts.iter().map(|r| r.receiver_id().clone()))
+        .chain(yield_timeout_receipts.iter().map(|r| r.receiver_id().clone()))
+        .chain(processed_delayed_receipts.iter().map(|r| r.receiver_id().clone()))
         .collect();
     let incoming_validator_rewards =
         if let Some(validator_accounts_update) = validator_accounts_update {
@@ -202,10 +202,10 @@ pub(crate) fn check_balance(
         .chain(processed_delayed_receipts.iter())
         .chain(yield_timeout_receipts.iter())
         .filter_map(|receipt| {
-            let account_id = &receipt.receiver_id;
-            match &receipt.receipt {
+            let account_id = receipt.receiver_id();
+            match receipt.receipt() {
                 ReceiptEnum::Action(_) => {
-                    Some(Ok((PostponedReceiptType::Action, account_id.clone(), receipt.receipt_id)))
+                    Some(Ok((PostponedReceiptType::Action, account_id.clone(), *receipt.receipt_id())))
                 }
                 ReceiptEnum::Data(data_receipt) => {
                     let result = get(
@@ -288,7 +288,7 @@ mod tests {
     use crate::ApplyStats;
     use near_crypto::{InMemorySigner, KeyType};
     use near_primitives::hash::{hash, CryptoHash};
-    use near_primitives::receipt::ActionReceipt;
+    use near_primitives::receipt::{ActionReceipt, ReceiptPriority, ReceiptV0};
     use near_primitives::test_utils::account_new;
     use near_primitives::transaction::{Action, TransferAction};
     use near_primitives::types::{MerkleHash, StateChangeCause};
@@ -332,7 +332,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
-            &[Receipt::new_balance_refund(&alice_account(), 1000)],
+            &[Receipt::new_balance_refund(&alice_account(), 1000, ReceiptPriority::NoPriority)],
             &[],
             &[],
             &[],
@@ -392,7 +392,7 @@ mod tests {
             &RuntimeConfig::test(),
             &final_state,
             &None,
-            &[Receipt::new_balance_refund(&account_id, refund_balance)],
+            &[Receipt::new_balance_refund(&account_id, refund_balance, ReceiptPriority::NoPriority)],
             &[],
             &[],
             &[],
@@ -443,19 +443,19 @@ mod tests {
             deposit,
             CryptoHash::default(),
         );
-        let receipt = Receipt {
-            predecessor_id: tx.transaction.signer_id.clone(),
-            receiver_id: tx.transaction.receiver_id.clone(),
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: tx.transaction.signer_id().clone(),
+            receiver_id: tx.transaction.receiver_id().clone(),
             receipt_id: Default::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx.transaction.signer_id.clone(),
-                signer_public_key: tx.transaction.public_key.clone(),
+                signer_id: tx.transaction.signer_id().clone(),
+                signer_public_key: tx.transaction.public_key().clone(),
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit })],
             }),
-        };
+        });
 
         check_balance(
             &cfg,
@@ -502,19 +502,19 @@ mod tests {
         let tx =
             SignedTransaction::send_money(0, alice_id, bob_id, &signer, 2, CryptoHash::default());
 
-        let receipt = Receipt {
-            predecessor_id: tx.transaction.signer_id.clone(),
-            receiver_id: tx.transaction.receiver_id.clone(),
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: tx.transaction.signer_id().clone(),
+            receiver_id: tx.transaction.receiver_id().clone(),
             receipt_id: Default::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx.transaction.signer_id.clone(),
-                signer_public_key: tx.transaction.public_key.clone(),
+                signer_id: tx.transaction.signer_id().clone(),
+                signer_public_key: tx.transaction.public_key().clone(),
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit })],
             }),
-        };
+        });
 
         assert_eq!(
             check_balance(
@@ -557,19 +557,19 @@ mod tests {
         let tx =
             SignedTransaction::send_money(0, alice_id, bob_id, &signer, 1, CryptoHash::default());
 
-        let receipt = Receipt {
-            predecessor_id: tx.transaction.signer_id.clone(),
-            receiver_id: tx.transaction.receiver_id.clone(),
+        let receipt = Receipt::V0(ReceiptV0 {
+            predecessor_id: tx.transaction.signer_id().clone(),
+            receiver_id: tx.transaction.receiver_id().clone(),
             receipt_id: Default::default(),
             receipt: ReceiptEnum::Action(ActionReceipt {
-                signer_id: tx.transaction.signer_id.clone(),
-                signer_public_key: tx.transaction.public_key.clone(),
+                signer_id: tx.transaction.signer_id().clone(),
+                signer_public_key: tx.transaction.public_key().clone(),
                 gas_price,
                 output_data_receivers: vec![],
                 input_data_ids: vec![],
                 actions: vec![Action::Transfer(TransferAction { deposit })],
             }),
-        };
+        });
 
         // Alice's balance becomes u128::MAX, which causes it is interpreted as
         // the Alice's account version to be 2 or higher, instead of being interpreted

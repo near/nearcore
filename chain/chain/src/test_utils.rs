@@ -275,7 +275,7 @@ mod test {
     use rand::Rng;
 
     use near_primitives::hash::CryptoHash;
-    use near_primitives::receipt::Receipt;
+    use near_primitives::receipt::{Receipt, ReceiptPriority};
     use near_primitives::sharding::ReceiptList;
     use near_primitives::types::{AccountId, NumShards};
 
@@ -292,7 +292,7 @@ mod test {
             let shard_receipts: Vec<Receipt> = receipts
                 .iter()
                 .filter(|&receipt| {
-                    account_id_to_shard_id(&receipt.receiver_id, shard_layout) == shard_id
+                    account_id_to_shard_id(receipt.receiver_id(), shard_layout) == shard_id
                 })
                 .cloned()
                 .collect();
@@ -304,7 +304,7 @@ mod test {
     fn test_build_receipt_hashes_with_num_shard(num_shards: NumShards) {
         let shard_layout = ShardLayout::v0(num_shards, 0);
         let create_receipt_from_receiver_id =
-            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0);
+            |receiver_id| Receipt::new_balance_refund(&receiver_id, 0, ReceiptPriority::NoPriority);
         let mut rng = rand::thread_rng();
         let receipts = (0..3000)
             .map(|_| {

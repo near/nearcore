@@ -41,6 +41,7 @@ fn benchmark_large_chunk_production_time() {
             &signer,
             vec![Action::DeployContract(DeployContractAction { code: vec![92; tx_size] })],
             last_block_hash,
+            0
         );
         assert_eq!(env.clients[0].process_tx(tx, false, false), ProcessTxResponse::ValidTx);
     }

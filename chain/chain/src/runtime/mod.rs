@@ -640,7 +640,7 @@ impl RuntimeAdapter for NightshadeRuntime {
 
         if let Some(state_root) = state_root {
             let shard_uid =
-                self.account_id_to_shard_uid(&transaction.transaction.signer_id, epoch_id)?;
+                self.account_id_to_shard_uid(transaction.transaction.signer_id(), epoch_id)?;
             let mut state_update = self.tries.new_trie_update(shard_uid, state_root);
 
             match verify_and_charge_transaction(

@@ -13,6 +13,7 @@ use serde::ser::Error as EncodeError;
 use std::borrow::Borrow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Write};
 
 #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
 pub use crate::action::NonrefundableStorageTransferAction;
@@ -24,7 +25,7 @@ pub use crate::action::{
 pub type LogEntry = String;
 
 #[derive(BorshSerialize, BorshDeserialize, serde::Serialize, PartialEq, Eq, Debug, Clone)]
-pub struct Transaction {
+pub struct TransactionV0 {
     /// An account on which behalf transaction is signed
     pub signer_id: AccountId,
     /// A public key of the access key which was used to sign an account.
@@ -41,11 +42,137 @@ pub struct Transaction {
     pub actions: Vec<Action>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Debug, Clone)]
+pub struct TransactionV1 {
+    /// An account on which behalf transaction is signed
+    pub signer_id: AccountId,
+    /// A public key of the access key which was used to sign an account.
+    /// Access key holds permissions for calling certain kinds of actions.
+    pub public_key: PublicKey,
+    /// Nonce is used to determine order of transaction in the pool.
+    /// It increments for a combination of `signer_id` and `public_key`
+    pub nonce: Nonce,
+    /// Receiver account for this transaction
+    pub receiver_id: AccountId,
+    /// The hash of the block in the blockchain on top of which the given transaction is valid
+    pub block_hash: CryptoHash,
+    /// A list of actions to be applied
+    pub actions: Vec<Action>,
+    /// Priority fee. Unit is 10^12 yotcoNEAR
+    pub priority_fee: u64,
+}
+
 impl Transaction {
     /// Computes a hash of the transaction for signing and size of serialized transaction
     pub fn get_hash_and_size(&self) -> (CryptoHash, u64) {
         let bytes = borsh::to_vec(&self).expect("Failed to deserialize");
         (hash(&bytes), bytes.len() as u64)
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone)]
+pub enum Transaction {
+    V0(TransactionV0),
+    V1(TransactionV1),
+}
+
+impl Transaction {
+    pub fn signer_id(&self) -> &AccountId {
+        match self {
+            Transaction::V0(tx) => &tx.signer_id,
+            Transaction::V1(tx) => &tx.signer_id,
+        }
+    }
+
+    pub fn receiver_id(&self) -> &AccountId {
+        match self {
+            Transaction::V0(tx) => &tx.receiver_id,
+            Transaction::V1(tx) => &tx.receiver_id,
+        }
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        match self {
+            Transaction::V0(tx) => &tx.public_key,
+            Transaction::V1(tx) => &tx.public_key,
+        }
+    }
+
+    pub fn nonce(&self) -> Nonce {
+        match self {
+            Transaction::V0(tx) => tx.nonce,
+            Transaction::V1(tx) => tx.nonce,
+        }
+    }
+
+    pub fn actions(&self) -> &[Action] {
+        match self {
+            Transaction::V0(tx) => &tx.actions,
+            Transaction::V1(tx) => &tx.actions,
+        }
+    }
+
+    pub fn take_actions(self) -> Vec<Action> {
+        match self {
+            Transaction::V0(tx) => tx.actions,
+            Transaction::V1(tx) => tx.actions,
+        }
+    }
+
+    pub fn block_hash(&self) -> &CryptoHash {
+        match self {
+            Transaction::V0(tx) => &tx.block_hash,
+            Transaction::V1(tx) => &tx.block_hash,
+        }
+    }
+
+    pub fn priority_fee(&self) -> Option<u64> {
+        match self {
+            Transaction::V0(_) => None,
+            Transaction::V1(tx) => Some(tx.priority_fee),
+        }
+    }
+}
+
+impl BorshSerialize for Transaction {
+    fn serialize<W: Write>(&self, writer: &mut W) -> Result<(), Error> {
+        match self {
+            Transaction::V0(tx) => tx.serialize(writer)?,
+            Transaction::V1(tx) => {
+                BorshSerialize::serialize(&1_u8, writer)?;
+                tx.serialize(writer)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl BorshDeserialize for Transaction {
+    /// Deserialize based on the first byte of the buffer. If the first byte is 0, it is a V0
+    /// Otherwise, it is a V1. For V0, we do backward compatible deserialization by deserializing
+    /// the entire stream into V0. For V1, we consume the first byte and then deserialize the rest
+    /// No conflict is possible because the first field of Transaction is an `AccountId` which starts
+    /// with a `usize` but can only be at most 64 bytes long, so the highest byte is always 0.
+    fn deserialize_reader<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        // Note: the following implementation is inefficient because it copies data twice.
+        // and should be replaced once the protocol switches to the new transaction format entirely.
+        let mut buf_reader = BufReader::new(reader);
+        let buffer = buf_reader.fill_buf()?; // Fill the buffer
+        if buffer.is_empty() {
+            return Err(Error::new(ErrorKind::UnexpectedEof, "No data to read"));
+        } else {
+            let first_byte = buffer[0];
+            if first_byte == 0 {
+                let tx = TransactionV0::deserialize_reader(&mut buf_reader)?;
+                Ok(Transaction::V0(tx))
+            } else if first_byte == 1 {
+                let _ = buf_reader.consume(1); // Consume the first byte
+                let tx = TransactionV1::deserialize_reader(&mut buf_reader)?;
+                Ok(Transaction::V1(tx))
+            } else {
+                Err(Error::new(ErrorKind::InvalidData, "Invalid version"))
+            }
+        }
     }
 }
 
@@ -319,14 +446,14 @@ mod tests {
     #[test]
     fn test_verify_transaction() {
         let signer = InMemorySigner::from_random("test".parse().unwrap(), KeyType::ED25519);
-        let transaction = Transaction {
+        let transaction = Transaction::V0(TransactionV0 {
             signer_id: "test".parse().unwrap(),
             public_key: signer.public_key(),
             nonce: 0,
             receiver_id: "test".parse().unwrap(),
             block_hash: Default::default(),
             actions: vec![],
-        }
+        })
         .sign(&signer);
         let wrong_public_key = PublicKey::from_seed(KeyType::ED25519, "wrong");
         let valid_keys = vec![signer.public_key(), wrong_public_key.clone()];
@@ -345,7 +472,7 @@ mod tests {
     #[test]
     fn test_serialize_transaction() {
         let public_key: PublicKey = "22skMptHjFWNyuEWY22ftn2AbLPSYpmYwGJRGwpNHbTV".parse().unwrap();
-        let transaction = Transaction {
+        let transaction = Transaction::V0(TransactionV0 {
             signer_id: "test.near".parse().unwrap(),
             public_key: public_key.clone(),
             nonce: 1,
@@ -381,7 +508,7 @@ mod tests {
                     beneficiary_id: "123".parse().unwrap(),
                 }),
             ],
-        };
+        });
         let signed_tx = SignedTransaction::new(Signature::empty(KeyType::ED25519), transaction);
         let new_signed_tx =
             SignedTransaction::try_from_slice(&borsh::to_vec(&signed_tx).unwrap()).unwrap();
@@ -391,6 +518,9 @@ mod tests {
             "4GXvjMFN6wSxnU9jEVT8HbXP5Yk6yELX9faRSKp6n9fX"
         );
     }
+
+    #[test]
+    fn test_serialize_transaction_versions() {}
 
     #[test]
     fn test_outcome_to_hashes() {

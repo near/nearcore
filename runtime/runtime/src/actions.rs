@@ -14,7 +14,7 @@ use near_primitives::checked_feature;
 use near_primitives::config::ViewConfig;
 use near_primitives::errors::{ActionError, ActionErrorKind, InvalidAccessKeyError, RuntimeError};
 use near_primitives::hash::CryptoHash;
-use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum};
+use near_primitives::receipt::{ActionReceipt, DataReceipt, Receipt, ReceiptEnum, ReceiptPriority, ReceiptV0};
 use near_primitives::transaction::{
     Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction, DeployContractAction,
     FunctionCallAction, StakeAction,
@@ -254,7 +254,7 @@ pub(crate) fn action_function_call(
         apply_state,
         &mut runtime_ext,
         account,
-        &receipt.predecessor_id,
+        receipt.predecessor_id(),
         action_receipt,
         promise_results,
         function_call,
@@ -349,7 +349,7 @@ pub(crate) fn action_function_call(
                     actions: receipt.actions,
                 };
 
-                Receipt {
+                Receipt::V0(ReceiptV0 {
                     predecessor_id: account_id.clone(),
                     receiver_id: receipt.receiver_id,
                     // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -360,7 +360,7 @@ pub(crate) fn action_function_call(
                     } else {
                         ReceiptEnum::Action(new_action_receipt)
                     },
-                }
+                })
             })
             .collect();
 
@@ -368,7 +368,7 @@ pub(crate) fn action_function_call(
         new_receipts.extend(receipt_manager.data_receipts.into_iter().map(|receipt| {
             let new_data_receipt = DataReceipt { data_id: receipt.data_id, data: receipt.data };
 
-            Receipt {
+            Receipt::V0(ReceiptV0 {
                 predecessor_id: account_id.clone(),
                 receiver_id: account_id.clone(),
                 // Actual receipt ID is set in the Runtime.apply_action_receipt(...) in the
@@ -379,7 +379,7 @@ pub(crate) fn action_function_call(
                 } else {
                     ReceiptEnum::Data(new_data_receipt)
                 },
-            }
+            })
         }));
 
         // Commit metadata for yielded promises queue
@@ -712,12 +712,14 @@ pub(crate) fn action_delete_account(
     // We use current amount as a pay out to beneficiary.
     let account_balance = account.as_ref().unwrap().amount();
     if account_balance > 0 {
-        result
-            .new_receipts
-            .push(Receipt::new_balance_refund(&delete_account.beneficiary_id, account_balance));
+        result.new_receipts.push(Receipt::new_balance_refund(
+            &delete_account.beneficiary_id,
+            account_balance,
+            ReceiptPriority::NoPriority,
+        ));
     }
     remove_account(state_update, account_id)?;
-    *actor_id = receipt.predecessor_id.clone();
+    *actor_id = receipt.predecessor_id().clone();
     *account = None;
     Ok(())
 }
@@ -812,6 +814,7 @@ pub(crate) fn apply_delegate_action(
     sender_id: &AccountId,
     signed_delegate_action: &SignedDelegateAction,
     result: &mut ActionResult,
+    _priority: ReceiptPriority,
 ) -> Result<(), RuntimeError> {
     let delegate_action = &signed_delegate_action.delegate_action;
 
@@ -840,7 +843,7 @@ pub(crate) fn apply_delegate_action(
     }
 
     // Generate a new receipt from DelegateAction.
-    let new_receipt = Receipt {
+    let new_receipt = Receipt::V0(ReceiptV0 {
         predecessor_id: sender_id.clone(),
         receiver_id: delegate_action.receiver_id.clone(),
         receipt_id: CryptoHash::default(),
@@ -853,7 +856,7 @@ pub(crate) fn apply_delegate_action(
             input_data_ids: vec![],
             actions: delegate_action.get_actions(),
         }),
-    };
+    });
 
     // Note, Relayer prepaid all fees and all things required by actions: attached deposits and attached gas.
     // If something goes wrong, deposit is refunded to the predecessor, this is sender_id/Sender in DelegateAction.
@@ -878,13 +881,13 @@ pub(crate) fn apply_delegate_action(
 
 /// Returns Gas amount is required to execute Receipt and all actions it contains
 fn receipt_required_gas(apply_state: &ApplyState, receipt: &Receipt) -> Result<Gas, RuntimeError> {
-    Ok(match &receipt.receipt {
+    Ok(match receipt.receipt() {
         ReceiptEnum::Action(action_receipt) | ReceiptEnum::PromiseYield(action_receipt) => {
             let mut required_gas = safe_add_gas(
                 total_prepaid_exec_fees(
                     &apply_state.config,
                     &action_receipt.actions,
-                    &receipt.receiver_id,
+                    receipt.receiver_id(),
                 )?,
                 total_prepaid_gas(&action_receipt.actions)?,
             )?;
@@ -1295,7 +1298,7 @@ mod tests {
             Some(Account::new(100, 0, 0, *code_hash, storage_usage, PROTOCOL_VERSION));
         let mut actor_id = account_id.clone();
         let mut action_result = ActionResult::default();
-        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0);
+        let receipt = Receipt::new_balance_refund(&"alice.near".parse().unwrap(), 0, ReceiptPriority::NoPriority);
         let res = action_delete_account(
             state_update,
             &mut account,
@@ -1466,13 +1469,14 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority
         )
         .expect("Expect ok");
 
         assert!(result.result.is_ok(), "Result error: {:?}", result.result.err());
         assert_eq!(
             result.new_receipts,
-            vec![Receipt {
+            vec![Receipt::V0(ReceiptV0 {
                 predecessor_id: sender_id.clone(),
                 receiver_id: signed_delegate_action.delegate_action.receiver_id.clone(),
                 receipt_id: CryptoHash::default(),
@@ -1483,8 +1487,8 @@ mod tests {
                     output_data_receivers: Vec::new(),
                     input_data_ids: Vec::new(),
                     actions: signed_delegate_action.delegate_action.get_actions(),
-                })
-            }]
+                }),
+            })]
         );
     }
 
@@ -1510,6 +1514,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority
         )
         .expect("Expect ok");
 
@@ -1536,6 +1541,7 @@ mod tests {
             &sender_id,
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority
         )
         .expect("Expect ok");
 
@@ -1562,6 +1568,7 @@ mod tests {
             &"www.test.near".parse().unwrap(),
             &signed_delegate_action,
             &mut result,
+            ReceiptPriority::NoPriority
         )
         .expect("Expect ok");
 

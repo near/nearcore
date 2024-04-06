@@ -458,6 +458,7 @@ mod test {
                 code: near_test_contracts::backwards_compatible_rs_contract().to_vec(),
             })],
             genesis_hash,
+            0
         );
         let tx01 = SignedTransaction::stake(
             1,

@@ -143,7 +143,7 @@ impl RuntimeUser {
                 return Ok(());
             }
             for receipt in apply_result.outgoing_receipts.iter() {
-                self.receipts.borrow_mut().insert(receipt.receipt_id, receipt.clone());
+                self.receipts.borrow_mut().insert(*receipt.receipt_id(), receipt.clone());
             }
             receipts = apply_result.outgoing_receipts;
             txs = vec![];

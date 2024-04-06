@@ -212,6 +212,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
             access_key: AccessKey::full_access(),
         }))],
         *block.hash(),
+        0
     );
     let response =
         env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -226,6 +227,7 @@ fn test_transaction_from_eth_implicit_account_fail() {
         &eth_implicit_account_signer,
         vec![Action::DeployContract(DeployContractAction { code: wallet_contract_code })],
         *block.hash(),
+        0
     );
     let response =
         env.clients[0].process_tx(add_access_key_to_eth_implicit_account_tx, false, false);
@@ -273,6 +275,7 @@ fn test_wallet_contract_interaction() {
         &relayer_signer.signer,
         actions,
         block_hash,
+        0
     );
     height = check_tx_processing(&mut env, signed_transaction, height, blocks_number);
 
@@ -395,6 +398,7 @@ fn create_rlp_execute_tx(
         &near_signer.signer,
         actions,
         block_hash,
+        0
     )
 }
 
