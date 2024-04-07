@@ -86,6 +86,12 @@ impl<'a> ChainUpdate<'a> {
     }
 
     /// Commit changes to the chain into the database.
+    #[tracing::instrument(
+        level = "debug",
+        target = "chain",
+        "ChainUpdate::commit",
+        skip_all,
+    )]
     pub fn commit(self) -> Result<(), Error> {
         self.chain_store_update.commit()
     }

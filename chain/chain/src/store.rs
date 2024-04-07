@@ -2333,6 +2333,12 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(chain_store_update)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "store",
+        "ChainUpdate::finalize",
+        skip_all,
+    )]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
@@ -2646,6 +2652,12 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(store_update)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "store",
+        "ChainStoreUpdate::commit",
+        skip_all,
+    )]
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;
