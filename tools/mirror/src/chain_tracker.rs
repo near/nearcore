@@ -146,7 +146,7 @@ pub(crate) struct TxTracker {
     nonempty_height_queued: Option<BlockHeight>,
     height_popped: Option<BlockHeight>,
     height_seen: Option<BlockHeight>,
-    send_time: Option<Pin<Box<tokio::time::Sleep>>>,
+    send_time: Pin<Box<tokio::time::Sleep>>,
     // Config value in the target chain, used to judge how long to wait before sending a new batch of txs
     min_block_production_delay: Duration,
     // timestamps in the target chain, used to judge how long to wait before sending a new batch of txs
@@ -172,7 +172,10 @@ impl TxTracker {
             min_block_production_delay,
             next_heights,
             stop_height,
-            send_time: None,
+            // Wait at least 15 seconds before sending any transactions because for
+            // a few seconds after the node starts, transaction routing requests
+            // will be silently dropped by the peer manager.
+            send_time: Box::pin(tokio::time::sleep(std::time::Duration::from_secs(15))),
             sent_txs: HashMap::new(),
             txs_by_signer: HashMap::new(),
             queued_blocks: VecDeque::new(),
@@ -455,10 +458,7 @@ impl TxTracker {
     }
 
     pub(crate) fn next_batch_time(&self) -> Instant {
-        match &self.send_time {
-            Some(t) => t.as_ref().deadline().into_std(),
-            None => Instant::now(),
-        }
+        self.send_time.as_ref().deadline().into_std()
     }
 
     pub(crate) async fn next_batch(
@@ -469,10 +469,10 @@ impl TxTracker {
         // sleep until 20 milliseconds before we want to send transactions before we check for nonces
         // in the target chain. In the second or so between now and then, we might process another block
         // that will set the nonces.
-        if let Some(s) = &self.send_time {
-            tokio::time::sleep_until(s.as_ref().deadline() - std::time::Duration::from_millis(20))
-                .await;
-        }
+        tokio::time::sleep_until(
+            self.send_time.as_ref().deadline() - std::time::Duration::from_millis(20),
+        )
+        .await;
         let mut needed_access_keys = HashSet::new();
         for c in self.queued_blocks[0].chunks.iter_mut() {
             for tx in c.txs.iter_mut() {
@@ -532,9 +532,7 @@ impl TxTracker {
                 };
             }
         }
-        if let Some(sleep) = &mut self.send_time {
-            sleep.await;
-        }
+        (&mut self.send_time).await;
         Ok(self.queued_blocks.pop_front().unwrap())
     }
 
@@ -1148,12 +1146,7 @@ impl TxTracker {
                 let block_delay = self
                     .second_longest_recent_block_delay()
                     .unwrap_or(self.min_block_production_delay + Duration::from_millis(100));
-                match &mut self.send_time {
-                    Some(t) => t.as_mut().reset(tokio::time::Instant::now() + block_delay),
-                    None => {
-                        self.send_time = Some(Box::pin(tokio::time::sleep(block_delay)));
-                    }
-                }
+                self.send_time.as_mut().reset(tokio::time::Instant::now() + block_delay);
                 crate::set_last_source_height(db, b.source_height)?;
                 let txs = b
                     .chunks
