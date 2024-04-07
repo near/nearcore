@@ -575,7 +575,7 @@ impl StoreUpdate {
     }
 
     #[tracing::instrument(
-        level = "trace",
+        level = "debug",
         target = "store",
         "StoreUpdate::commit",
         skip_all,
