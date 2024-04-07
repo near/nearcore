@@ -271,6 +271,13 @@ impl ShardTries {
         trie_changes.new_root
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::apply_insertions",
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn apply_insertions(
         &self,
         trie_changes: &TrieChanges,
@@ -287,6 +294,13 @@ impl ShardTries {
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::apply_deletions",
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn apply_deletions(
         &self,
         trie_changes: &TrieChanges,
@@ -529,6 +543,13 @@ impl WrappedTrieChanges {
     /// Save state changes into Store.
     ///
     /// NOTE: the changes are drained from `self`.
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::state_changes_into",
+        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
         for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
@@ -570,6 +591,12 @@ impl WrappedTrieChanges {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::trie_changes_into",
+        skip_all,
+    )]
     pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> std::io::Result<()> {
         store_update.set_ser(
             DBCol::TrieChanges,
