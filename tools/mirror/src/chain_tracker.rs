@@ -129,7 +129,6 @@ pub(crate) enum SentBatch {
 
 // TODO: the separation between what's in here and what's in the main file with struct TxMirror is not
 // that clear and doesn't make that much sense. Should refactor
-#[derive(Default)]
 pub(crate) struct TxTracker {
     sent_txs: HashMap<CryptoHash, TxSendInfo>,
     txs_by_signer: HashMap<(AccountId, PublicKey), BTreeSet<TxId>>,
@@ -169,7 +168,22 @@ impl TxTracker {
         I: IntoIterator<Item = &'a BlockHeight>,
     {
         let next_heights = next_heights.into_iter().map(Clone::clone).collect();
-        Self { min_block_production_delay, next_heights, stop_height, ..Default::default() }
+        Self {
+            min_block_production_delay,
+            next_heights,
+            stop_height,
+            send_time: None,
+            sent_txs: HashMap::new(),
+            txs_by_signer: HashMap::new(),
+            queued_blocks: VecDeque::new(),
+            updater_to_keys: HashMap::new(),
+            nonces: HashMap::new(),
+            height_queued: None,
+            nonempty_height_queued: None,
+            height_popped: None,
+            height_seen: None,
+            recent_block_timestamps: VecDeque::new(),
+        }
     }
 
     pub(crate) async fn next_heights<T: ChainAccess>(
