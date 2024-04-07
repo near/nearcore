@@ -14,6 +14,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -158,12 +159,37 @@ def prompt_flags(args):
         args.neard_binary_path = sys.stdin.readline().strip()
         assert len(args.neard_binary_path) > 0
 
+    if not args.legacy_records and args.fork_height is None:
+        print(
+            'prepare nodes with fork-network tool instead of genesis records JSON? [yes/no]:'
+        )
+        while True:
+            r = sys.stdin.readline().strip().lower()
+            if r == 'yes':
+                args.legacy_records = False
+                break
+            elif r == 'no':
+                args.legacy_records = True
+                break
+            else:
+                print('please say yes or no')
+
     if args.source_home_dir is None:
-        print('source home dir: ')
+        if args.legacy_records:
+            print('source home dir: ')
+        else:
+            print(
+                'source home dir containing the HEAD block of target home, plus more blocks after that: '
+            )
         args.source_home_dir = sys.stdin.readline().strip()
         assert len(args.source_home_dir) > 0
 
-    if args.fork_height is None:
+    if args.target_home_dir is None and not args.legacy_records:
+        print('target home dir whose HEAD is contained in --source-home-dir: ')
+        args.target_home_dir = sys.stdin.readline().strip()
+        assert len(args.target_home_dir) > 0
+
+    if args.legacy_records and args.fork_height is None:
         print('fork height: ')
         args.fork_height = sys.stdin.readline().strip()
         assert len(args.fork_height) > 0
@@ -211,6 +237,35 @@ def make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
                         node_home / '.near/setup/genesis.json')
         shutil.copyfile(traffic_generator_home / '.near/setup/records.json',
                         node_home / '.near/setup/records.json')
+
+
+def fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir):
+    copy_source_home(target_home_dir, setup_dir)
+
+    run_cmd([
+        neard_binary_path,
+        '--home',
+        setup_dir,
+        'fork-network',
+        'init',
+    ])
+    run_cmd([
+        neard_binary_path,
+        '--home',
+        setup_dir,
+        'fork-network',
+        'amend-access-keys',
+    ])
+    shutil.rmtree(setup_dir / 'data/fork-snapshot')
+
+
+def make_forked_network(neard_binary_path, traffic_generator_home, node_homes,
+                        source_home_dir, target_home_dir):
+    for (home_dir, setup_dir) in [
+        (h / '.near', h / '.near/setup') for h in node_homes
+    ] + [(traffic_generator_home / '.near/target',
+          traffic_generator_home / '.near/setup')]:
+        fork_db(neard_binary_path, target_home_dir, home_dir, setup_dir)
 
 
 def mkdirs(local_mocknet_path):
@@ -337,6 +392,18 @@ def wait_node_serving(node):
 
 def local_test_setup_cmd(args):
     prompt_flags(args)
+    if args.source_home_dir is None:
+        sys.exit(f'must give --source-home-dir')
+    if args.legacy_records:
+        if args.target_home_dir is not None:
+            sys.exit(f'cannot give --target-home-dir with --legacy-records')
+        if args.fork_height is None:
+            sys.exit('must give --fork-height with --legacy-records')
+    else:
+        if args.target_home_dir is None:
+            sys.exit(f'must give --target-home-dir')
+        if args.fork_height is not None:
+            sys.exit('cannot give --fork-height without --legacy-records')
 
     local_mocknet_path = pathlib.Path.home() / '.near/local-mocknet'
     if os.path.exists(local_mocknet_path):
@@ -354,11 +421,14 @@ def local_test_setup_cmd(args):
 
     os.mkdir(local_mocknet_path)
     traffic_generator_home, node_homes = mkdirs(local_mocknet_path)
-
     copy_source_home(source_home_dir, traffic_generator_home / '.near')
-    make_legacy_records(neard_binary_path, traffic_generator_home, node_homes,
-                        args.fork_height)
-
+    if args.legacy_records:
+        make_legacy_records(neard_binary_path, traffic_generator_home,
+                            node_homes, args.fork_height)
+    else:
+        target_home_dir = pathlib.Path(args.target_home_dir)
+        make_forked_network(neard_binary_path, traffic_generator_home,
+                            node_homes, source_home_dir, target_home_dir)
     # now set up an HTTP server to serve the binary that each neard_runner.py will request
     binaries_path = make_binaries_dir(local_mocknet_path, neard_binary_path)
     binaries_server_addr = 'localhost'
@@ -434,6 +504,16 @@ if __name__ == '__main__':
     way to get machine-readable valid heights in a near data directory, but for now this flag must be given manually.
     ''')
     local_test_setup_parser.add_argument('--yes', action='store_true')
+    local_test_setup_parser.add_argument('--legacy-records',
+                                         action='store_true',
+                                         help='''
+    If given, setup a records.json file with forked state instead of using the neard fork-network command
+    ''')
+    local_test_setup_parser.add_argument('--target-home-dir',
+                                         type=str,
+                                         help='''
+    todo
+    ''')
     local_test_setup_parser.set_defaults(func=local_test_setup_cmd)
 
     args = parser.parse_args()
