@@ -100,11 +100,17 @@ impl ShardTries {
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
-            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-            caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
-                .clone()
+            let shard_uid_exists =
+                caches_to_use.read().expect(POISONED_LOCK_ERR).contains_key(&shard_uid);
+            if shard_uid_exists {
+                caches_to_use.read().expect(POISONED_LOCK_ERR)[&shard_uid].clone()
+            } else {
+                let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+                caches
+                    .entry(shard_uid)
+                    .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+                    .clone()
+            }
         };
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
@@ -216,12 +222,27 @@ impl ShardTries {
         skip_all
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
-        let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
-        let cache = caches
-            .entry(shard_uid)
-            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-            .clone();
-        cache.update_cache(ops);
+        // First acquire a read lock to see if the shard uid exists. The shard uid may not exist due to resharding
+        let shard_uid_exists = {
+            let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
+            caches.contains_key(&shard_uid)
+        };
+        // If the shard uid exists, we acquire a read lock to update the trie cache for the corresponding shard.
+        // If the shard uid does not exist, then we acquire a write lock to expand the cache with the new shard uid as a key.
+        if shard_uid_exists {
+            let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
+            match caches.get(&shard_uid) {
+                Some(cache) => cache.update_cache(ops),
+                None => debug_assert!(false, "key existence has been checked"),
+            }
+        } else {
+            let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
+            let cache = caches
+                .entry(shard_uid)
+                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
+                .clone();
+            cache.update_cache(ops);
+        }
     }
 
     fn apply_deletions_inner(
