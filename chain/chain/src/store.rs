@@ -2333,16 +2333,11 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(chain_store_update)
     }
 
-    #[tracing::instrument(
-        level = "debug",
-        target = "store",
-        "ChainUpdate::finalize",
-        skip_all,
-    )]
+    #[tracing::instrument(level = "debug", target = "store", "ChainUpdate::finalize", skip_all)]
     fn finalize(&mut self) -> Result<StoreUpdate, Error> {
         let mut store_update = self.store().store_update();
         {
-            let _span = tracing::debug_span!(target: "store", "write_col_misc").entered();
+            let _span = tracing::trace_span!(target: "store", "write_col_misc").entered();
             Self::write_col_misc(&mut store_update, HEAD_KEY, &mut self.head)?;
             Self::write_col_misc(&mut store_update, TAIL_KEY, &mut self.tail)?;
             Self::write_col_misc(&mut store_update, CHUNK_TAIL_KEY, &mut self.chunk_tail)?;
@@ -2356,11 +2351,13 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span = tracing::debug_span!(target: "store", "write_block").entered();
+            let _span = tracing::trace_span!(target: "store", "write_block").entered();
             debug_assert!(self.chain_store_cache_update.blocks.len() <= 1);
             for (hash, block) in self.chain_store_cache_update.blocks.iter() {
                 let mut map = HashMap::clone(
-                    self.chain_store.get_all_block_hashes_by_height(block.header().height())?.as_ref(),
+                    self.chain_store
+                        .get_all_block_hashes_by_height(block.header().height())?
+                        .as_ref(),
                 );
                 map.entry(block.header().epoch_id().clone())
                     .or_insert_with(|| HashSet::new())
@@ -2375,13 +2372,14 @@ impl<'a> ChainStoreUpdate<'a> {
                     .insert(block.header().height(), map);
                 store_update.insert_ser(DBCol::Block, hash.as_ref(), block)?;
             }
-            let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> = HashMap::new();
+            let mut header_hashes_by_height: HashMap<BlockHeight, HashSet<CryptoHash>> =
+                HashMap::new();
             for (hash, header) in self.chain_store_cache_update.headers.iter() {
                 if self.chain_store.get_block_header(hash).is_ok() {
                     // No need to add same Header once again
                     continue;
                 }
-    
+
                 header_hashes_by_height
                     .entry(header.height())
                     .or_insert_with(|| {
@@ -2414,15 +2412,16 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::debug_span!(target: "store", "write_chunk").entered();
+            let _span = tracing::trace_span!(target: "store", "write_chunk").entered();
 
-            let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> = HashMap::new();
+            let mut chunk_hashes_by_height: HashMap<BlockHeight, HashSet<ChunkHash>> =
+                HashMap::new();
             for (chunk_hash, chunk) in self.chain_store_cache_update.chunks.iter() {
                 if self.chain_store.chunk_exists(chunk_hash)? {
                     // No need to add same Chunk once again
                     continue;
                 }
-    
+
                 let height_created = chunk.height_created();
                 match chunk_hashes_by_height.entry(height_created) {
                     Entry::Occupied(mut entry) => {
@@ -2438,7 +2437,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         entry.insert(hash_set);
                     }
                 };
-    
+
                 // Increase transaction refcounts for all included txs
                 for tx in chunk.transactions().iter() {
                     let bytes = borsh::to_vec(&tx).expect("Borsh cannot fail");
@@ -2448,7 +2447,7 @@ impl<'a> ChainStoreUpdate<'a> {
                         &bytes,
                     );
                 }
-    
+
                 // Increase receipt refcounts for all included receipts
                 for receipt in chunk.prev_outgoing_receipts().iter() {
                     let bytes = borsh::to_vec(&receipt).expect("Borsh cannot fail");
@@ -2458,14 +2457,22 @@ impl<'a> ChainStoreUpdate<'a> {
                         &bytes,
                     );
                 }
-    
+
                 store_update.insert_ser(DBCol::Chunks, chunk_hash.as_ref(), chunk)?;
             }
             for (height, hash_set) in chunk_hashes_by_height {
-                store_update.set_ser(DBCol::ChunkHashesByHeight, &index_to_bytes(height), &hash_set)?;
+                store_update.set_ser(
+                    DBCol::ChunkHashesByHeight,
+                    &index_to_bytes(height),
+                    &hash_set,
+                )?;
             }
             for (chunk_hash, partial_chunk) in self.chain_store_cache_update.partial_chunks.iter() {
-                store_update.insert_ser(DBCol::PartialChunks, chunk_hash.as_ref(), partial_chunk)?;
+                store_update.insert_ser(
+                    DBCol::PartialChunks,
+                    chunk_hash.as_ref(),
+                    partial_chunk,
+                )?;
             }
         }
 
@@ -2489,8 +2496,10 @@ impl<'a> ChainStoreUpdate<'a> {
             )?;
         }
         {
-            let _span = tracing::debug_span!(target: "store", "write_incoming_and_outgoing_receipts").entered();
-        
+            let _span =
+                tracing::trace_span!(target: "store", "write_incoming_and_outgoing_receipts")
+                    .entered();
+
             for ((block_hash, shard_id), receipt) in
                 self.chain_store_cache_update.outgoing_receipts.iter()
             {
@@ -2512,8 +2521,8 @@ impl<'a> ChainStoreUpdate<'a> {
         }
 
         {
-            let _span = tracing::debug_span!(target: "store", "write_outcomes").entered();
-        
+            let _span = tracing::trace_span!(target: "store", "write_outcomes").entered();
+
             for ((outcome_id, block_hash), outcome_with_proof) in
                 self.chain_store_cache_update.outcomes.iter()
             {
@@ -2531,7 +2540,7 @@ impl<'a> ChainStoreUpdate<'a> {
                 )?;
             }
         }
-        
+
         for (receipt_id, shard_id) in self.chain_store_cache_update.receipt_id_to_shard_id.iter() {
             let data = borsh::to_vec(&shard_id)?;
             store_update.increment_refcount(DBCol::ReceiptIdToShardId, receipt_id.as_ref(), &data);
@@ -2558,29 +2567,32 @@ impl<'a> ChainStoreUpdate<'a> {
         // Create separate store update for deletions, because we want to update cache and don't want to remove nodes
         // from the store.
         {
-            let _span = tracing::debug_span!(target: "store", "write_trie_changes").entered();
+            let _span = tracing::trace_span!(target: "store", "write_trie_changes").entered();
             let mut deletions_store_update = self.store().store_update();
             for mut wrapped_trie_changes in self.trie_changes.drain(..) {
                 wrapped_trie_changes.apply_mem_changes();
                 wrapped_trie_changes.insertions_into(&mut store_update);
                 wrapped_trie_changes.deletions_into(&mut deletions_store_update);
                 wrapped_trie_changes.state_changes_into(&mut store_update);
-    
+
                 if self.chain_store.save_trie_changes {
                     wrapped_trie_changes
                         .trie_changes_into(&mut store_update)
                         .map_err(|err| Error::Other(err.to_string()))?;
                 }
             }
-    
-            for ((block_hash, shard_id), state_transition_data) in self.state_transition_data.drain() {
+
+            for ((block_hash, shard_id), state_transition_data) in
+                self.state_transition_data.drain()
+            {
                 store_update.set_ser(
                     DBCol::StateTransitionData,
                     &get_block_shard_id(&block_hash, shard_id),
                     &state_transition_data,
                 )?;
             }
-            for ((block_hash, shard_id), state_changes) in self.add_state_changes_for_resharding.drain()
+            for ((block_hash, shard_id), state_changes) in
+                self.add_state_changes_for_resharding.drain()
             {
                 store_update.set_ser(
                     DBCol::StateChangesForSplitStates,
@@ -2588,13 +2600,13 @@ impl<'a> ChainStoreUpdate<'a> {
                     &state_changes,
                 )?;
             }
-    
+
             if self.remove_all_state_changes_for_resharding {
                 store_update.delete_all(DBCol::StateChangesForSplitStates);
             }
         }
         {
-            let _span = tracing::debug_span!(target: "store", "write_catchup").entered();
+            let _span = tracing::trace_span!(target: "store", "write_catchup").entered();
 
             let mut affected_catchup_blocks = HashSet::new();
             for (prev_hash, hash) in self.remove_blocks_to_catchup.drain(..) {
@@ -2605,22 +2617,26 @@ impl<'a> ChainStoreUpdate<'a> {
                     ));
                 }
                 affected_catchup_blocks.insert(prev_hash);
-    
+
                 let mut prev_table =
                     self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
-    
+
                 let mut remove_idx = prev_table.len();
                 for (i, val) in prev_table.iter().enumerate() {
                     if *val == hash {
                         remove_idx = i;
                     }
                 }
-    
+
                 assert_ne!(remove_idx, prev_table.len());
                 prev_table.swap_remove(remove_idx);
-    
+
                 if !prev_table.is_empty() {
-                    store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
+                    store_update.set_ser(
+                        DBCol::BlocksToCatchup,
+                        prev_hash.as_ref(),
+                        &prev_table,
+                    )?;
                 } else {
                     store_update.delete(DBCol::BlocksToCatchup, prev_hash.as_ref());
                 }
@@ -2633,7 +2649,7 @@ impl<'a> ChainStoreUpdate<'a> {
                     ));
                 }
                 affected_catchup_blocks.insert(prev_hash);
-    
+
                 store_update.delete(DBCol::BlocksToCatchup, prev_hash.as_ref());
             }
             for (prev_hash, new_hash) in self.add_blocks_to_catchup.drain(..) {
@@ -2644,14 +2660,14 @@ impl<'a> ChainStoreUpdate<'a> {
                     ));
                 }
                 affected_catchup_blocks.insert(prev_hash);
-    
+
                 let mut prev_table =
                     self.chain_store.get_blocks_to_catchup(&prev_hash).unwrap_or_else(|_| vec![]);
                 prev_table.push(new_hash);
                 store_update.set_ser(DBCol::BlocksToCatchup, prev_hash.as_ref(), &prev_table)?;
             }
         }
-        
+
         for state_sync_info in self.add_state_sync_infos.drain(..) {
             store_update.set_ser(
                 DBCol::StateDlInfos,
@@ -2681,12 +2697,7 @@ impl<'a> ChainStoreUpdate<'a> {
         Ok(store_update)
     }
 
-    #[tracing::instrument(
-        level = "debug",
-        target = "store",
-        "ChainStoreUpdate::commit",
-        skip_all,
-    )]
+    #[tracing::instrument(level = "debug", target = "store", "ChainStoreUpdate::commit", skip_all)]
     pub fn commit(mut self) -> Result<(), Error> {
         let store_update = self.finalize()?;
         store_update.commit()?;

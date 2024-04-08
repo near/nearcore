@@ -417,7 +417,7 @@ impl<'a> ChainUpdate<'a> {
         level = "debug",
         target = "chain",
         "ChainUpdate::postprocess_block",
-        skip_all,
+        skip_all
     )]
     pub(crate) fn postprocess_block(
         &mut self,

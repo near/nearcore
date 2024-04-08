@@ -210,10 +210,10 @@ impl ShardTries {
     }
 
     #[tracing::instrument(
-        level = "debug",
-        target = "trie",
+        level = "trace",
+        target = "store::trie",
         "ShardTries::update_cache",
-        skip_all,
+        skip_all
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
@@ -278,8 +278,8 @@ impl ShardTries {
     }
 
     #[tracing::instrument(
-        level = "debug",
-        target = "trie",
+        level = "trace",
+        target = "store::trie",
         "ShardTries::apply_insertions",
         fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
         skip_all,
@@ -301,8 +301,8 @@ impl ShardTries {
     }
 
     #[tracing::instrument(
-        level = "debug",
-        target = "trie",
+        level = "trace",
+        target = "store::trie",
         "ShardTries::apply_deletions",
         fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
         skip_all,
