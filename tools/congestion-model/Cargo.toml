@@ -13,6 +13,8 @@ bytesize.workspace = true
 chrono.workspace = true
 clap = { workspace = true, features = ["derive"] }
 csv.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

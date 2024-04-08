@@ -1,0 +1,15 @@
+[package]
+name = "eth-address-registrar"
+version.workspace = true
+edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hex.workspace = true
+near-sdk.workspace = true
+serde.workspace = true

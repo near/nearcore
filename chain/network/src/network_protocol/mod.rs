@@ -8,8 +8,8 @@ mod proto_conv;
 mod state_sync;
 pub use edge::*;
 use near_primitives::stateless_validation::ChunkEndorsement;
-use near_primitives::stateless_validation::ChunkStateWitness;
 use near_primitives::stateless_validation::ChunkStateWitnessAck;
+use near_primitives::stateless_validation::SignedEncodedChunkStateWitness;
 pub use peer::*;
 pub use state_sync::*;
 
@@ -530,7 +530,7 @@ pub enum RoutedMessageBody {
     VersionedPartialEncodedChunk(PartialEncodedChunk),
     _UnusedVersionedStateResponse,
     PartialEncodedChunkForward(PartialEncodedChunkForwardMsg),
-    ChunkStateWitness(ChunkStateWitness),
+    ChunkStateWitness(SignedEncodedChunkStateWitness),
     ChunkEndorsement(ChunkEndorsement),
     ChunkStateWitnessAck(ChunkStateWitnessAck),
 }

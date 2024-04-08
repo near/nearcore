@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::challenge::PartialState;
 use crate::sharding::{ChunkHash, ReceiptProof, ShardChunkHeader, ShardChunkHeaderV3};
 use crate::transaction::SignedTransaction;
+use crate::types::EpochId;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::{PublicKey, Signature};
@@ -17,11 +18,45 @@ use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
 /// This is a messy workaround until we know what to do with NEP 483.
 type SignatureDifferentiator = String;
 
-/// Signable
+/// Represents bytes of encoded ChunkStateWitness.
+/// For now encoding is raw borsh serialization, later we plan
+/// adding compression on top of that.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkStateWitness {
-    pub inner: ChunkStateWitnessInner,
+pub struct EncodedChunkStateWitness(Box<[u8]>);
+
+impl EncodedChunkStateWitness {
+    pub fn encode(witness: &ChunkStateWitness) -> Self {
+        Self(borsh::to_vec(witness).expect("borsh serialization should not fail").into())
+    }
+
+    pub fn decode(&self) -> Result<ChunkStateWitness, std::io::Error> {
+        ChunkStateWitness::try_from_slice(&self.0)
+    }
+
+    pub fn size_bytes(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct SignedEncodedChunkStateWitness {
+    /// The content of the witness. It is convenient have it as bytes in order
+    /// to perform signature verification along with decoding.
+    pub witness_bytes: EncodedChunkStateWitness,
+    /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
     pub signature: Signature,
+}
+
+impl SignedEncodedChunkStateWitness {
+    pub fn new(witness: &ChunkStateWitness, signer: &dyn ValidatorSigner) -> Self {
+        let witness_bytes = EncodedChunkStateWitness::encode(witness);
+        let signature = signer.sign_chunk_state_witness(&witness_bytes);
+        Self { witness_bytes, signature }
+    }
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to
@@ -39,15 +74,22 @@ pub struct ChunkStateWitnessAck {
 }
 
 impl ChunkStateWitnessAck {
-    pub fn new(witness_to_ack: &ChunkStateWitness) -> Self {
-        Self { chunk_hash: witness_to_ack.inner.chunk_header.chunk_hash() }
+    pub fn new(witness: &ChunkStateWitness) -> Self {
+        Self { chunk_hash: witness.chunk_header.chunk_hash() }
     }
 }
 
 /// The state witness for a chunk; proves the state transition that the
 /// chunk attests to.
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
-pub struct ChunkStateWitnessInner {
+pub struct ChunkStateWitness {
+    pub chunk_producer: AccountId,
+    /// EpochId corresponds to the next block after chunk's previous block.
+    /// This is effectively the output of EpochManager::get_epoch_id_from_prev_block
+    /// with chunk_header.prev_block_hash().
+    /// This is needed to validate signature when the previous block is not yet
+    /// available on the validator side (aka orphan state witness).
+    pub epoch_id: EpochId,
     /// The chunk header that this witness is for. While this is not needed
     /// to apply the state transition, it is needed for a chunk validator to
     /// produce a chunk endorsement while knowing what they are endorsing.
@@ -113,8 +155,10 @@ pub struct ChunkStateWitnessInner {
     signature_differentiator: SignatureDifferentiator,
 }
 
-impl ChunkStateWitnessInner {
+impl ChunkStateWitness {
     pub fn new(
+        chunk_producer: AccountId,
+        epoch_id: EpochId,
         chunk_header: ShardChunkHeader,
         main_state_transition: ChunkStateTransition,
         source_receipt_proofs: HashMap<ChunkHash, ReceiptProof>,
@@ -125,6 +169,8 @@ impl ChunkStateWitnessInner {
         new_transactions_validation_state: PartialState,
     ) -> Self {
         Self {
+            chunk_producer,
+            epoch_id,
             chunk_header,
             main_state_transition,
             source_receipt_proofs,
@@ -136,15 +182,8 @@ impl ChunkStateWitnessInner {
             signature_differentiator: "ChunkStateWitness".to_owned(),
         }
     }
-}
 
-impl ChunkStateWitness {
-    // Make a new dummy ChunkStateWitness for testing.
-    pub fn new_dummy(
-        height: BlockHeight,
-        shard_id: ShardId,
-        prev_block_hash: CryptoHash,
-    ) -> ChunkStateWitness {
+    pub fn new_dummy(height: BlockHeight, shard_id: ShardId, prev_block_hash: CryptoHash) -> Self {
         let header = ShardChunkHeader::V3(ShardChunkHeaderV3::new(
             prev_block_hash,
             Default::default(),
@@ -161,7 +200,9 @@ impl ChunkStateWitness {
             Default::default(),
             &EmptyValidatorSigner::default(),
         ));
-        let inner = ChunkStateWitnessInner::new(
+        Self::new(
+            "alice.near".parse().unwrap(),
+            EpochId::default(),
             header,
             Default::default(),
             Default::default(),
@@ -170,8 +211,7 @@ impl ChunkStateWitness {
             Default::default(),
             Default::default(),
             Default::default(),
-        );
-        ChunkStateWitness { inner, signature: Signature::default() }
+        )
     }
 }
 

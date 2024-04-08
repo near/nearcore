@@ -1,0 +1,18 @@
+# These changes aim to increase the capacity of network when executing function calls for small
+# smart contracts while still preserving the same gas costs for the largest smart contracts (4MB).
+action_function_call: {
+  old: {
+    send_sir: 2_319_861_500_000,
+    send_not_sir: 2_319_861_500_000,
+    execution: 2_319_861_500_000,
+  },
+  new: {
+    send_sir: 200_000_000_000,
+    send_not_sir: 200_000_000_000,
+    execution: 780_000_000_000,
+  }
+}
+wasm_contract_loading_bytes: {
+  old: 216_750,
+  new: 1_089_295,
+}

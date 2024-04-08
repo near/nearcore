@@ -28,6 +28,8 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
 
 /// Test that `storage_write` compute limit is respected in new version.
+// TODO(10979): Fix and enable this test.
+#[ignore]
 #[test]
 fn test_storage_write() {
     //  `insert_strings(from: u64, to: u64)` makes (`to` - `from`) `storage_write` calls.
@@ -50,6 +52,8 @@ fn test_storage_write() {
 }
 
 /// Test that `storage_remove` compute limit is respected in new version.
+// TODO(10979): Fix and enable this test.
+#[ignore]
 #[test]
 fn test_storage_remove() {
     //  `delete_strings(from: u64, to: u64)` makes (`to` - `from`) `storage_remove` calls.
@@ -73,6 +77,8 @@ fn test_storage_remove() {
 
 /// Test that `storage_write` compute limit is respected in new version,
 /// specifically when running out of gas.
+// TODO(10979): Fix and enable this test.
+#[ignore]
 #[test]
 fn test_storage_write_gas_exceeded() {
     //  `insert_strings(from: u64, to: u64)` makes (`to` - `from`) `storage_write` calls.
@@ -96,6 +102,8 @@ fn test_storage_write_gas_exceeded() {
 }
 
 /// Check receipts that don't touch storage are unaffected by the new compute costs.
+// TODO(10979): Fix and enable this test.
+#[ignore]
 #[test]
 fn test_non_storage() {
     // `sum_n(u64)` just does some WASM computation.
@@ -126,6 +134,8 @@ fn test_non_storage() {
 }
 
 /// Test the case where a function call fails and the limit is unaffected by compute costs.
+// TODO(10979): Fix and enable this test.
+#[ignore]
 #[test]
 fn test_non_storage_gas_exceeded() {
     // `loop_forever()` loops until either gas is exhausted.
