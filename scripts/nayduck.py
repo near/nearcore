@@ -7,13 +7,13 @@ To request a new run, use the following command:
        --branch    <your_branch>   \
        --test-file <test_file>.txt
 
-Scheduled runs can be seen at <https://nayduck.near.org/>.
+Scheduled runs can be seen at <https://nayduck.nearone.org/>.
 
 See README.md in nightly directory for documentation of the test suite file
 format.  Note that you must be a member of the Near or Near Protocol
 organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
 
-The source code for NayDuck itself is at <https://github.com/near/nayduck>.
+The source code for NayDuck itself is at <https://github.com/Near-One/nayduck>.
 """
 
 import getpass
@@ -28,7 +28,7 @@ import typing
 REPO_DIR = pathlib.Path(__file__).resolve().parents[1]
 
 DEFAULT_TEST_FILE = 'nightly/nightly.txt'
-NAYDUCK_BASE_HREF = 'https://nayduck.near.org'
+NAYDUCK_BASE_HREF = 'https://nayduck.nearone.org'
 
 
 def _parse_args():
@@ -231,7 +231,7 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
 
 def run_locally(args, tests):
     for test in tests:
-        # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
+        # See nayduck specs at https://github.com/Near-One/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
         timeout = None
