@@ -104,7 +104,7 @@ fn test_self_delay() {
             0,
         )
         .unwrap();
-    let expected_max_depth = 61u32;
+    let expected_max_depth = 60u32;
     assert_eq!(
         res.status,
         FinalExecutionStatus::SuccessValue(expected_max_depth.to_be_bytes().to_vec()),
