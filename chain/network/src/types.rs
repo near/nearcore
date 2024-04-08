@@ -20,7 +20,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::sharding::PartialEncodedChunkWithArcReceipts;
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck,
+    ChunkEndorsement, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, BlockHeight, EpochHeight, ShardId};
@@ -259,7 +259,7 @@ pub enum NetworkRequests {
     /// A challenge to invalidate a block.
     Challenge(Challenge),
     /// A chunk's state witness.
-    ChunkStateWitness(Vec<AccountId>, ChunkStateWitness),
+    ChunkStateWitness(Vec<AccountId>, SignedEncodedChunkStateWitness),
     /// Acknowledgement to a chunk's state witness, sent back to the originating chunk producer.
     ChunkStateWitnessAck(AccountId, ChunkStateWitnessAck),
     /// Message for a chunk endorsement, sent by a chunk validator to the block producer.

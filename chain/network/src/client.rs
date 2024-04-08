@@ -7,7 +7,7 @@ use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkStateWitnessAck,
+    ChunkEndorsement, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
 };
 use near_primitives::transaction::SignedTransaction;
 use near_primitives::types::{AccountId, EpochId, ShardId};
@@ -116,7 +116,7 @@ pub struct AnnounceAccountRequest(pub Vec<(AnnounceAccount, Option<EpochId>)>);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]
-pub struct ChunkStateWitnessMessage(pub ChunkStateWitness);
+pub struct ChunkStateWitnessMessage(pub SignedEncodedChunkStateWitness);
 
 #[derive(actix::Message, Debug, Clone, PartialEq, Eq)]
 #[rtype(result = "()")]

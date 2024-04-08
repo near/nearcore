@@ -27,7 +27,7 @@ use near_primitives::epoch_manager::RngSeed;
 use near_primitives::errors::InvalidTxError;
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, PartialEncodedChunk};
-use near_primitives::stateless_validation::{ChunkEndorsement, ChunkStateWitness};
+use near_primitives::stateless_validation::{ChunkEndorsement, SignedEncodedChunkStateWitness};
 use near_primitives::test_utils::create_test_signer;
 use near_primitives::transaction::{Action, FunctionCallAction, SignedTransaction};
 use near_primitives::types::{AccountId, Balance, BlockHeight, EpochId, NumSeats, ShardId};
@@ -293,14 +293,11 @@ impl TestEnv {
     }
 
     fn found_differing_post_state_root_due_to_state_transitions(
-        chunk_state_witness: &ChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
     ) -> bool {
-        let chunk_state_witness_inner = &chunk_state_witness.inner;
-        let mut post_state_roots =
-            HashSet::from([chunk_state_witness_inner.main_state_transition.post_state_root]);
-        post_state_roots.extend(
-            chunk_state_witness_inner.implicit_transitions.iter().map(|t| t.post_state_root),
-        );
+        let witness = signed_witness.witness_bytes.decode().unwrap();
+        let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
+        post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
     }
 

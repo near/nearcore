@@ -18,7 +18,7 @@ use near_primitives::hash::hash;
 use near_primitives::shard_layout::ShardLayout;
 use near_primitives::sharding::{ShardChunkHeader, ShardChunkHeaderV3};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessInner,
+    ChunkStateTransition, ChunkStateWitness, SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::ValidatorKickoutReason::{NotEnoughBlocks, NotEnoughChunks};
 use near_primitives::validator_signer::ValidatorSigner;
@@ -2904,12 +2904,15 @@ fn test_verify_chunk_state_witness() {
     // Verify if the test signer has same public key as the chunk validator.
     let (validator, _) =
         epoch_manager.get_validator_by_account_id(&epoch_id, &h[0], &account_id).unwrap();
-    let signer = Arc::new(create_test_signer("test1"));
+    let chunk_producer: AccountId = "test1".parse().unwrap();
+    let signer = Arc::new(create_test_signer(chunk_producer.as_str()));
     assert_eq!(signer.public_key(), validator.public_key().clone());
 
     // Build a chunk state witness with arbitrary data.
     let chunk_header = test_chunk_header(&h, signer.as_ref());
-    let witness_inner = ChunkStateWitnessInner::new(
+    let witness = ChunkStateWitness::new(
+        chunk_producer.clone(),
+        epoch_id.clone(),
         chunk_header,
         ChunkStateTransition {
             block_hash: h[0],
@@ -2923,21 +2926,25 @@ fn test_verify_chunk_state_witness() {
         vec![],
         Default::default(),
     );
-    let signature = signer.sign_chunk_state_witness(&witness_inner).0;
-
     // Check chunk state witness validity.
-    let mut chunk_state_witness = ChunkStateWitness { inner: witness_inner, signature };
-    assert!(epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+    let mut chunk_state_witness = SignedEncodedChunkStateWitness::new(&witness, signer.as_ref());
+    assert!(epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 
     // Check invalid chunk state witness signature.
     chunk_state_witness.signature = Signature::default();
-    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+    assert!(!epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 
     // Check chunk state witness invalidity when signer is not a chunk validator.
     let bad_signer = Arc::new(create_test_signer("test2"));
     chunk_state_witness.signature =
-        bad_signer.sign_chunk_state_witness(&chunk_state_witness.inner).0;
-    assert!(!epoch_manager.verify_chunk_state_witness_signature(&chunk_state_witness).unwrap());
+        bad_signer.sign_chunk_state_witness(&chunk_state_witness.witness_bytes);
+    assert!(!epoch_manager
+        .verify_chunk_state_witness_signature(&chunk_state_witness, &chunk_producer, &epoch_id)
+        .unwrap());
 }
 
 /// Simulate the blockchain over a few epochs and verify that possible_epochs_of_height_around_tip()

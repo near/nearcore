@@ -15,7 +15,7 @@ use near_primitives::hash::CryptoHash;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardLayout, ShardLayoutError};
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkEndorsement, ChunkStateWitness, ChunkValidatorAssignments,
+    ChunkEndorsement, ChunkValidatorAssignments, SignedEncodedChunkStateWitness,
 };
 use near_primitives::types::validator_stake::ValidatorStake;
 use near_primitives::types::{
@@ -413,12 +413,8 @@ pub trait EpochManagerAdapter: Send + Sync {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        state_witness: &ChunkStateWitness,
-    ) -> Result<bool, Error>;
-
-    fn verify_chunk_state_witness_signature_in_epoch(
-        &self,
-        state_witness: &ChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
+        chunk_producer: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<bool, Error>;
 
@@ -1063,30 +1059,15 @@ impl EpochManagerAdapter for EpochManagerHandle {
 
     fn verify_chunk_state_witness_signature(
         &self,
-        state_witness: &ChunkStateWitness,
-    ) -> Result<bool, Error> {
-        let epoch_manager = self.read();
-        let chunk_header = &state_witness.inner.chunk_header;
-        let epoch_id =
-            epoch_manager.get_epoch_id_from_prev_block(chunk_header.prev_block_hash())?;
-        self.verify_chunk_state_witness_signature_in_epoch(state_witness, &epoch_id)
-    }
-
-    fn verify_chunk_state_witness_signature_in_epoch(
-        &self,
-        state_witness: &ChunkStateWitness,
+        signed_witness: &SignedEncodedChunkStateWitness,
+        chunk_producer: &AccountId,
         epoch_id: &EpochId,
     ) -> Result<bool, Error> {
         let epoch_manager = self.read();
-        let chunk_header = &state_witness.inner.chunk_header;
-        let chunk_producer = epoch_manager.get_chunk_producer_info(
-            &epoch_id,
-            chunk_header.height_created(),
-            chunk_header.shard_id(),
-        )?;
-        Ok(state_witness
+        let validator = epoch_manager.get_validator_by_account_id(epoch_id, chunk_producer)?;
+        Ok(signed_witness
             .signature
-            .verify(&borsh::to_vec(&state_witness.inner)?, chunk_producer.public_key()))
+            .verify(signed_witness.witness_bytes.as_slice(), validator.public_key()))
     }
 
     fn cares_about_shard_from_prev_block(
