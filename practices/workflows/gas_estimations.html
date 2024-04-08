@@ -177,11 +177,11 @@ and an optimized binary.</p>
     --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase
 </code></pre>
 <p>You might also want to run a hardware-agnostic estimation using the following
-command. It uses <code>docker</code> and <code>qemu</code> under the hood, so it will be quite a bit
-slower. You will need to install <code>docker</code> to run this command.</p>
+command. It uses <code>podman</code> and <code>qemu</code> under the hood, so it will be quite a bit
+slower. You will need to install <code>podman</code> to run this command.</p>
 <pre><code class="language-bash">cargo run --release -p runtime-params-estimator --features required -- \
     --accounts-num 20000 --additional-accounts-num 2000000 \
-    --iters 3 --warmup-iters 1 --metric icount --docker \
+    --iters 3 --warmup-iters 1 --metric icount --containerize \
     --costs=ActionReceiptCreation,ActionTransfer,ActionCreateAccount,ActionFunctionCallBase
 </code></pre>
 <p>Note how the output looks a bit different now. The <code>i</code>, <code>r</code> and <code>w</code> values show

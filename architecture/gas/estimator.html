@@ -148,7 +148,7 @@ all users collude to make the system as slow as possible.</p>
 <p>This benchmarking suite is used to check that the gas parameters defined in the
 protocol are correct. Correct in this context means, a chunk filled with 1 Pgas
 (<strong>P</strong>eta gas) will take at most 1 second to be applied. Or more generally,
-per 1 Tgas of execution, we spend no more than 1ms wall-clock time. </p>
+per 1 Tgas of execution, we spend no more than 1ms wall-clock time.</p>
 <p>For now, nearcore timing is the only one that matters. Things will become more
 complicated once there are multiple client implementations. But knowing that
 nearcore can serve requests fast enough proves that it is possible to be at
@@ -210,9 +210,9 @@ calls and counts the number of bytes seen in <code>sys_read</code>, <code>sys_wr
 variations. This gives an approximation for IO bytes, as seen on the interface
 between the operating system and nearcore. To convert to gas, we use three
 constants to multiply with instruction count, read bytes, and write bytes.</p>
-<p>We run qemu inside a Docker container, to make sure the qemu and qemu plugin
-versions match with system libraries. Make sure to add <code>--docker</code> when running
-with <code>--metric icount</code>.</p>
+<p>We run qemu inside a Docker container using the Podman runtime, to make sure the qemu and qemu
+plugin versions match with system libraries. Make sure to add <code>--containerize</code> when running with
+<code>--metric icount</code>.</p>
 <p>The great thing about <code>icount</code> is that you can run it on different machines and
 it will always return the same result. It is not 100% deterministic but very
 close, so it can usually detect code changes that degrade performance in major
