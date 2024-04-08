@@ -1,6 +1,7 @@
 use crate::single_shard_storage_mutator::SingleShardStorageMutator;
 use crate::storage_mutator::StorageMutator;
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use near_chain::types::{RuntimeAdapter, Tip};
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::{Genesis, GenesisConfig, GenesisValidationMode, NEAR_BASE};
@@ -106,6 +107,10 @@ struct SetValidatorsCmd {
     pub epoch_length: NumBlocks,
     #[arg(long, default_value = "-fork", allow_hyphen_values = true)]
     pub chain_id_suffix: String,
+    /// Timestamp that should be set in the genesis block. This is required if you want
+    /// to create a consistent forked network across many machines
+    #[arg(long)]
+    pub genesis_time: Option<DateTime<Utc>>,
 }
 
 #[derive(clap::Parser)]
@@ -175,11 +180,13 @@ impl ForkNetworkCommand {
                 self.amend_access_keys(*batch_size, near_config, home_dir)?;
             }
             SubCommand::SetValidators(SetValidatorsCmd {
+                genesis_time,
                 validators,
                 epoch_length,
                 chain_id_suffix,
             }) => {
                 self.set_validators(
+                    genesis_time.unwrap_or_else(chrono::Utc::now),
                     validators,
                     *epoch_length,
                     chain_id_suffix,
@@ -343,6 +350,7 @@ impl ForkNetworkCommand {
     /// Creates a genesis file with the new validators.
     fn set_validators(
         &self,
+        genesis_time: DateTime<Utc>,
         validators: &Path,
         epoch_length: u64,
         chain_id_suffix: &str,
@@ -378,6 +386,7 @@ impl ForkNetworkCommand {
         tracing::info!("Creating a new genesis");
         backup_genesis_file(home_dir, &near_config)?;
         self.make_and_write_genesis(
+            genesis_time,
             epoch_length,
             block_height,
             chain_id_suffix,
@@ -742,6 +751,7 @@ impl ForkNetworkCommand {
     /// Makes a new genesis and writes it to `~/.near/genesis.json`.
     fn make_and_write_genesis(
         &self,
+        genesis_time: DateTime<Utc>,
         epoch_length: u64,
         height: BlockHeight,
         chain_id_suffix: &str,
@@ -759,7 +769,7 @@ impl ForkNetworkCommand {
         let new_config = GenesisConfig {
             chain_id: original_config.chain_id.clone() + chain_id_suffix,
             genesis_height: height,
-            genesis_time: chrono::Utc::now(),
+            genesis_time,
             epoch_length,
             num_block_producer_seats: epoch_config.num_block_producer_seats,
             num_block_producer_seats_per_shard: epoch_config.num_block_producer_seats_per_shard,
