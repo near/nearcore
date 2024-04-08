@@ -34,19 +34,6 @@ def get_lock(home):
     return fd
 
 
-def http_code(jsonrpc_error):
-    if jsonrpc_error is None:
-        return http.HTTPStatus.OK
-
-    if jsonrpc_error['code'] == -32700 or jsonrpc_error[
-            'code'] == -32600 or jsonrpc_error['code'] == -32602:
-        return http.HTTPStatus.BAD_REQUEST
-    elif jsonrpc_error['code'] == -32601:
-        return http.HTTPStatus.NOT_FOUND
-    else:
-        return http.HTTPStatus.INTERNAL_SERVER_ERROR
-
-
 class JSONHandler(http.server.BaseHTTPRequestHandler):
 
     def __init__(self, request, client_address, server):
@@ -91,7 +78,7 @@ class JSONHandler(http.server.BaseHTTPRequestHandler):
         response = jsonrpc.JSONRPCResponseManager.handle(body, self.dispatcher)
         response_body = response.json.encode('UTF-8')
 
-        self.send_response(http_code(response.error))
+        self.send_response(http.HTTPStatus.OK)
         self.send_header("Content-Type", 'application/json')
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
