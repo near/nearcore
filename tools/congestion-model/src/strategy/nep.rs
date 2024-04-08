@@ -192,8 +192,7 @@ impl NepStrategy {
             "chunk info"
         );
 
-        let info =
-            CongestedShardsInfo { incoming_congestion, outgoing_congestion: outgoing_congestion };
+        let info = CongestedShardsInfo { incoming_congestion, outgoing_congestion };
         ctx.current_block_info().insert(info);
     }
 
