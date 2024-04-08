@@ -100,11 +100,17 @@ impl ShardTries {
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
-            let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
-            caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
-                .clone()
+            let shard_uid_exists =
+                caches_to_use.read().expect(POISONED_LOCK_ERR).contains_key(&shard_uid);
+            if shard_uid_exists {
+                caches_to_use.read().expect(POISONED_LOCK_ERR)[&shard_uid].clone()
+            } else {
+                let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+                caches
+                    .entry(shard_uid)
+                    .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+                    .clone()
+            }
         };
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
@@ -223,7 +229,7 @@ impl ShardTries {
                 Some(cache) => cache.update_cache(ops),
                 None => debug_assert!(false, "key existence has been checked"),
             }
-        } else{
+        } else {
             let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
             let cache = caches
                 .entry(shard_uid)
