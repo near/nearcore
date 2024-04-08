@@ -4,6 +4,7 @@ use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
 use crate::{GGas, QueueId, Receipt, ShardId, GAS_LIMIT, PGAS, TGAS};
 
+#[derive(Default)]
 pub struct NepStrategy {
     pub shard_id: Option<ShardId>,
     pub all_shards: Vec<ShardId>,
@@ -60,7 +61,7 @@ impl crate::CongestionStrategy for NepStrategy {
 impl NepStrategy {
     // Step 1: Compute bandwidth limits to other shards based on the congestion information
     fn init_send_limit(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
-        let min_send_limit = 0 * PGAS;
+        let min_send_limit = 0;
         let max_send_limit = 30 * PGAS;
 
         self.outgoing_gas_limit.clear();
@@ -253,18 +254,4 @@ fn mix(x: u64, y: u64, a: f64) -> u64 {
     let result = x * (1.0 - a) + y * a;
 
     result as u64
-}
-
-impl Default for NepStrategy {
-    fn default() -> Self {
-        Self {
-            outgoing_queues: BTreeMap::new(),
-            outgoing_gas_limit: BTreeMap::new(),
-
-            // overwritten at init
-            shard_id: None,
-            all_shards: vec![],
-            other_shards: vec![],
-        }
-    }
 }
