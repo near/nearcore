@@ -369,7 +369,7 @@ def call_create_account(node, signer_key, account_id, public_key, nonce,
     args = bytearray(args, encoding='utf-8')
 
     actions = [
-        transaction.create_function_call_action('create_account', args, 10**13,
+        transaction.create_function_call_action('create_account', args, 10**14,
                                                 10**24),
         transaction.create_payment_action(123)
     ]
