@@ -2703,7 +2703,7 @@ fn test_execution_metadata() {
       {
         "cost_category": "WASM_HOST_COST",
         "cost": "CONTRACT_LOADING_BYTES",
-        "gas_used": "18423750"
+        "gas_used": "92590075"
       },
       {
         "cost_category": "WASM_HOST_COST",

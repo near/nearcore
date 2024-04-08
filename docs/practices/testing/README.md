@@ -47,7 +47,7 @@ It requires nextest harness which can be installed by running `cargo install car
 
 Expensive and python tests are not part of CI, and are run by a custom nightly
 runner. The results of the latest runs are available
-[here](https://nayduck.near.org/#/). Today, test runs launch approximately
+[here](https://nayduck.nearone.org/#/). Today, test runs launch approximately
 every 5-6 hours. For the latest results look at the **second** run, since the
 first one has some tests still scheduled to run.
 

@@ -15,7 +15,7 @@ jobs:
       # and check if there are any non-passing tests
       - name: Check if there are any non-passing tests
         run: |
-          NIGHTLY_RESULTS=$(curl -s https://nayduck.near.org/api/nightly-events)
+          NIGHTLY_RESULTS=$(curl -s https://nayduck.nearone.org/api/nightly-events)
           UNSUCCESSFUL_TESTS=$(jq -e '.tests | .[][] | select(.[2] != "PASSED" ) ' <<< ${NIGHTLY_RESULTS} )
           if [ -z "$UNSUCCESSFUL_TESTS" ] ; then echo "Nightly Nayduck tests OK"; \
           else echo "Nightly Nayduck tests are failing" && exit 1; fi

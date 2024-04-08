@@ -1389,6 +1389,8 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
