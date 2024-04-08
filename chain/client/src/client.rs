@@ -2419,7 +2419,7 @@ impl Client {
                 highest_height_peers,
                 tracking_shards,
                 state_parts_task_scheduler,
-                state_finalize_scheduler,
+                load_memtrie_scheduler,
                 resharding_scheduler,
                 state_parts_future_spawner,
                 use_colour,

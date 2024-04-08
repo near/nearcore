@@ -8,11 +8,9 @@ use near_chain::chain::{
 };
 use near_chain::resharding::{ReshardingRequest, ReshardingResponse};
 use near_chain::Chain;
-use near_primitives::hash::CryptoHash;
 use near_primitives::state_part::PartId;
 use near_primitives::state_sync::StatePartKey;
 use near_primitives::types::ShardId;
-use near_store::flat::{store_helper, FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::DBCol;
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -21,6 +19,7 @@ pub struct ClientSenderForSyncJobs {
     apply_state_parts_response: Sender<ApplyStatePartsResponse>,
     block_catch_up_response: Sender<BlockCatchUpResponse>,
     resharding_response: Sender<ReshardingResponse>,
+    load_memtrie_response: Sender<LoadMemtrieResponse>,
 }
 
 #[derive(Clone, MultiSend, MultiSenderFrom, MultiSendMessage)]
@@ -83,7 +82,10 @@ impl SyncJobsActions {
     }
 
     pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
-        let result = msg.runtime_adapter.load_mem_trie_on_catchup(&msg.shard_uid, &msg.prev_state_root);
+        let result = msg
+            .runtime_adapter
+            .load_mem_trie_on_catchup(&msg.shard_uid, &msg.prev_state_root)
+            .map_err(|error| error.into());
         self.client_sender.send(LoadMemtrieResponse {
             load_result: result,
             shard_id: msg.shard_uid.shard_id(),

@@ -2735,7 +2735,7 @@ impl Chain {
         Ok(())
     }
 
-    pub fn schedule_state_finalize(
+    pub fn schedule_load_memtrie(
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
@@ -2745,7 +2745,6 @@ impl Chain {
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
 
         let shard_state_header = self.get_state_header(shard_id, sync_hash)?;
-        let state_root = shard_state_header.chunk_prev_state_root();
         let chunk = shard_state_header.cloned_chunk();
 
         let block_hash = chunk.prev_block();
@@ -2791,6 +2790,7 @@ impl Chain {
             runtime_adapter: self.runtime_adapter.clone(),
             shard_uid,
             prev_state_root: chunk.prev_state_root(),
+            sync_hash,
         });
 
         Ok(())
@@ -4597,6 +4597,7 @@ pub struct LoadMemtrieRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shard_uid: ShardUId,
     pub prev_state_root: StateRoot,
+    pub sync_hash: CryptoHash,
 }
 
 // Skip `runtime_adapter` and `epoch_manager`, because these are complex object that have complex logic
@@ -4607,6 +4608,7 @@ impl Debug for LoadMemtrieRequest {
             .field("runtime_adapter", &"<not shown>")
             .field("shard_uid", &self.shard_uid)
             .field("prev_state_root", &self.prev_state_root)
+            .field("sync_hash", &self.sync_hash)
             .finish()
     }
 }

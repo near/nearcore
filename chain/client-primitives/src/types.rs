@@ -131,7 +131,6 @@ impl ToString for ShardSyncStatus {
             ShardSyncStatus::StateDownloadParts => "parts".to_string(),
             ShardSyncStatus::StateDownloadScheduling => "scheduling".to_string(),
             ShardSyncStatus::LoadMemtrieScheduling => "memtrie".to_string(),
-            ShardSyncStatus::StateDownloadApplying => "applying".to_string(),
             ShardSyncStatus::StateDownloadComplete => "download complete".to_string(),
             ShardSyncStatus::ReshardingScheduling => "resharding scheduling".to_string(),
             ShardSyncStatus::ReshardingApplying => "resharding applying".to_string(),
