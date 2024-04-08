@@ -711,8 +711,8 @@ impl Client {
             )));
         }
 
-        // Reject witnesses for chunks for which which this node isn't a validator.
-        // It's an error, as the sender shouldn't send the witness to a non-validator node.
+        // Reject witnesses for chunks for which this node isn't a validator.
+        // It's an error, as chunk producer shouldn't send the witness to a non-validator node.
         let my_signer = self.chunk_validator.my_signer.as_ref().ok_or(Error::NotAValidator)?;
         let chunk_validator_assignments = self.epoch_manager.get_chunk_validator_assignments(
             &witness.epoch_id,
