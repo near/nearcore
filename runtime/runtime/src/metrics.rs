@@ -319,14 +319,14 @@ impl ApplyMetrics {
 
     pub fn local_receipts_done(
         &mut self,
-        _count: u64,
+        count: u64,
         time: Duration,
         accumulated_gas: u64,
         accumulated_compute: u64,
     ) {
         (self.local_receipts_gas, self.local_receipts_compute_usage) =
             self.update_accumulated(accumulated_gas, accumulated_compute);
-        self.local_receipts_processed_total += 1;
+        self.local_receipts_processed_total += count;
         self.local_receipts_processing_seconds_total += time.as_secs_f64();
     }
 
