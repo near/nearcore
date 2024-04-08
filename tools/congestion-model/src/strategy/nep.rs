@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::model::ChunkExecutionContext;
 use crate::strategy::QueueFactory;
-use crate::{GGas, QueueId, Receipt, ShardId, GAS_LIMIT, PGAS, TGAS};
+use crate::{GGas, QueueId, Receipt, ShardId, TransactionId, GAS_LIMIT, PGAS, TGAS};
 
 #[derive(Default)]
 pub struct NepStrategy {
@@ -20,10 +20,6 @@ pub struct NepStrategy {
 #[derive(Default, Clone)]
 struct CongestedShardsInfo {
     incoming_congestion: f64,
-    // Diverging from NEP - memory_congestion -> general_congestion
-    // General congestion is max of
-    // * memory_congestion - same as in NEP
-    // * gas_congestion - new introduction
     general_congestion: f64,
 }
 
@@ -108,7 +104,6 @@ impl NepStrategy {
     fn process_new_transactions(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
         let min_gas = 5 * TGAS;
         let max_gas = 500 * TGAS;
-        let general_congestion_limit = 0.5;
 
         let incoming_congestion = self.get_incoming_congestion(ctx);
         let tx_limit = mix(max_gas, min_gas, incoming_congestion);
@@ -119,16 +114,46 @@ impl NepStrategy {
                 break;
             };
 
-            let receiver = ctx.tx_receiver(tx);
-            let CongestedShardsInfo { general_congestion, .. } = self.get_info(ctx, &receiver);
-            if general_congestion > general_congestion_limit {
-                // dropping the transaction
+            if self.get_global_stop(ctx) {
+                break;
+            }
+
+            if self.get_filter_stop(ctx, tx) {
                 break;
             }
 
             let outgoing = ctx.accept_transaction(tx);
             self.forward_or_buffer(ctx, outgoing);
         }
+    }
+
+    // Checks if any of the shards are congested to the point where all shards
+    // should stop accepting any transactions.
+    //
+    // TODO consider smooth slow down
+    fn get_global_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>) -> bool {
+        let global_general_congestion_limit = 0.9;
+
+        for shard_id in self.all_shards.clone() {
+            let CongestedShardsInfo { general_congestion, .. } = self.get_info(ctx, &shard_id);
+            if general_congestion > global_general_congestion_limit {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Checks if the transaction receiver is in a congested shard. If so the
+    // transaction should be rejected.
+    //
+    // TODO consider smooth slow down
+    fn get_filter_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>, tx: TransactionId) -> bool {
+        let filter_general_congestion_limit = 0.5;
+
+        let receiver = ctx.tx_receiver(tx);
+        let CongestedShardsInfo { general_congestion, .. } = self.get_info(ctx, &receiver);
+        general_congestion > filter_general_congestion_limit
     }
 
     // Step 4: Execute receipts in the order of local, delayed, incoming
