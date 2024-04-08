@@ -21,7 +21,7 @@ use near_primitives::types::{
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use tracing::info;
 
 struct ShardTriesInner {
@@ -29,9 +29,9 @@ struct ShardTriesInner {
     trie_config: TrieConfig,
     mem_tries: RwLock<HashMap<ShardUId, Arc<RwLock<MemTries>>>>,
     /// Cache reserved for client actor to use
-    caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    caches: Mutex<HashMap<ShardUId, TrieCache>>,
     /// Cache for readers.
-    view_caches: RwLock<HashMap<ShardUId, TrieCache>>,
+    view_caches: Mutex<HashMap<ShardUId, TrieCache>>,
     flat_storage_manager: FlatStorageManager,
     /// Prefetcher state, such as IO threads, per shard.
     prefetchers: RwLock<HashMap<ShardUId, (PrefetchApi, PrefetchingThreadsHandle)>>,
@@ -62,8 +62,8 @@ impl ShardTries {
             store,
             trie_config,
             mem_tries: RwLock::new(HashMap::new()),
-            caches: RwLock::new(caches),
-            view_caches: RwLock::new(view_caches),
+            caches: Mutex::new(caches),
+            view_caches: Mutex::new(view_caches),
             flat_storage_manager,
             prefetchers: Default::default(),
             state_snapshot: Arc::new(RwLock::new(None)),
@@ -100,17 +100,11 @@ impl ShardTries {
     ) -> Trie {
         let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
         let cache = {
-            let shard_uid_exists =
-                caches_to_use.read().expect(POISONED_LOCK_ERR).contains_key(&shard_uid);
-            if shard_uid_exists {
-                caches_to_use.read().expect(POISONED_LOCK_ERR)[&shard_uid].clone()
-            } else {
-                let mut caches = caches_to_use.write().expect(POISONED_LOCK_ERR);
+            let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
                 caches
                     .entry(shard_uid)
                     .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
                     .clone()
-            }
         };
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
@@ -165,7 +159,7 @@ impl ShardTries {
     ) -> Result<Trie, StorageError> {
         let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
         let cache = {
-            let mut caches = self.0.view_caches.write().expect(POISONED_LOCK_ERR);
+            let mut caches = self.0.view_caches.lock().expect(POISONED_LOCK_ERR);
             caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
@@ -222,27 +216,14 @@ impl ShardTries {
         skip_all
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
-        // First acquire a read lock to see if the shard uid exists. The shard uid may not exist due to resharding
-        let shard_uid_exists = {
-            let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
-            caches.contains_key(&shard_uid)
-        };
-        // If the shard uid exists, we acquire a read lock to update the trie cache for the corresponding shard.
-        // If the shard uid does not exist, then we acquire a write lock to expand the cache with the new shard uid as a key.
-        if shard_uid_exists {
-            let caches = self.0.caches.read().expect(POISONED_LOCK_ERR);
-            match caches.get(&shard_uid) {
-                Some(cache) => cache.update_cache(ops),
-                None => debug_assert!(false, "key existence has been checked"),
-            }
-        } else {
-            let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
-            let cache = caches
+        let cache = {
+            let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
+             caches
                 .entry(shard_uid)
                 .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-                .clone();
-            cache.update_cache(ops);
-        }
+                .clone()
+        };
+        cache.update_cache(ops);
     }
 
     fn apply_deletions_inner(
@@ -412,8 +393,8 @@ impl ShardTries {
     /// Note that flat storage needs to be handled separately
     pub fn delete_trie_for_shard(&self, shard_uid: ShardUId, store_update: &mut StoreUpdate) {
         // Clear both caches and remove state values from store
-        self.0.caches.write().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        self.0.view_caches.write().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
         remove_all_state_values(store_update, shard_uid);
     }
 
@@ -849,26 +830,26 @@ mod test {
         let tries = create_trie();
         let trie_caches = &tries.0.caches;
         // Assert only one cache for one shard exists
-        assert_eq!(trie_caches.read().unwrap().len(), 1);
+        assert_eq!(trie_caches.lock().unwrap().len(), 1);
         // Assert the shard uid is correct
-        assert!(trie_caches.read().unwrap().get(&shard_uid).is_some());
+        assert!(trie_caches.lock().unwrap().get(&shard_uid).is_some());
 
         // Read from cache
         let key = CryptoHash::hash_borsh("alice");
         let val: Vec<u8> = Vec::from([0, 1, 2, 3, 4]);
 
-        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
 
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         tries.update_cache(insert_ops, shard_uid);
         assert_eq!(
-            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
             val
         );
 
         let deletions_ops = Vec::from([(&key, None)]);
         tries.update_cache(deletions_ops, shard_uid);
-        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 
     #[test]
@@ -903,7 +884,7 @@ mod test {
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
         assert_eq!(
-            trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
+            trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).unwrap().to_vec(),
             val
         );
 
@@ -912,7 +893,7 @@ mod test {
         let val: Vec<u8> = vec![0; TrieConfig::max_cached_value_size()];
         let insert_ops = Vec::from([(&key, Some(val.as_slice()))]);
         trie.update_cache(insert_ops, shard_uid);
-        assert!(trie_caches.read().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
+        assert!(trie_caches.lock().unwrap().get(&shard_uid).unwrap().get(&key).is_none());
     }
 
     #[test]
@@ -936,8 +917,8 @@ mod test {
         store_update.commit().unwrap();
 
         // verify if data and caches are deleted
-        assert!(tries.0.caches.read().unwrap().get(&shard_uid).is_none());
-        assert!(tries.0.view_caches.read().unwrap().get(&shard_uid).is_none());
+        assert!(tries.0.caches.lock().unwrap().get(&shard_uid).is_none());
+        assert!(tries.0.view_caches.lock().unwrap().get(&shard_uid).is_none());
         let store = tries.get_store();
         let key_prefix = shard_uid.to_bytes();
         let mut iter = store.iter_prefix(DBCol::State, &key_prefix);
