@@ -209,6 +209,12 @@ impl ShardTries {
         &self.0.state_snapshot
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::update_cache",
+        skip_all,
+    )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let cache = caches
@@ -595,7 +601,7 @@ impl WrappedTrieChanges {
         level = "debug",
         target = "trie",
         "ShardTries::trie_changes_into",
-        skip_all,
+        skip_all
     )]
     pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> std::io::Result<()> {
         store_update.set_ser(
