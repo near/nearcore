@@ -13,7 +13,7 @@ See README.md in nightly directory for documentation of the test suite file
 format.  Note that you must be a member of the Near or Near Protocol
 organisation on GitHub to authenticate (<https://github.com/orgs/near/people>).
 
-The source code for NayDuck itself is at <https://github.com/near/nayduck>.
+The source code for NayDuck itself is at <https://github.com/Near-One/nayduck>.
 """
 
 import getpass
@@ -231,7 +231,7 @@ def _parse_timeout(timeout: typing.Optional[str]) -> typing.Optional[int]:
 
 def run_locally(args, tests):
     for test in tests:
-        # See nayduck specs at https://github.com/near/nayduck/blob/master/lib/testspec.py
+        # See nayduck specs at https://github.com/Near-One/nayduck/blob/master/lib/testspec.py
         fields = test.split()
 
         timeout = None
