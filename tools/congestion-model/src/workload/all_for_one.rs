@@ -140,13 +140,8 @@ impl AllForOneProducer {
         }
     }
 
-    pub fn one_hop_only() -> Self {
-        Self {
-            enable_one_hop: true,
-            enable_two_hops: false,
-            enable_three_hops: false,
-            ..Default::default()
-        }
+    pub fn new(enable_one_hop: bool, enable_two_hops: bool, enable_three_hops: bool) -> Self {
+        Self { enable_one_hop, enable_two_hops, enable_three_hops, ..Default::default() }
     }
 }
 
