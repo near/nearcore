@@ -319,6 +319,7 @@ impl ApplyMetrics {
 
     pub fn local_receipts_done(
         &mut self,
+        _count: u64,
         time: Duration,
         accumulated_gas: u64,
         accumulated_compute: u64,
