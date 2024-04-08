@@ -1,7 +1,8 @@
 use chrono::Utc;
 use clap::Parser;
 use congestion_model::strategy::{
-    GlobalTxStopShard, NepStrategy, NewTxLast, NoQueueShard, SimpleBackpressure, TrafficLight,
+    FancyGlobalTransactionStop, GlobalTxStopShard, NepStrategy, NewTxLast, NoQueueShard,
+    SimpleBackpressure, TrafficLight,
 };
 use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
@@ -167,7 +168,7 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "No queues" => Box::new(NoQueueShard {}) as Box<dyn CongestionStrategy>,
             "Global TX stop" => Box::<GlobalTxStopShard>::default(),
             "Simple backpressure" => Box::<SimpleBackpressure>::default(),
-            "Fancy Stop" => Box::<NepStrategy>::default(),
+            "Fancy Stop" => Box::<FancyGlobalTransactionStop>::default(),
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
             "NEP" => Box::<NepStrategy>::default(),
