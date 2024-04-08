@@ -48,7 +48,6 @@ use near_primitives::transaction::{Action, SignedTransaction};
 use near_primitives::trie_key::TrieKey;
 use near_primitives::types::AccountId;
 use near_primitives::types::StateRoot;
-use near_primitives_core::hash::hash;
 use near_store::{PrefetchApi, PrefetchError, Trie};
 use sha2::Digest;
 use std::str::FromStr;
@@ -61,14 +60,6 @@ pub(crate) struct TriePrefetcher {
     trie_root: StateRoot,
     prefetch_enqueued: GenericCounter<prometheus::core::AtomicU64>,
     prefetch_queue_full: GenericCounter<prometheus::core::AtomicU64>,
-}
-
-fn get_inner_json<'a>(json: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
-    if json.is_object() {
-        json.get(key)
-    } else {
-        None
-    }
 }
 
 impl TriePrefetcher {
