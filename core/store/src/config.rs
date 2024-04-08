@@ -53,6 +53,7 @@ pub struct StoreConfig {
     /// Enable fetching account and access key data ahead of time to avoid IO latency.
     pub enable_receipt_prefetching: bool,
 
+    /// TODO: use `PrefetchConfig` for SWEAT prefetching.
     /// Configured accounts will be prefetched as SWEAT token account, if predecessor is listed as receiver.
     /// This config option is temporary and will be removed once flat storage is implemented.
     pub sweat_prefetch_receivers: Vec<String>,
@@ -374,10 +375,14 @@ impl Default for TrieCacheConfig {
     }
 }
 
+/// Parameters for prefetching certain contract calls.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct PrefetchConfig {
+    /// Receipt receiver, or contract account id.
     pub receiver: String,
+    /// Receipt sender.
     pub sender: String,
+    /// Contract method name.
     pub method_name: String,
 }
