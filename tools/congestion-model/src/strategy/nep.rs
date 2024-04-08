@@ -20,7 +20,7 @@ pub struct NepStrategy {
 #[derive(Default, Clone)]
 struct CongestedShardsInfo {
     incoming_congestion: f64,
-    general_congestion: f64,
+    outgoing_congestion: f64,
 }
 
 impl crate::CongestionStrategy for NepStrategy {
@@ -132,11 +132,11 @@ impl NepStrategy {
     //
     // TODO consider smooth slow down
     fn get_global_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>) -> bool {
-        let global_general_congestion_limit = 0.9;
+        let global_outgoing_congestion_limit = 0.9;
 
         for shard_id in self.all_shards.clone() {
-            let CongestedShardsInfo { general_congestion, .. } = self.get_info(ctx, &shard_id);
-            if general_congestion > global_general_congestion_limit {
+            let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &shard_id);
+            if outgoing_congestion > global_outgoing_congestion_limit {
                 return true;
             }
         }
@@ -149,11 +149,11 @@ impl NepStrategy {
     //
     // TODO consider smooth slow down
     fn get_filter_stop(&mut self, ctx: &mut ChunkExecutionContext<'_>, tx: TransactionId) -> bool {
-        let filter_general_congestion_limit = 0.5;
+        let filter_outgoing_congestion_limit = 0.5;
 
         let receiver = ctx.tx_receiver(tx);
-        let CongestedShardsInfo { general_congestion, .. } = self.get_info(ctx, &receiver);
-        general_congestion > filter_general_congestion_limit
+        let CongestedShardsInfo { outgoing_congestion, .. } = self.get_info(ctx, &receiver);
+        outgoing_congestion > filter_outgoing_congestion_limit
     }
 
     // Step 4: Execute receipts in the order of local, delayed, incoming
@@ -182,17 +182,18 @@ impl NepStrategy {
     // Step 6: Compute own congestion information for the next block
     fn update_block_info(&mut self, ctx: &mut ChunkExecutionContext<'_>) {
         let incoming_congestion = self.get_incoming_congestion(ctx);
-        let general_congestion = self.get_general_congestion(ctx);
+        let outgoing_congestion = self.get_outgoing_congestion(ctx);
 
         tracing::debug!(
             target: "model",
             shard_id=?self.shard_id(),
             incoming_congestion=format!("{incoming_congestion:.2}"),
-            general_congestion=format!("{general_congestion:.2}"),
+            outgoing_congestion=format!("{outgoing_congestion:.2}"),
             "chunk info"
         );
 
-        let info = CongestedShardsInfo { incoming_congestion, general_congestion };
+        let info =
+            CongestedShardsInfo { incoming_congestion, outgoing_congestion: outgoing_congestion };
         ctx.current_block_info().insert(info);
     }
 
@@ -202,7 +203,7 @@ impl NepStrategy {
         f64::clamp(gas_backlog / max_congestion_incoming_gas, 0.0, 1.0)
     }
 
-    fn get_general_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+    fn get_outgoing_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
         f64::max(self.get_memory_congestion(ctx), self.get_gas_congestion(ctx))
     }
 
@@ -210,7 +211,6 @@ impl NepStrategy {
         let max_congestion_memory_consumption = 500_000_000 as f64;
 
         let mut memory_consumption = 0;
-        memory_consumption += ctx.incoming_receipts().size();
         for (_, queue_id) in &self.outgoing_queues {
             memory_consumption += ctx.queue(*queue_id).size();
         }
@@ -223,7 +223,6 @@ impl NepStrategy {
         let max_gas_backlog = (100 * PGAS) as f64;
 
         let mut gas_backlog = 0;
-        gas_backlog += ctx.incoming_receipts().attached_gas();
         for (_, queue_id) in &self.outgoing_queues {
             gas_backlog += ctx.queue(*queue_id).attached_gas();
         }
