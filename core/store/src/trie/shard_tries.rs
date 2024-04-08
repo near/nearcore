@@ -209,6 +209,12 @@ impl ShardTries {
         &self.0.state_snapshot
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie",
+        "ShardTries::update_cache",
+        skip_all
+    )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
         let mut caches = self.0.caches.write().expect(POISONED_LOCK_ERR);
         let cache = caches
@@ -224,7 +230,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        let mut ops = Vec::new();
+        let mut ops = Vec::with_capacity(deletions.len());
         for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
@@ -243,7 +249,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        let mut ops = Vec::new();
+        let mut ops = Vec::with_capacity(insertions.len());
         for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
@@ -271,6 +277,13 @@ impl ShardTries {
         trie_changes.new_root
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie",
+        "ShardTries::apply_insertions",
+        fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn apply_insertions(
         &self,
         trie_changes: &TrieChanges,
@@ -287,6 +300,13 @@ impl ShardTries {
         self.apply_insertions_inner(&trie_changes.insertions, shard_uid, store_update)
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie",
+        "ShardTries::apply_deletions",
+        fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn apply_deletions(
         &self,
         trie_changes: &TrieChanges,
@@ -529,6 +549,13 @@ impl WrappedTrieChanges {
     /// Save state changes into Store.
     ///
     /// NOTE: the changes are drained from `self`.
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::state_changes_into",
+        fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
+        skip_all,
+    )]
     pub fn state_changes_into(&mut self, store_update: &mut StoreUpdate) {
         for mut change_with_trie_key in self.state_changes.drain(..) {
             assert!(
@@ -570,6 +597,12 @@ impl WrappedTrieChanges {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        target = "trie",
+        "ShardTries::trie_changes_into",
+        skip_all
+    )]
     pub fn trie_changes_into(&mut self, store_update: &mut StoreUpdate) -> std::io::Result<()> {
         store_update.set_ser(
             DBCol::TrieChanges,

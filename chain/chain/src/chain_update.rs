@@ -413,6 +413,12 @@ impl<'a> ChainUpdate<'a> {
 
     /// This is the last step of process_block_single, where we take the preprocess block info
     /// apply chunk results and store the results on chain.
+    #[tracing::instrument(
+        level = "debug",
+        target = "chain",
+        "ChainUpdate::postprocess_block",
+        skip_all
+    )]
     pub(crate) fn postprocess_block(
         &mut self,
         me: &Option<AccountId>,

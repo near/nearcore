@@ -574,6 +574,7 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
+    #[tracing::instrument(level = "trace", target = "store", "StoreUpdate::commit", skip_all)]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
@@ -596,7 +597,6 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        let _span = tracing::trace_span!(target: "store", "commit").entered();
         for op in &self.transaction.ops {
             match op {
                 DBOp::Insert { col, key, value } => {

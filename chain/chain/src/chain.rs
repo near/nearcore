@@ -1744,6 +1744,7 @@ impl Chain {
         });
     }
 
+    #[tracing::instrument(level = "debug", target = "chain", "postprocess_block_only", skip_all)]
     fn postprocess_block_only(
         &mut self,
         me: &Option<AccountId>,
