@@ -21,7 +21,7 @@ use near_primitives::types::{
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
 struct ShardTriesInner {
@@ -91,6 +91,22 @@ impl ShardTries {
         TrieUpdate::new(self.get_view_trie_for_shard(shard_uid, state_root))
     }
 
+    #[tracing::instrument(
+        level = "trace",
+        target = "store::trie::shard_tries",
+        "ShardTries::get_trie_cache_for",
+        skip_all,
+        fields(is_view)
+    )]
+    fn get_trie_cache_for(&self, shard_uid: ShardUId, is_view: bool) -> TrieCache {
+        let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
+        let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
+        caches
+            .entry(shard_uid)
+            .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
+            .clone()
+    }
+
     fn get_trie_for_shard_internal(
         &self,
         shard_uid: ShardUId,
@@ -98,14 +114,7 @@ impl ShardTries {
         is_view: bool,
         block_hash: Option<CryptoHash>,
     ) -> Trie {
-        let caches_to_use = if is_view { &self.0.view_caches } else { &self.0.caches };
-        let cache = {
-            let mut caches = caches_to_use.lock().expect(POISONED_LOCK_ERR);
-                caches
-                    .entry(shard_uid)
-                    .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, is_view))
-                    .clone()
-        };
+        let cache = self.get_trie_cache_for(shard_uid, is_view);
         // Do not enable prefetching on view caches.
         // 1) Performance of view calls is not crucial.
         // 2) A lot of the prefetcher code assumes there is only one "main-thread" per shard active.
@@ -158,13 +167,7 @@ impl ShardTries {
         block_hash: &CryptoHash,
     ) -> Result<Trie, StorageError> {
         let (store, flat_storage_manager) = self.get_state_snapshot(block_hash)?;
-        let cache = {
-            let mut caches = self.0.view_caches.lock().expect(POISONED_LOCK_ERR);
-            caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, true))
-                .clone()
-        };
+        let cache = self.get_trie_cache_for(shard_uid, true);
         let storage = Rc::new(TrieCachingStorage::new(store, cache, shard_uid, true, None));
         let flat_storage_chunk_view = flat_storage_manager.chunk_view(shard_uid, *block_hash);
 
@@ -211,18 +214,13 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie",
+        target = "store::trie::shard_tries",
         "ShardTries::update_cache",
-        skip_all
+        skip_all,
+        fields(ops.len = ops.len()),
     )]
     pub fn update_cache(&self, ops: Vec<(&CryptoHash, Option<&[u8]>)>, shard_uid: ShardUId) {
-        let cache = {
-            let mut caches = self.0.caches.lock().expect(POISONED_LOCK_ERR);
-             caches
-                .entry(shard_uid)
-                .or_insert_with(|| TrieCache::new(&self.0.trie_config, shard_uid, false))
-                .clone()
-        };
+        let cache = self.get_trie_cache_for(shard_uid, false);
         cache.update_cache(ops);
     }
 
@@ -281,7 +279,7 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie",
+        target = "store::trie::shard_tries",
         "ShardTries::apply_insertions",
         fields(num_insertions = trie_changes.insertions().len(), shard_id = shard_uid.shard_id()),
         skip_all,
@@ -304,7 +302,7 @@ impl ShardTries {
 
     #[tracing::instrument(
         level = "trace",
-        target = "store::trie",
+        target = "store::trie::shard_tries",
         "ShardTries::apply_deletions",
         fields(num_deletions = trie_changes.deletions().len(), shard_id = shard_uid.shard_id()),
         skip_all,
@@ -393,8 +391,8 @@ impl ShardTries {
     /// Note that flat storage needs to be handled separately
     pub fn delete_trie_for_shard(&self, shard_uid: ShardUId, store_update: &mut StoreUpdate) {
         // Clear both caches and remove state values from store
-        self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
-        self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        let _cache = self.0.caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
+        let _view_cache = self.0.view_caches.lock().expect(POISONED_LOCK_ERR).remove(&shard_uid);
         remove_all_state_values(store_update, shard_uid);
     }
 
@@ -553,7 +551,7 @@ impl WrappedTrieChanges {
     /// NOTE: the changes are drained from `self`.
     #[tracing::instrument(
         level = "debug",
-        target = "trie",
+        target = "store::trie::shard_tries",
         "ShardTries::state_changes_into",
         fields(num_state_changes = self.state_changes.len(), shard_id = self.shard_uid.shard_id()),
         skip_all,
@@ -601,7 +599,7 @@ impl WrappedTrieChanges {
 
     #[tracing::instrument(
         level = "debug",
-        target = "trie",
+        target = "store::trie::shard_tries",
         "ShardTries::trie_changes_into",
         skip_all
     )]
