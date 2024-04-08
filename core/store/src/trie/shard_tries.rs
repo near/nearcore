@@ -230,7 +230,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        let mut ops = Vec::new();
+        let mut ops = Vec::with_capacity(deletions.len());
         for TrieRefcountSubtraction { trie_node_or_value_hash, rc, .. } in deletions.iter() {
             let key = TrieCachingStorage::get_key_from_shard_uid_and_hash(
                 shard_uid,
@@ -249,7 +249,7 @@ impl ShardTries {
         shard_uid: ShardUId,
         store_update: &mut StoreUpdate,
     ) {
-        let mut ops = Vec::new();
+        let mut ops = Vec::with_capacity(insertions.len());
         for TrieRefcountAddition { trie_node_or_value_hash, trie_node_or_value, rc } in
             insertions.iter()
         {
