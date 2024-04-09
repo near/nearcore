@@ -22,6 +22,11 @@ struct Args {
     #[clap(short, long, default_value = "1000")]
     rounds: usize,
 
+    /// Warmup rounds do not count towards total gas in the summary table. CSV
+    /// writer output is not affected.
+    #[clap(short, long, default_value_t = 0)]
+    warmup: usize,
+
     /// Can be used to select a single workload or "all" to run all workload.
     /// It's case insensitive and spaces are stripped.
     /// Example: "all", "balanced", "all to one", "AllToOne".
@@ -75,7 +80,14 @@ fn main() {
                 strategy_name,
             );
 
-            run_model(&strategy_name, &workload_name, args.shards, args.rounds, stats_writer);
+            run_model(
+                &strategy_name,
+                &workload_name,
+                args.shards,
+                args.rounds,
+                args.warmup,
+                stats_writer,
+            );
         }
     }
 }
@@ -101,6 +113,7 @@ fn run_model(
     workload_name: &str,
     num_shards: usize,
     num_rounds: usize,
+    num_warmup_rounds: usize,
     mut stats_writer: StatsWriter,
 ) {
     let strategy = strategy(strategy_name, num_shards);
@@ -113,10 +126,14 @@ fn run_model(
     // looking at a maximum of 1800 rounds, beyond that you'll need to customize
     // the grafana time range.
     let start_time = Utc::now() - Duration::from_secs(1 * 60 * 60);
+    let mut warmup_gas_usage = model.gas_throughput();
 
     model.write_stats_header(&mut stats_writer);
 
     for round in 0..num_rounds {
+        if round == num_warmup_rounds {
+            warmup_gas_usage = model.gas_throughput();
+        }
         model.write_stats_values(&mut stats_writer, start_time, round);
         model.step();
         max_queues = max_queues.max_component_wise(&model.max_queue_length());
@@ -125,7 +142,7 @@ fn run_model(
         workload_name,
         strategy_name,
         &model.progress(),
-        &model.gas_throughput(),
+        &(model.gas_throughput() - warmup_gas_usage),
         &max_queues,
         &model.user_experience(),
     );
