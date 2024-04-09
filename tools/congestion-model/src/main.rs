@@ -1,3 +1,4 @@
+use bytesize::ByteSize;
 use chrono::Utc;
 use clap::Parser;
 use congestion_model::strategy::{
@@ -8,7 +9,7 @@ use congestion_model::workload::{
     AllForOneProducer, BalancedProducer, LinearImbalanceProducer, Producer,
 };
 use congestion_model::{
-    summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS,
+    summary_table, CongestionStrategy, Model, ShardQueueLengths, StatsWriter, PGAS, TGAS,
 };
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
@@ -175,6 +176,86 @@ fn strategy(strategy_name: &str, num_shards: usize) -> Vec<Box<dyn CongestionStr
             "New TX last" => Box::<NewTxLast>::default(),
             "Traffic Light" => Box::<TrafficLight>::default(),
             "NEP" => Box::<NepStrategy>::default(),
+            "NEP 200MB" => Box::new(
+                NepStrategy::default().with_memory_limits(ByteSize::mb(100), ByteSize::mb(100)),
+            ),
+            "NEP 450/50MB" => Box::new(
+                // keep outgoing limit small
+                // (1) if we hit this, it's due to another shard's incoming congestion,
+                //     so we are already in a second stage of congestion and should be more aggressive
+                // (2) this soft limit will be breached quite a bit anyway
+                //     as we don't stop executing receipts
+                NepStrategy::default().with_memory_limits(ByteSize::mb(450), ByteSize::mb(50)),
+            ),
+            "NEP 1GB" => Box::new(
+                NepStrategy::default().with_memory_limits(ByteSize::mb(500), ByteSize::mb(500)),
+            ),
+            "NEP 10 Pgas" => Box::new(NepStrategy::default().with_gas_limits(10 * PGAS, 10 * PGAS)),
+            "NEP 1 Pgas" => Box::new(NepStrategy::default().with_gas_limits(10 * PGAS, 10 * PGAS)),
+            "NEP 10/1 Pgas" => {
+                Box::new(NepStrategy::default().with_gas_limits(10 * PGAS, 1 * PGAS))
+            }
+            // NEP v2 takes results from memory and gas limits into account and fixes those
+            "NEPv2" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50)),
+            ),
+            "NEPv2 1GB" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(900), ByteSize::mb(100)),
+            ),
+            "NEPv2 early global stop" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_global_stop_limit(0.5),
+            ),
+            "NEPv2 late global stop" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_global_stop_limit(1.0),
+            ),
+            "NEPv2 less forwarding" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_send_gas_limit_range(PGAS / 2, 2 * PGAS),
+            ),
+            "NEPv2 more forwarding" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_send_gas_limit_range(PGAS / 2, 100 * PGAS),
+            ),
+            "NEPv2 less tx" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_tx_gas_limit_range(0, 100 * TGAS),
+            ),
+            "NEPv2 more tx" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    .with_tx_gas_limit_range(5 * TGAS, 900 * TGAS),
+            ),
+            // NEP v3 takes results from v2 into account
+            // it is still work in progress, just something to throw out there for now
+            // note: it showed weird behavior depending on number of shards,
+            // doing bad with 8 or 12 shards on balanced workloads but doing
+            // great with 10 shards.
+            "NEPv3" => Box::new(
+                NepStrategy::default()
+                    .with_gas_limits(10 * PGAS, 1 * PGAS)
+                    .with_memory_limits(ByteSize::mb(450), ByteSize::mb(50))
+                    // less tx is generally better for all-to-one workloads, but balanced workloads need more
+                    .with_tx_gas_limit_range(0, 500 * TGAS)
+                    // less forwarding is generally quite good, also the
+                    .with_send_gas_limit_range(0, 5 * PGAS),
+            ),
             _ => panic!("unknown strategy: {}", strategy_name),
         };
 
@@ -219,6 +300,21 @@ fn parse_strategy_names(strategy_name: &str) -> Vec<String> {
         "New TX last".to_string(),
         "Traffic Light".to_string(),
         "NEP".to_string(),
+        "NEP 200MB".to_string(),
+        "NEP 450/50MB".to_string(),
+        "NEP 1GB".to_string(),
+        "NEP 10 Pgas".to_string(),
+        "NEP 1 Pgas".to_string(),
+        "NEP 10/1 Pgas".to_string(),
+        "NEPv2".to_string(),
+        "NEPv2 1GB".to_string(),
+        "NEPv2 early global stop".to_string(),
+        "NEPv2 late global stop".to_string(),
+        "NEPv2 less forwarding".to_string(),
+        "NEPv2 more forwarding".to_string(),
+        "NEPv2 less tx".to_string(),
+        "NEPv2 more tx".to_string(),
+        "NEPv3".to_string(),
     ];
 
     if strategy_name == "all" {
