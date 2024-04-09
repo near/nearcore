@@ -6,6 +6,14 @@
 
 ### Non-protocol Changes
 
+## 1.39.0
+
+### Protocol Changes
+
+* Use more precise gas costs for function calls [#10943](https://github.com/near/nearcore/pull/10943) that should lead to more efficient chunk utilization. 
+
+### Non-protocol Changes
+
 ## 1.37.0
 
 ### Protocol Changes
