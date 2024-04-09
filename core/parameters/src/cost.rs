@@ -513,8 +513,13 @@ pub fn transfer_exec_fee(
     implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
+    is_nonrefundable: bool,
 ) -> Gas {
-    let transfer_fee = cfg.fee(ActionCosts::transfer).exec_fee();
+    let transfer_fee = if is_nonrefundable {
+        cfg.fee(ActionCosts::transfer).exec_fee()
+    } else {
+        cfg.fee(ActionCosts::transfer).exec_fee()
+    };
     match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
     {
         // Regular transfer to a named account.
@@ -542,8 +547,13 @@ pub fn transfer_send_fee(
     implicit_account_creation_allowed: bool,
     eth_implicit_accounts_enabled: bool,
     receiver_account_type: AccountType,
+    is_nonrefundable: bool,
 ) -> Gas {
-    let transfer_fee = cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver);
+    let transfer_fee = if is_nonrefundable {
+        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+    } else {
+        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+    };
     match (implicit_account_creation_allowed, eth_implicit_accounts_enabled, receiver_account_type)
     {
         // Regular transfer to a named account.
