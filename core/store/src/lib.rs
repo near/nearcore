@@ -605,25 +605,51 @@ impl StoreUpdate {
             "Transaction overwrites itself: {:?}",
             self
         );
-        for op in &self.transaction.ops {
-            match op {
-                DBOp::Insert { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "insert", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value),)
-                }
-                DBOp::Set { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "set", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::UpdateRefcount { col, key, value } => {
-                    tracing::trace!(target: "store", db_op = "update_rc", col = %col, key = %StorageKey(key), size = value.len(), value = %AbbrBytes(value))
-                }
-                DBOp::Delete { col, key } => {
-                    tracing::trace!(target: "store", db_op = "delete", col = %col, key = %StorageKey(key))
-                }
-                DBOp::DeleteAll { col } => {
-                    tracing::trace!(target: "store", db_op = "delete_all", col = %col)
-                }
-                DBOp::DeleteRange { col, from, to } => {
-                    tracing::trace!(target: "store", db_op = "delete_range", col = %col, from = %StorageKey(from), to = %StorageKey(to))
+        if self.transaction.ops.len() == 1 {
+            for op in &self.transaction.ops {
+                match op {
+                    DBOp::Insert { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "insert",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value),
+                    ),
+                    DBOp::Set { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "set",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::UpdateRefcount { col, key, value } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "update_rc",
+                        %col,
+                        key = %StorageKey(key),
+                        size = value.len(),
+                        value = %AbbrBytes(value)
+                    ),
+                    DBOp::Delete { col, key } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete",
+                        %col,
+                        key = %StorageKey(key)
+                    ),
+                    DBOp::DeleteAll { col } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_all",
+                        %col
+                    ),
+                    DBOp::DeleteRange { col, from, to } => tracing::trace!(
+                        target: "store::update::transactions",
+                        db_op = "delete_range",
+                        %col,
+                        from = %StorageKey(from),
+                        to = %StorageKey(to)
+                    ),
                 }
             }
         }
