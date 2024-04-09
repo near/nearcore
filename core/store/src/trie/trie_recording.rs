@@ -8,11 +8,14 @@ use std::sync::Arc;
 pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
     size: usize,
+    /// Counts removals performed while recording.
+    /// adjusted_recorded_storage_size takes it into account when calculating the total size.
+    removal_counter: usize,
 }
 
 impl TrieRecorder {
     pub fn new() -> Self {
-        Self { recorded: HashMap::new(), size: 0 }
+        Self { recorded: HashMap::new(), size: 0, removal_counter: 0 }
     }
 
     pub fn record(&mut self, hash: &CryptoHash, node: Arc<[u8]>) {
@@ -20,6 +23,10 @@ impl TrieRecorder {
         if self.recorded.insert(*hash, node).is_none() {
             self.size += size;
         }
+    }
+
+    pub fn record_removal(&mut self) {
+        self.removal_counter = self.removal_counter.saturating_add(1)
     }
 
     pub fn recorded_storage(&mut self) -> PartialStorage {
@@ -31,6 +38,14 @@ impl TrieRecorder {
     pub fn recorded_storage_size(&self) -> usize {
         debug_assert!(self.size == self.recorded.values().map(|v| v.len()).sum::<usize>());
         self.size
+    }
+
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// See https://github.com/near/nearcore/issues/10890 for details.
+    pub fn adjusted_recorded_storage_size(&self) -> usize {
+        // Charge 2000 bytes for every removal
+        let removals_size = self.removal_counter.saturating_mul(2000);
+        self.recorded_storage_size().saturating_add(removals_size)
     }
 }
 
