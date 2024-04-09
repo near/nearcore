@@ -11,10 +11,11 @@ pub mod refcount;
 mod slice;
 mod testdb;
 
-mod amendeddb;
 mod database_tests;
+mod mixeddb;
 
 pub use self::colddb::ColdDB;
+pub use self::mixeddb::{MixedDB, ReadOrder};
 pub use self::rocksdb::RocksDB;
 pub use self::splitdb::SplitDB;
 

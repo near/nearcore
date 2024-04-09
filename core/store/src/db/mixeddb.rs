@@ -91,8 +91,10 @@ impl MixedDB {
 impl Database for MixedDB {
     fn get_raw_bytes(&self, col: DBCol, key: &[u8]) -> io::Result<Option<DBSlice<'_>>> {
         if let Some(first_result) = self.first_db().get_raw_bytes(col, key)? {
+            tracing::trace!(target: "mixeddb", ?col, "Returning from first DB");
             return Ok(Some(first_result));
         }
+        tracing::trace!(target: "mixeddb", ?col, "Returning from second DB");
         self.second_db().get_raw_bytes(col, key)
     }
 
@@ -100,8 +102,10 @@ impl Database for MixedDB {
         assert!(col.is_rc());
 
         if let Some(first_result) = self.first_db().get_with_rc_stripped(col, key)? {
+            tracing::trace!(target: "mixeddb", ?col, "Returning from first DB");
             return Ok(Some(first_result));
         }
+        tracing::trace!(target: "mixeddb", ?col, "Returning from second DB");
         self.second_db().get_with_rc_stripped(col, key)
     }
 
@@ -142,6 +146,7 @@ impl Database for MixedDB {
     /// However the view client *does* write to the db in order to update cache.
     /// Hence we need to allow writing to the split db but only write to the hot db.
     fn write(&self, batch: DBTransaction) -> io::Result<()> {
+        tracing::trace!(target: "mixeddb", "Writing to writeDB");
         self.write_db.write(batch)
     }
 

@@ -6,16 +6,23 @@ use near_chain::types::RuntimeAdapter;
 use near_chain::{ChainStore, ChainStoreAccess};
 use near_chain_configs::GenesisValidationMode;
 use near_epoch_manager::{EpochManager, EpochManagerAdapter, EpochManagerHandle};
+use near_primitives::block::Tip;
+use near_primitives::block_header::BlockHeader;
 use near_primitives::shard_layout::{account_id_to_shard_id, ShardVersion};
 use near_primitives::state::FlatStateValue;
 use near_primitives::types::{BlockHeight, ShardId};
+use near_store::db::SplitDB;
+use near_store::db::{Database, MixedDB, ReadOrder, TestDB};
 use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateChanges, FlatStateDelta,
     FlatStateDeltaMetadata, FlatStorageManager, FlatStorageStatus,
 };
-use near_store::{DBCol, Mode, NodeStorage, ShardUId, Store, StoreOpener};
+use near_store::{
+    DBCol, Mode, NodeStorage, ShardUId, Store, StoreConfig, StoreOpener, Temperature,
+};
 use nearcore::{load_config, NearConfig, NightshadeRuntime, NightshadeRuntimeExt};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tqdm::tqdm;
@@ -84,8 +91,12 @@ pub struct ResetCmd {
 
 #[derive(Parser)]
 pub struct InitCmd {
+    #[clap(long)]
     shard_id: ShardId,
-
+    #[clap(long)]
+    height: BlockHeight,
+    #[clap(long)]
+    target_db_path: PathBuf,
     #[clap(default_value = "3")]
     num_threads: usize,
 }
@@ -181,6 +192,101 @@ impl FlatStorageCommand {
         (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
     }
 
+    fn get_header(height: BlockHeight, store: &Store) -> BlockHeader {
+        let height_key = height.to_le_bytes();
+
+        let block_hash_vec =
+            store.get(DBCol::BlockHeight, &height_key).expect("Error reading from DB");
+        let block_hash_vec = block_hash_vec.expect("No such height");
+        let block_hash_key = block_hash_vec.as_slice();
+        store
+            .get_ser::<BlockHeader>(DBCol::BlockHeader, &block_hash_key)
+            .expect("Error reading from DB")
+            .expect(format!("Block header not found with {block_hash_vec:?}").as_str())
+    }
+
+    fn get_amend_db(height: BlockHeight, store: &Store) -> Arc<dyn Database> {
+        let db = TestDB::new();
+        let db_store = NodeStorage::new(db.clone()).get_hot_store();
+        let mut db_update = db_store.store_update();
+
+        let header = Self::get_header(height, store);
+        let tip = Tip::from_header(&header);
+
+        let col = DBCol::BlockMisc;
+        db_update.set_ser(col, near_store::HEAD_KEY, &tip).expect("Unable to write HEAD_KEY");
+        db_update
+            .set_ser(col, near_store::HEADER_HEAD_KEY, &tip)
+            .expect("Unable to write HEADER_HEAD_KEY");
+        db_update
+            .set_ser(col, near_store::FINAL_HEAD_KEY, &tip)
+            .expect("Unable to write FINAL_HEAD_KEY");
+        db_update.commit().expect("Unable to commit to TestDB");
+        db
+    }
+
+    fn get_init_db(
+        opener: &StoreOpener,
+        home_dir: &PathBuf,
+        near_config: &NearConfig,
+        height: BlockHeight,
+        target_db_path: &Path,
+    ) -> (NodeStorage, Arc<EpochManagerHandle>, Arc<NightshadeRuntime>, ChainStore, Store) {
+        tracing::info!(target: "flat", ?height, ?target_db_path, "get_init_db");
+        let node_storage = {
+            let (base_db, amend_db) = {
+                let node_storage = opener.open().expect("Unable to create NodeStorage");
+                let amend_db = Self::get_amend_db(height, &node_storage.get_hot_store());
+                let base_db = match node_storage.cold_db() {
+                    Some(cold_storage) => {
+                        let cold_storage = cold_storage.clone();
+                        SplitDB::new(node_storage.into_inner(Temperature::Hot), cold_storage)
+                    }
+                    None => node_storage.into_inner(Temperature::Hot),
+                };
+                (base_db, amend_db)
+            };
+            let write_db = {
+                let path = if target_db_path.is_absolute() {
+                    PathBuf::from(target_db_path)
+                } else {
+                    home_dir.join(&target_db_path)
+                };
+                Arc::new(
+                    near_store::db::RocksDB::open(
+                        &path,
+                        &StoreConfig::default(),
+                        Mode::ReadWrite,
+                        near_store::Temperature::Hot,
+                    )
+                    .expect("Unable to open recovery db"),
+                )
+            };
+
+            // This DB can only write to write_db
+            // When reading, it first reads from wirte_db, then amended_db, then base_db
+            let mixed_db = MixedDB::new(
+                MixedDB::new(amend_db, base_db, ReadOrder::ReadDBFirst),
+                write_db,
+                ReadOrder::WriteDBFirst,
+            );
+            NodeStorage::new(mixed_db)
+        };
+
+        let epoch_manager =
+            EpochManager::new_arc_handle(node_storage.get_hot_store(), &near_config.genesis.config);
+        let hot_runtime = NightshadeRuntime::from_config(
+            home_dir,
+            node_storage.get_hot_store(),
+            &near_config,
+            epoch_manager.clone(),
+        )
+        .expect("could not create transaction runtime");
+        let chain_store = ChainStore::new(node_storage.get_hot_store(), 0, false);
+        let hot_store = node_storage.get_hot_store();
+        (node_storage, epoch_manager, hot_runtime, chain_store, hot_store)
+    }
+
     fn view(
         &self,
         cmd: &ViewCmd,
@@ -258,7 +364,7 @@ impl FlatStorageCommand {
         opener: StoreOpener,
     ) -> anyhow::Result<()> {
         let (_, epoch_manager, rw_hot_runtime, rw_chain_store, rw_hot_store) =
-            Self::get_db(&opener, home_dir, &near_config, near_store::Mode::ReadWriteExisting);
+            Self::get_init_db(&opener, home_dir, &near_config, cmd.height, &cmd.target_db_path);
 
         let tip = rw_chain_store.final_head()?;
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
