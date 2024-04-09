@@ -63,6 +63,7 @@ fn runtime_fees_config(cost_table: &CostTable) -> anyhow::Result<RuntimeFeesConf
             ActionCosts::function_call_base => fee(Cost::ActionFunctionCallBase)?,
             ActionCosts::function_call_byte => fee(Cost::ActionFunctionCallPerByte)?,
             ActionCosts::transfer => fee(Cost::ActionTransfer)?,
+            ActionCosts::nonrefundable_transfer => fee(Cost::ActionTransfer)?, // TODO
             ActionCosts::stake => fee(Cost::ActionStake)?,
             ActionCosts::add_full_access_key => fee(Cost::ActionAddFullAccessKey)?,
             ActionCosts::add_function_call_key_base => fee(Cost::ActionAddFunctionAccessKeyBase)?,

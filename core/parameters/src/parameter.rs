@@ -252,6 +252,7 @@ impl From<ActionCosts> for FeeParameter {
             ActionCosts::function_call_base => Self::ActionFunctionCall,
             ActionCosts::function_call_byte => Self::ActionFunctionCallPerByte,
             ActionCosts::transfer => Self::ActionTransfer,
+            ActionCosts::nonrefundable_transfer => Self::ActionTransfer, // TODO
             ActionCosts::stake => Self::ActionStake,
             ActionCosts::add_full_access_key => Self::ActionAddFullAccessKey,
             ActionCosts::add_function_call_key_base => Self::ActionAddFunctionCallKey,

@@ -264,6 +264,7 @@ pub enum ActionCosts {
     new_data_receipt_base = 13,
     new_data_receipt_byte = 14,
     delegate = 15,
+    nonrefundable_transfer = 16,
 }
 
 impl ExtCosts {
@@ -420,6 +421,11 @@ impl RuntimeFeesConfig {
                     send_not_sir: 115123062500,
                     execution: 115123062500,
                 },
+                ActionCosts::nonrefundable_transfer => Fee {
+                    send_sir: 115123062500,
+                    send_not_sir: 115123062500,
+                    execution: 115123062500,
+                },
                 ActionCosts::stake => Fee {
                     send_sir: 141715687500,
                     send_not_sir: 141715687500,
@@ -516,7 +522,7 @@ pub fn transfer_exec_fee(
     is_nonrefundable: bool,
 ) -> Gas {
     let transfer_fee = if is_nonrefundable {
-        cfg.fee(ActionCosts::transfer).exec_fee()
+        cfg.fee(ActionCosts::nonrefundable_transfer).exec_fee()
     } else {
         cfg.fee(ActionCosts::transfer).exec_fee()
     };
@@ -550,7 +556,7 @@ pub fn transfer_send_fee(
     is_nonrefundable: bool,
 ) -> Gas {
     let transfer_fee = if is_nonrefundable {
-        cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
+        cfg.fee(ActionCosts::nonrefundable_transfer).send_fee(sender_is_receiver)
     } else {
         cfg.fee(ActionCosts::transfer).send_fee(sender_is_receiver)
     };
