@@ -117,8 +117,11 @@ impl TrieCacheInner {
             shard_cache_deletions_size: metrics::SHARD_CACHE_DELETIONS_SIZE
                 .with_label_values(&metrics_labels),
         };
+        // Assuming the values are actual all empty and we store a full hashmap of overhead.
+        let max_elements = total_size_limit.div_ceil(Self::PER_ENTRY_OVERHEAD);
+        let max_elements = usize::try_from(max_elements).unwrap();
         Self {
-            cache: LruCache::unbounded(),
+            cache: LruCache::new(max_elements),
             deletions: BoundedQueue::new(deletions_queue_capacity),
             total_size: 0,
             total_size_limit,
