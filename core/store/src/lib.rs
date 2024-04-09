@@ -574,7 +574,15 @@ impl StoreUpdate {
         self.transaction.merge(other.transaction)
     }
 
-    #[tracing::instrument(level = "trace", target = "store", "StoreUpdate::commit", skip_all)]
+    #[tracing::instrument(
+        level = "trace",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        target = "store::update",
+        "StoreUpdate::commit",
+        skip_all,
+        fields(transaction.ops.len = self.transaction.ops.len())
+    )]
     pub fn commit(self) -> io::Result<()> {
         debug_assert!(
             {
