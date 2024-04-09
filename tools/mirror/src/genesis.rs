@@ -261,3 +261,176 @@ pub(crate) fn map_records<P: AsRef<Path>>(
     records_seq.end()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use near_crypto::{KeyType, SecretKey};
+    use near_primitives::account::{AccessKeyPermission, FunctionCallPermission};
+    use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
+    use near_primitives::hash::CryptoHash;
+    use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
+    use near_primitives::transaction::{Action, AddKeyAction, CreateAccountAction};
+    use near_primitives_core::account::AccessKey;
+
+    #[test]
+    fn test_map_receipt() {
+        let default_key = crate::key_mapping::default_extra_key(None).public_key();
+
+        let mut receipt0 = Receipt {
+            predecessor_id: "foo.near".parse().unwrap(),
+            receiver_id: "foo.foo.near".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "foo.near".parse().unwrap(),
+                signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
+                    .parse()
+                    .unwrap(),
+                gas_price: 100,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: "ed25519:FXXrTXiKWpXj1R6r5fBvMLpstd8gPyrBq3qMByqKVzKF"
+                            .parse()
+                            .unwrap(),
+                        access_key: AccessKey {
+                            nonce: 0,
+                            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                                allowance: None,
+                                receiver_id: "foo.near".parse().unwrap(),
+                                method_names: vec![String::from("do_thing")],
+                            }),
+                        },
+                    })),
+                ],
+            }),
+        };
+        let want_receipt0 = Receipt {
+            predecessor_id: "foo.near".parse().unwrap(),
+            receiver_id: "foo.foo.near".parse().unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "foo.near".parse().unwrap(),
+                signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
+                    .parse()
+                    .unwrap(),
+                gas_price: 100,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![
+                    Action::CreateAccount(CreateAccountAction {}),
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: "ed25519:FYcGnVNM6wTcvm9b4UenJuCiiL9wDaJ3mpoebF4Go4mc"
+                            .parse()
+                            .unwrap(),
+                        access_key: AccessKey {
+                            nonce: 0,
+                            permission: AccessKeyPermission::FunctionCall(FunctionCallPermission {
+                                allowance: None,
+                                receiver_id: "foo.near".parse().unwrap(),
+                                method_names: vec![String::from("do_thing")],
+                            }),
+                        },
+                    })),
+                    Action::AddKey(Box::new(AddKeyAction {
+                        public_key: default_key.clone(),
+                        access_key: AccessKey::full_access(),
+                    })),
+                ],
+            }),
+        };
+
+        let secret_key = SecretKey::from_random(KeyType::ED25519);
+        let delegate_action = DelegateAction {
+            sender_id: "d4156e03cb09f47117ddfde4fdcd5f3b8b087dccb364e228b8b3ed91d69054f4"
+                .parse()
+                .unwrap(),
+            receiver_id: "foo.near".parse().unwrap(),
+            nonce: 0,
+            max_block_height: 1234,
+            public_key: secret_key.public_key(),
+            actions: vec![Action::AddKey(Box::new(AddKeyAction {
+                public_key: "ed25519:Eo9W44tRMwcYcoua11yM7Xfr1DjgR4EWQFM3RU27MEX8".parse().unwrap(),
+                access_key: AccessKey::full_access(),
+            }))
+            .try_into()
+            .unwrap()],
+        };
+        let tx_hash = delegate_action.get_nep461_hash();
+        let signature = secret_key.sign(tx_hash.as_ref());
+
+        let mut receipt1 = Receipt {
+            predecessor_id: "757a45019f9a3e5bd475586c31f63d6e15d50f5366caf4643f6f69731a222cad"
+                .parse()
+                .unwrap(),
+            receiver_id: "d4156e03cb09f47117ddfde4fdcd5f3b8b087dccb364e228b8b3ed91d69054f4"
+                .parse()
+                .unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "757a45019f9a3e5bd475586c31f63d6e15d50f5366caf4643f6f69731a222cad"
+                    .parse()
+                    .unwrap(),
+                signer_public_key: "ed25519:He7QeRuwizNEhBioYG3u4DZ8jWXyETiyNzFD3MkTjDMf"
+                    .parse()
+                    .unwrap(),
+                gas_price: 100,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
+                    delegate_action,
+                    signature,
+                }))],
+            }),
+        };
+
+        let mapped_secret_key = crate::key_mapping::map_key(&secret_key.public_key(), None);
+        let delegate_action = DelegateAction {
+            sender_id: "799185fe8173d8adf46b0c088d57887b2550642c08aafdc20ccce67b5ad51976"
+                .parse()
+                .unwrap(),
+            receiver_id: "foo.near".parse().unwrap(),
+            nonce: 0,
+            max_block_height: 1234,
+            public_key: mapped_secret_key.public_key(),
+            actions: vec![Action::AddKey(Box::new(AddKeyAction {
+                public_key: "ed25519:4etp3kcYH2rwGdbwbLbUd1AKHMEPLKosCMSQFqYqPL6V".parse().unwrap(),
+                access_key: AccessKey::full_access(),
+            }))
+            .try_into()
+            .unwrap()],
+        };
+        let tx_hash = delegate_action.get_nep461_hash();
+        let signature = mapped_secret_key.sign(tx_hash.as_ref());
+        let want_receipt1 = Receipt {
+            predecessor_id: "3f8c3be8929e5fa61907f13a6247e7e452b92bb7d224cf691a9aa67814eb509b"
+                .parse()
+                .unwrap(),
+            receiver_id: "799185fe8173d8adf46b0c088d57887b2550642c08aafdc20ccce67b5ad51976"
+                .parse()
+                .unwrap(),
+            receipt_id: CryptoHash::default(),
+            receipt: ReceiptEnum::Action(ActionReceipt {
+                signer_id: "3f8c3be8929e5fa61907f13a6247e7e452b92bb7d224cf691a9aa67814eb509b"
+                    .parse()
+                    .unwrap(),
+                signer_public_key: "ed25519:6rL9HcTfinxxcVURLeQ3Y3nkietL4LQ3WxhPn51bCo4V"
+                    .parse()
+                    .unwrap(),
+                gas_price: 100,
+                output_data_receivers: vec![],
+                input_data_ids: vec![],
+                actions: vec![Action::Delegate(Box::new(SignedDelegateAction {
+                    delegate_action,
+                    signature,
+                }))],
+            }),
+        };
+
+        crate::genesis::map_receipt(&mut receipt0, None, &default_key);
+        assert_eq!(receipt0, want_receipt0);
+        crate::genesis::map_receipt(&mut receipt1, None, &default_key);
+        assert_eq!(receipt1, want_receipt1);
+    }
+}
