@@ -1424,6 +1424,9 @@ impl Runtime {
             )
             .entered();
             let node_counter_before = state_update.trie().get_trie_nodes_count();
+            let recorded_storage_size_before = state_update.trie().recorded_storage_size();
+            let adjusted_recorded_storage_size_before =
+                state_update.trie().adjusted_recorded_storage_size();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1436,6 +1439,21 @@ impl Runtime {
             let node_counter_after = state_update.trie().get_trie_nodes_count();
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
+            let recorded_storage_diff = state_update
+                .trie()
+                .recorded_storage_size()
+                .saturating_sub(recorded_storage_size_before)
+                as f64;
+            let adjusted_recorded_storage_diff = state_update
+                .trie()
+                .adjusted_recorded_storage_size()
+                .saturating_sub(adjusted_recorded_storage_size_before)
+                as f64;
+            metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
+            metrics::RECEIPT_ADJUSTED_RECORDED_SIZE.observe(adjusted_recorded_storage_diff);
+            let recorded_storage_proof_ratio =
+                adjusted_recorded_storage_diff / f64::max(1.0, recorded_storage_diff);
+            metrics::RECEIPT_ADJUSTED_RECORDED_SIZE_RATIO.observe(recorded_storage_proof_ratio);
             if let Some(outcome_with_id) = result? {
                 let gas_burnt = outcome_with_id.outcome.gas_burnt;
                 let compute_usage = outcome_with_id

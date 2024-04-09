@@ -1,6 +1,7 @@
 use near_o11y::metrics::{
-    try_create_counter_vec, try_create_histogram_vec, try_create_int_counter,
-    try_create_int_counter_vec, CounterVec, HistogramVec, IntCounter, IntCounterVec,
+    try_create_counter_vec, try_create_histogram_vec, try_create_histogram_with_buckets,
+    try_create_int_counter, try_create_int_counter_vec, CounterVec, Histogram, HistogramVec,
+    IntCounter, IntCounterVec,
 };
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -289,6 +290,30 @@ static CHUNK_TX_TGAS: Lazy<HistogramVec> = Lazy::new(|| {
     )
     .unwrap()
 });
+pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_recorded_size",
+        "Size of storage proof recorded when executing a receipt",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_ADJUSTED_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_adjusted_recorded_size",
+        "Adjusted size (e.g with extra size added for deletes) of storage proof recorded when executing a receipt",
+        buckets_for_storage_proof_size(),
+    )
+    .unwrap()
+});
+pub static RECEIPT_ADJUSTED_RECORDED_SIZE_RATIO: Lazy<Histogram> = Lazy::new(|| {
+    try_create_histogram_with_buckets(
+        "near_receipt_adjusted_recorded_size_ratio",
+        "Ratio of adjusted to nonadjusted, equal to (near_receipt_adjusted_recorded_size / near_receipt_recorded_size)",
+        buckets_for_storage_proof_size_ratio(),
+    )
+    .unwrap()
+});
 
 /// Buckets used for burned gas in receipts.
 ///
@@ -311,6 +336,40 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
         0., 50., 100., 200., 300., 400., 500., 600., 700., 800., 900., 1000., 1100., 1200., 1300.,
         2000.,
     ])
+}
+
+fn buckets_for_storage_proof_size() -> Vec<f64> {
+    vec![
+        0.,
+        100.,
+        200.,
+        400.,
+        800.,
+        2_000.,
+        4_000.,
+        8_000.,
+        16_000.,
+        32_000.,
+        64_000.,
+        128_000.,
+        256_000.,
+        512_000.,
+        1_000_000.,
+        2_000_000.,
+        4_000_000.,
+        6_000_000.,
+        8_000_000.,
+        16_000_000.,
+        32_000_000.,
+        64_000_000.,
+    ]
+}
+
+fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
+    vec![
+        1., 1.03, 1.05, 1.07, 1.10, 1.15, 1.20, 1.30, 1.40, 1.50, 1.70, 1.90, 2.1, 2.5, 3., 4., 5.,
+        7., 8., 10.,
+    ]
 }
 
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
