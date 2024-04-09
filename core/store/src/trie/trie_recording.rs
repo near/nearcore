@@ -41,7 +41,7 @@ impl TrieRecorder {
     }
 
     /// Size of the recorded state proof plus some additional size added to cover removals.
-    /// See https://github.com/near/nearcore/issues/10890 for details.
+    /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
     pub fn adjusted_recorded_storage_size(&self) -> usize {
         // Charge 2000 bytes for every removal
         let removals_size = self.removal_counter.saturating_mul(2000);
