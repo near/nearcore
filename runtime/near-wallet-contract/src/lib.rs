@@ -38,8 +38,8 @@ mod tests {
     use near_primitives_core::hash::CryptoHash;
     use std::str::FromStr;
 
-    const WALLET_CONTRACT_HASH: &'static str = "7Za8zoriBqGNFf9AUK8Fbng5KSGw8Q9BLM4oSoLbJ6wq";
-    const MAGIC_BYTES_HASH: &'static str = "HfA46qim8mtcybTYEwGxWc1AN6a52g6t3XT6SRKzdpDx";
+    const WALLET_CONTRACT_HASH: &'static str = "ExNwbey1imDs9gD7Xth3wSveHxU5C42jjpZgBzvmsNsP";
+    const MAGIC_BYTES_HASH: &'static str = "2Gy18rH91fCNz3CZ93Fx28Rah8iynRYK9wNqivhkKfKc";
 
     #[test]
     fn check_wallet_contract() {
