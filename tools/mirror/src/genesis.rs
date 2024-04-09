@@ -10,6 +10,33 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
+fn map_action(action: &Action, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> Option<Action> {
+    match action {
+        Action::AddKey(add_key) => {
+            let public_key = crate::key_mapping::map_key(&add_key.public_key, secret).public_key();
+
+            Some(Action::AddKey(Box::new(AddKeyAction {
+                public_key,
+                access_key: add_key.access_key.clone(),
+            })))
+        }
+        Action::DeleteKey(delete_key) => {
+            let public_key =
+                crate::key_mapping::map_key(&delete_key.public_key, secret).public_key();
+
+            Some(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })))
+        }
+        Action::DeleteAccount(delete_account) => {
+            let beneficiary_id =
+                crate::key_mapping::map_account(&delete_account.beneficiary_id, secret);
+            Some(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }))
+        }
+        // We don't want to mess with the set of validators in the target chain
+        Action::Stake(_) => None,
+        _ => Some(action.clone()),
+    }
+}
+
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
 fn map_action_receipt(
     receipt: &mut ActionReceipt,
@@ -27,38 +54,20 @@ fn map_action_receipt(
     let mut account_created = false;
     let mut full_key_added = false;
     for action in receipt.actions.iter() {
-        match action {
-            Action::AddKey(add_key) => {
-                if add_key.access_key.permission == AccessKeyPermission::FullAccess {
-                    full_key_added = true;
+        if let Some(a) = map_action(action, secret) {
+            match &a {
+                Action::AddKey(add_key) => {
+                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
                 }
-                let public_key =
-                    crate::key_mapping::map_key(&add_key.public_key, secret).public_key();
-
-                actions.push(Action::AddKey(Box::new(AddKeyAction {
-                    public_key,
-                    access_key: add_key.access_key.clone(),
-                })));
-            }
-            Action::DeleteKey(delete_key) => {
-                let public_key =
-                    crate::key_mapping::map_key(&delete_key.public_key, secret).public_key();
-
-                actions.push(Action::DeleteKey(Box::new(DeleteKeyAction { public_key })));
-            }
-            Action::DeleteAccount(delete_account) => {
-                let beneficiary_id =
-                    crate::key_mapping::map_account(&delete_account.beneficiary_id, secret);
-                actions.push(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }));
-            }
-            // We don't want to mess with the set of validators in the target chain
-            Action::Stake(_) => {}
-            Action::CreateAccount(_) => {
-                account_created = true;
-                actions.push(action.clone());
-            }
-            _ => actions.push(action.clone()),
-        };
+                Action::CreateAccount(_) => {
+                    account_created = true;
+                }
+                _ => {}
+            };
+            actions.push(a);
+        }
     }
     if account_created && !full_key_added {
         actions.push(Action::AddKey(Box::new(AddKeyAction {
