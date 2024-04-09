@@ -111,6 +111,11 @@ impl EpochInfoProvider for EpochManagerHandle {
         let epoch_manager = self.read();
         epoch_manager.minimum_stake(prev_block_hash)
     }
+
+    fn chin_id(&self) -> String {
+        let epoch_manager = self.read();
+        epoch_manager.config.chain_id().into()
+    }
 }
 
 /// Tracks epoch information across different forks, such as validators.

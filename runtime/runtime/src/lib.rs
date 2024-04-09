@@ -433,6 +433,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     actor_id,
+                    epoch_info_provider,
                 )?;
             }
             #[cfg(feature = "protocol_feature_nonrefundable_transfer_nep491")]
@@ -449,6 +450,7 @@ impl Runtime {
                     state_update,
                     apply_state,
                     actor_id,
+                    epoch_info_provider,
                 )?;
             }
             Action::Stake(stake) => {
@@ -1782,6 +1784,7 @@ fn action_transfer_or_implicit_account_creation(
     state_update: &mut TrieUpdate,
     apply_state: &ApplyState,
     actor_id: &mut AccountId,
+    epoch_info_provider: &dyn EpochInfoProvider,
 ) -> Result<(), RuntimeError> {
     Ok(if let Some(account) = account.as_mut() {
         if nonrefundable {
@@ -1819,6 +1822,7 @@ fn action_transfer_or_implicit_account_creation(
             apply_state.block_height,
             apply_state.current_protocol_version,
             nonrefundable,
+            epoch_info_provider,
         );
     })
 }

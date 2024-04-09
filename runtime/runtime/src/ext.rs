@@ -102,6 +102,10 @@ impl<'a> RuntimeExt<'a> {
     pub fn protocol_version(&self) -> ProtocolVersion {
         self.current_protocol_version
     }
+
+    pub fn chain_id(&self) -> String {
+        self.epoch_info_provider.chin_id()
+    }
 }
 
 fn wrap_storage_error(error: StorageError) -> VMLogicError {
