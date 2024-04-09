@@ -84,6 +84,7 @@ impl SyncJobsActions {
     pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
         let result = msg
             .runtime_adapter
+            .get_tries()
             .load_mem_trie_on_catchup(&msg.shard_uid, &msg.prev_state_root)
             .map_err(|error| error.into());
         self.client_sender.send(LoadMemtrieResponse {

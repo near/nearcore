@@ -2739,7 +2739,7 @@ impl Chain {
         &self,
         shard_id: ShardId,
         sync_hash: CryptoHash,
-        state_finalize_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
+        load_memtrie_scheduler: &near_async::messaging::Sender<LoadMemtrieRequest>,
     ) -> Result<(), Error> {
         let epoch_id = self.get_block_header(&sync_hash)?.epoch_id().clone();
         let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
@@ -2758,41 +2758,49 @@ impl Chain {
             let block_header = self.get_block_header(block_hash)?;
             let epoch_id = block_header.epoch_id();
             let shard_uid = self.epoch_manager.shard_id_to_uid(shard_id, epoch_id)?;
-
-            let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
-            // Flat storage must not exist at this point because leftover keys corrupt its state.
-            assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
-
-            let flat_head_hash = *chunk.prev_block();
-            let flat_head_header = self.get_block_header(&flat_head_hash)?;
-            let flat_head_prev_hash = *flat_head_header.prev_hash();
-            let flat_head_height = flat_head_header.height();
-
-            tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
-
-            let mut store_update = self.runtime_adapter.store().store_update();
-            store_helper::set_flat_storage_status(
-                &mut store_update,
-                shard_uid,
-                FlatStorageStatus::Ready(FlatStorageReadyStatus {
-                    flat_head: near_store::flat::BlockInfo {
-                        hash: flat_head_hash,
-                        prev_hash: flat_head_prev_hash,
-                        height: flat_head_height,
-                    },
-                }),
-            );
-            store_update.commit()?;
-            flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
+            self.create_flat_storage_for_shard(shard_uid, &chunk)?;
         }
 
-        state_finalize_scheduler.send(LoadMemtrieRequest {
+        load_memtrie_scheduler.send(LoadMemtrieRequest {
             runtime_adapter: self.runtime_adapter.clone(),
             shard_uid,
             prev_state_root: chunk.prev_state_root(),
             sync_hash,
         });
 
+        Ok(())
+    }
+
+    pub fn create_flat_storage_for_shard(
+        &self,
+        shard_uid: ShardUId,
+        chunk: &ShardChunk,
+    ) -> Result<(), Error> {
+        let flat_storage_manager = self.runtime_adapter.get_flat_storage_manager();
+        // Flat storage must not exist at this point because leftover keys corrupt its state.
+        assert!(flat_storage_manager.get_flat_storage_for_shard(shard_uid).is_none());
+
+        let flat_head_hash = *chunk.prev_block();
+        let flat_head_header = self.get_block_header(&flat_head_hash)?;
+        let flat_head_prev_hash = *flat_head_header.prev_hash();
+        let flat_head_height = flat_head_header.height();
+
+        tracing::debug!(target: "store", ?shard_uid, ?flat_head_hash, flat_head_height, "set_state_finalize - initialized flat storage");
+
+        let mut store_update = self.runtime_adapter.store().store_update();
+        store_helper::set_flat_storage_status(
+            &mut store_update,
+            shard_uid,
+            FlatStorageStatus::Ready(FlatStorageReadyStatus {
+                flat_head: near_store::flat::BlockInfo {
+                    hash: flat_head_hash,
+                    prev_hash: flat_head_prev_hash,
+                    height: flat_head_height,
+                },
+            }),
+        );
+        store_update.commit()?;
+        flat_storage_manager.create_flat_storage_for_shard(shard_uid).unwrap();
         Ok(())
     }
 
