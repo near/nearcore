@@ -726,6 +726,8 @@ pub struct StatusResponse {
     pub node_key: Option<PublicKey>,
     /// Uptime of the node.
     pub uptime_sec: i64,
+    /// Genesis hash of the chain.
+    pub genesis_hash: CryptoHash,
     /// Information about last blocks, network, epoch and chain & chunk info.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detailed_debug_status: Option<DetailedDebugStatus>,
