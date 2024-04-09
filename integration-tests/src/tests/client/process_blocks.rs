@@ -1645,8 +1645,7 @@ fn test_gc_after_state_sync() {
     assert_eq!(env.clients[1].runtime_adapter.get_gc_stop_height(&sync_hash), 0);
     // mimic what we do in possible_targets
     assert!(env.clients[1].epoch_manager.get_epoch_id_from_prev_block(&prev_block_hash).is_ok());
-    let tries = env.clients[1].runtime_adapter.get_tries();
-    env.clients[1].chain.clear_data(tries, &Default::default()).unwrap();
+    env.clients[1].chain.clear_data(&Default::default()).unwrap();
 }
 
 #[test]

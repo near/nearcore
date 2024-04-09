@@ -23,7 +23,9 @@ use near_chain_configs::SyncConfig;
 use near_chunks::shards_manager_actor::start_shards_manager;
 use near_client::adapter::client_sender_for_network;
 use near_client::sync::adapter::SyncAdapter;
-use near_client::{start_client, start_view_client, ClientActor, ConfigUpdater, ViewClientActor};
+use near_client::{
+    start_client, start_view_client, ClientActor, ConfigUpdater, StartClientResult, ViewClientActor,
+};
 use near_epoch_manager::shard_tracker::{ShardTracker, TrackedConfig};
 use near_epoch_manager::EpochManager;
 use near_epoch_manager::EpochManagerAdapter;
@@ -344,7 +346,12 @@ pub fn start_with_config_and_synchronization(
         get_make_snapshot_callback(state_snapshot_actor, runtime.get_flat_storage_manager());
     let snapshot_callbacks = SnapshotCallbacks { make_snapshot_callback, delete_snapshot_callback };
 
-    let (client_actor, client_arbiter_handle, resharding_handle) = start_client(
+    let StartClientResult {
+        client_actor,
+        client_arbiter_handle,
+        resharding_handle,
+        gc_arbiter_handle,
+    } = start_client(
         Clock::real(),
         config.client_config.clone(),
         chain_genesis.clone(),
@@ -444,12 +451,21 @@ pub fn start_with_config_and_synchronization(
 
     tracing::trace!(target: "diagnostic", key = "log", "Starting NEAR node with diagnostic activated");
 
-    let mut arbiters = vec![
-        client_arbiter_handle,
-        shards_manager_arbiter_handle,
-        trie_metrics_arbiter,
-        state_snapshot_arbiter,
-    ];
+    let mut arbiters = match gc_arbiter_handle {
+        Some(handle) => vec![
+            client_arbiter_handle,
+            shards_manager_arbiter_handle,
+            trie_metrics_arbiter,
+            state_snapshot_arbiter,
+            handle,
+        ],
+        None => vec![
+            client_arbiter_handle,
+            shards_manager_arbiter_handle,
+            trie_metrics_arbiter,
+            state_snapshot_arbiter,
+        ],
+    };
     if let Some(db_metrics_arbiter) = db_metrics_arbiter {
         arbiters.push(db_metrics_arbiter);
     }

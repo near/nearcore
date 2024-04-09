@@ -69,4 +69,12 @@ impl Counter {
         }
         self.val += how_many;
     }
+
+    pub fn insert_key(&mut self, key: String) {
+        self.records.insert(&key, &"value".to_string());
+    }
+
+    pub fn delete_key(&mut self, key: String) {
+        self.records.remove(&key);
+    }
 }

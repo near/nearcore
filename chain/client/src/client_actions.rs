@@ -1523,7 +1523,12 @@ impl ClientActions {
                                 unwrap_and_report!(self
                                     .client
                                     .chain
-                                    .reset_data_pre_state_sync(sync_hash));
+                                    .mut_chain_store()
+                                    .reset_data_pre_state_sync(
+                                        sync_hash,
+                                        self.client.runtime_adapter.clone(),
+                                        self.client.epoch_manager.clone()
+                                    ));
                             }
                             self.client.sync_status.update(SyncStatus::StateSync(
                                 StateSyncStatus { sync_hash, sync_status: HashMap::default() },

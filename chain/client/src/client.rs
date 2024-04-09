@@ -58,7 +58,6 @@ use near_network::types::{AccountKeys, ChainInfo, PeerManagerMessageRequest, Set
 use near_network::types::{
     HighestHeightPeerInfo, NetworkRequests, PeerManagerAdapter, ReasonForBan,
 };
-use near_o11y::log_assert;
 use near_o11y::WithSpanContextExt;
 use near_pool::InsertTransactionResult;
 use near_primitives::block::{Approval, ApprovalInner, ApprovalMessage, Block, BlockHeader, Tip};
@@ -83,7 +82,6 @@ use near_primitives::utils::MaybeValidated;
 use near_primitives::validator_signer::ValidatorSigner;
 use near_primitives::version::PROTOCOL_VERSION;
 use near_primitives::views::{CatchupStatusView, DroppedReason};
-use near_store::metadata::DbKind;
 use near_store::ShardUId;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
@@ -1578,18 +1576,6 @@ impl Client {
             };
             self.chain.blocks_with_missing_chunks.prune_blocks_below_height(last_finalized_height);
 
-            {
-                let _span = tracing::debug_span!(
-                    target: "client",
-                    "garbage_collection",
-                    block_hash = ?block.hash(),
-                    height = block.header().height())
-                .entered();
-                let _gc_timer = metrics::GC_TIME.start_timer();
-                let result = self.clear_data();
-                log_assert!(result.is_ok(), "Can't clear old data, {:?}", result);
-            }
-
             // send_network_chain_info should be called whenever the chain head changes.
             // See send_network_chain_info() for more details.
             if let Err(err) = self.send_network_chain_info() {
@@ -2543,29 +2529,6 @@ impl Client {
             None => true,
         };
         Ok(result)
-    }
-
-    fn clear_data(&mut self) -> Result<(), near_chain::Error> {
-        // A RPC node should do regular garbage collection.
-        if !self.config.archive {
-            let tries = self.runtime_adapter.get_tries();
-            return self.chain.clear_data(tries, &self.config.gc);
-        }
-
-        // An archival node with split storage should perform garbage collection
-        // on the hot storage. In order to determine if split storage is enabled
-        // *and* that the migration to split storage is finished we can check
-        // the store kind. It's only set to hot after the migration is finished.
-        let store = self.chain.chain_store().store();
-        let kind = store.get_db_kind()?;
-        if kind == Some(DbKind::Hot) {
-            let tries = self.runtime_adapter.get_tries();
-            return self.chain.clear_data(tries, &self.config.gc);
-        }
-
-        // An archival node with legacy storage or in the midst of migration to split
-        // storage should do the legacy clear_archive_data.
-        self.chain.clear_archive_data(self.config.gc.gc_blocks_limit)
     }
 }
 

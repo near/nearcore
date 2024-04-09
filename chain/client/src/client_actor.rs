@@ -33,6 +33,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
 use crate::client_actions::{ClientActionHandler, ClientActions, ClientSenderForClient};
+use crate::start_gc_actor;
 use crate::sync_jobs_actions::SyncJobsActions;
 use crate::sync_jobs_actor::SyncJobsActor;
 use crate::{metrics, Client, ConfigUpdater, SyncAdapter};
@@ -177,6 +178,13 @@ fn wait_until_genesis(genesis_time: &Utc) {
     }
 }
 
+pub struct StartClientResult {
+    pub client_actor: Addr<ClientActor>,
+    pub client_arbiter_handle: ArbiterHandle,
+    pub resharding_handle: ReshardingHandle,
+    pub gc_arbiter_handle: Option<ArbiterHandle>,
+}
+
 /// Starts client in a separate Arbiter (thread).
 pub fn start_client(
     clock: Clock,
@@ -195,19 +203,20 @@ pub fn start_client(
     sender: Option<broadcast::Sender<()>>,
     adv: crate::adversarial::Controls,
     config_updater: Option<ConfigUpdater>,
-) -> (Addr<ClientActor>, ArbiterHandle, ReshardingHandle) {
+) -> StartClientResult {
     let client_arbiter = Arbiter::new();
     let client_arbiter_handle = client_arbiter.handle();
+    let genesis_height = chain_genesis.height;
 
     wait_until_genesis(&chain_genesis.time);
     let client = Client::new(
         clock.clone(),
         client_config.clone(),
         chain_genesis,
-        epoch_manager,
+        epoch_manager.clone(),
         shard_tracker,
         state_sync_adapter,
-        runtime,
+        runtime.clone(),
         network_adapter.clone(),
         shards_manager_adapter,
         validator_signer.clone(),
@@ -218,6 +227,21 @@ pub fn start_client(
     )
     .unwrap();
     let resharding_handle = client.chain.resharding_handle.clone();
+
+    let maybe_gc_arbiter = {
+        if !client_config.archive {
+            let (_, gc_arbiter) = start_gc_actor(
+                runtime.store().clone(),
+                genesis_height,
+                client_config.clone(),
+                runtime,
+                epoch_manager,
+            );
+            Some(gc_arbiter)
+        } else {
+            None
+        }
+    };
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter_handle, move |ctx| {
         ClientActor::new(
             clock,
@@ -235,5 +259,11 @@ pub fn start_client(
         )
         .unwrap()
     });
-    (client_addr, client_arbiter_handle, resharding_handle)
+
+    StartClientResult {
+        client_actor: client_addr,
+        client_arbiter_handle,
+        resharding_handle,
+        gc_arbiter_handle: maybe_gc_arbiter,
+    }
 }
