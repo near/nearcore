@@ -1,4 +1,5 @@
 use near_crypto::PublicKey;
+use near_primitives::action::delegate::{DelegateAction, SignedDelegateAction};
 use near_primitives::receipt::{ActionReceipt, Receipt, ReceiptEnum};
 use near_primitives::state_record::StateRecord;
 use near_primitives::transaction::{Action, AddKeyAction, DeleteAccountAction, DeleteKeyAction};
@@ -10,7 +11,12 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-fn map_action(action: &Action, secret: Option<&[u8; crate::secret::SECRET_LEN]>) -> Option<Action> {
+fn map_action(
+    action: &Action,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+    default_key: &PublicKey,
+    delegate_allowed: bool,
+) -> Option<Action> {
     match action {
         Action::AddKey(add_key) => {
             let public_key = crate::key_mapping::map_key(&add_key.public_key, secret).public_key();
@@ -31,10 +37,75 @@ fn map_action(action: &Action, secret: Option<&[u8; crate::secret::SECRET_LEN]>)
                 crate::key_mapping::map_account(&delete_account.beneficiary_id, secret);
             Some(Action::DeleteAccount(DeleteAccountAction { beneficiary_id }))
         }
+        Action::Delegate(delegate) => {
+            if delegate_allowed {
+                map_delegate_action(delegate, secret, default_key)
+            } else {
+                // This should not happen, but we handle the case here defensively
+                tracing::warn!(target: "mirror", "a delegate action was contained inside another delegate action: {:?}", delegate);
+                None
+            }
+        }
         // We don't want to mess with the set of validators in the target chain
         Action::Stake(_) => None,
         _ => Some(action.clone()),
     }
+}
+
+fn map_delegate_action(
+    delegate: &SignedDelegateAction,
+    secret: Option<&[u8; crate::secret::SECRET_LEN]>,
+    default_key: &PublicKey,
+) -> Option<Action> {
+    let source_actions = delegate.delegate_action.get_actions();
+    let mut actions = Vec::with_capacity(source_actions.len());
+
+    let mut account_created = false;
+    let mut full_key_added = false;
+    for action in source_actions.iter() {
+        if let Some(a) = map_action(action, secret, default_key, false) {
+            match &a {
+                Action::AddKey(add_key) => {
+                    if add_key.access_key.permission == AccessKeyPermission::FullAccess {
+                        full_key_added = true;
+                    }
+                }
+                Action::CreateAccount(_) => {
+                    account_created = true;
+                }
+                _ => {}
+            };
+            actions.push(a.try_into().unwrap());
+        }
+    }
+    if actions.is_empty() {
+        return None;
+    }
+    if account_created && !full_key_added {
+        actions.push(
+            Action::AddKey(Box::new(AddKeyAction {
+                public_key: default_key.clone(),
+                access_key: AccessKey::full_access(),
+            }))
+            .try_into()
+            .unwrap(),
+        );
+    }
+    let mapped_key = crate::key_mapping::map_key(&delegate.delegate_action.public_key, secret);
+    let mapped_action = DelegateAction {
+        sender_id: crate::key_mapping::map_account(&delegate.delegate_action.sender_id, secret),
+        receiver_id: crate::key_mapping::map_account(&delegate.delegate_action.receiver_id, secret),
+        actions,
+        nonce: delegate.delegate_action.nonce,
+        max_block_height: delegate.delegate_action.max_block_height,
+        public_key: mapped_key.public_key(),
+    };
+    let tx_hash = mapped_action.get_nep461_hash();
+    let d = SignedDelegateAction {
+        delegate_action: mapped_action,
+        signature: mapped_key.sign(tx_hash.as_ref()),
+    };
+    Some(Action::Delegate(Box::new(d)))
 }
 
 // map all the account IDs and keys in this receipt and its actions, and skip any stake actions
@@ -54,7 +125,7 @@ fn map_action_receipt(
     let mut account_created = false;
     let mut full_key_added = false;
     for action in receipt.actions.iter() {
-        if let Some(a) = map_action(action, secret) {
+        if let Some(a) = map_action(action, secret, default_key, true) {
             match &a {
                 Action::AddKey(add_key) => {
                     if add_key.access_key.permission == AccessKeyPermission::FullAccess {
