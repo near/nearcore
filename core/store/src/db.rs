@@ -11,6 +11,7 @@ pub mod refcount;
 mod slice;
 mod testdb;
 
+mod amendeddb;
 mod database_tests;
 
 pub use self::colddb::ColdDB;
