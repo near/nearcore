@@ -147,7 +147,7 @@ pub struct StateSync {
     /// Maps shard_id to result of applying downloaded state.
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
-    /// Maps shard_id to result of finalizing the result of applying downloaded state.
+    /// Maps shard_id to result of loading in-memory trie.
     load_memtrie_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
     /// Maps shard_id to result of splitting state for resharding.
