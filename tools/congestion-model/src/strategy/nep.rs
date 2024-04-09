@@ -197,17 +197,29 @@ impl NepStrategy {
     }
 
     fn get_incoming_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        f64::max(self.incoming_memory_congestion(ctx), self.incoming_gas_congestion(ctx))
+    }
+
+    fn incoming_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        let max_congestion_memory_consumption = 250_000_000 as f64;
+
+        let memory_consumption = ctx.incoming_receipts().size();
+        let memory_congestion = memory_consumption as f64 / max_congestion_memory_consumption;
+        f64::clamp(memory_congestion, 0.0, 1.0)
+    }
+
+    fn incoming_gas_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
         let max_congestion_incoming_gas = (100 * PGAS) as f64;
         let gas_backlog = ctx.incoming_receipts().attached_gas() as f64;
         f64::clamp(gas_backlog / max_congestion_incoming_gas, 0.0, 1.0)
     }
 
     fn get_outgoing_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        f64::max(self.get_memory_congestion(ctx), self.get_gas_congestion(ctx))
+        f64::max(self.outgoing_memory_congestion(ctx), self.outgoing_gas_congestion(ctx))
     }
 
-    fn get_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
-        let max_congestion_memory_consumption = 500_000_000 as f64;
+    fn outgoing_memory_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+        let max_congestion_memory_consumption = 250_000_000 as f64;
 
         let mut memory_consumption = 0;
         for (_, queue_id) in &self.outgoing_queues {
@@ -218,7 +230,7 @@ impl NepStrategy {
         f64::clamp(memory_congestion, 0.0, 1.0)
     }
 
-    fn get_gas_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
+    fn outgoing_gas_congestion(&self, ctx: &mut ChunkExecutionContext) -> f64 {
         let max_gas_backlog = (100 * PGAS) as f64;
 
         let mut gas_backlog = 0;
@@ -226,8 +238,8 @@ impl NepStrategy {
             gas_backlog += ctx.queue(*queue_id).attached_gas();
         }
 
-        let memory_congestion = gas_backlog as f64 / max_gas_backlog;
-        f64::clamp(memory_congestion, 0.0, 1.0)
+        let gas_congestion = gas_backlog as f64 / max_gas_backlog;
+        f64::clamp(gas_congestion, 0.0, 1.0)
     }
 
     // Forward or buffer a receipt.
