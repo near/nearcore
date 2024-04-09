@@ -286,8 +286,8 @@ impl StateSync {
                     download_timeout = res.0;
                     run_shard_state_download = res.1;
                 }
-                ShardSyncStatus::StateDownloadScheduling => {
-                    self.sync_shards_download_scheduling_status(
+                ShardSyncStatus::StateApplyScheduling => {
+                    self.sync_shards_apply_scheduling_status(
                         shard_id,
                         shard_sync_download,
                         sync_hash,
@@ -296,8 +296,8 @@ impl StateSync {
                         state_parts_task_scheduler,
                     )?;
                 }
-                ShardSyncStatus::LoadMemtrieScheduling => {
-                    self.sync_shards_load_memtrie_scheduling_status(
+                ShardSyncStatus::StateApplyComplete => {
+                    self.sync_shards_apply_complete_status(
                         shard_id,
                         shard_sync_download,
                         sync_hash,
@@ -305,8 +305,8 @@ impl StateSync {
                         load_memtrie_scheduler,
                     )?;
                 }
-                ShardSyncStatus::StateDownloadComplete => {
-                    shard_sync_done = self.sync_shards_download_complete_status(
+                ShardSyncStatus::StateApplyFinalizing => {
+                    shard_sync_done = self.sync_shards_apply_finalizing_status(
                         shard_id,
                         chain,
                         sync_hash,
@@ -971,13 +971,13 @@ impl StateSync {
         if parts_done {
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
-                status: ShardSyncStatus::StateDownloadScheduling,
+                status: ShardSyncStatus::StateApplyScheduling,
             };
         }
         (download_timeout, run_shard_state_download)
     }
 
-    fn sync_shards_download_scheduling_status(
+    fn sync_shards_apply_scheduling_status(
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
@@ -1000,7 +1000,7 @@ impl StateSync {
             Ok(()) => {
                 *shard_sync_download = ShardSyncDownload {
                     downloads: vec![],
-                    status: ShardSyncStatus::LoadMemtrieScheduling,
+                    status: ShardSyncStatus::StateApplyComplete,
                 }
             }
             Err(err) => {
@@ -1015,7 +1015,7 @@ impl StateSync {
         Ok(())
     }
 
-    fn sync_shards_load_memtrie_scheduling_status(
+    fn sync_shards_apply_complete_status(
         &mut self,
         shard_id: ShardId,
         shard_sync_download: &mut ShardSyncDownload,
@@ -1027,16 +1027,34 @@ impl StateSync {
         // (these are set via callback from ClientActor - both for sync and catchup).
         if let Some(result) = self.state_parts_apply_results.remove(&shard_id) {
             result?;
-            chain.schedule_load_memtrie(shard_id, sync_hash, load_memtrie_scheduler)?;
+            let epoch_id = chain.get_block_header(&sync_hash)?.epoch_id().clone();
+            let shard_uid = chain.epoch_manager.shard_id_to_uid(shard_id, &epoch_id)?;
+            let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
+            let chunk = shard_state_header.cloned_chunk();
+            let block_hash = chunk.prev_block();
+
+            // We synced shard state on top of _previous_ block for chunk in shard state header and applied state parts to
+            // flat storage. Now we can set flat head to hash of this block and create flat storage.
+            // If block_hash is equal to default - this means that we're all the way back at genesis.
+            // So we don't have to add the storage state for shard in such case.
+            // TODO(8438) - add additional test scenarios for this case.
+            if *block_hash != CryptoHash::default() {
+                chain.create_flat_storage_for_shard(shard_uid, &chunk)?;
+            }
+            // We schedule load memtrie when flat storage state (if any) is ready.
+            // It is possible that memtrie is not enabled for that shard,
+            // in which case the task would finish immediately with Ok() status.
+            // We require the task result to further proceed with state sync.
+            chain.schedule_load_memtrie(shard_uid, sync_hash, &chunk, load_memtrie_scheduler);
             *shard_sync_download = ShardSyncDownload {
                 downloads: vec![],
-                status: ShardSyncStatus::StateDownloadComplete,
+                status: ShardSyncStatus::StateApplyFinalizing,
             }
         }
         Ok(())
     }
 
-    fn sync_shards_download_complete_status(
+    fn sync_shards_apply_finalizing_status(
         &mut self,
         shard_id: ShardId,
         chain: &mut Chain,
@@ -1047,9 +1065,11 @@ impl StateSync {
     ) -> Result<bool, near_chain::Error> {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
+        let mut shard_sync_done = false;
         if let Some(result) = self.load_memtrie_results.remove(&shard_id) {
-            match result {
-                Ok(()) => {
+            result
+                .and_then(|_| {
+                    chain.set_state_finalize(shard_id, sync_hash)?;
                     // If the shard layout is changing in this epoch - we have to apply it right now.
                     if need_to_reshard {
                         *shard_sync_download = ShardSyncDownload {
@@ -1062,10 +1082,11 @@ impl StateSync {
                             downloads: vec![],
                             status: ShardSyncStatus::StateSyncDone,
                         };
-                        return Ok(true);
+                        shard_sync_done = true;
                     }
-                }
-                Err(err) => {
+                    Ok(())
+                })
+                .or_else(|err| -> Result<(), near_chain::Error> {
                     // Cannot finalize the downloaded state.
                     // The reasonable behavior here is to start from the very beginning.
                     metrics::STATE_SYNC_DISCARD_PARTS
@@ -1076,10 +1097,10 @@ impl StateSync {
                     let shard_state_header = chain.get_state_header(shard_id, sync_hash)?;
                     let state_num_parts = shard_state_header.num_state_parts();
                     chain.clear_downloaded_parts(shard_id, sync_hash, state_num_parts)?;
-                }
-            }
+                    Ok(())
+                })?;
         }
-        Ok(false)
+        Ok(shard_sync_done)
     }
 
     fn sync_shards_resharding_scheduling_status(
