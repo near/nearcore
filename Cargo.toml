@@ -405,6 +405,7 @@ winapi = { version = "0.3", features = [
 xshell = "0.2.1"
 xz2 = "0.1.6"
 yansi = "0.5.1"
+zstd = "0.13.1"
 
 stdx = { package = "near-stdx", path = "utils/stdx" }
 

@@ -24,16 +24,29 @@ type SignatureDifferentiator = String;
 #[derive(Debug, Clone, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct EncodedChunkStateWitness(Box<[u8]>);
 
+pub type ChunkStateWitnessSize = usize;
+
 impl EncodedChunkStateWitness {
-    pub fn encode(witness: &ChunkStateWitness) -> Self {
-        Self(borsh::to_vec(witness).expect("borsh serialization should not fail").into())
+    /// Borsh-serialize and compress state witness.
+    /// Returns encoded witness along with the raw (uncompressed) witness size.
+    pub fn encode(witness: &ChunkStateWitness) -> std::io::Result<(Self, ChunkStateWitnessSize)> {
+        const STATE_WITNESS_COMPRESSION_LEVEL: i32 = 3;
+        let borsh_bytes = borsh::to_vec(witness)?;
+        Ok((
+            Self(zstd::encode_all(borsh_bytes.as_slice(), STATE_WITNESS_COMPRESSION_LEVEL)?.into()),
+            borsh_bytes.len(),
+        ))
     }
 
-    pub fn decode(&self) -> Result<ChunkStateWitness, std::io::Error> {
-        ChunkStateWitness::try_from_slice(&self.0)
+    /// Decompress and borsh-deserialize encoded witness bytes.
+    /// Returns decoded witness along with the raw (uncompressed) witness size.
+    pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
+        let borsh_bytes = zstd::decode_all(self.0.as_ref())?;
+        let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
+        Ok((witness, borsh_bytes.len()))
     }
 
-    pub fn size_bytes(&self) -> usize {
+    pub fn size_bytes(&self) -> ChunkStateWitnessSize {
         self.0.len()
     }
 
@@ -49,14 +62,6 @@ pub struct SignedEncodedChunkStateWitness {
     pub witness_bytes: EncodedChunkStateWitness,
     /// Signature corresponds to `witness_bytes.as_slice()` signed by the chunk producer
     pub signature: Signature,
-}
-
-impl SignedEncodedChunkStateWitness {
-    pub fn new(witness: &ChunkStateWitness, signer: &dyn ValidatorSigner) -> Self {
-        let witness_bytes = EncodedChunkStateWitness::encode(witness);
-        let signature = signer.sign_chunk_state_witness(&witness_bytes);
-        Self { witness_bytes, signature }
-    }
 }
 
 /// An acknowledgement sent from the chunk producer upon receiving the state witness to

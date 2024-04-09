@@ -82,10 +82,26 @@ impl Client {
             chunk,
             validated_transactions.storage_proof,
         )?;
-        let witness_size = EncodedChunkStateWitness::encode(&witness).size_bytes();
-        metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-            .with_label_values(&[&shard_id.to_string()])
-            .observe(witness_size as f64);
+        let (encoded_witness, raw_witness_size) = {
+            let shard_id_label = shard_id.to_string();
+            let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+                .with_label_values(&[shard_id_label.as_str()])
+                .start_timer();
+            let (encoded_witness, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
+            encode_timer.observe_duration();
+            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
+                .with_label_values(&[shard_id_label.as_str()])
+                .observe(encoded_witness.size_bytes() as f64);
+            metrics::CHUNK_STATE_WITNESS_RAW_SIZE
+                .with_label_values(&[shard_id_label.as_str()])
+                .observe(raw_witness_size as f64);
+            let decode_timer = metrics::CHUNK_STATE_WITNESS_DECODE_TIME
+                .with_label_values(&[shard_id_label.as_str()])
+                .start_timer();
+            encoded_witness.decode()?;
+            decode_timer.observe_duration();
+            (encoded_witness, raw_witness_size)
+        };
         let pre_validation_start = Instant::now();
         let pre_validation_result = pre_validate_chunk_state_witness(
             &witness,
@@ -97,7 +113,8 @@ impl Client {
             target: "stateless_validation",
             shard_id,
             ?chunk_hash,
-            witness_size,
+            witness_size = encoded_witness.size_bytes(),
+            raw_witness_size,
             pre_validation_elapsed = ?pre_validation_start.elapsed(),
             "completed shadow chunk pre-validation"
         );

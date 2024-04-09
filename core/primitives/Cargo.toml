@@ -39,6 +39,7 @@ stdx.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+zstd.workspace = true
 
 near-async.workspace = true
 near-crypto.workspace = true

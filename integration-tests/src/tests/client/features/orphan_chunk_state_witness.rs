@@ -158,7 +158,7 @@ fn setup_orphan_witness_test() -> OrphanWitnessTestEnv {
         _ => Some(request),
     });
     let signed_witness = witness_opt.unwrap();
-    let witness = signed_witness.witness_bytes.decode().unwrap();
+    let witness = signed_witness.witness_bytes.decode().unwrap().0;
 
     env.propagate_chunk_endorsements(false);
 
@@ -322,7 +322,7 @@ fn test_orphan_witness_too_large() {
     let OrphanWitnessTestEnv { mut env, signed_witness, excluded_validator, .. } =
         setup_orphan_witness_test();
 
-    let witness = signed_witness.witness_bytes.decode().unwrap();
+    let witness = signed_witness.witness_bytes.decode().unwrap().0;
     // The witness should not be saved too the pool, as it's too big
     let outcome = env
         .client(&excluded_validator)
@@ -357,7 +357,7 @@ fn test_orphan_witness_far_from_head() {
     modify_witness_header_inner(&mut signed_witness, |header| header.height_created = bad_height);
     resign_witness(&mut signed_witness, env.client(&chunk_producer));
 
-    let witness = signed_witness.witness_bytes.decode().unwrap();
+    let witness = signed_witness.witness_bytes.decode().unwrap().0;
     let outcome =
         env.client(&excluded_validator).handle_orphan_state_witness(witness, 2000).unwrap();
     assert_eq!(
@@ -389,7 +389,7 @@ fn test_orphan_witness_not_fully_validated() {
         ..
     } = setup_orphan_witness_test();
 
-    let mut witness = signed_witness.witness_bytes.decode().unwrap();
+    let mut witness = signed_witness.witness_bytes.decode().unwrap().0;
     // Make the witness invalid in a way that won't be detected during orphan witness validation
     witness.source_receipt_proofs.insert(
         ChunkHash::default(),
@@ -398,7 +398,7 @@ fn test_orphan_witness_not_fully_validated() {
             ShardProof { from_shard_id: 100230230, to_shard_id: 383939, proof: vec![] },
         ),
     );
-    signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness);
+    signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness).unwrap().0;
     resign_witness(&mut signed_witness, env.client(&chunk_producer));
 
     // The witness should be accepted and saved into the pool, even though it's invalid.
@@ -411,7 +411,7 @@ fn modify_witness_header_inner(
     signed_witness: &mut SignedEncodedChunkStateWitness,
     f: impl FnOnce(&mut ShardChunkHeaderInnerV2),
 ) {
-    let mut witness = signed_witness.witness_bytes.decode().unwrap();
+    let mut witness = signed_witness.witness_bytes.decode().unwrap().0;
     match &mut witness.chunk_header {
         ShardChunkHeader::V3(header) => match &mut header.inner {
             ShardChunkHeaderInner::V2(header_inner) => f(header_inner),
@@ -419,7 +419,7 @@ fn modify_witness_header_inner(
         },
         _ => panic!(),
     };
-    signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness);
+    signed_witness.witness_bytes = EncodedChunkStateWitness::encode(&witness).unwrap().0;
 }
 
 fn resign_witness(witness: &mut SignedEncodedChunkStateWitness, signer: &Client) {

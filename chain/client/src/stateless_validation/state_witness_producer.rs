@@ -10,8 +10,8 @@ use near_primitives::hash::{hash, CryptoHash};
 use near_primitives::receipt::Receipt;
 use near_primitives::sharding::{ChunkHash, ReceiptProof, ShardChunk, ShardChunkHeader};
 use near_primitives::stateless_validation::{
-    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, SignedEncodedChunkStateWitness,
-    StoredChunkStateTransitionData,
+    ChunkStateTransition, ChunkStateWitness, ChunkStateWitnessAck, EncodedChunkStateWitness,
+    SignedEncodedChunkStateWitness, StoredChunkStateTransitionData,
 };
 use near_primitives::types::{AccountId, EpochId};
 use std::collections::HashMap;
@@ -53,10 +53,25 @@ impl Client {
             chunk,
             transactions_storage_proof,
         )?;
-        let signed_witness = SignedEncodedChunkStateWitness::new(&witness, my_signer.as_ref());
-        metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
-            .with_label_values(&[&chunk_header.shard_id().to_string()])
-            .observe(signed_witness.witness_bytes.size_bytes() as f64);
+        let shard_id_label = chunk_header.shard_id().to_string();
+        let signed_witness = {
+            let encode_timer = metrics::CHUNK_STATE_WITNESS_ENCODE_TIME
+                .with_label_values(&[shard_id_label.as_str()])
+                .start_timer();
+            let (witness_bytes, raw_witness_size) = EncodedChunkStateWitness::encode(&witness)?;
+            encode_timer.observe_duration();
+            let signed_witness = SignedEncodedChunkStateWitness {
+                signature: my_signer.sign_chunk_state_witness(&witness_bytes),
+                witness_bytes,
+            };
+            metrics::CHUNK_STATE_WITNESS_TOTAL_SIZE
+                .with_label_values(&[shard_id_label.as_str()])
+                .observe(signed_witness.witness_bytes.size_bytes() as f64);
+            metrics::CHUNK_STATE_WITNESS_RAW_SIZE
+                .with_label_values(&[shard_id_label.as_str()])
+                .observe(raw_witness_size as f64);
+            signed_witness
+        };
 
         if chunk_validators.contains(my_signer.validator_id()) {
             // Bypass state witness validation if we created state witness. Endorse the chunk immediately.

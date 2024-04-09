@@ -295,7 +295,7 @@ impl TestEnv {
     fn found_differing_post_state_root_due_to_state_transitions(
         signed_witness: &SignedEncodedChunkStateWitness,
     ) -> bool {
-        let witness = signed_witness.witness_bytes.decode().unwrap();
+        let witness = signed_witness.witness_bytes.decode().unwrap().0;
         let mut post_state_roots = HashSet::from([witness.main_state_transition.post_state_root]);
         post_state_roots.extend(witness.implicit_transitions.iter().map(|t| t.post_state_root));
         post_state_roots.len() >= 2
