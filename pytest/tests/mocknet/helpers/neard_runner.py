@@ -893,6 +893,18 @@ class NeardRunner:
         self.set_state(TestState.STOPPED)
         self.save_data()
 
+    def make_initial_backup(self):
+        try:
+            shutil.rmtree(self.home_path('backups'))
+        except FileNotFoundError:
+            pass
+        os.mkdir(self.home_path('backups'))
+        self.making_backup(
+            'start',
+            description='initial test state after state root computation')
+        self.save_data()
+        self.make_backup()
+
     def check_genesis_state(self):
         path, running, exit_code = self.poll_neard()
         if not running:
@@ -905,23 +917,12 @@ class NeardRunner:
         try:
             r = requests.get(f'http://{self.data["neard_addr"]}/status',
                              timeout=5)
-            if r.status_code == 200:
-                logging.info('neard finished computing state roots')
-                self.kill_neard()
-
-                try:
-                    shutil.rmtree(self.home_path('backups'))
-                except FileNotFoundError:
-                    pass
-                os.mkdir(self.home_path('backups'))
-                self.making_backup(
-                    'start',
-                    description='initial test state after state root computation'
-                )
-                self.save_data()
-                self.make_backup()
         except requests.exceptions.ConnectionError:
-            pass
+            return
+        if r.status_code == 200:
+            logging.info('neard finished computing state roots')
+            self.kill_neard()
+            self.make_initial_backup()
 
     def reset_near_home(self):
         backup_id = self.data['state_data']
