@@ -39,6 +39,7 @@ fn main() -> anyhow::Result<()> {
         // Enable backtraces on panics by default.
         env::set_var("RUST_BACKTRACE", "1");
     }
+    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", "500000");
 
     rayon::ThreadPoolBuilder::new()
         .stack_size(8 * 1024 * 1024)
