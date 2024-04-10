@@ -12,7 +12,6 @@ use crate::peer_manager::peer_manager_actor::Event as PME;
 use crate::peer_manager::testonly::start as start_pm;
 use crate::peer_manager::testonly::Event;
 use crate::private_actix::RegisterPeerError;
-use crate::store;
 use crate::tcp;
 use crate::testonly::{abort_on_panic, make_rng, Rng};
 use crate::types::PeerMessage;
@@ -1059,19 +1058,7 @@ async fn no_edge_broadcast_after_restart() {
     // Create a bunch of fresh unreachable edges, then send all the edges created so far.
     let stored_edges = make_edges(rng);
 
-    // We are preparing the initial storage by hand (rather than simulating the restart),
-    // because semantics of the RoutingTable protocol are very poorly defined, and it
-    // is hard to write a solid test for it without literally assuming the implementation details.
     let store = near_store::db::TestDB::new();
-    {
-        let mut stored_peers = HashSet::new();
-        for e in &stored_edges {
-            stored_peers.insert(e.key().0.clone());
-            stored_peers.insert(e.key().1.clone());
-        }
-        let mut store: store::Store = store.clone().into();
-        store.push_component(&stored_peers, &stored_edges).unwrap();
-    }
 
     // Start a PeerManager and connect a peer to it.
     let pm =

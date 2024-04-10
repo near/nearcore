@@ -12,8 +12,6 @@ use std::io;
 use std::sync::Arc;
 
 #[cfg(test)]
-mod testonly;
-#[cfg(test)]
 mod tests;
 
 pub struct AccountIdFormat;

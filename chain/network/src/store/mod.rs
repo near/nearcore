@@ -7,8 +7,6 @@ use near_primitives::types::AccountId;
 use std::sync::Arc;
 
 mod schema;
-#[cfg(test)]
-pub mod testonly;
 
 /// Opaque error type representing storage errors.
 ///
