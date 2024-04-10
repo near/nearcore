@@ -282,11 +282,11 @@ impl Graph {
         self.runtime
             .handle
             .spawn_blocking(move || {
-                tracing::info_span!(
+                let _span = tracing::info_span!(
                     target: "network::routing::graph",
                     parent: current_span,
                     "Graph::update"
-                );
+                ).entered();
                 let mut inner = this.inner.lock();
                 let mut new_edges = vec![];
                 let mut oks = vec![];
