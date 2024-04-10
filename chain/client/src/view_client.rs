@@ -429,15 +429,6 @@ impl ViewClientActor {
             return Ok(TxExecutionStatus::None);
         }
 
-        let mut awaiting_receipt_ids: HashSet<&CryptoHash> =
-            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
-        awaiting_receipt_ids.extend(
-            execution_outcome
-                .receipts_outcome
-                .iter()
-                .flat_map(|outcome| &outcome.outcome.receipt_ids),
-        );
-
         // refund receipt == last receipt in outcome.receipt_ids
         let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
             HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
@@ -446,7 +437,6 @@ impl ViewClientActor {
                 outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
             },
         ));
-
         let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
             .receipts_outcome
             .iter()
@@ -458,10 +448,13 @@ impl ViewClientActor {
                 }
             })
             .collect();
-
         let executed_ignoring_refunds =
             awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
-        let executed_including_refunds = awaiting_receipt_ids.is_subset(&executed_receipt_ids);
+
+        let executed_including_refunds = match execution_outcome.status {
+            FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => true,
+            FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => false,
+        };
 
         if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
             .chain

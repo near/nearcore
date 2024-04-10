@@ -2989,38 +2989,32 @@ impl Chain {
     fn get_execution_status(
         &self,
         outcomes: &[ExecutionOutcomeWithIdView],
-        transaction_hash: &CryptoHash,
     ) -> FinalExecutionStatus {
-        if outcomes.is_empty() {
-            return FinalExecutionStatus::NotStarted;
-        }
-        let mut looking_for_id = *transaction_hash;
-        let num_outcomes = outcomes.len();
-        outcomes
-            .iter()
-            .find_map(|outcome_with_id| {
-                if outcome_with_id.id == looking_for_id {
-                    match &outcome_with_id.outcome.status {
-                        ExecutionStatusView::Unknown if num_outcomes == 1 => {
-                            Some(FinalExecutionStatus::NotStarted)
-                        }
-                        ExecutionStatusView::Unknown => Some(FinalExecutionStatus::Started),
-                        ExecutionStatusView::Failure(e) => {
-                            Some(FinalExecutionStatus::Failure(e.clone()))
-                        }
-                        ExecutionStatusView::SuccessValue(v) => {
-                            Some(FinalExecutionStatus::SuccessValue(v.clone()))
-                        }
-                        ExecutionStatusView::SuccessReceiptId(id) => {
-                            looking_for_id = *id;
-                            None
-                        }
+        let mut awaiting_receipt_ids = HashSet::new();
+        let mut seen_receipt_ids = HashSet::new();
+        let mut result: FinalExecutionStatus = FinalExecutionStatus::NotStarted;
+        for outcome in outcomes {
+            seen_receipt_ids.insert(&outcome.id);
+            match &outcome.outcome.status {
+                ExecutionStatusView::Unknown => return FinalExecutionStatus::Started,
+                ExecutionStatusView::Failure(e) => return FinalExecutionStatus::Failure(e.clone()),
+                ExecutionStatusView::SuccessValue(v) => {
+                    if result == FinalExecutionStatus::NotStarted {
+                        // historically, we used the first SuccessValue we have seen
+                        // let's continue sticking to it
+                        result = FinalExecutionStatus::SuccessValue(v.clone());
                     }
-                } else {
-                    None
                 }
-            })
-            .unwrap_or_else(|| FinalExecutionStatus::Started)
+                ExecutionStatusView::SuccessReceiptId(_) => {
+                    awaiting_receipt_ids.extend(&outcome.outcome.receipt_ids);
+                }
+            }
+        }
+        return if awaiting_receipt_ids.is_subset(&seen_receipt_ids) {
+            result
+        } else {
+            FinalExecutionStatus::Started
+        };
     }
 
     /// Collect all the execution outcomes existing at the current moment
@@ -3052,7 +3046,7 @@ impl Chain {
     ) -> Result<FinalExecutionOutcomeView, Error> {
         let mut outcomes = Vec::new();
         self.get_recursive_transaction_results(&mut outcomes, transaction_hash, true)?;
-        let status = self.get_execution_status(&outcomes, transaction_hash);
+        let status = self.get_execution_status(&outcomes);
         let receipts_outcome = outcomes.split_off(1);
         let transaction = self.chain_store.get_transaction(transaction_hash)?.ok_or_else(|| {
             Error::DBNotFoundErr(format!("Transaction {} is not found", transaction_hash))
@@ -3084,7 +3078,7 @@ impl Chain {
             )));
         }
 
-        let status = self.get_execution_status(&outcomes, transaction_hash);
+        let status = self.get_execution_status(&outcomes);
         let receipts_outcome = outcomes.split_off(1);
         let transaction_outcome = outcomes.pop().unwrap();
         Ok(FinalExecutionOutcomeView { status, transaction, transaction_outcome, receipts_outcome })
