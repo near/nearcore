@@ -2,7 +2,7 @@ use crate::blacklist;
 use crate::broadcast;
 use crate::config::NetworkConfig;
 use crate::network_protocol::testonly as data;
-use crate::network_protocol::{Edge, Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
+use crate::network_protocol::{Encoding, Ping, Pong, RoutedMessageBody, RoutingTableUpdate};
 use crate::peer;
 use crate::peer::peer_actor::{
     ClosingReason, ConnectionClosedEvent, DROP_DUPLICATED_MESSAGES_PERIOD,
