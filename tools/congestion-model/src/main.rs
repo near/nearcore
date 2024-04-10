@@ -156,6 +156,7 @@ fn workload(workload_name: &str) -> Box<dyn Producer> {
         "One Hop All To One" => Box::new(AllForOneProducer::new(true, false, false)),
         "Two Hop All To One" => Box::new(AllForOneProducer::new(false, true, false)),
         "Three Hop All To One" => Box::new(AllForOneProducer::new(false, false, true)),
+        "Relayed Hot" => Box::new(AllForOneProducer::hot_tg()),
         "Linear Imbalance" => Box::<LinearImbalanceProducer>::default(),
         "Big Linear Imbalance" => Box::new(LinearImbalanceProducer::big_receipts()),
         _ => panic!("unknown workload: {}", workload_name),
@@ -194,6 +195,7 @@ fn parse_workload_names(workload_name: &str) -> Vec<String> {
         "One Hop All To One".to_string(),
         "Two Hop All To One".to_string(),
         "Three Hop All To One".to_string(),
+        "Relayed Hot".to_string(),
         "Linear Imbalance".to_string(),
         "Big Linear Imbalance".to_string(),
     ];
