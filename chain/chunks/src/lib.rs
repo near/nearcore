@@ -1793,7 +1793,7 @@ impl ShardsManager {
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        if checked_feature!("stable", SingleShardTracking, protocol_version) {
+        if false {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());
