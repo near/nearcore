@@ -1012,30 +1012,6 @@ async fn repeated_data_in_sync_routing_table() {
     }
 }
 
-/// Awaits for SyncRoutingTable messages until all edges from `want` arrive.
-/// Panics if any other edges arrive.
-async fn wait_for_edges(
-    mut events: broadcast::Receiver<peer::testonly::Event>,
-    want: &HashSet<Edge>,
-) {
-    let mut got = HashSet::new();
-    tracing::info!(target: "test", "want edges: {:?}",want.iter().map(|e|e.hash()).collect::<Vec<_>>());
-    while &got != want {
-        match events.recv().await {
-            peer::testonly::Event::Network(PME::MessageProcessed(
-                tcp::Tier::T2,
-                PeerMessage::SyncRoutingTable(msg),
-            )) => {
-                tracing::info!(target: "test", "got edges: {:?}",msg.edges.iter().map(|e|e.hash()).collect::<Vec<_>>());
-                got.extend(msg.edges);
-                assert!(want.is_superset(&got), "want: {:#?}, got: {:#?}", want, got);
-            }
-            // Ignore other messages.
-            _ => {}
-        }
-    }
-}
-
 #[tokio::test]
 async fn square() {
     abort_on_panic();
