@@ -995,6 +995,8 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkRequest(request) => {
+                let _span = root_span_for_chunk(request.chunk_hash.0).entered();
+                let _span2 = tracing::info_span!("Received PartialEncodedChunkRequest").entered();
                 network_state.shards_manager_adapter.send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkRequest {
                         partial_encoded_chunk_request: request,
@@ -1004,6 +1006,8 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::PartialEncodedChunkResponse(response) => {
+                let _span = root_span_for_chunk(response.chunk_hash.0).entered();
+                let _span2 = tracing::info_span!("Received PartialEncodedChunkResponse").entered();
                 network_state.shards_manager_adapter.send(
                     ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkResponse {
                         partial_encoded_chunk_response: response,
@@ -1013,26 +1017,36 @@ impl PeerActor {
                 None
             }
             RoutedMessageBody::VersionedPartialEncodedChunk(chunk) => {
+                let _span = root_span_for_chunk(chunk.chunk_hash().0).entered();
+                let _span2 = tracing::info_span!("Received VersionedPartialEncodedChunk").entered();
                 network_state
                     .shards_manager_adapter
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunk(chunk));
                 None
             }
             RoutedMessageBody::PartialEncodedChunkForward(msg) => {
+                let _span = root_span_for_chunk(msg.chunk_hash.0).entered();
+                let _span2 = tracing::info_span!("Received PartialEncodedChunkForward").entered();
                 network_state
                     .shards_manager_adapter
                     .send(ShardsManagerRequestFromNetwork::ProcessPartialEncodedChunkForward(msg));
                 None
             }
             RoutedMessageBody::ChunkStateWitness(witness) => {
+                let _span = root_span_for_chunk(witness.chunk_hash.0).entered();
+                let _span2 = tracing::info_span!("Received ChunkStateWitness").entered();
                 network_state.client.send_async(ChunkStateWitnessMessage(witness)).await.ok();
                 None
             }
             RoutedMessageBody::ChunkStateWitnessAck(ack) => {
+                let _span = root_span_for_chunk(ack.chunk_hash.0).entered();
+                let _span2 = tracing::info_span!("Received ChunkStateWitnessAck").entered();
                 network_state.client.send_async(ChunkStateWitnessAckMessage(ack)).await.ok();
                 None
             }
             RoutedMessageBody::ChunkEndorsement(endorsement) => {
+                let _span = root_span_for_chunk(endorsement.chunk_hash().0).entered();
+                let _span2 = tracing::info_span!("Received ChunkEndorsement").entered();
                 network_state.client.send_async(ChunkEndorsementMessage(endorsement)).await.ok();
                 None
             }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use near_chain_primitives::Error;
 use near_epoch_manager::EpochManagerAdapter;
+use near_o11y::opentelemetry::root_span_for_chunk;
 use near_primitives::block_body::ChunkEndorsementSignatures;
 use near_primitives::checked_feature;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
@@ -89,6 +90,7 @@ impl ChunkEndorsementTracker {
         };
         tracing::debug!(target: "stateless_validation", ?chunk_hash, "Processing pending chunk endorsements.");
         for endorsement in chunk_endorsements.values() {
+            let _chunk_span = root_span_for_chunk(endorsement.chunk_hash().0).entered();
             if let Err(error) = self.process_chunk_endorsement(chunk_header, endorsement.clone()) {
                 tracing::debug!(target: "stateless_validation", ?endorsement, "Error processing pending chunk endorsement: {:?}", error);
             }

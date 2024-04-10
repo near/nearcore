@@ -57,6 +57,7 @@ where
     };
     resource.push(KeyValue::new(SERVICE_NAME, service_name));
 
+    std::env::set_var("OTEL_BSP_MAX_QUEUE_SIZE", "65536");
     let tracer = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(

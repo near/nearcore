@@ -130,6 +130,7 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{debug, debug_span, error, warn};
+use near_o11y::opentelemetry::root_span_for_chunk;
 
 pub mod adapter;
 mod chunk_cache;
@@ -554,18 +555,27 @@ impl ShardsManager {
             None => return Ok(false),
             Some(it) => it,
         };
+        let tracks_shard = cares_about_shard_this_or_next_epoch(Some(me), &prev_hash, shard_id, false, &self.shard_tracker);
         let epoch_id = self.epoch_manager.get_epoch_id_from_prev_block(prev_hash)?;
+        let protocol_version = self.epoch_manager.get_epoch_protocol_version(&epoch_id)?;
+        let single_shard_tracking = checked_feature!("stable", SingleShardTracking, protocol_version);
         let block_producers =
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, prev_hash)?;
         for (bp, _) in block_producers {
             if bp.account_id() == me {
-                return Ok(true);
+                return if single_shard_tracking {
+                    Ok(tracks_shard)
+                } else {
+                    Ok(true)
+                }
             }
         }
-        let chunk_producer =
-            self.epoch_manager.get_chunk_producer(&epoch_id, next_chunk_height, shard_id)?;
-        if &chunk_producer == me {
-            return Ok(true);
+        if self.epoch_manager.is_chunk_producer_for_epoch(&epoch_id, me)? {
+            return if single_shard_tracking {
+                Ok(tracks_shard)
+            } else {
+                Ok(true)
+            }
         }
         Ok(false)
     }
@@ -803,6 +813,7 @@ impl ShardsManager {
         request: PartialEncodedChunkRequestMsg,
         route_back: CryptoHash,
     ) {
+        let _chunk_span = root_span_for_chunk(request.chunk_hash.0).entered();
         let _span = tracing::debug_span!(
             target: "chunks",
             "process_partial_encoded_chunk_request",
@@ -1225,6 +1236,7 @@ impl ShardsManager {
         &mut self,
         forward: PartialEncodedChunkForwardMsg,
     ) -> Result<(), Error> {
+        let _chunk_span = root_span_for_chunk(forward.chunk_hash.0).entered();
         let maybe_header = self
             .validate_partial_encoded_chunk_forward(&forward)
             .and_then(|_| self.get_partial_encoded_chunk_header(&forward.chunk_hash));
@@ -1408,6 +1420,7 @@ impl ShardsManager {
         &mut self,
         partial_encoded_chunk: MaybeValidated<PartialEncodedChunk>,
     ) -> Result<ProcessPartialEncodedChunkResult, Error> {
+        let _chunk_span = root_span_for_chunk(partial_encoded_chunk.chunk_hash().0).entered();
         let partial_encoded_chunk =
             partial_encoded_chunk.map(|chunk| PartialEncodedChunkV2::from(chunk));
         let header = &partial_encoded_chunk.header;
@@ -1547,6 +1560,7 @@ impl ShardsManager {
         &mut self,
         response: PartialEncodedChunkResponseMsg,
     ) -> Result<(), Error> {
+        let _chunk_span = root_span_for_chunk(response.chunk_hash.0).entered();
         let header = self.get_partial_encoded_chunk_header(&response.chunk_hash)?;
         let partial_chunk = PartialEncodedChunk::new(header, response.parts, response.receipts);
         // We already know the header signature is valid because we read it from the
@@ -1561,6 +1575,7 @@ impl ShardsManager {
         &mut self,
         header: &ShardChunkHeader,
     ) -> Result<(), Error> {
+        let _chunk_span = root_span_for_chunk(header.chunk_hash().0).entered();
         if self.insert_header_if_not_exists_and_process_cached_chunk_forwards(header) {
             self.try_process_chunk_parts_and_receipts(header)?;
         }
@@ -1793,7 +1808,7 @@ impl ShardsManager {
             self.epoch_manager.get_epoch_block_producers_ordered(&epoch_id, latest_block_hash)?;
         let current_chunk_height = partial_encoded_chunk.header.height_created();
 
-        if false {
+        if checked_feature!("stable", SingleShardTracking, protocol_version) {
             let shard_id = partial_encoded_chunk.header.shard_id();
             let mut accounts_forwarded_to = HashSet::new();
             accounts_forwarded_to.insert(me.clone());

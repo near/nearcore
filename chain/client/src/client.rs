@@ -923,6 +923,11 @@ impl Client {
             num_outgoing_receipts = outgoing_receipts.len(),
             "Produced chunk");
 
+        {
+            let _chunk_span = root_span_for_chunk(encoded_chunk.chunk_hash().0).entered();
+            let _ = tracing::info_span!("Produced chunk").entered();
+        }
+
         metrics::CHUNK_PRODUCED_TOTAL.inc();
         self.chunk_production_info.put(
             (next_height, shard_id),

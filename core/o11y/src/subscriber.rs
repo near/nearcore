@@ -37,7 +37,7 @@ pub struct DefaultSubscriberGuard<S> {
 #[derive(Debug, Default, clap::Parser)]
 pub struct Options {
     /// Enables export of span data using opentelemetry exporters.
-    #[clap(long, value_enum, default_value = "trace")]
+    #[clap(long, value_enum, default_value = "debug")]
     pub opentelemetry: OpenTelemetryLevel,
 
     /// Whether the log needs to be colored.
