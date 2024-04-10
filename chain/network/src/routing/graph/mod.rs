@@ -176,9 +176,9 @@ impl Inner {
     /// 3. Recomputes GraphSnapshot.
     #[tracing::instrument(
         target = "network::routing::graph",
-        level = "debug",
-        "Graph::update",
-        skip_all,
+        level = "info",
+        "GraphInner::update",
+        skip_all
     )]
     pub fn update(
         &mut self,
@@ -278,9 +278,15 @@ impl Graph {
         // together.
         let this = self.clone();
         let clock = clock.clone();
+        let current_span = tracing::Span::current();
         self.runtime
             .handle
             .spawn_blocking(move || {
+                tracing::info_span!(
+                    target: "network::routing::graph",
+                    parent: current_span,
+                    "Graph::update"
+                );
                 let mut inner = this.inner.lock();
                 let mut new_edges = vec![];
                 let mut oks = vec![];
