@@ -360,6 +360,15 @@ impl Store {
     /// Loads state (`State` and `FlatState` columns) from given file.
     ///
     /// See [`Self::save_state_to_file`] for description of the file format.
+    #[tracing::instrument(
+        level = "info",
+        // FIXME: start moving things into tighter modules so that its easier to selectively trace
+        // specific things.
+        target = "store",
+        "Store::load_state_from_file",
+        skip_all,
+        fields(filename = %filename.display())
+    )]
     pub fn load_state_from_file(&self, filename: &Path) -> io::Result<()> {
         let file = File::open(filename)?;
         let mut file = std::io::BufReader::new(file);
