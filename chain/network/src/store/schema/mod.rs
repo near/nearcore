@@ -255,7 +255,7 @@ impl StoreUpdate {
     pub fn set<C: Column>(&mut self, k: &<C::Key as Format>::T, v: &<C::Value as Format>::T) {
         self.0.set(C::COL, to_vec::<C::Key>(k), to_vec::<C::Value>(v))
     }
-    pub fn delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
+    pub fn _delete<C: Column>(&mut self, k: &<C::Key as Format>::T) {
         self.0.delete(C::COL, to_vec::<C::Key>(k))
     }
 }
