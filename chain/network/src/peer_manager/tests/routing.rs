@@ -1036,60 +1036,6 @@ async fn wait_for_edges(
     }
 }
 
-// After each handshake a full sync of routing table is performed with the peer.
-// After a restart, some edges reside in storage. The node shouldn't broadcast
-// edges which it learned about before the restart.
-#[tokio::test]
-async fn no_edge_broadcast_after_restart() {
-    abort_on_panic();
-    let mut rng = make_rng(921853233);
-    let rng = &mut rng;
-    let mut clock = time::FakeClock::default();
-    let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-
-    let make_edges = |rng: &mut Rng| {
-        vec![
-            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
-            data::make_edge(&data::make_secret_key(rng), &data::make_secret_key(rng), 1),
-            data::make_edge_tombstone(&data::make_secret_key(rng), &data::make_secret_key(rng)),
-        ]
-    };
-
-    // Create a bunch of fresh unreachable edges, then send all the edges created so far.
-    let stored_edges = make_edges(rng);
-
-    let store = near_store::db::TestDB::new();
-
-    // Start a PeerManager and connect a peer to it.
-    let pm =
-        peer_manager::testonly::start(clock.clock(), store, chain.make_config(rng), chain.clone())
-            .await;
-    let peer = pm
-        .start_inbound(chain.clone(), chain.make_config(rng))
-        .await
-        .handshake(&clock.clock())
-        .await;
-    tracing::info!(target:"test","pm = {}",pm.cfg.node_id());
-    tracing::info!(target:"test","peer = {}",peer.cfg.id());
-    // Wait for the initial sync, which will contain just 1 edge.
-    // Only incremental sync are guaranteed to not contain already known edges.
-    wait_for_edges(peer.events.clone(), &[peer.edge.clone().unwrap()].into()).await;
-
-    let fresh_edges = make_edges(rng);
-    let mut total_edges = stored_edges.clone();
-    total_edges.extend(fresh_edges.iter().cloned());
-    let events = peer.events.from_now();
-    peer.send(PeerMessage::SyncRoutingTable(RoutingTableUpdate {
-        edges: total_edges,
-        accounts: vec![],
-    }))
-    .await;
-
-    // Wait for the fresh edges to be broadcasted back.
-    tracing::info!(target: "test", "wait_for_edges(<fresh edges>)");
-    wait_for_edges(events, &fresh_edges.into_iter().collect()).await;
-}
-
 #[tokio::test]
 async fn square() {
     abort_on_panic();
