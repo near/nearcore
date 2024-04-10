@@ -761,7 +761,7 @@ impl FlatStorageCommand {
             home_dir,
             near_config.config.archive,
             &near_config.config.store,
-            None,
+            near_config.config.cold_store.as_ref(),
         );
 
         match &self.subcmd {
