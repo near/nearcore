@@ -62,7 +62,7 @@ use near_primitives::views::{
 use near_store::flat::{FlatStorageReadyStatus, FlatStorageStatus};
 use near_store::{DBCol, COLD_HEAD_KEY, FINAL_HEAD_KEY, HEAD_KEY};
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -429,29 +429,7 @@ impl ViewClientActor {
             return Ok(TxExecutionStatus::None);
         }
 
-        // refund receipt == last receipt in outcome.receipt_ids
-        let mut awaiting_non_refund_receipt_ids: HashSet<&CryptoHash> =
-            HashSet::from_iter(&execution_outcome.transaction_outcome.outcome.receipt_ids);
-        awaiting_non_refund_receipt_ids.extend(execution_outcome.receipts_outcome.iter().flat_map(
-            |outcome| {
-                outcome.outcome.receipt_ids.split_last().map(|(_, ids)| ids).unwrap_or_else(|| &[])
-            },
-        ));
-        let executed_receipt_ids: HashSet<&CryptoHash> = execution_outcome
-            .receipts_outcome
-            .iter()
-            .filter_map(|outcome| {
-                if outcome.outcome.status == ExecutionStatusView::Unknown {
-                    None
-                } else {
-                    Some(&outcome.id)
-                }
-            })
-            .collect();
-        let executed_ignoring_refunds =
-            awaiting_non_refund_receipt_ids.is_subset(&executed_receipt_ids);
-
-        let executed_including_refunds = match execution_outcome.status {
+        let is_execution_finished = match execution_outcome.status {
             FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => true,
             FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => false,
         };
@@ -460,18 +438,15 @@ impl ViewClientActor {
             .chain
             .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
         {
-            return if executed_ignoring_refunds {
+            return if is_execution_finished {
                 Ok(TxExecutionStatus::ExecutedOptimistic)
             } else {
                 Ok(TxExecutionStatus::Included)
             };
         }
 
-        if !executed_ignoring_refunds {
+        if !is_execution_finished {
             return Ok(TxExecutionStatus::IncludedFinal);
-        }
-        if !executed_including_refunds {
-            return Ok(TxExecutionStatus::Executed);
         }
 
         let block_hashes: BTreeSet<CryptoHash> =
