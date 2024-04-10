@@ -39,8 +39,6 @@ fn build_contract(dir: &str, contract_name: &str, output: &str) -> anyhow::Resul
 /// of the global `cargo build` process that already has some flags set.
 /// `env_remove` invocations will remove these flags from the nested `cargo build`
 /// process, to avoid unexpected behaviors due to the workspace configurations.
-// TODO(eth-implicit) Change it to have a reproducible hash of the WASM file.
-// see https://github.com/near/nearcore/pull/10269#discussion_r1430139987.
 fn docker_build(host_path: &str) -> anyhow::Result<()> {
     let volume_arg = format!("{host_path}:/host");
     let image_name = format!("nearprotocol/contract-builder:master-{IMAGE_TAG}-amd64");
