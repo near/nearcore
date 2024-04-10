@@ -1,7 +1,7 @@
 use near_o11y::metrics::{
-    try_create_counter_vec, try_create_histogram_vec, try_create_histogram_with_buckets,
-    try_create_int_counter, try_create_int_counter_vec, CounterVec, Histogram, HistogramVec,
-    IntCounter, IntCounterVec,
+    exponential_buckets, try_create_counter_vec, try_create_histogram_vec,
+    try_create_histogram_with_buckets, try_create_int_counter, try_create_int_counter_vec,
+    CounterVec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 use once_cell::sync::Lazy;
 use std::time::Duration;
@@ -338,38 +338,16 @@ fn buckets_for_compute() -> Option<Vec<f64>> {
     ])
 }
 
+// Buckets from 0 to 100 MB
 fn buckets_for_storage_proof_size() -> Vec<f64> {
-    vec![
-        0.,
-        100.,
-        200.,
-        400.,
-        800.,
-        2_000.,
-        4_000.,
-        8_000.,
-        16_000.,
-        32_000.,
-        64_000.,
-        128_000.,
-        256_000.,
-        512_000.,
-        1_000_000.,
-        2_000_000.,
-        4_000_000.,
-        6_000_000.,
-        8_000_000.,
-        16_000_000.,
-        32_000_000.,
-        64_000_000.,
-    ]
+    // 100 * 2**20 = 100 MB
+    exponential_buckets(100., 2., 20).unwrap()
 }
 
+// Buckets from 1 to 1.46
 fn buckets_for_storage_proof_size_ratio() -> Vec<f64> {
-    vec![
-        1., 1.03, 1.05, 1.07, 1.10, 1.15, 1.20, 1.30, 1.40, 1.50, 1.70, 1.90, 2.1, 2.5, 3., 4., 5.,
-        7., 8., 10.,
-    ]
+    // 1.02 ** 20 = 1.46
+    exponential_buckets(1., 1.02, 20).unwrap()
 }
 
 /// Helper struct to collect partial costs of `Runtime::apply` and reporting it
