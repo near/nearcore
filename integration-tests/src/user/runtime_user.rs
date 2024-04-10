@@ -188,7 +188,6 @@ impl RuntimeUser {
         transactions
     }
 
-    // TODO(#10942) get rid of copy pasted code, it's outdated comparing to the original
     fn get_final_transaction_result(&self, hash: &CryptoHash) -> FinalExecutionOutcomeView {
         let mut outcomes = self.get_recursive_transaction_results(hash);
         let mut looking_for_id = *hash;

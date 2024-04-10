@@ -429,23 +429,26 @@ impl ViewClientActor {
             return Ok(TxExecutionStatus::None);
         }
 
-        let is_execution_finished = match execution_outcome.status {
-            FinalExecutionStatus::Failure(_) | FinalExecutionStatus::SuccessValue(_) => true,
-            FinalExecutionStatus::NotStarted | FinalExecutionStatus::Started => false,
-        };
-
         if let Err(_) = self.chain.check_blocks_final_and_canonical(&[self
             .chain
             .get_block_header(&execution_outcome.transaction_outcome.block_hash)?])
         {
-            return if is_execution_finished {
+            return if execution_outcome
+                .receipts_outcome
+                .iter()
+                .all(|e| e.outcome.status != ExecutionStatusView::Unknown)
+            {
                 Ok(TxExecutionStatus::ExecutedOptimistic)
             } else {
                 Ok(TxExecutionStatus::Included)
             };
         }
 
-        if !is_execution_finished {
+        if execution_outcome
+            .receipts_outcome
+            .iter()
+            .any(|e| e.outcome.status == ExecutionStatusView::Unknown)
+        {
             return Ok(TxExecutionStatus::IncludedFinal);
         }
 
@@ -497,12 +500,12 @@ impl ViewClientActor {
             target_shard_id,
             true,
         ) {
-            match self.chain.get_partial_transaction_result(&tx_hash) {
+            match self.chain.get_final_transaction_result(&tx_hash) {
                 Ok(tx_result) => {
                     let status = self.get_tx_execution_status(&tx_result)?;
                     let res = if fetch_receipt {
                         let final_result =
-                            self.chain.get_transaction_result_with_receipt(tx_result)?;
+                            self.chain.get_final_transaction_result_with_receipt(tx_result)?;
                         FinalExecutionOutcomeViewEnum::FinalExecutionOutcomeWithReceipt(
                             final_result,
                         )
