@@ -17,6 +17,7 @@ use near_store::flat::{
     inline_flat_state_values, store_helper, FlatStateChanges, FlatStateDelta,
     FlatStateDeltaMetadata, FlatStorageManager, FlatStorageStatus,
 };
+use near_store::metadata::{DbKind, DB_VERSION};
 use near_store::{
     DBCol, Mode, NodeStorage, ShardUId, Store, StoreConfig, StoreOpener, Temperature,
 };
@@ -205,12 +206,10 @@ impl FlatStorageCommand {
             .expect(format!("Block header not found with {block_hash_vec:?}").as_str())
     }
 
-    fn get_amend_db(height: BlockHeight, store: &Store) -> Arc<dyn Database> {
-        let db = TestDB::new();
-        let db_store = NodeStorage::new(db.clone()).get_hot_store();
-        let mut db_update = db_store.store_update();
+    fn set_block_misc(height: BlockHeight, source_store: &Store, target_store: &Store) {
+        let mut db_update = target_store.store_update();
 
-        let header = Self::get_header(height, store);
+        let header = Self::get_header(height, source_store);
         let tip = Tip::from_header(&header);
 
         let col = DBCol::BlockMisc;
@@ -222,6 +221,12 @@ impl FlatStorageCommand {
             .set_ser(col, near_store::FINAL_HEAD_KEY, &tip)
             .expect("Unable to write FINAL_HEAD_KEY");
         db_update.commit().expect("Unable to commit to TestDB");
+    }
+
+    fn get_amend_db(height: BlockHeight, store: &Store) -> Arc<dyn Database> {
+        let db = TestDB::new();
+        let db_store = NodeStorage::new(db.clone()).get_hot_store();
+        Self::set_block_misc(height, store, &db_store);
         db
     }
 
@@ -272,6 +277,10 @@ impl FlatStorageCommand {
             );
             NodeStorage::new(mixed_db)
         };
+
+        node_storage.get_hot_store().set_db_kind(DbKind::RPC).expect("Unable to set DbKind");
+        node_storage.get_hot_store().set_db_version(DB_VERSION).expect("Unable to set DbKind");
+        Self::set_block_misc(height, &node_storage.get_hot_store(), &node_storage.get_hot_store());
 
         let epoch_manager =
             EpochManager::new_arc_handle(node_storage.get_hot_store(), &near_config.genesis.config);
@@ -368,6 +377,13 @@ impl FlatStorageCommand {
 
         let tip = rw_chain_store.final_head()?;
         let shard_uid = epoch_manager.shard_id_to_uid(cmd.shard_id, &tip.epoch_id)?;
+
+        let mut store_update = rw_hot_store.store_update();
+        store_update
+            .set_ser(DBCol::FlatStorageStatus, &shard_uid.to_bytes(), &FlatStorageStatus::Empty)
+            .expect("Unable to set FS status");
+        store_update.commit().expect("Unable to change FS status");
+
         let mut creator =
             FlatStorageShardCreator::new(shard_uid, tip.height - 1, epoch_manager, rw_hot_runtime);
         let pool = rayon::ThreadPoolBuilder::new().num_threads(cmd.num_threads).build()?;
