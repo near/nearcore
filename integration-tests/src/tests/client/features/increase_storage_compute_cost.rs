@@ -27,6 +27,11 @@ use nearcore::test_utils::TestEnvNightshadeSetupExt;
 /// Tracked in https://github.com/near/nearcore/issues/8938
 const INCREASED_STORAGE_COSTS_PROTOCOL_VERSION: u32 = 61;
 
+enum Expectation {
+    ShouldFail,
+    ShouldSucceed,
+}
+
 /// Test that `storage_write` compute limit is respected in new version.
 // TODO(10979): Fix and enable this test.
 #[ignore]
@@ -39,7 +44,7 @@ fn test_storage_write() {
         0u64.to_le_bytes().into_iter().chain(num_writes.to_le_bytes()).collect();
     let num_transactions = 200;
     let uses_storage = true;
-    let fails = false;
+    let expectation = Expectation::ShouldSucceed;
     let gas_divider = 1;
     assert_compute_limit_reached(
         method_name,
@@ -47,7 +52,7 @@ fn test_storage_write() {
         num_transactions,
         uses_storage,
         gas_divider,
-        fails,
+        expectation,
     );
 }
 
@@ -63,7 +68,7 @@ fn test_storage_remove() {
         0u64.to_le_bytes().into_iter().chain(num_deletes.to_le_bytes()).collect();
     let num_transactions = 10;
     let uses_storage = true;
-    let fails = false;
+    let expectation = Expectation::ShouldSucceed;
     let gas_divider = 10;
     assert_compute_limit_reached(
         method_name,
@@ -71,7 +76,7 @@ fn test_storage_remove() {
         num_transactions,
         uses_storage,
         gas_divider,
-        fails,
+        expectation,
     );
 }
 
@@ -89,7 +94,7 @@ fn test_storage_write_gas_exceeded() {
         0u64.to_le_bytes().into_iter().chain(num_writes.to_le_bytes()).collect();
     let num_transactions = 10;
     let uses_storage = true;
-    let fails = true;
+    let expectation = Expectation::ShouldFail;
     let gas_divider = 1;
     assert_compute_limit_reached(
         method_name,
@@ -97,7 +102,7 @@ fn test_storage_write_gas_exceeded() {
         num_transactions,
         uses_storage,
         gas_divider,
-        fails,
+        expectation,
     );
 }
 
@@ -121,7 +126,7 @@ fn test_non_storage() {
     let method_args: Vec<u8> = 10_030_000u64.to_le_bytes().to_vec();
     let num_transactions = 2;
     let uses_storage = false;
-    let fails: bool = false;
+    let expectation = Expectation::ShouldSucceed;
     let gas_divider = 10;
     assert_compute_limit_reached(
         method_name,
@@ -129,7 +134,7 @@ fn test_non_storage() {
         num_transactions,
         uses_storage,
         gas_divider,
-        fails,
+        expectation,
     );
 }
 
@@ -145,14 +150,14 @@ fn test_non_storage_gas_exceeded() {
     let num_transactions = 2;
     let uses_storage = false;
     let gas_divider = 10;
-    let fails = true;
+    let expectation = Expectation::ShouldFail;
     assert_compute_limit_reached(
         method_name,
         method_args,
         num_transactions,
         uses_storage,
         gas_divider,
-        fails,
+        expectation,
     );
 }
 
@@ -177,7 +182,7 @@ fn assert_compute_limit_reached(
     num_transactions: u64,
     uses_storage: bool,
     gas_divider: u64,
-    should_fail: bool,
+    expectation: Expectation,
 ) {
     // The immediate protocol upgrade needs to be set for this test to pass in
     // the release branch where the protocol upgrade date is set.
@@ -235,7 +240,7 @@ fn assert_compute_limit_reached(
         method_name.clone(),
         method_args.clone(),
         num_transactions,
-        should_fail,
+        &expectation,
         old_config.as_ref(),
         &mut nonce,
     );
@@ -256,7 +261,7 @@ fn assert_compute_limit_reached(
         method_name,
         method_args,
         num_transactions,
-        should_fail,
+        &expectation,
         new_config.as_ref(),
         &mut nonce,
     );
@@ -293,7 +298,7 @@ fn produce_saturated_chunk(
     method_name: String,
     args: Vec<u8>,
     num_transactions: u64,
-    should_fail: bool,
+    expectation: &Expectation,
     config: &RuntimeConfig,
     nonce: &mut u64,
 ) -> std::sync::Arc<ShardChunk> {
@@ -327,7 +332,7 @@ fn produce_saturated_chunk(
     // chunk being much cheaper than everything that follows. Which makes it
     // look like compute costs work even if they don't!
     let result = env.execute_tx(tx_factory()).unwrap();
-    if !should_fail {
+    if let Expectation::ShouldSucceed = expectation {
         result.assert_success();
     }
 
@@ -402,7 +407,7 @@ fn produce_saturated_chunk(
     }
     // check all transactions are successfully executed (unless the test
     // explicitly wants failing receipts)
-    if !should_fail {
+    if let Expectation::ShouldSucceed = expectation {
         for id in tx_ids {
             env.clients[0].chain.get_final_transaction_result(&id).unwrap().assert_success();
         }
