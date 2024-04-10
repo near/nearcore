@@ -37,6 +37,7 @@ impl GCActor {
     fn gc(&mut self, ctx: &mut Context<GCActor>) {
         let timer = metrics::GC_TIME.start_timer();
         if !self.is_archive {
+            let _span = tracing::debug_span!(target: "client", "gc");
             if let Err(e) = self.store.clear_data(
                 &self.gc_config,
                 self.runtime_adapter.clone(),
@@ -45,6 +46,7 @@ impl GCActor {
                 warn!(target: "client", "Error in gc: {}", e);
             }
         } else {
+            let _span = tracing::debug_span!(target: "client", "archive_gc");
             let kind = self.store.store().get_db_kind();
             match kind {
                 Ok(Some(DbKind::Hot)) => {

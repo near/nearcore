@@ -57,7 +57,7 @@ impl Default for GCConfig {
             gc_blocks_limit: 2,
             gc_fork_clean_step: 100,
             gc_num_epochs_to_keep: DEFAULT_GC_NUM_EPOCHS_TO_KEEP,
-            gc_step_period: std::time::Duration::from_millis(500),
+            gc_step_period: std::time::Duration::from_secs(1),
         }
     }
 }
