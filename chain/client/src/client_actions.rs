@@ -1788,6 +1788,10 @@ impl ClientActionHandler<ReshardingResponse> for ClientActions {
 impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
     type Result = ();
 
+    // The memtrie was loaded as a part of catchup or state-sync,
+    // (see https://github.com/near/nearcore/blob/master/docs/architecture/how/sync.md#basics).
+    // Here we save the result of loading memtrie to the appropriate place,
+    // depending on whether it was catch-up or state sync.
     #[perf]
     fn handle(&mut self, msg: LoadMemtrieResponse) -> Self::Result {
         tracing::debug!(target: "client", ?msg);
@@ -1795,6 +1799,7 @@ impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
             // We are doing catchup
             sync.set_load_memtrie_result(msg.shard_id, msg.load_result);
         } else {
+            // We are doing state sync
             self.client.state_sync.set_load_memtrie_result(msg.shard_id, msg.load_result);
         }
     }

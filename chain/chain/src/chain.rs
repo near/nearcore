@@ -4530,16 +4530,20 @@ pub struct ApplyStatePartsResponse {
     pub sync_hash: CryptoHash,
 }
 
+// This message is handled by `sync_job_actions.rs::handle_load_memtrie_request()`.
+// It is a request for `runtime_adapter` to load in-memory trie for `shard_uid`.
 #[derive(actix::Message)]
 #[rtype(result = "()")]
 pub struct LoadMemtrieRequest {
     pub runtime_adapter: Arc<dyn RuntimeAdapter>,
     pub shard_uid: ShardUId,
+    // Required to load memtrie.
     pub prev_state_root: StateRoot,
+    // Needs to be included in a response to the caller for identification purposes.
     pub sync_hash: CryptoHash,
 }
 
-// Skip `runtime_adapter` and `epoch_manager`, because these are complex object that have complex logic
+// Skip `runtime_adapter`, because it's a complex object that has complex logic
 // and many fields.
 impl Debug for LoadMemtrieRequest {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -4552,6 +4556,8 @@ impl Debug for LoadMemtrieRequest {
     }
 }
 
+// It is message indicating the result of loading in-memory trie for `shard_id`.
+// `sync_hash` is passed around to indicate to which block we were catching up.
 #[derive(actix::Message, Debug)]
 #[rtype(result = "()")]
 pub struct LoadMemtrieResponse {
