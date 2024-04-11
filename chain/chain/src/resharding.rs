@@ -236,8 +236,8 @@ impl Chain {
         &self,
         sync_hash: &CryptoHash,
         shard_id: ShardId,
-        resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
-    ) -> Result<(), Error> {
+        // resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
+    ) -> Result<ReshardingRequest, Error> {
         tracing::debug!(target: "resharding", ?shard_id, ?sync_hash, "preprocessing started");
         let block_header = self.get_block_header(sync_hash)?;
         let shard_layout = self.epoch_manager.get_shard_layout(block_header.epoch_id())?;
@@ -251,7 +251,7 @@ impl Chain {
         let prev_prev_hash = prev_block_header.prev_hash();
         let state_root = *self.get_chunk_extra(&prev_hash, &shard_uid)?.state_root();
 
-        resharding_scheduler.send(ReshardingRequest {
+        let resharding_request = ReshardingRequest {
             tries: Arc::new(self.runtime_adapter.get_tries()),
             sync_hash: *sync_hash,
             prev_hash: *prev_hash,
@@ -262,12 +262,15 @@ impl Chain {
             curr_poll_time: Duration::ZERO,
             config: self.resharding_config.clone(),
             handle: self.resharding_handle.clone(),
-        });
+        };
 
+        Ok(resharding_request)
+    }
+
+    pub fn set_resharding_status_scheduled(&self, shard_uid: ShardUId) {
         RESHARDING_STATUS
             .with_label_values(&[&shard_uid.to_string()])
             .set(ReshardingStatus::Scheduled.into());
-        Ok(())
     }
 
     /// Function to check whether the snapshot is ready for resharding or not. We return true if the snapshot is not

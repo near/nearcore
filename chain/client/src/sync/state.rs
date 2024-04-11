@@ -1113,11 +1113,12 @@ impl StateSync {
         resharding_scheduler: &near_async::messaging::Sender<ReshardingRequest>,
         me: &Option<AccountId>,
     ) -> Result<(), near_chain::Error> {
-        chain.build_state_for_resharding_preprocessing(
-            &sync_hash,
-            shard_id,
-            resharding_scheduler,
-        )?;
+        let resharding_request =
+            chain.build_state_for_resharding_preprocessing(&sync_hash, shard_id)?;
+        chain.set_resharding_status_scheduled(resharding_request.shard_uid);
+
+        resharding_scheduler.send(resharding_request);
+
         tracing::debug!(target: "sync", %shard_id, %sync_hash, ?me, "resharding scheduled");
         *shard_sync_download =
             ShardSyncDownload { downloads: vec![], status: ShardSyncStatus::ReshardingApplying };
