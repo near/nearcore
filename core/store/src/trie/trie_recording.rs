@@ -9,7 +9,7 @@ pub struct TrieRecorder {
     recorded: HashMap<CryptoHash, Arc<[u8]>>,
     size: usize,
     /// Counts removals performed while recording.
-    /// adjusted_recorded_storage_size takes it into account when calculating the total size.
+    /// recorded_storage_size_upper_bound takes it into account when calculating the total size.
     removal_counter: usize,
 }
 
@@ -41,8 +41,9 @@ impl TrieRecorder {
     }
 
     /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
     /// See https://github.com/near/nearcore/issues/10890 and https://github.com/near/nearcore/pull/11000 for details.
-    pub fn adjusted_recorded_storage_size(&self) -> usize {
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
         // Charge 2000 bytes for every removal
         let removals_size = self.removal_counter.saturating_mul(2000);
         self.recorded_storage_size().saturating_add(removals_size)

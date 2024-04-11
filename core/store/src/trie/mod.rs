@@ -684,10 +684,11 @@ impl Trie {
     }
 
     /// Size of the recorded state proof plus some additional size added to cover removals.
-    pub fn adjusted_recorded_storage_size(&self) -> usize {
+    /// An upper-bound estimation of the true recorded size after finalization.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
         self.recorder
             .as_ref()
-            .map(|recorder| recorder.borrow().adjusted_recorded_storage_size())
+            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
             .unwrap_or_default()
     }
 

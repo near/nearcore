@@ -1425,8 +1425,8 @@ impl Runtime {
             .entered();
             let node_counter_before = state_update.trie().get_trie_nodes_count();
             let recorded_storage_size_before = state_update.trie().recorded_storage_size();
-            let adjusted_recorded_storage_size_before =
-                state_update.trie().adjusted_recorded_storage_size();
+            let storage_proof_size_upper_bound_before =
+                state_update.trie().recorded_storage_size_upper_bound();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1444,16 +1444,16 @@ impl Runtime {
                 .recorded_storage_size()
                 .saturating_sub(recorded_storage_size_before)
                 as f64;
-            let adjusted_recorded_storage_diff = state_update
+            let recorded_storage_upper_bound_diff = state_update
                 .trie()
-                .adjusted_recorded_storage_size()
-                .saturating_sub(adjusted_recorded_storage_size_before)
+                .recorded_storage_size_upper_bound()
+                .saturating_sub(storage_proof_size_upper_bound_before)
                 as f64;
             metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
-            metrics::RECEIPT_ADJUSTED_RECORDED_SIZE.observe(adjusted_recorded_storage_diff);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
             let recorded_storage_proof_ratio =
-                adjusted_recorded_storage_diff / f64::max(1.0, recorded_storage_diff);
-            metrics::RECEIPT_ADJUSTED_RECORDED_SIZE_RATIO.observe(recorded_storage_proof_ratio);
+                recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO.observe(recorded_storage_proof_ratio);
             if let Some(outcome_with_id) = result? {
                 let gas_burnt = outcome_with_id.outcome.gas_burnt;
                 let compute_usage = outcome_with_id

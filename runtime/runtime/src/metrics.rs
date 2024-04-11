@@ -298,18 +298,18 @@ pub static RECEIPT_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
     )
     .unwrap()
 });
-pub static RECEIPT_ADJUSTED_RECORDED_SIZE: Lazy<Histogram> = Lazy::new(|| {
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
-        "near_receipt_adjusted_recorded_size",
-        "Adjusted size (e.g with extra size added for deletes) of storage proof recorded when executing a receipt",
+        "near_receipt_recorded_size_upper_bound",
+        "Upper bound estimation (e.g with extra size added for deletes) of storage proof size recorded when executing a receipt",
         buckets_for_storage_proof_size(),
     )
     .unwrap()
 });
-pub static RECEIPT_ADJUSTED_RECORDED_SIZE_RATIO: Lazy<Histogram> = Lazy::new(|| {
+pub static RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO: Lazy<Histogram> = Lazy::new(|| {
     try_create_histogram_with_buckets(
-        "near_receipt_adjusted_recorded_size_ratio",
-        "Ratio of adjusted to nonadjusted, equal to (near_receipt_adjusted_recorded_size / near_receipt_recorded_size)",
+        "near_receipt_recorded_size_upper_bound_ratio",
+        "Ratio of upper bound to true recorded size, equal to (near_receipt_recorded_size_upper_bound / near_receipt_recorded_size)",
         buckets_for_storage_proof_size_ratio(),
     )
     .unwrap()
