@@ -1424,6 +1424,9 @@ impl Runtime {
             )
             .entered();
             let node_counter_before = state_update.trie().get_trie_nodes_count();
+            let recorded_storage_size_before = state_update.trie().recorded_storage_size();
+            let storage_proof_size_upper_bound_before =
+                state_update.trie().recorded_storage_size_upper_bound();
             let result = self.process_receipt(
                 state_update,
                 apply_state,
@@ -1436,6 +1439,21 @@ impl Runtime {
             let node_counter_after = state_update.trie().get_trie_nodes_count();
             tracing::trace!(target: "runtime", ?node_counter_before, ?node_counter_after);
 
+            let recorded_storage_diff = state_update
+                .trie()
+                .recorded_storage_size()
+                .saturating_sub(recorded_storage_size_before)
+                as f64;
+            let recorded_storage_upper_bound_diff = state_update
+                .trie()
+                .recorded_storage_size_upper_bound()
+                .saturating_sub(storage_proof_size_upper_bound_before)
+                as f64;
+            metrics::RECEIPT_RECORDED_SIZE.observe(recorded_storage_diff);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND.observe(recorded_storage_upper_bound_diff);
+            let recorded_storage_proof_ratio =
+                recorded_storage_upper_bound_diff / f64::max(1.0, recorded_storage_diff);
+            metrics::RECEIPT_RECORDED_SIZE_UPPER_BOUND_RATIO.observe(recorded_storage_proof_ratio);
             if let Some(outcome_with_id) = result? {
                 let gas_burnt = outcome_with_id.outcome.gas_burnt;
                 let compute_usage = outcome_with_id
@@ -1672,6 +1690,9 @@ impl Runtime {
 
         state_update.commit(StateChangeCause::UpdatedDelayedReceipts);
         self.apply_state_patch(&mut state_update, state_patch);
+        let chunk_recorded_size_upper_bound =
+            state_update.trie.recorded_storage_size_upper_bound() as f64;
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND.observe(chunk_recorded_size_upper_bound);
         let (trie, trie_changes, state_changes) = state_update.finalize()?;
         if let Some(prefetcher) = &prefetcher {
             // Only clear the prefetcher queue after finalize is done because as part of receipt
@@ -1701,6 +1722,10 @@ impl Runtime {
         }
 
         let state_root = trie_changes.new_root;
+        let chunk_recorded_size = trie.recorded_storage_size() as f64;
+        metrics::CHUNK_RECORDED_SIZE.observe(chunk_recorded_size);
+        metrics::CHUNK_RECORDED_SIZE_UPPER_BOUND_RATIO
+            .observe(chunk_recorded_size_upper_bound / f64::max(1.0, chunk_recorded_size));
         let proof = trie.recorded_storage();
         Ok(ApplyResult {
             state_root,

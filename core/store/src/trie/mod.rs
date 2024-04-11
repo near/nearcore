@@ -683,6 +683,15 @@ impl Trie {
             .unwrap_or_default()
     }
 
+    /// Size of the recorded state proof plus some additional size added to cover removals.
+    /// An upper-bound estimation of the true recorded size after finalization.
+    pub fn recorded_storage_size_upper_bound(&self) -> usize {
+        self.recorder
+            .as_ref()
+            .map(|recorder| recorder.borrow().recorded_storage_size_upper_bound())
+            .unwrap_or_default()
+    }
+
     /// Constructs a Trie from the partial storage (i.e. state proof) that
     /// was returned from recorded_storage(). If used to access the same trie
     /// nodes as when the partial storage was generated, this trie will behave
