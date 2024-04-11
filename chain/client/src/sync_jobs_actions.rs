@@ -81,6 +81,7 @@ impl SyncJobsActions {
         Ok(success)
     }
 
+    /// This call is synchronous and handled in `sync_jobs_actor`.
     pub fn handle_load_memtrie_request(&mut self, msg: LoadMemtrieRequest) {
         let result = msg
             .runtime_adapter
