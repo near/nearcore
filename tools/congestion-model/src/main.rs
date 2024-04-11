@@ -51,6 +51,11 @@ struct Args {
     /// other.
     #[clap(long)]
     write_stats_filepath: Option<String>,
+    /// At most N transactions can stay in the transaction pool and the remainder is rejected.
+    ///
+    /// This can be useful to look at transaction delays.
+    #[clap(long, default_value_t = usize::MAX)]
+    tx_pool_size: usize,
 }
 
 fn main() {
@@ -88,6 +93,7 @@ fn main() {
                 args.rounds,
                 args.warmup,
                 stats_writer,
+                args.tx_pool_size,
             );
         }
     }
@@ -116,6 +122,7 @@ fn run_model(
     num_rounds: usize,
     num_warmup_rounds: usize,
     mut stats_writer: StatsWriter,
+    tx_pool_size: usize,
 ) {
     let strategy = strategy(strategy_name, num_shards);
     let workload = workload(workload_name);
@@ -137,6 +144,7 @@ fn run_model(
         }
         model.write_stats_values(&mut stats_writer, start_time, round);
         model.step();
+        model.trim_transaction_pools(tx_pool_size);
         max_queues = max_queues.max_component_wise(&model.max_queue_length());
     }
     summary_table::print_summary_row(
