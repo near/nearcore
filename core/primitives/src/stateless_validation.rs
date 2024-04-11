@@ -6,6 +6,7 @@ use crate::transaction::SignedTransaction;
 use crate::types::EpochId;
 use crate::validator_signer::{EmptyValidatorSigner, ValidatorSigner};
 use borsh::{BorshDeserialize, BorshSerialize};
+use bytes::BufMut;
 use near_crypto::{PublicKey, Signature};
 use near_primitives_core::hash::CryptoHash;
 use near_primitives_core::types::{AccountId, Balance, BlockHeight, ShardId};
@@ -41,7 +42,9 @@ impl EncodedChunkStateWitness {
     /// Decompress and borsh-deserialize encoded witness bytes.
     /// Returns decoded witness along with the raw (uncompressed) witness size.
     pub fn decode(&self) -> std::io::Result<(ChunkStateWitness, ChunkStateWitnessSize)> {
-        let borsh_bytes = zstd::decode_all(self.0.as_ref())?;
+        // We want to limit the size of decompressed data to address "Zip bomb" attack.
+        const MAX_WITNESS_SIZE: usize = 64_000_000;
+        let borsh_bytes = decompress_with_limit(self.0.as_ref(), MAX_WITNESS_SIZE)?;
         let witness = ChunkStateWitness::try_from_slice(&borsh_bytes)?;
         Ok((witness, borsh_bytes.len()))
     }
@@ -365,5 +368,32 @@ impl ChunkValidatorAssignments {
             endorsed_validators_count,
             total_validators_count: self.assignments.len(),
         }
+    }
+}
+
+fn decompress_with_limit(data: &[u8], limit: usize) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new().limit(limit).writer();
+    zstd::stream::copy_decode(data, &mut buf)?;
+    Ok(buf.into_inner().into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::stateless_validation::decompress_with_limit;
+
+    #[test]
+    fn decompress_within_limit() {
+        let data = vec![1, 2, 3];
+        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+        let decompressed = decompress_with_limit(&compressed, 100);
+        assert!(decompressed.is_ok());
+        assert_eq!(data, decompressed.unwrap());
+    }
+
+    #[test]
+    fn decompress_exceed_limit() {
+        let data = vec![0; 100];
+        let compressed = zstd::encode_all(data.as_slice(), 0).unwrap();
+        assert!(decompress_with_limit(&compressed, 99).is_err());
     }
 }

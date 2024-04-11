@@ -4601,6 +4601,7 @@ dependencies = [
  "bencher",
  "bolero",
  "borsh 1.0.0",
+ "bytes",
  "bytesize",
  "cfg-if 1.0.0",
  "chrono",

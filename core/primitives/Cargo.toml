@@ -16,6 +16,7 @@ arbitrary.workspace = true
 base64.workspace = true
 borsh.workspace = true
 bytesize.workspace = true
+bytes.workspace = true
 cfg-if.workspace = true
 chrono.workspace = true
 derive_more.workspace = true
