@@ -77,4 +77,8 @@ impl Counter {
     pub fn delete_key(&mut self, key: String) {
         self.records.remove(&key);
     }
+
+    pub fn view_key(&self, key: String) -> Option<String> {
+        self.records.get(&key)
+    }
 }
