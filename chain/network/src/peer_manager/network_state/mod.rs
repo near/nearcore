@@ -42,10 +42,6 @@ mod tier1;
 /// Limit number of pending Peer actors to avoid OOM.
 pub(crate) const LIMIT_PENDING_PEERS: usize = 60;
 
-/// Send important messages three times.
-/// We send these messages multiple times to reduce the chance that they are lost
-const IMPORTANT_MESSAGE_RESENT_COUNT: usize = 3;
-
 /// Size of LRU cache size of recent routed messages.
 /// It should be large enough to detect duplicates (i.e. all messages received during
 /// production of 1 block should fit).
@@ -623,12 +619,8 @@ impl NetworkState {
 
         let msg = RawRoutedMessage { target: PeerIdOrHash::PeerId(target), body: msg };
         let msg = self.sign_message(clock, msg);
-        if msg.body.is_important() {
-            for _ in 0..IMPORTANT_MESSAGE_RESENT_COUNT {
-                success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
-            }
-        } else {
-            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg)
+        for _ in 0..msg.body.message_resend_count() {
+            success |= self.send_message_to_peer(clock, tcp::Tier::T2, msg.clone());
         }
         success
     }
