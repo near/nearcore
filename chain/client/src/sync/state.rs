@@ -148,7 +148,7 @@ pub struct StateSync {
     state_parts_apply_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
 
     /// Maps shard_id to result of loading in-memory trie.
-    load_memtrie_results: HashMap<ShardId, Result<(), near_chain_primitives::error::Error>>,
+    load_memtrie_results: HashMap<ShardUId, Result<(), near_chain_primitives::error::Error>>,
 
     /// Maps shard_id to result of splitting state for resharding.
     resharding_state_roots:
@@ -307,7 +307,7 @@ impl StateSync {
                 }
                 ShardSyncStatus::StateApplyFinalizing => {
                     shard_sync_done = self.sync_shards_apply_finalizing_status(
-                        shard_id,
+                        shard_uid,
                         chain,
                         sync_hash,
                         now,
@@ -467,10 +467,10 @@ impl StateSync {
     // Called by the client actor, when it finished loading memtrie.
     pub fn set_load_memtrie_result(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         result: Result<(), near_chain::Error>,
     ) {
-        self.load_memtrie_results.insert(shard_id, result);
+        self.load_memtrie_results.insert(shard_uid, result);
     }
 
     /// Find the hash of the first block on the same epoch (and chain) of block with hash `sync_hash`.
@@ -1056,7 +1056,7 @@ impl StateSync {
 
     fn sync_shards_apply_finalizing_status(
         &mut self,
-        shard_id: ShardId,
+        shard_uid: ShardUId,
         chain: &mut Chain,
         sync_hash: CryptoHash,
         now: Utc,
@@ -1066,7 +1066,8 @@ impl StateSync {
         // Keep waiting until our shard is on the list of results
         // (these are set via callback from ClientActor - both for sync and catchup).
         let mut shard_sync_done = false;
-        if let Some(result) = self.load_memtrie_results.remove(&shard_id) {
+        if let Some(result) = self.load_memtrie_results.remove(&shard_uid) {
+            let shard_id = shard_uid.shard_id();
             result
                 .and_then(|_| {
                     chain.set_state_finalize(shard_id, sync_hash)?;

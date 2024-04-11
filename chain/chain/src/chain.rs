@@ -4562,7 +4562,7 @@ impl Debug for LoadMemtrieRequest {
 #[rtype(result = "()")]
 pub struct LoadMemtrieResponse {
     pub load_result: Result<(), near_chain_primitives::error::Error>,
-    pub shard_id: ShardId,
+    pub shard_uid: ShardUId,
     pub sync_hash: CryptoHash,
 }
 

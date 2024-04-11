@@ -1797,10 +1797,10 @@ impl ClientActionHandler<LoadMemtrieResponse> for ClientActions {
         tracing::debug!(target: "client", ?msg);
         if let Some((sync, _, _)) = self.client.catchup_state_syncs.get_mut(&msg.sync_hash) {
             // We are doing catchup
-            sync.set_load_memtrie_result(msg.shard_id, msg.load_result);
+            sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         } else {
             // We are doing state sync
-            self.client.state_sync.set_load_memtrie_result(msg.shard_id, msg.load_result);
+            self.client.state_sync.set_load_memtrie_result(msg.shard_uid, msg.load_result);
         }
     }
 }

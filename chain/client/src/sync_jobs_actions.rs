@@ -89,7 +89,7 @@ impl SyncJobsActions {
             .map_err(|error| error.into());
         self.client_sender.send(LoadMemtrieResponse {
             load_result: result,
-            shard_id: msg.shard_uid.shard_id(),
+            shard_uid: msg.shard_uid,
             sync_hash: msg.sync_hash,
         });
     }
