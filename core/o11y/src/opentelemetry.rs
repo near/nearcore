@@ -1,9 +1,9 @@
 use crate::reload::TracingLayer;
 use near_crypto::PublicKey;
 use near_primitives_core::types::AccountId;
-use opentelemetry::sdk::trace::{self, IdGenerator, Sampler};
-use opentelemetry::sdk::Resource;
 use opentelemetry::KeyValue;
+use opentelemetry_sdk::trace::{self, RandomIdGenerator, Sampler};
+use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::targets::Targets;
@@ -58,10 +58,10 @@ where
         .with_trace_config(
             trace::config()
                 .with_sampler(Sampler::AlwaysOn)
-                .with_id_generator(IdGenerator::default())
+                .with_id_generator(RandomIdGenerator::default())
                 .with_resource(Resource::new(resource)),
         )
-        .install_batch(opentelemetry::runtime::Tokio)
+        .install_batch(opentelemetry_sdk::runtime::Tokio)
         .unwrap();
     let layer = tracing_opentelemetry::layer().with_tracer(tracer).with_filter(filter);
     (subscriber.with(layer), handle)

@@ -278,9 +278,10 @@ num-traits = "0.2.15"
 once_cell = "1.13.1"
 openssl = { version = "0.10.60", features = ["vendored"] }
 openssl-probe = "0.1.4"
-opentelemetry = { version = "0.17.0", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = "0.10.0"
-opentelemetry-semantic-conventions = "0.9.0"
+opentelemetry = { version = "0.22.0", features = ["trace"] }
+opentelemetry_sdk = { version = "0.22.0", features = ["rt-tokio"] }
+opentelemetry-otlp = "0.15.0"
+opentelemetry-semantic-conventions = "0.14.0"
 paperclip = { version = "0.8.0", features = ["actix4"] }
 parity-wasm = { version = "0.42", default-features = false }
 parity-wasm_41 = { package = "parity-wasm", version = "0.41" }
@@ -361,11 +362,11 @@ tokio-stream = { version = "0.1.2", features = ["net"] }
 tokio-util = { version = "0.7.1", features = ["codec", "io"] }
 toml = "0.5.8"
 tqdm = "0.4.4"
-tracing = { version = "0.1.36", features = ["std"] }
-tracing-appender = "0.2.2"
-tracing-opentelemetry = "0.17.0"
+tracing = { version = "0.1.40", features = ["std"] }
+tracing-appender = "0.2.3"
+tracing-opentelemetry = "0.23.0"
 tracing-span-tree = "0.1"
-tracing-subscriber = { version = "0.3.15", features = [
+tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
     "fmt",
     "registry",
