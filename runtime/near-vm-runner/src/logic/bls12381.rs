@@ -5,7 +5,7 @@ pub type Result<T, E = VMLogicError> = ::std::result::Result<T, E>;
 
 pub(super) fn p1_sum(
     data: &[u8]
-) -> Result<(u64, [u8; 96])> {
+) -> Result<(u64, Vec<u8>)> {
     const BLS_BOOL_SIZE: usize = 1;
     const BLS_P1_SIZE: usize = 96;
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P1_SIZE;
@@ -37,7 +37,7 @@ pub(super) fn p1_sum(
         if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
             || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
         {
-            return Ok((1, [0; 96]));
+            return Ok((1, vec![]));
         }
 
         let mut pk = blst::blst_p1::default();
@@ -51,7 +51,7 @@ pub(super) fn p1_sum(
                 blst::blst_p1_cneg(&mut pk, true);
             }
         } else if sign != 0 {
-            return Ok((1, [0; 96]));
+            return Ok((1, vec![]));
         }
 
         unsafe {
@@ -70,12 +70,12 @@ pub(super) fn p1_sum(
         blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
     }
 
-    Ok((0, res))
+    Ok((0, res.to_vec()))
 }
 
 pub(super) fn p2_sum(
     data: &[u8]
-) -> Result<(u64, [u8; 192])>  {
+) -> Result<(u64, Vec<u8>)>  {
     const BLS_BOOL_SIZE: usize = 1;
     const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_BOOL_SIZE + BLS_P2_SIZE;
@@ -105,7 +105,7 @@ pub(super) fn p2_sum(
         if (error_code != blst::BLST_ERROR::BLST_SUCCESS)
             || (data[i * ITEM_SIZE + BLS_BOOL_SIZE] & 0x80 != 0)
         {
-            return Ok((1, [0u8; 192]));
+            return Ok((1, vec![]));
         }
 
         let mut pk = blst::blst_p2::default();
@@ -119,7 +119,7 @@ pub(super) fn p2_sum(
                 blst::blst_p2_cneg(&mut pk, true);
             }
         } else if sign != 0 {
-            return Ok((1, [0u8; 192]));
+            return Ok((1, vec![]));
         }
 
         unsafe {
@@ -138,12 +138,12 @@ pub(super) fn p2_sum(
         blst::blst_p2_affine_serialize(res.as_mut_ptr(), &res_affine);
     }
 
-    Ok((0, res))
+    Ok((0, res.to_vec()))
 }
 
 pub(super) fn p1_multiexp(
     data: &[u8]
-) -> Result<(u64, [u8; 96])>  {
+) -> Result<(u64, Vec<u8>)>  {
     const BLS_SCALAR_SIZE: usize = 32;
     const BLS_P1_SIZE: usize = 96;
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P1_SIZE;
@@ -172,7 +172,7 @@ pub(super) fn p1_multiexp(
         };
 
         if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
-            return Ok((1, [0u8; 96]));
+            return Ok((1, vec![]));
         }
 
         let mut pk = blst::blst_p1::default();
@@ -206,12 +206,12 @@ pub(super) fn p1_multiexp(
         blst::blst_p1_affine_serialize(res.as_mut_ptr(), &res_affine);
     }
 
-    Ok((0, res))
+    Ok((0, res.to_vec()))
 }
 
 pub(super) fn p2_multiexp(
     data: &[u8]
-) -> Result<(u64, [u8; 192])>  {
+) -> Result<(u64, Vec<u8>)>  {
     const BLS_SCALAR_SIZE: usize = 32;
     const BLS_P2_SIZE: usize = 192;
     const ITEM_SIZE: usize = BLS_SCALAR_SIZE + BLS_P2_SIZE;
@@ -239,7 +239,7 @@ pub(super) fn p2_multiexp(
         };
 
         if (error_code != blst::BLST_ERROR::BLST_SUCCESS) || (data[i * ITEM_SIZE] & 0x80 != 0) {
-            return Ok((1, [0u8; 192]));
+            return Ok((1, vec![]));
         }
 
         let mut pk = blst::blst_p2::default();
@@ -273,7 +273,7 @@ pub(super) fn p2_multiexp(
         blst::blst_p2_affine_serialize(res.as_mut_ptr(), &mul_res_affine);
     }
 
-    Ok((0, res))
+    Ok((0, res.to_vec()))
 }
 
 pub(super) fn map_fp_to_g1(
