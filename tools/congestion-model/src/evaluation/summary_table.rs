@@ -1,12 +1,12 @@
 use super::{GasThroughput, Progress, ShardQueueLengths, UserExperience};
-use crate::PGAS;
+use crate::{PGAS, TGAS};
 
 pub fn print_summary_header() {
     println!(
         "{:<25}{:<25}{:>25}{:>25}{:>16}{:>16}{:>16}{:>16}{:>16}",
         "WORKLOAD",
         "STRATEGY",
-        "BURNT GAS",
+        "BURNT GAS PER CHUNK",
         "TRANSACTIONS FINISHED",
         "MEDIAN TX DELAY",
         "90p TX DELAY",
@@ -25,8 +25,8 @@ pub fn print_summary_row(
     user_experience: &UserExperience,
 ) {
     println!(
-        "{workload:<25}{strategy:<25}{:>20} PGas{:>25}{:>16}{:>16}{:>16}{:>16}{:>16}",
-        throughput.total / PGAS,
+        "{workload:<25}{strategy:<25}{:>20} TGas{:>25}{:>16}{:>16}{:>16}{:>16}{:>16}",
+        throughput.total / TGAS,
         progress.finished_transactions,
         user_experience.successful_tx_delay_median,
         user_experience.successful_tx_delay_90th_percentile,
