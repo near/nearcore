@@ -100,11 +100,7 @@ fn build_chain_with_orphans() {
     );
     chain.process_block_test(&None, blocks.pop().unwrap()).unwrap();
     while wait_for_all_blocks_in_processing(&mut chain) {
-        chain.postprocess_ready_blocks(
-            &None,
-            &mut BlockProcessingArtifact::default(),
-            None,
-        );
+        chain.postprocess_ready_blocks(&None, &mut BlockProcessingArtifact::default(), None);
     }
     assert_eq!(chain.head().unwrap().height, 10);
     assert_matches!(

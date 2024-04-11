@@ -172,7 +172,7 @@ fn test_non_adversarial_case() {
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                Arc::new(|_| {}),
+                None,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -306,7 +306,7 @@ fn test_banning_chunk_producer_when_seeing_invalid_chunk_base(
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                Arc::new(|_| {}),
+                None,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());

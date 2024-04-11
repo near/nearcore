@@ -501,7 +501,7 @@ fn test_processing_chunks_sanity() {
             let _ = env.clients[1].start_process_block(
                 blocks[ind].clone().into(),
                 Provenance::NONE,
-                Arc::new(|_| {}),
+                None,
             );
             if rng.gen_bool(0.5) {
                 env.process_shards_manager_responses_and_finish_processing_blocks(1);
@@ -725,7 +725,7 @@ fn test_chunk_forwarding_optimization() {
             let _ = test.env.clients[i].start_process_block(
                 block.clone().into(),
                 if i == 0 { Provenance::PRODUCED } else { Provenance::NONE },
-                Arc::new(|_| {}),
+                None,
             );
             let mut accepted_blocks =
                 test.env.clients[i].finish_block_in_processing(block.header().hash());
@@ -811,11 +811,8 @@ fn test_processing_blocks_async() {
     let mut rng = thread_rng();
     blocks.shuffle(&mut rng);
     for ind in 0..blocks.len() {
-        let _ = env.clients[1].start_process_block(
-            blocks[ind].clone().into(),
-            Provenance::NONE,
-            Arc::new(|_| {}),
-        );
+        let _ =
+            env.clients[1].start_process_block(blocks[ind].clone().into(), Provenance::NONE, None);
     }
 
     env.process_shards_manager_responses_and_finish_processing_blocks(1);

@@ -105,12 +105,7 @@ fn test_bad_block_content_vrf() {
     bad_block.set_vrf_value(Value([0u8; 32]));
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
@@ -129,12 +124,7 @@ fn test_bad_block_signature() {
     bad_block.mut_header().get_mut().signature = Signature::default();
 
     let err = env.clients[0]
-        .receive_block_impl(
-            bad_block,
-            PeerId::new(PublicKey::empty(KeyType::ED25519)),
-            false,
-            None,
-        )
+        .receive_block_impl(bad_block, PeerId::new(PublicKey::empty(KeyType::ED25519)), false, None)
         .unwrap_err();
     assert_matches!(err, near_chain::Error::InvalidSignature);
 
